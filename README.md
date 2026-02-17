@@ -11,6 +11,7 @@
 ## What is Pulse Chat?
 
 > [!NOTE]
+> This requires a supabase deployed as currently that is what is handling the Database and Authentication routes. You can self host this or cloud. (I'd recommend self hosting it as the cloud is a slug.
 > This project is in alpha stage. Bugs, incomplete features and breaking changes are to be expected.
 
 Pulse Chat is a self-hosted communication platform that brings real-time voice channels, text chat, and file sharing to your own infrastructure—no third-party dependencies, complete data ownership, and full control over your group's communication.
