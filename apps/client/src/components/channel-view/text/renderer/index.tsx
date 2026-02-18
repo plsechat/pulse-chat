@@ -110,8 +110,8 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     <div className="flex flex-col gap-1">
       <div className={cn('max-w-full break-words msg-content', isEmojiOnly && 'emoji-only')}>
         {messageHtml}
-        {message.updatedAt && message.updatedAt !== message.createdAt && (
-          <Tooltip content={`Edited ${format(new Date(message.updatedAt), 'PPpp')}`}>
+        {message.edited && (
+          <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), 'PPpp')}` : 'Edited'}>
             <span className="text-[10px] text-muted-foreground/50 ml-1 cursor-default">
               (edited)
             </span>

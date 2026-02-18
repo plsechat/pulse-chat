@@ -34,7 +34,7 @@ const editMessageRoute = protectedProcedure
 
     await db
       .update(dmMessages)
-      .set({ content: input.content, updatedAt: Date.now() })
+      .set({ content: input.content, edited: true, updatedAt: Date.now() })
       .where(eq(dmMessages.id, input.messageId));
 
     const joined = await getDmMessage(input.messageId);

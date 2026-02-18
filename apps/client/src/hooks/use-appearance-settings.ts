@@ -57,12 +57,19 @@ const updateSettings = (partial: Partial<AppearanceSettings>) => {
 const applySettingsToDOM = (settings: AppearanceSettings) => {
   const root = document.documentElement;
   root.style.setProperty('--font-scale', `${settings.fontScale / 100}`);
-  root.style.setProperty('--zoom-level', `${settings.zoomLevel / 100}`);
-  root.setAttribute(
-    'data-compact',
-    settings.compactMode ? 'true' : 'false'
-  );
-  root.setAttribute('data-spacing', settings.messageSpacing);
+  // Zoom is applied via transform on body to avoid breaking overflow/scrolling
+  document.body.style.transform =
+    settings.zoomLevel !== 100 ? `scale(${settings.zoomLevel / 100})` : '';
+  document.body.style.transformOrigin =
+    settings.zoomLevel !== 100 ? 'top left' : '';
+  document.body.style.width =
+    settings.zoomLevel !== 100
+      ? `${10000 / settings.zoomLevel}%`
+      : '';
+  document.body.style.height =
+    settings.zoomLevel !== 100
+      ? `${10000 / settings.zoomLevel}%`
+      : '';
 };
 
 // Apply on load

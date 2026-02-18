@@ -45,6 +45,7 @@ const editMessageRoute = protectedProcedure
       .update(messages)
       .set({
         content: input.content,
+        edited: true,
         updatedAt: Date.now()
       })
       .where(eq(messages.id, input.messageId));

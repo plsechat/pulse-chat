@@ -42,7 +42,7 @@ const VoiceTimer = memo(() => {
   if (!startedAt) return null;
 
   return (
-    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+    <div className="flex items-center gap-1 text-xs text-green-500 ml-auto">
       <Clock className="w-3 h-3" />
       <span className="tabular-nums">{formatDuration(elapsed)}</span>
     </div>

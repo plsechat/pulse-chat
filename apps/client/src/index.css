@@ -554,15 +554,13 @@ body,
   }
 }
 
-/* Appearance settings: font scale & zoom */
+/* Appearance settings: font scale */
 :root {
   --font-scale: 1;
-  --zoom-level: 1;
 }
 
 html {
   font-size: calc(16px * var(--font-scale));
-  zoom: var(--zoom-level);
 }
 
 .react-tweet-theme {

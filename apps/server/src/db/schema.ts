@@ -317,6 +317,7 @@ const messages = pgTable(
       onDelete: 'set null'
     }),
     webhookId: integer('webhook_id'),
+    edited: boolean('edited').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -676,6 +677,7 @@ const dmMessages = pgTable(
     pinnedBy: integer('pinned_by').references(() => users.id, {
       onDelete: 'set null'
     }),
+    edited: boolean('edited').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },

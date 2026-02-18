@@ -74,6 +74,7 @@ const TopBar = memo(
                 </span>
               </>
             )}
+            {isCurrentVoiceChannelSelected && <VoiceTimer />}
           </div>
         )}
 
@@ -81,7 +82,6 @@ const TopBar = memo(
         <div className="flex items-center gap-1 ml-auto">
           {isCurrentVoiceChannelSelected && currentVoiceChannelId && (
             <>
-              <VoiceTimer />
               <VolumeController channelId={currentVoiceChannelId} />
               <Button
                 variant="ghost"
