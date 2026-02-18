@@ -132,6 +132,17 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles } =
     useUploadFiles(!canSendMessages);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  const handleReply = useCallback((message: TJoinedMessage) => {
+    setReplyingTo(message);
+    requestAnimationFrame(() => {
+      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
+    });
+  }, [containerRef]);
 
   const sendTypingSignal = useMemo(
     () =>
@@ -249,7 +260,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4 animate-in fade-in duration-500"
       >
         {groupedMessages.map((group, index) => (
-          <MessagesGroup key={index} group={group} onReply={setReplyingTo} />
+          <MessagesGroup key={index} group={group} onReply={handleReply} />
         ))}
       </div>
 
@@ -289,6 +300,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
           </div>
         )}
         <div
+          ref={inputAreaRef}
           className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2 transition-all duration-200 cursor-text"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;
