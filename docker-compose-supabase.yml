@@ -5,15 +5,16 @@ services:
     container_name: pulse-db
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./docker/init-auth-password.sh:/docker-entrypoint-initdb.d/zz-set-auth-password.sh:ro
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXP: ${JWT_EXPIRY:-3600}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres && psql -U postgres -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname='supabase_auth_admin'\" | grep -q 1"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   auth:
     image: supabase/gotrue:v2.170.0

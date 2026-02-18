@@ -438,10 +438,10 @@ Common issues:
 docker exec pulse curl -s http://kong:8000/auth/v1/health
 ```
 
-If GoTrue returns database errors, the `supabase_auth_admin` role password may not match. Fix:
+The `supabase_auth_admin` password is set automatically on first boot via `docker/init-auth-password.sh`. If GoTrue still returns database errors, you can reset it manually:
 
 ```bash
-docker exec -it pulse-db psql -U supabase_admin -d postgres -c \
+docker exec -it pulse-db psql -U postgres -d postgres -c \
   "ALTER ROLE supabase_auth_admin WITH PASSWORD 'your-POSTGRES_PASSWORD';"
 docker compose -f docker-compose-supabase.yml restart auth
 ```
