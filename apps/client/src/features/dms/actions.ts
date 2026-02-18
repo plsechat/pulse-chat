@@ -38,6 +38,17 @@ export const addDmMessages = (
     }
   }
   store.dispatch(dmsSliceActions.addMessages({ dmChannelId, messages, opts }));
+
+  // Update the channel's lastMessage so the sidebar snippet stays current
+  if (isSubscription && messages.length > 0) {
+    const lastMsg = messages[messages.length - 1];
+    store.dispatch(
+      dmsSliceActions.updateChannelLastMessage({
+        dmChannelId,
+        lastMessage: lastMsg
+      })
+    );
+  }
 };
 
 export const updateDmMessage = (message: TJoinedDmMessage) => {

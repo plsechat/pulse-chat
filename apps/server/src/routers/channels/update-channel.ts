@@ -29,19 +29,28 @@ const updateChannelRoute = protectedProcedure
         message: 'E2EE cannot be disabled once enabled'
       });
 
-      // Verify caller is server owner
-      if (ctx.activeServerId) {
-        const [server] = await db
-          .select({ ownerId: servers.ownerId })
-          .from(servers)
-          .where(eq(servers.id, ctx.activeServerId))
-          .limit(1);
+      // Look up the channel's server and verify caller is server owner
+      const [channel] = await db
+        .select({ serverId: channels.serverId })
+        .from(channels)
+        .where(eq(channels.id, input.channelId))
+        .limit(1);
 
-        invariant(server && server.ownerId === ctx.userId, {
-          code: 'FORBIDDEN',
-          message: 'Only the server owner can enable E2EE on channels'
-        });
-      }
+      invariant(channel, {
+        code: 'NOT_FOUND',
+        message: 'Channel not found'
+      });
+
+      const [server] = await db
+        .select({ ownerId: servers.ownerId })
+        .from(servers)
+        .where(eq(servers.id, channel.serverId))
+        .limit(1);
+
+      invariant(server && server.ownerId === ctx.userId, {
+        code: 'FORBIDDEN',
+        message: 'Only the server owner can enable E2EE on channels'
+      });
     }
 
     const [updatedChannel] = await db

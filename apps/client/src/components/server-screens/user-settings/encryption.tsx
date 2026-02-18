@@ -1,10 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { exportKeys, importKeys } from '@/lib/e2ee/key-backup';
-import { hasKeys } from '@/lib/e2ee';
+import { hasKeys, signalStore } from '@/lib/e2ee';
 import { initE2EE } from '@/lib/e2ee';
 import { useFilePicker } from '@/hooks/use-file-picker';
-import { Download, Upload, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Download, KeyRound, Upload, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -19,12 +19,38 @@ const Encryption = memo(() => {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const openFilePicker = useFilePicker();
 
   useEffect(() => {
     hasKeys().then(setHasE2eeKeys);
   }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (hasE2eeKeys) {
+      const confirmed = window.confirm(
+        'Regenerating keys will make previously encrypted messages unreadable. ' +
+        'Make sure you have exported a backup first. Continue?'
+      );
+      if (!confirmed) return;
+    }
+
+    setGenerating(true);
+    try {
+      if (hasE2eeKeys) {
+        await signalStore.clearAll();
+      }
+      await initE2EE();
+      setHasE2eeKeys(true);
+      toast.success(hasE2eeKeys ? 'Keys regenerated successfully' : 'Keys generated successfully');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate keys';
+      toast.error(message);
+    } finally {
+      setGenerating(false);
+    }
+  }, [hasE2eeKeys]);
 
   const handleExport = useCallback(async () => {
     setExportError('');
@@ -140,6 +166,28 @@ const Encryption = memo(() => {
             </div>
           </>
         )}
+      </div>
+
+      {/* Generate / Regenerate */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-base font-medium">
+            {hasE2eeKeys ? 'Regenerate Keys' : 'Generate Keys'}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {hasE2eeKeys
+              ? 'Create a new set of encryption keys. This will invalidate your current keys — export a backup first.'
+              : 'Generate new encryption keys to enable end-to-end encrypted messaging.'}
+          </p>
+        </div>
+        <Button onClick={handleGenerate} disabled={generating || hasE2eeKeys === null}>
+          <KeyRound className="mr-2 h-4 w-4" />
+          {generating
+            ? 'Generating...'
+            : hasE2eeKeys
+              ? 'Regenerate Keys'
+              : 'Generate Keys'}
+        </Button>
       </div>
 
       {/* Export */}
