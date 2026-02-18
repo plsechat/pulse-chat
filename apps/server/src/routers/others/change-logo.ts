@@ -1,4 +1,4 @@
-import { ServerEvents } from '@pulse/shared';
+import { Permission, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import z from 'zod';
 import { db } from '../../db';
@@ -24,6 +24,8 @@ const changeLogoRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Server not found'
     });
+
+    await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
 
     if (server.logoId) {
       await removeFile(server.logoId);

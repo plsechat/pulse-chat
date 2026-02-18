@@ -14,14 +14,15 @@ type TMessageActionsProps = {
   messageId: number;
   onEdit: () => void;
   onReply: () => void;
-  canManage: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   editable: boolean;
   pinned: boolean;
   hasThread: boolean;
 };
 
 const MessageActions = memo(
-  ({ onEdit, onReply, messageId, canManage, editable, pinned, hasThread }: TMessageActionsProps) => {
+  ({ onEdit, onReply, messageId, canEdit, canDelete, editable, pinned, hasThread }: TMessageActionsProps) => {
     const [creatingThread, setCreatingThread] = useState(false);
     const onDeleteClick = useCallback(async () => {
       const choice = await requestConfirmation({
@@ -102,25 +103,24 @@ const MessageActions = memo(
 
     return (
       <div className="gap-0.5 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center rounded-md shadow-md border border-border p-0.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-150 h-8">
-        {canManage && (
-          <>
-            <IconButton
-              size="sm"
-              variant="ghost"
-              icon={Pencil}
-              onClick={onEdit}
-              disabled={!editable}
-              title="Edit Message"
-            />
-
-            <IconButton
-              size="sm"
-              variant="ghost"
-              icon={Trash}
-              onClick={onDeleteClick}
-              title="Delete Message"
-            />
-          </>
+        {canEdit && (
+          <IconButton
+            size="sm"
+            variant="ghost"
+            icon={Pencil}
+            onClick={onEdit}
+            disabled={!editable}
+            title="Edit Message"
+          />
+        )}
+        {canDelete && (
+          <IconButton
+            size="sm"
+            variant="ghost"
+            icon={Trash}
+            onClick={onDeleteClick}
+            title="Delete Message"
+          />
         )}
         <Protect permission={Permission.PIN_MESSAGES}>
           <IconButton

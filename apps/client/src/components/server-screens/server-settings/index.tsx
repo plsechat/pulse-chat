@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { deleteServer } from '@/features/app/actions';
-import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
+import { useActiveInstanceDomain, useActiveServerId, useJoinedServers } from '@/features/app/hooks';
 import { useCan } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { Permission } from '@pulse/shared';
@@ -32,6 +32,7 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
   const can = useCan();
   const ownUserId = useOwnUserId();
   const activeServerId = useActiveServerId();
+  const activeInstanceDomain = useActiveInstanceDomain();
   const joinedServers = useJoinedServers();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -98,12 +99,14 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             >
               Auto-Mod
             </TabsTrigger>
-            <TabsTrigger
-              value="federation"
-              disabled={!can(Permission.MANAGE_SETTINGS)}
-            >
-              Federation
-            </TabsTrigger>
+            {!activeInstanceDomain && (
+              <TabsTrigger
+                value="federation"
+                disabled={!can(Permission.MANAGE_SETTINGS)}
+              >
+                Federation
+              </TabsTrigger>
+            )}
             {isOwner && (
               <TabsTrigger
                 value="delete"
@@ -134,9 +137,11 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
           <TabsContent value="automod" className="space-y-6">
             {can(Permission.MANAGE_AUTOMOD) && <AutoMod />}
           </TabsContent>
-          <TabsContent value="federation" className="space-y-6">
-            {can(Permission.MANAGE_SETTINGS) && <Federation />}
-          </TabsContent>
+          {!activeInstanceDomain && (
+            <TabsContent value="federation" className="space-y-6">
+              {can(Permission.MANAGE_SETTINGS) && <Federation />}
+            </TabsContent>
+          )}
           {isOwner && (
             <TabsContent value="delete" className="space-y-6">
               <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6">

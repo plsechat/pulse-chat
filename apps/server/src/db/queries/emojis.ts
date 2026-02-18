@@ -67,7 +67,17 @@ const emojiExists = async (name: string): Promise<boolean> => {
 
 const getUniqueEmojiName = async (baseName: string): Promise<string> => {
   const MAX_LENGTH = 24;
-  let normalizedBase = baseName.toLowerCase().replace(/\s+/g, '_');
+  let normalizedBase = baseName
+    .replace(/\.[^.]+$/, '') // strip file extension
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '') // remove non-alphanumeric/underscore
+    .replace(/^_+|_+$/g, '') // trim leading/trailing underscores
+    .replace(/_+/g, '_'); // collapse multiple underscores
+
+  if (!normalizedBase) {
+    normalizedBase = 'emoji';
+  }
 
   if (normalizedBase.length > MAX_LENGTH - 3) {
     normalizedBase = normalizedBase.substring(0, MAX_LENGTH - 3);

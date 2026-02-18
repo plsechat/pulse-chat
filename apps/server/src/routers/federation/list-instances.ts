@@ -1,12 +1,7 @@
-import { Permission } from '@pulse/shared';
 import { listFederationInstances } from '../../db/queries/federation';
-import { getFirstServer } from '../../db/queries/servers';
 import { protectedProcedure } from '../../utils/trpc';
 
-const listInstancesRoute = protectedProcedure.query(async ({ ctx }) => {
-  const server = await getFirstServer();
-  await ctx.needsPermission(Permission.MANAGE_SETTINGS, server?.id);
-
+const listInstancesRoute = protectedProcedure.query(async () => {
   const instances = await listFederationInstances();
 
   return instances.map((i) => ({

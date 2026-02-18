@@ -6,7 +6,7 @@ import { useOwnVoiceState } from '@/features/server/voice/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import type { AppData, Producer } from 'mediasoup-client/types';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
 type TUseVoiceControlsParams = {
@@ -39,6 +39,12 @@ const useVoiceControls = ({
   // (e.g., screen share system audio via virtual audio device).
   const realMicTrackRef = useRef<MediaStreamTrack | null>(null);
 
+  // Mirror localAudioStream state in a ref to avoid stale closure in toggleMic
+  const localAudioStreamRef = useRef(localAudioStream);
+  useEffect(() => {
+    localAudioStreamRef.current = localAudioStream;
+  }, [localAudioStream]);
+
   const toggleMic = useCallback(async () => {
     const newState = !ownVoiceState.micMuted;
     const trpc = getTRPCClient();
@@ -54,12 +60,13 @@ const useVoiceControls = ({
     // track.enabled. On macOS, track.enabled = false on one getUserMedia
     // capture can interfere with other concurrent audio captures (e.g.,
     // the Pulse Audio virtual device used for screen share system audio).
+    const stream = localAudioStreamRef.current;
     const producer = localAudioProducer.current;
     if (producer && !producer.closed) {
       try {
         if (newState) {
           // Muting: save the real track and replace with nothing
-          const currentTrack = localAudioStream?.getAudioTracks()[0];
+          const currentTrack = stream?.getAudioTracks()[0];
           if (currentTrack) {
             realMicTrackRef.current = currentTrack;
           }
@@ -78,13 +85,13 @@ const useVoiceControls = ({
         }
       } catch {
         // Fallback: if replaceTrack fails, use track.enabled
-        localAudioStream?.getAudioTracks().forEach((track) => {
+        stream?.getAudioTracks().forEach((track) => {
           track.enabled = !newState;
         });
       }
     } else {
       // No producer yet — use track.enabled as fallback
-      localAudioStream?.getAudioTracks().forEach((track) => {
+      stream?.getAudioTracks().forEach((track) => {
         track.enabled = !newState;
       });
     }
@@ -94,7 +101,7 @@ const useVoiceControls = ({
         micMuted: newState
       });
 
-      if (!localAudioStream) {
+      if (!stream) {
         await startMicStream();
       }
     } catch (error) {
@@ -104,7 +111,6 @@ const useVoiceControls = ({
     ownVoiceState.micMuted,
     startMicStream,
     currentVoiceChannelId,
-    localAudioStream,
     localAudioProducer
   ]);
 
