@@ -39,6 +39,7 @@ export type TVoiceMap = {
     users: {
       [userId: number]: TVoiceUserState;
     };
+    startedAt?: number;
   };
 };
 

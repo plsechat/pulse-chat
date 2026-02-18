@@ -24,7 +24,8 @@ import { ownVoiceStateSelector } from './selectors';
 export const addUserToVoiceChannel = (
   userId: number,
   channelId: number,
-  voiceState: TVoiceUserState
+  voiceState: TVoiceUserState,
+  startedAt?: number
 ): void => {
   const state = store.getState();
   const ownUserId = ownUserIdSelector(state);
@@ -34,7 +35,8 @@ export const addUserToVoiceChannel = (
     serverSliceActions.addUserToVoiceChannel({
       userId,
       channelId,
-      state: voiceState
+      state: voiceState,
+      startedAt
     })
   );
 
@@ -45,14 +47,15 @@ export const addUserToVoiceChannel = (
 
 export const removeUserFromVoiceChannel = (
   userId: number,
-  channelId: number
+  channelId: number,
+  startedAt?: number
 ): void => {
   const state = store.getState();
   const ownUserId = ownUserIdSelector(state);
   const currentChannelId = currentVoiceChannelIdSelector(state);
 
   store.dispatch(
-    serverSliceActions.removeUserFromVoiceChannel({ userId, channelId })
+    serverSliceActions.removeUserFromVoiceChannel({ userId, channelId, startedAt })
   );
 
   if (userId !== ownUserId && channelId === currentChannelId) {
@@ -151,7 +154,7 @@ export const joinVoice = async (
   const client = getTRPCClient();
 
   try {
-    const { routerRtpCapabilities, startedAt } = await client.voice.join.mutate({
+    const { routerRtpCapabilities } = await client.voice.join.mutate({
       channelId,
       state: { micMuted, soundMuted }
     });
@@ -161,10 +164,6 @@ export const joinVoice = async (
     // subscription handler runs on the server.
     setCurrentVoiceChannelId(channelId);
     setCurrentVoiceServerId(store.getState().app.activeServerId);
-
-    store.dispatch(
-      serverSliceActions.setVoiceSessionStartedAt(startedAt ?? Date.now())
-    );
 
     return routerRtpCapabilities;
   } catch (error) {
@@ -190,7 +189,6 @@ export const leaveVoice = async (): Promise<void> => {
   setCurrentVoiceChannelId(undefined);
   setCurrentVoiceServerId(undefined);
   setPinnedCard(undefined);
-  store.dispatch(serverSliceActions.setVoiceSessionStartedAt(null));
 
   const client = getTRPCClient();
 

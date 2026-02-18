@@ -12,7 +12,6 @@ import { Tooltip } from '../ui/tooltip';
 import { NotificationDropdown } from './notification-dropdown';
 import { PinnedMessagesPanel } from './pinned-messages-panel';
 import { ThreadListPopover } from './thread-list-popover';
-import { VoiceTimer } from './voice-timer';
 import { VolumeController } from './volume-controller';
 
 type TTopBarProps = {
@@ -74,7 +73,6 @@ const TopBar = memo(
                 </span>
               </>
             )}
-            {isCurrentVoiceChannelSelected && <VoiceTimer />}
           </div>
         )}
 

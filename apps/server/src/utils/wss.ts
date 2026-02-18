@@ -344,7 +344,8 @@ const createWsServer = async (server: http.Server) => {
 
           pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
             channelId: voiceRuntime.id,
-            userId: user.id
+            userId: user.id,
+            startedAt: voiceRuntime.getState().startedAt
           });
 
           // If this was a DM voice call and no users remain, destroy the runtime

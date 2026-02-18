@@ -1,6 +1,5 @@
 import type { IRootState } from '@/features/store';
 import { useSelector } from 'react-redux';
-import { Clock } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 
 const formatDuration = (ms: number): string => {
@@ -18,9 +17,13 @@ const formatDuration = (ms: number): string => {
   return `${pad(minutes)}:${pad(seconds)}`;
 };
 
-const VoiceTimer = memo(() => {
+type TVoiceTimerProps = {
+  channelId: number;
+};
+
+const VoiceTimer = memo(({ channelId }: TVoiceTimerProps) => {
   const startedAt = useSelector(
-    (state: IRootState) => state.server.voiceSessionStartedAt
+    (state: IRootState) => state.server.voiceMap[channelId]?.startedAt
   );
   const [elapsed, setElapsed] = useState(0);
 
@@ -42,10 +45,9 @@ const VoiceTimer = memo(() => {
   if (!startedAt) return null;
 
   return (
-    <div className="flex items-center gap-1 text-xs text-green-500 ml-auto">
-      <Clock className="w-3 h-3" />
-      <span className="tabular-nums">{formatDuration(elapsed)}</span>
-    </div>
+    <span className="text-[10px] text-green-400 tabular-nums ml-auto shrink-0">
+      {formatDuration(elapsed)}
+    </span>
   );
 });
 
