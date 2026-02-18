@@ -12,7 +12,8 @@ export enum LocalStorageKey {
   RECENT_EMOJIS = 'pulse-recent-emojis',
   ACTIVE_SERVER_ID = 'pulse-active-server-id',
   FEDERATED_SERVERS = 'pulse-federated-servers',
-  ACTIVE_INSTANCE = 'pulse-active-instance'
+  ACTIVE_INSTANCE = 'pulse-active-instance',
+  APPEARANCE_SETTINGS = 'pulse-appearance-settings'
 }
 
 const getLocalStorageItem = (key: LocalStorageKey): string | null => {

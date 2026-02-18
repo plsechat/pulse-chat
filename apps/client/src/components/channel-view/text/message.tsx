@@ -35,7 +35,8 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   const isFromOwnUser = useIsOwnUser(message.userId);
   const can = useCan();
 
-  const canManage = useMemo(
+  const canEdit = isFromOwnUser;
+  const canDelete = useMemo(
     () => can(Permission.MANAGE_MESSAGES) || isFromOwnUser,
     [can, isFromOwnUser]
   );
@@ -58,7 +59,8 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
           <MessageActions
             onEdit={() => setIsEditing(true)}
             onReply={onReply}
-            canManage={canManage}
+            canEdit={canEdit}
+            canDelete={canDelete}
             messageId={message.id}
             editable={message.editable ?? false}
             pinned={message.pinned ?? false}

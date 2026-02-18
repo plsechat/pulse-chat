@@ -2,11 +2,14 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTRPCClient } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 import { imageExtensions, type TJoinedMessage } from '@pulse/shared';
+import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
 import parse from 'html-react-parser';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
+import { Tooltip } from '../../../ui/tooltip';
 import { FileCard } from '../file-card';
 import { MessageReactions } from '../message-reactions';
 import { ImageOverride } from '../overrides/image';
@@ -25,7 +28,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     [message.userId, ownUserId]
   );
 
-  const { foundMedia, messageHtml } = useMemo(() => {
+  const { foundMedia, messageHtml, isEmojiOnly } = useMemo(() => {
     const foundMedia: TFoundMedia[] = [];
 
     const sanitized = DOMPurify.sanitize(message.content ?? '', {
@@ -42,13 +45,31 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       ALLOW_DATA_ATTR: true
     });
 
+    // Detect emoji-only messages: strip tags, check if remaining text is only whitespace,
+    // and verify there are emoji elements (1-6 emojis)
+    let isEmojiOnly = false;
+    if (message.files.length === 0) {
+      const textOnly = sanitized.replace(/<[^>]*>/g, '').trim();
+      const emojiRegex = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu;
+      const emojiMatches = textOnly.match(emojiRegex);
+      const strippedOfEmoji = textOnly.replace(emojiRegex, '').trim();
+
+      // Also count custom emoji img tags with data-emoji-name
+      const customEmojiCount = (sanitized.match(/data-emoji-name/g) || []).length;
+      const totalEmojis = (emojiMatches?.length ?? 0) + customEmojiCount;
+
+      if (strippedOfEmoji.length === 0 && totalEmojis >= 1 && totalEmojis <= 6) {
+        isEmojiOnly = true;
+      }
+    }
+
     const messageHtml = parse(sanitized, {
       replace: (domNode) =>
         serializer(domNode, (found) => foundMedia.push(found))
     });
 
-    return { messageHtml, foundMedia };
-  }, [message.content]);
+    return { messageHtml, foundMedia, isEmojiOnly };
+  }, [message.content, message.files.length]);
 
   const onRemoveFileClick = useCallback(async (fileId: number) => {
     if (!fileId) return;
@@ -87,8 +108,15 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="max-w-full break-words msg-content">
+      <div className={cn('max-w-full break-words msg-content', isEmojiOnly && 'emoji-only')}>
         {messageHtml}
+        {message.edited && (
+          <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), 'PPpp')}` : 'Edited'}>
+            <span className="text-[10px] text-muted-foreground/50 ml-1 cursor-default">
+              (edited)
+            </span>
+          </Tooltip>
+        )}
       </div>
 
       {allMedia.map((media, index) => {

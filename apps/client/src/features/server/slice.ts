@@ -473,25 +473,37 @@ export const serverSlice = createSlice({
         channelId: number;
         userId: number;
         state: TVoiceUserState;
+        startedAt?: number;
       }>
     ) => {
-      const { channelId, userId, state: userState } = action.payload;
+      const { channelId, userId, state: userState, startedAt } = action.payload;
 
       if (!state.voiceMap[channelId]) {
         state.voiceMap[channelId] = { users: {} };
       }
 
       state.voiceMap[channelId].users[userId] = userState;
+
+      if (startedAt !== undefined) {
+        state.voiceMap[channelId].startedAt = startedAt;
+      }
     },
     removeUserFromVoiceChannel: (
       state,
-      action: PayloadAction<{ channelId: number; userId: number }>
+      action: PayloadAction<{ channelId: number; userId: number; startedAt?: number }>
     ) => {
-      const { channelId, userId } = action.payload;
+      const { channelId, userId, startedAt } = action.payload;
 
       if (!state.voiceMap[channelId]) return;
 
       delete state.voiceMap[channelId].users[userId];
+
+      if (startedAt !== undefined) {
+        state.voiceMap[channelId].startedAt = startedAt;
+      } else {
+        // No startedAt means session ended (no users left)
+        delete state.voiceMap[channelId].startedAt;
+      }
     },
     updateVoiceUserState: (
       state,

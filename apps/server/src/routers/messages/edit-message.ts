@@ -1,4 +1,3 @@
-import { Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -37,19 +36,16 @@ const editMessageRoute = protectedProcedure
       message: 'This message is not editable'
     });
 
-    invariant(
-      message.userId === ctx.user.id ||
-        (await ctx.hasPermission(Permission.MANAGE_MESSAGES)),
-      {
-        code: 'FORBIDDEN',
-        message: 'You do not have permission to edit this message'
-      }
-    );
+    invariant(message.userId === ctx.user.id, {
+      code: 'FORBIDDEN',
+      message: 'You do not have permission to edit this message'
+    });
 
     await db
       .update(messages)
       .set({
         content: input.content,
+        edited: true,
         updatedAt: Date.now()
       })
       .where(eq(messages.id, input.messageId));

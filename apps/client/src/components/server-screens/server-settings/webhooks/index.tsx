@@ -1,4 +1,11 @@
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { useChannels } from '@/features/server/channels/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TWebhook } from '@pulse/shared';
@@ -179,20 +186,23 @@ const CreateWebhookForm = memo(
           className="w-full px-3 py-2 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30"
           maxLength={80}
         />
-        <select
-          value={channelId}
-          onChange={(e) =>
-            setChannelId(e.target.value ? parseInt(e.target.value) : '')
+        <Select
+          value={channelId ? String(channelId) : ''}
+          onValueChange={(value) =>
+            setChannelId(value ? parseInt(value) : '')
           }
-          className="w-full px-3 py-2 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30"
         >
-          <option value="">Select channel</option>
-          {textChannels.map((ch) => (
-            <option key={ch.id} value={ch.id}>
-              #{ch.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Select channel" />
+          </SelectTrigger>
+          <SelectContent>
+            {textChannels.map((ch) => (
+              <SelectItem key={ch.id} value={String(ch.id)}>
+                #{ch.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel

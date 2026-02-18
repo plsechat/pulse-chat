@@ -66,10 +66,12 @@ const joinVoiceRoute = protectedProcedure
     const state = runtime.getUserState(ctx.user.id);
 
     ctx.currentVoiceChannelId = channel.id;
+    const startedAt = runtime.getState().startedAt!;
     ctx.pubsub.publish(ServerEvents.USER_JOIN_VOICE, {
       channelId: input.channelId,
       userId: ctx.user.id,
-      state
+      state,
+      startedAt
     });
 
     logger.info('%s joined voice channel %s', ctx.user.name, channel.name);
@@ -77,7 +79,8 @@ const joinVoiceRoute = protectedProcedure
     const router = runtime.getRouter();
 
     return {
-      routerRtpCapabilities: router.rtpCapabilities
+      routerRtpCapabilities: router.rtpCapabilities,
+      startedAt: runtime.getState().startedAt
     };
   });
 

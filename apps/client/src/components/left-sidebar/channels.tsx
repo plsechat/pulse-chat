@@ -45,6 +45,7 @@ import { Hash, LayoutList, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { ChannelContextMenu } from '../context-menus/channel';
+import { VoiceTimer } from '../top-bar/voice-timer';
 import { ExternalStream } from './external-stream';
 import { VoiceUser } from './voice-user';
 
@@ -57,13 +58,15 @@ const Voice = memo(({ channel, isInVoice, ...props }: TVoiceProps) => {
   const users = useVoiceUsersByChannelId(channel.id);
   const externalStreams = useVoiceChannelExternalStreamsList(channel.id);
   const unreadCount = useUnreadMessagesCount(channel.id);
+  const hasActiveSession = users.length > 0;
 
   return (
     <>
       <ItemWrapper {...props} hasUnread={unreadCount > 0} className={cn(props.className, isInVoice && 'text-foreground [&>svg]:text-green-400')}>
         <Volume2 className="h-4 w-4" />
         <span className={cn('flex-1', isInVoice && 'text-white drop-shadow-[0_0_6px_rgba(74,222,128,0.6)]')}>{channel.name}</span>
-        {unreadCount > 0 && (
+        {hasActiveSession && <VoiceTimer channelId={channel.id} />}
+        {!hasActiveSession && unreadCount > 0 && (
           <div className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
             {unreadCount > 99 ? '99+' : unreadCount}
           </div>

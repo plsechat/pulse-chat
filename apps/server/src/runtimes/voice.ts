@@ -86,7 +86,7 @@ const getRtcTransportOptions = (): WebRtcTransportOptions<AppData> => {
     enableTcp: true,
     preferUdp: true,
     preferTcp: false,
-    initialAvailableOutgoingBitrate: 1000000
+    initialAvailableOutgoingBitrate: config.mediasoup.video.initialAvailableOutgoingBitrate
   };
 };
 
@@ -168,17 +168,18 @@ class VoiceRuntime {
     const map: TVoiceMap = {};
 
     voiceRuntimes.forEach((runtime, channelId) => {
-      map[channelId] = {
-        users: {}
+      const channelState = runtime.getState();
+
+      const entry: TVoiceMap[number] = {
+        users: {},
+        startedAt: channelState.startedAt
       };
 
-      runtime.getState().users.forEach((user) => {
-        if (!map[channelId]) {
-          map[channelId] = { users: {} };
-        }
-
-        map[channelId].users[user.userId] = user.state;
+      channelState.users.forEach((user) => {
+        entry.users[user.userId] = user.state;
       });
+
+      map[channelId] = entry;
     });
 
     return map;
@@ -283,6 +284,10 @@ class VoiceRuntime {
   ) => {
     if (this.getUser(userId)) return;
 
+    if (this.state.users.length === 0) {
+      this.state.startedAt = Date.now();
+    }
+
     this.state.users.push({
       userId,
       state: {
@@ -294,6 +299,10 @@ class VoiceRuntime {
 
   public removeUser = (userId: number) => {
     this.state.users = this.state.users.filter((u) => u.userId !== userId);
+
+    if (this.state.users.length === 0) {
+      this.state.startedAt = undefined;
+    }
 
     this.cleanupUserResources(userId);
   };

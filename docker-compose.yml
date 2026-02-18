@@ -17,6 +17,7 @@ services:
       FACEBOOK_OAUTH_ENABLED: ${FACEBOOK_OAUTH_ENABLED:-false}
       TWITCH_OAUTH_ENABLED: ${TWITCH_OAUTH_ENABLED:-false}
       PUBLIC_IP: ${PUBLIC_IP}
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
       TRUST_PROXY: "true"
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
     volumes:

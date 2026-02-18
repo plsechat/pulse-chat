@@ -258,8 +258,8 @@ body,
 
 .tiptap,
 .msg-content {
-  line-height: 1.375rem;
-  font-size: 1rem;
+  line-height: calc(1.375rem * var(--font-scale));
+  font-size: calc(1rem * var(--font-scale));
   word-wrap: break-word;
   overflow-wrap: break-word;
 
@@ -537,6 +537,26 @@ body,
   p + p {
     margin-top: 0.25em;
   }
+}
+
+/* Emoji-only messages: larger emoji display */
+.msg-content.emoji-only {
+  line-height: 2.5rem;
+
+  span {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+  }
+
+  img:not(.ProseMirror-separator) {
+    height: 2.5rem;
+    width: 2.5rem;
+  }
+}
+
+/* Appearance settings: font scale — scoped to chat content only */
+:root {
+  --font-scale: 1;
 }
 
 .react-tweet-theme {

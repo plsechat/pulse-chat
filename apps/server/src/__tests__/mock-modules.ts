@@ -27,7 +27,8 @@ mock.module('../config', () => ({
     http: { maxFiles: 40, maxFileSize: 100 },
     mediasoup: {
       worker: { rtcMinPort: 40000, rtcMaxPort: 40020 },
-      audio: { maxBitrate: 510000, stereo: true, fec: true, dtx: true }
+      audio: { maxBitrate: 510000, stereo: true, fec: true, dtx: true },
+      video: { initialAvailableOutgoingBitrate: 6000000 }
     },
     federation: { enabled: false, domain: '' }
   },
