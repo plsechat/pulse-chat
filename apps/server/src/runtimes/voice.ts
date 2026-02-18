@@ -86,7 +86,7 @@ const getRtcTransportOptions = (): WebRtcTransportOptions<AppData> => {
     enableTcp: true,
     preferUdp: true,
     preferTcp: false,
-    initialAvailableOutgoingBitrate: 1000000
+    initialAvailableOutgoingBitrate: config.mediasoup.video.initialAvailableOutgoingBitrate
   };
 };
 

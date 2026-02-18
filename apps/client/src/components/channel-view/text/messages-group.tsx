@@ -34,7 +34,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
       : undefined;
 
   return (
-    <div className="mt-[1.0625rem] flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5">
+    <div className="mt-[1.0625rem] flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5 hover:bg-foreground/[0.02]">
       <UserContextMenu userId={user.id}>
         <div className="absolute left-4 top-1">
           <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />

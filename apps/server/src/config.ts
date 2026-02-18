@@ -32,6 +32,9 @@ type TConfig = {
       fec: boolean;
       dtx: boolean;
     };
+    video: {
+      initialAvailableOutgoingBitrate: number;
+    };
   };
   federation: {
     enabled: boolean;
@@ -59,6 +62,9 @@ let config: TConfig = {
       stereo: true,
       fec: true,
       dtx: true
+    },
+    video: {
+      initialAvailableOutgoingBitrate: 6000000
     }
   },
   federation: {
@@ -97,6 +103,10 @@ config = {
     audio: {
       ...config.mediasoup.audio,
       ...((parsed.mediasoup as Record<string, object>)?.audio as object)
+    },
+    video: {
+      ...config.mediasoup.video,
+      ...((parsed.mediasoup as Record<string, object>)?.video as object)
     }
   },
   federation: { ...config.federation, ...(parsed.federation as object) }
@@ -114,6 +124,7 @@ config.mediasoup.audio.maxBitrate = Number(config.mediasoup.audio.maxBitrate);
 config.mediasoup.audio.stereo = String(config.mediasoup.audio.stereo) === 'true';
 config.mediasoup.audio.fec = String(config.mediasoup.audio.fec) === 'true';
 config.mediasoup.audio.dtx = String(config.mediasoup.audio.dtx) === 'true';
+config.mediasoup.video.initialAvailableOutgoingBitrate = Number(config.mediasoup.video.initialAvailableOutgoingBitrate);
 config.federation.enabled = String(config.federation.enabled) === 'true';
 
 export { config, SERVER_PRIVATE_IP, SERVER_PUBLIC_IP };

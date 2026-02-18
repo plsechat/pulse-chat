@@ -80,8 +80,8 @@ const EmojiList = memo(
                     onClick={() => setSelectedEmojiId(emoji.id)}
                     className={
                       selectedEmojiId === emoji.id
-                        ? 'bg-accent ring-2 ring-primary h-full w-full'
-                        : 'h-full w-full'
+                        ? 'bg-accent ring-2 ring-primary h-10 w-10'
+                        : 'h-10 w-10'
                     }
                   />
                 ))}

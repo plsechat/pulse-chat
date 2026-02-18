@@ -1,13 +1,22 @@
 import { store } from '@/features/store';
+import { getTRPCClient } from '@/lib/trpc';
 import type { TChannel, TChannelUserPermissionsMap } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
-import { channelByIdSelector, selectedChannelIdSelector } from './selectors';
+import { channelByIdSelector, channelReadStateByIdSelector, selectedChannelIdSelector } from './selectors';
 
 export const setChannels = (channels: TChannel[]) => {
   store.dispatch(serverSliceActions.setChannels(channels));
 };
 
 export const setSelectedChannelId = (channelId: number | undefined) => {
+  if (channelId !== undefined) {
+    const state = store.getState();
+    const unreadCount = channelReadStateByIdSelector(state, channelId);
+    if (unreadCount > 0) {
+      const trpc = getTRPCClient();
+      trpc.channels.markAsRead.mutate({ channelId }).catch(() => {});
+    }
+  }
   store.dispatch(serverSliceActions.setSelectedChannelId(channelId));
 };
 
