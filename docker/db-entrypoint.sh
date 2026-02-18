@@ -15,8 +15,10 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# Start the real entrypoint in the background (preserves all supabase init scripts)
-docker-entrypoint.sh postgres &
+# Start the real entrypoint in the background.
+# -c listen_addresses='*' ensures postgres binds to all interfaces
+# (required for Docker networking — without this, it only listens on localhost).
+docker-entrypoint.sh postgres -c listen_addresses='*' &
 PG_PID=$!
 
 # Wait for postgres AND successfully sync the auth password.
@@ -27,10 +29,10 @@ echo "db-entrypoint: waiting for PostgreSQL and syncing auth password..."
 SYNCED=0
 for i in $(seq 1 90); do
   if pg_isready -U postgres -q 2>/dev/null; then
-    # Use psql variable binding (:'var') for safe password injection
-    if psql -U postgres -v password="$POSTGRES_PASSWORD" \
-         -c "ALTER ROLE supabase_auth_admin WITH PASSWORD :'password';" \
-         2>/dev/null; then
+    if psql -v ON_ERROR_STOP=0 --username postgres --dbname postgres <<-EOSQL 2>/dev/null
+      ALTER ROLE supabase_auth_admin WITH PASSWORD '${POSTGRES_PASSWORD}';
+EOSQL
+    then
       echo "db-entrypoint: supabase_auth_admin password synced"
       SYNCED=1
       break
