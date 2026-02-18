@@ -83,6 +83,7 @@ Upon first run, a default configuration file will be generated at `~/.config/pul
 | `rtcMinPort`  | `40000` | Minimum UDP port for WebRTC media traffic (voice/video)                                     |
 | `rtcMaxPort`  | `40020` | Maximum UDP port for WebRTC media traffic (voice/video)                                     |
 | `autoupdate`  | `false` | When enabled, it will automatically check for and install updates with no user intervention |
+| `initialAvailableOutgoingBitrate` | `6000000` | Configure the Available bandwidth for Voice/Video RTC                 |
 
 > [!IMPORTANT]
 > `rtcMinPort` and `rtcMaxPort` will define how many concurrent voice/video connections your server can handle. Each active voice/video connection uses one UDP port. Make sure to adjust the range according to your expected load. These ports must be open in your firewall settings, both TCP and UDP. If you're running in Docker, remember to map this port range from the host to the container.
