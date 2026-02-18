@@ -330,7 +330,7 @@ const ServerStrip = memo(() => {
             onOpenChange={(open) => handleContextMenuOpen(open, server.id)}
           >
             <ContextMenuTrigger asChild>
-              <div>
+              <div className="w-full">
                 <ServerIcon
                   server={server}
                   isActive={
@@ -420,7 +420,7 @@ const ServerStrip = memo(() => {
           {federatedServers.map((entry) => (
             <ContextMenu key={`${entry.instanceDomain}:${entry.server.id}`}>
               <ContextMenuTrigger asChild>
-                <div>
+                <div className="w-full">
                   <FederatedServerIcon
                     entry={entry}
                     isActive={
