@@ -16,6 +16,7 @@ import {
   type TIUser
 } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
+import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
   categories,
@@ -123,6 +124,10 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
   };
 
   await db.insert(roles).values(ownerRole);
+
+  // Advance the roles sequence past the explicitly-set OWNER_ROLE_ID
+  // so the next DEFAULT insert doesn't conflict
+  await db.execute(sql`SELECT setval('roles_id_seq', ${OWNER_ROLE_ID})`);
 
   const ownerPermissions = Object.values(Permission).map((permission) => ({
     roleId: OWNER_ROLE_ID,
