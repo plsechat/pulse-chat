@@ -1,5 +1,5 @@
 import { useSelectedChannel } from '@/features/server/channels/hooks';
-import { Hash, LayoutList, Menu, Search, Users, Volume2 } from 'lucide-react';
+import { Hash, LayoutList, Menu, Users, Volume2 } from 'lucide-react';
 import { memo } from 'react';
 import { Button } from '../ui/button';
 

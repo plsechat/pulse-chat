@@ -21,7 +21,7 @@ const AutoMod = memo(() => {
     const trpc = getTRPCClient();
     try {
       const result = await trpc.automod.listRules.query();
-      setRules(result);
+      setRules(result as TAutomodRule[]);
     } catch {
       toast.error('Failed to load auto-mod rules');
     } finally {
@@ -189,7 +189,7 @@ const CreateAutomodRuleForm = memo(
           config,
           actions: [{ type: 'delete_message' }, { type: 'log' }]
         });
-        onCreated(rule);
+        onCreated(rule as TAutomodRule);
         toast.success('Rule created');
       } catch {
         toast.error('Failed to create rule');

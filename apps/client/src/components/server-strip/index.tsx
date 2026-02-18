@@ -88,7 +88,7 @@ const ServerIcon = memo(
         >
           {server.logo ? (
             <img
-              src={getFileUrl(server.logo.name)}
+              src={getFileUrl(server.logo)}
               alt={server.name}
               className="h-full w-full object-cover"
             />

@@ -15,7 +15,7 @@ type TDmSearchPopoverProps = {
 };
 
 const DmSearchResult = memo(
-  ({ message, query }: { message: TJoinedDmMessage; query: string }) => {
+  ({ message, query: _query }: { message: TJoinedDmMessage; query: string }) => {
     const user = useUserById(message.userId);
 
     const messageHtml = useMemo(() => {
@@ -51,7 +51,7 @@ const DmSearchPopover = memo(
     const [searched, setSearched] = useState(false);
     const [nextCursor, setNextCursor] = useState<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     useEffect(() => {
       inputRef.current?.focus();

@@ -1,9 +1,6 @@
 import { ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '../../db';
 import { getServerById, removeServerMember } from '../../db/queries/servers';
-import { servers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 

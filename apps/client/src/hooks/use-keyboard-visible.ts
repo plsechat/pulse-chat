@@ -28,7 +28,7 @@ const useKeyboardVisible = () => {
       }
     };
 
-    const handleFocusOut = (e: FocusEvent) => {
+    const handleFocusOut = (_e: FocusEvent) => {
       // Small delay to handle focus moving between inputs
       setTimeout(() => {
         if (!isTextInput(document.activeElement)) {

@@ -6,11 +6,8 @@ import { federationInstances, servers, serverMembers, users, files } from '../db
 import { getFirstServer } from '../db/queries/servers';
 import { config } from '../config';
 import {
-  getFederationConfig,
   getLocalKeys,
-  signChallenge,
-  verifyChallenge,
-  verifyFederationToken
+  verifyChallenge
 } from '../utils/federation';
 import { SERVER_VERSION } from '../utils/env';
 import { logger } from '../logger';
@@ -418,13 +415,12 @@ const federationFriendRequestHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, fromUsername, fromUserId, fromPublicId, fromAvatarFile, toUsername, toPublicId, signature } = body as {
+  const { fromDomain, fromUsername, fromUserId, fromPublicId, fromAvatarFile, toPublicId, signature } = body as {
     fromDomain: string;
     fromUsername: string;
     fromUserId?: number;
     fromPublicId: string;
     fromAvatarFile?: string;
-    toUsername: string;
     toPublicId: string;
     signature: string;
   };
@@ -536,13 +532,12 @@ const federationFriendAcceptHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, fromUsername, fromUserId, fromPublicId, fromAvatarFile, toUsername, toPublicId, signature } = body as {
+  const { fromDomain, fromUsername, fromUserId, fromPublicId, fromAvatarFile, toPublicId, signature } = body as {
     fromDomain: string;
     fromUsername: string;
     fromUserId?: number;
     fromPublicId: string;
     fromAvatarFile?: string;
-    toUsername: string;
     toPublicId: string;
     signature: string;
   };

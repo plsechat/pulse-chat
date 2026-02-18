@@ -39,7 +39,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [sortBy, setSortBy] = useState<'latest' | 'creation'>('latest');
   const [activeTagFilter, setActiveTagFilter] = useState<number | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived, _setShowArchived] = useState(false);
   const can = useCan();
 
   const fetchData = useCallback(async () => {

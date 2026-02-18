@@ -3,7 +3,6 @@ import { randomUUIDv7 } from 'bun';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
-  addServerMember,
   getServersByUserId
 } from '../../db/queries/servers';
 import {

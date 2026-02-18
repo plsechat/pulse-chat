@@ -142,7 +142,7 @@ export const serverSlice = createSlice({
         ownUserId: number;
         roles: TJoinedRole[];
         emojis: TJoinedEmoji[];
-        publicSettings: TPublicServerSettings | undefined;
+        publicSettings?: TPublicServerSettings | undefined;
         voiceMap: TVoiceMap;
         externalStreamsMap: TExternalStreamsMap;
         channelPermissions: TChannelUserPermissionsMap;

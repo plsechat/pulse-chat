@@ -37,7 +37,7 @@ const ServerCard = memo(
         <div className="flex h-40 items-center justify-center bg-input">
           {server.logo ? (
             <img
-              src={getFileUrl(server.logo.name)}
+              src={getFileUrl(server.logo)}
               alt={server.name}
               className="h-full w-full object-cover"
             />

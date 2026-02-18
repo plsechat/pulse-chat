@@ -7,7 +7,6 @@ import {
 import { useFriendRequests } from '@/features/friends/hooks';
 import { getHandshakeHash } from '@/features/server/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
-import { useHasAnyUnread } from '@/features/server/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { cn } from '@/lib/utils';
 import { Compass, Home, Server, User } from 'lucide-react';
@@ -27,7 +26,6 @@ const MobileBottomNav = memo(() => {
   const pendingCount = friendRequests.length;
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
-  const hasAnyUnread = useHasAnyUnread();
   const [showServerSheet, setShowServerSheet] = useState(false);
   const isKeyboardVisible = useKeyboardVisible();
 
@@ -159,7 +157,7 @@ const MobileBottomNav = memo(() => {
                   >
                     {server.logo ? (
                       <img
-                        src={getFileUrl(server.logo.name)}
+                        src={getFileUrl(server.logo)}
                         alt={server.name}
                         className="h-full w-full object-cover"
                       />

@@ -67,7 +67,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedMessage | null>(null);
   const [slowModeRemaining, setSlowModeRemaining] = useState(0);
-  const slowModeTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const slowModeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const selectedChannel = useSelectedChannel();
   const slowMode = selectedChannel?.slowMode ?? 0;
   const allPluginCommands = useFlatPluginCommands();

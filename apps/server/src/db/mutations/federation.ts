@@ -6,13 +6,13 @@ import { db } from '..';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
 import { validateFederationUrl } from '../../utils/validate-url';
-import { federationInstances, files, users } from '../schema';
+import { files, users } from '../schema';
 
 async function findOrCreateShadowUser(
   instanceId: number,
   remoteUserId: number,
   username: string,
-  avatar?: string | null,
+  _avatar?: string | null,
   remotePublicId?: string
 ): Promise<TUser> {
   // Primary lookup: by federatedPublicId (immutable UUID — most reliable)

@@ -1,7 +1,5 @@
 import type {
-  TDmMessage,
   TDmMessageReaction,
-  TFile,
   TJoinedDmChannel,
   TJoinedDmMessage,
   TJoinedDmMessageReaction

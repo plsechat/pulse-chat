@@ -19,7 +19,7 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
   const [searched, setSearched] = useState(false);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     inputRef.current?.focus();

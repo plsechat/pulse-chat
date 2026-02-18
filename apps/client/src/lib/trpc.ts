@@ -13,8 +13,6 @@ import { createTRPCProxyClient, createWSClient, wsLink } from '@trpc/client';
 
 let wsClient: ReturnType<typeof createWSClient> | null = null;
 let trpc: ReturnType<typeof createTRPCProxyClient<AppRouter>> | null = null;
-let currentHost: string | null = null;
-
 /** Set to true when the client intentionally closes the connection (sign-out). */
 let intentionalClose = false;
 
@@ -34,7 +32,7 @@ const initializeTRPC = (host: string) => {
       // Null out the ws/trpc references so connect() recreates them
       wsClient = null;
       trpc = null;
-      currentHost = null;
+
 
       // If we intentionally closed (user sign-out / cleanup), do nothing —
       // cleanup() already handles the full teardown
@@ -71,8 +69,6 @@ const initializeTRPC = (host: string) => {
   trpc = createTRPCProxyClient<AppRouter>({
     links: [wsLink({ client: wsClient })]
   });
-
-  currentHost = host;
 
   return trpc;
 };
@@ -129,8 +125,6 @@ const cleanup = (signOut = false) => {
   }
 
   trpc = null;
-  currentHost = null;
-
   fullTeardown();
 
   if (signOut) {

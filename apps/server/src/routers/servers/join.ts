@@ -1,4 +1,4 @@
-import { ServerEvents, type TServerSummary } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';

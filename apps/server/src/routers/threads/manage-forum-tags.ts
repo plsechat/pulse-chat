@@ -1,5 +1,5 @@
 import { ChannelType, Permission } from '@pulse/shared';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channels, forumTags } from '../../db/schema';
