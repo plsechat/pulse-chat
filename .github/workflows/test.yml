@@ -61,6 +61,14 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U pulse_test && break
+            echo "Waiting for postgres ($i/30)..."
+            sleep 2
+          done
+
       - name: Generate Drizzle migrations
         working-directory: apps/server
         run: bun run db:gen
