@@ -10,11 +10,11 @@ describe('files router', () => {
 
   beforeEach(async () => {
     const response = await login('testowner', 'password123');
-    const data: any = await response.json();
+    const data = (await response.json()) as { accessToken: string };
 
     const res = await uploadFile(
       new File(['test'], `file-${counter++}.txt`, { type: 'text/plain' }),
-      data.token
+      data.accessToken
     );
 
     tempFile = (await res.json()) as TTempFile;

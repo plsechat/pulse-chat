@@ -193,6 +193,12 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     createdAt: firstStart
   });
 
+  // Set the owner on the server so hasChannelPermission owner bypass works
+  await db
+    .update(servers)
+    .set({ ownerId: insertedOwner!.id })
+    .where(sql`id = 1`);
+
   const regularUser: TIUser = {
     name: 'Test User',
     supabaseId: `test-user-${randomUUIDv7()}`,

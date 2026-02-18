@@ -49,12 +49,20 @@ mock.module('../logger', () => ({
   }
 }));
 
+// ── Mock rate limiter (disable rate limiting during tests) ──
+mock.module('../http/rate-limit', () => ({
+  checkRateLimit: () => true,
+  authRateLimit: { windowMs: 900000, maxRequests: Infinity },
+  federationRateLimit: { windowMs: 60000, maxRequests: Infinity }
+}));
+
 // ── In-memory auth store for supabase mock ──
 // Shared via globalThis so seed.ts can pre-populate it.
 // Each entry: { supabaseId: string, password: string, email: string }
 type AuthEntry = { supabaseId: string; password: string; email: string };
 
 declare global {
+  // eslint-disable-next-line no-var
   var __supabaseAuthStore: Map<string, AuthEntry>;
 }
 

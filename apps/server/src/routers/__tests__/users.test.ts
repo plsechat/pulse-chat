@@ -135,7 +135,7 @@ describe('users router', () => {
     const { caller } = await initTest();
 
     await caller.users.update({
-      name: 'Test User',
+      name: 'Updated Owner',
       bannerColor: '#00ff00'
     });
 
@@ -143,7 +143,7 @@ describe('users router', () => {
     const updatedUser = users.find((u) => u.id === 1);
 
     expect(updatedUser).toBeDefined();
-    expect(updatedUser!.name).toBe('Test User');
+    expect(updatedUser!.name).toBe('Updated Owner');
     expect(updatedUser!.bannerColor).toBe('#00ff00');
   });
 
@@ -502,7 +502,7 @@ describe('users router', () => {
     const specialBio = 'Hello! 👋 This is my bio with émojis & spëcial çhars';
 
     await caller.users.update({
-      name: 'Test User',
+      name: 'Bio Test Owner',
       bannerColor: '#000000',
       bio: specialBio
     });
