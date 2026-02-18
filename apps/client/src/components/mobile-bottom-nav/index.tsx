@@ -11,6 +11,7 @@ import { useHasAnyUnread } from '@/features/server/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { cn } from '@/lib/utils';
 import { Compass, Home, Server, User } from 'lucide-react';
+import { useKeyboardVisible } from '@/hooks/use-keyboard-visible';
 import { memo, useCallback, useState } from 'react';
 import { ServerScreen } from '../server-screens/screens';
 import {
@@ -28,6 +29,7 @@ const MobileBottomNav = memo(() => {
   const activeServerId = useActiveServerId();
   const hasAnyUnread = useHasAnyUnread();
   const [showServerSheet, setShowServerSheet] = useState(false);
+  const isKeyboardVisible = useKeyboardVisible();
 
   const handleHomeClick = useCallback(() => {
     setActiveView('home');
@@ -55,13 +57,16 @@ const MobileBottomNav = memo(() => {
 
   return (
     <>
-      <nav className="flex md:hidden h-14 w-full border-t border-border bg-sidebar items-center justify-around px-2 pb-[env(safe-area-inset-bottom)]">
+      <nav className={cn(
+        'flex md:hidden h-14 w-full border-t border-border bg-sidebar items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] transition-all duration-200',
+        isKeyboardVisible && 'h-0 overflow-hidden border-t-0 opacity-0 pointer-events-none'
+      )}>
         <button
           onClick={handleHomeClick}
           className={cn(
-            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors',
+            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors relative',
             activeView === 'home'
-              ? 'text-white'
+              ? 'text-foreground'
               : 'text-muted-foreground'
           )}
         >
@@ -74,32 +79,41 @@ const MobileBottomNav = memo(() => {
             )}
           </div>
           <span className="text-[10px]">Home</span>
+          {activeView === 'home' && (
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+          )}
         </button>
 
         <button
           onClick={handleDiscoverClick}
           className={cn(
-            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors',
+            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors relative',
             activeView === 'discover'
-              ? 'text-white'
+              ? 'text-foreground'
               : 'text-muted-foreground'
           )}
         >
           <Compass className="h-5 w-5" />
           <span className="text-[10px]">Discover</span>
+          {activeView === 'discover' && (
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+          )}
         </button>
 
         <button
           onClick={handleServersClick}
           className={cn(
-            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors',
+            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors relative',
             activeView === 'server'
-              ? 'text-white'
+              ? 'text-foreground'
               : 'text-muted-foreground'
           )}
         >
           <Server className="h-5 w-5" />
           <span className="text-[10px]">Servers</span>
+          {activeView === 'server' && (
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary" />
+          )}
         </button>
 
         <button

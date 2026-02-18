@@ -27,7 +27,7 @@ const MainView = memo(() => {
   return (
     <VoiceProvider>
       <PersistentAudioStreams />
-      <div className="flex h-screen bg-background text-foreground">
+      <div className="flex h-dvh bg-background text-foreground">
         <div className="hidden md:flex">
           <ServerStrip />
         </div>

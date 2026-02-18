@@ -30,7 +30,7 @@ const HomeSidebar = memo(
 
     return (
       <>
-        <div className="flex w-full h-12 items-center border-b border-border px-4 shadow-[0_1px_0_rgba(0,0,0,0.2)]">
+        <div className="flex w-full h-12 items-center border-b border-border px-4">
           <h2 className="font-semibold text-foreground">Home</h2>
         </div>
 
@@ -84,9 +84,12 @@ const HomeSidebar = memo(
             ))}
 
             {dmChannels.length === 0 && (
-              <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                <MessageSquare className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                <p>No conversations yet</p>
+              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                  <MessageSquare className="h-6 w-6" />
+                </div>
+                <p className="font-medium">No conversations yet</p>
+                <p className="text-xs mt-1">Start a DM to begin chatting</p>
               </div>
             )}
           </div>

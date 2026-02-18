@@ -110,7 +110,7 @@ const VoiceGrid = memo(
     return (
       <div
         className={cn(
-          'grid h-full p-2 gap-2',
+          'grid h-full p-3 gap-3',
           getGridClass(gridCols),
           getGridRowsClass(rows),
           className

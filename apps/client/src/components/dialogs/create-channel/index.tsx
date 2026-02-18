@@ -35,15 +35,26 @@ const ChannelTypeItem = ({
 }: TChannelTypeItemProps) => (
   <div
     className={cn(
-      'flex items-center gap-2 p-2 rounded-md cursor-pointer',
-      isActive && 'ring-2 ring-primary bg-primary/10'
+      'flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition-colors',
+      isActive
+        ? 'border-primary bg-primary/10'
+        : 'border-transparent hover:bg-muted/50'
     )}
     onClick={onClick}
   >
-    {icon}
+    <div
+      className={cn(
+        'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+        isActive
+          ? 'bg-primary/20 text-primary'
+          : 'bg-muted text-muted-foreground'
+      )}
+    >
+      {icon}
+    </div>
     <div className="flex flex-col">
-      <span>{title}</span>
-      <span className="text-sm text-primary/60">{description}</span>
+      <span className="font-medium">{title}</span>
+      <span className="text-sm text-muted-foreground">{description}</span>
     </div>
   </div>
 );

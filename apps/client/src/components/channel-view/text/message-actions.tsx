@@ -101,7 +101,7 @@ const MessageActions = memo(
     );
 
     return (
-      <div className="gap-2 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center space-x-1 rounded-lg shadow-lg border border-border p-1 transition-all h-8">
+      <div className="gap-0.5 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center rounded-md shadow-md border border-border p-0.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-150 h-8">
         {canManage && (
           <>
             <IconButton

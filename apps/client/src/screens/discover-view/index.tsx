@@ -323,7 +323,7 @@ const DiscoverView = memo(() => {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
       <div className="flex h-12 items-center border-b border-border px-4 shadow-sm">
         <Compass className="mr-2 h-5 w-5 text-muted-foreground" />
         <h2 className="font-semibold text-foreground">Discover Servers</h2>

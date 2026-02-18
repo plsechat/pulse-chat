@@ -1,5 +1,6 @@
 import { useVoiceUsersByChannelId } from '@/features/server/hooks';
 import { useVoiceChannelExternalStreamsList } from '@/features/server/voice/hooks';
+import { Volume2 } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { ExternalStreamCard } from './external-stream-card';
 import {
@@ -93,6 +94,9 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <Volume2 className="h-8 w-8 text-muted-foreground" />
+          </div>
           <p className="text-muted-foreground text-lg mb-2">
             No one in the voice channel
           </p>

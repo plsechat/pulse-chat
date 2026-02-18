@@ -17,6 +17,7 @@ const useSwipeGestures = (handlers: TSwipeHandlers): TSwipeGestureHandlers => {
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
+    touchEndX.current = e.touches[0].clientX;
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {

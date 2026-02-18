@@ -36,10 +36,10 @@ const ThreadPanel = memo(() => {
   if (!thread) return null;
 
   return (
-    <div className="flex flex-col h-full w-80 border-l border-border/30 bg-background">
+    <div className="flex flex-col h-full w-80 border-l border-border bg-background">
       {/* Header */}
-      <div className="flex items-center gap-2 h-12 px-3 border-b border-border/30 flex-shrink-0">
-        <MessageSquare className="h-4 w-4 text-muted-foreground/60" />
+      <div className="flex items-center gap-2 h-12 px-3 border-b border-border flex-shrink-0">
+        <MessageSquare className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium truncate flex-1">
           {thread.name}
         </span>

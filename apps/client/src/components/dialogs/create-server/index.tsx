@@ -114,17 +114,17 @@ const CreateServerDialog = memo(
               onClick={onCreateSubmit}
               disabled={createLoading || !createValues.name.trim()}
             >
-              Create Server
+              {createLoading ? 'Creating...' : 'Create Server'}
             </Button>
           </div>
 
-          <div className="relative my-2">
+          <div className="relative my-4">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
               <span className="bg-background px-2 text-muted-foreground">
-                or
+                or join existing
               </span>
             </div>
           </div>
@@ -146,7 +146,7 @@ const CreateServerDialog = memo(
               onClick={onJoinSubmit}
               disabled={joinLoading || !joinValues.inviteCode.trim()}
             >
-              Join Server
+              {joinLoading ? 'Joining...' : 'Join Server'}
             </Button>
           </div>
         </DialogContent>
