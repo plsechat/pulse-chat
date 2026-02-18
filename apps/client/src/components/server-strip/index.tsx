@@ -71,7 +71,7 @@ const ServerIcon = memo(
     const firstLetter = server.name.charAt(0).toUpperCase();
 
     return (
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
@@ -120,7 +120,7 @@ const FederatedServerIcon = memo(
     const instanceInitial = entry.instanceDomain.charAt(0).toUpperCase();
 
     return (
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
             'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
@@ -295,7 +295,7 @@ const ServerStrip = memo(() => {
 
   return (
     <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
-      <div className="relative flex items-center justify-center">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
@@ -303,7 +303,7 @@ const ServerStrip = memo(() => {
         <button
           onClick={handleHomeClick}
           className={cn(
-            'group relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
+            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
             activeView === 'home'
               ? 'bg-primary text-primary-foreground rounded-xl'
               : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
@@ -330,7 +330,7 @@ const ServerStrip = memo(() => {
             onOpenChange={(open) => handleContextMenuOpen(open, server.id)}
           >
             <ContextMenuTrigger asChild>
-              <div>
+              <div className="w-full">
                 <ServerIcon
                   server={server}
                   isActive={
@@ -420,7 +420,7 @@ const ServerStrip = memo(() => {
           {federatedServers.map((entry) => (
             <ContextMenu key={`${entry.instanceDomain}:${entry.server.id}`}>
               <ContextMenuTrigger asChild>
-                <div>
+                <div className="w-full">
                   <FederatedServerIcon
                     entry={entry}
                     isActive={
@@ -458,7 +458,7 @@ const ServerStrip = memo(() => {
         <Plus className="h-6 w-6" />
       </button>
 
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'
