@@ -10,7 +10,8 @@ RUN cd apps/server \
     && sed -i 's/"tag": "0000_[^"]*"/"tag": "0000_initial"/g' meta/_journal.json \
     && sed -i 's/CREATE TABLE /CREATE TABLE IF NOT EXISTS /g' 0000_initial.sql \
     && sed -i 's/CREATE UNIQUE INDEX /CREATE UNIQUE INDEX IF NOT EXISTS /g' 0000_initial.sql \
-    && sed -i 's/CREATE INDEX /CREATE INDEX IF NOT EXISTS /g' 0000_initial.sql
+    && sed -i 's/CREATE INDEX /CREATE INDEX IF NOT EXISTS /g' 0000_initial.sql \
+    && sed -i 's/^ALTER TABLE .* ADD CONSTRAINT .*/DO $$ BEGIN & EXCEPTION WHEN duplicate_object THEN NULL; END $$;/' 0000_initial.sql
 RUN cd apps/server && bun run build/build.ts --target linux-x64
 
 # Stage 2: Runtime
