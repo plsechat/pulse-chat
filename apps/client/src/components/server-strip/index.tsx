@@ -71,7 +71,7 @@ const ServerIcon = memo(
     const firstLetter = server.name.charAt(0).toUpperCase();
 
     return (
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
@@ -120,7 +120,7 @@ const FederatedServerIcon = memo(
     const instanceInitial = entry.instanceDomain.charAt(0).toUpperCase();
 
     return (
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
             'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
