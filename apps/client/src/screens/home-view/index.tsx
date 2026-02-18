@@ -63,7 +63,7 @@ const HomeView = memo(() => {
   });
 
   return (
-    <div className="flex flex-col h-full" {...swipeHandlers}>
+    <div className="flex flex-col flex-1 min-h-0" {...swipeHandlers}>
       <MobileHeader
         onToggleLeftDrawer={() => setIsMobileMenuOpen((prev) => !prev)}
         title="Home"

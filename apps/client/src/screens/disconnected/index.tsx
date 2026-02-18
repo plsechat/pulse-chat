@@ -15,7 +15,8 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
 
     if (code === DisconnectCode.KICKED) {
       return {
-        icon: <AlertCircle className="h-8 w-8 text-yellow-500" />,
+        icon: <AlertCircle className="h-12 w-12 text-yellow-500" />,
+        iconBg: 'bg-yellow-500/10',
         title: 'You have been kicked',
         message: info.reason || 'No reason provided.',
         canReconnect: true
@@ -24,7 +25,8 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
 
     if (code === DisconnectCode.BANNED) {
       return {
-        icon: <Gavel className="h-8 w-8 text-red-500" />,
+        icon: <Gavel className="h-12 w-12 text-red-500" />,
+        iconBg: 'bg-red-500/10',
         title: 'You have been banned',
         message: info.reason || 'No reason provided.',
         canReconnect: false
@@ -32,7 +34,8 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
     }
 
     return {
-      icon: <WifiOff className="h-8 w-8 text-gray-500" />,
+      icon: <WifiOff className="h-12 w-12 text-muted-foreground" />,
+      iconBg: 'bg-muted',
       title: 'Connection lost',
       message: 'Lost connection to the server unexpectedly.',
       canReconnect: true
@@ -46,7 +49,11 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
       <div className="text-center space-y-6 max-w-md px-6">
-        <div className="flex justify-center">{disconnectType.icon}</div>
+        <div className="flex justify-center">
+          <div className={`rounded-full p-5 ${disconnectType.iconBg}`}>
+            {disconnectType.icon}
+          </div>
+        </div>
 
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold text-foreground">
@@ -63,7 +70,7 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
             className="inline-flex items-center gap-2"
           >
             <RefreshCw className="h-4 w-4" />
-            Go to Connect Screen
+            Reconnect
           </Button>
         )}
 

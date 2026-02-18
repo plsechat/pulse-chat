@@ -17,7 +17,7 @@ const MobileHeader = memo(
     const channelType = selectedChannel?.type;
 
     return (
-      <div className="flex md:hidden h-12 w-full border-b border-border items-center px-2 gap-1 bg-background shadow-[0_1px_0_rgba(0,0,0,0.2)]">
+      <div className="flex md:hidden h-12 w-full border-b border-border items-center px-2 gap-1 bg-background">
         <Button
           variant="ghost"
           size="icon"

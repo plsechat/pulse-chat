@@ -92,27 +92,35 @@ const VoiceUserCard = memo(
             />
           )}
 
-          <div className="absolute bottom-0 left-0 right-0 p-2">
-            <div className="flex items-center justify-between">
-              <span className="text-white font-medium text-xs truncate">
+          <div className="absolute bottom-0 left-0 right-0 p-2.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-white font-medium text-xs truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
                 {voiceUser.name}
               </span>
 
               <div className="flex items-center gap-1">
                 {voiceUser.state.micMuted && (
-                  <MicOff className="size-3.5 text-red-500/80" />
+                  <div className="h-5 w-5 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
+                    <MicOff className="size-3 text-red-400" />
+                  </div>
                 )}
 
                 {voiceUser.state.soundMuted && (
-                  <HeadphoneOff className="size-3.5 text-red-500/80" />
+                  <div className="h-5 w-5 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
+                    <HeadphoneOff className="size-3 text-red-400" />
+                  </div>
                 )}
 
                 {voiceUser.state.webcamEnabled && (
-                  <Video className="size-3.5 text-blue-600/80" />
+                  <div className="h-5 w-5 rounded-full bg-blue-500/30 backdrop-blur-sm flex items-center justify-center">
+                    <Video className="size-3 text-blue-400" />
+                  </div>
                 )}
 
                 {voiceUser.state.sharingScreen && (
-                  <Monitor className="size-3.5 text-purple-500/80" />
+                  <div className="h-5 w-5 rounded-full bg-purple-500/30 backdrop-blur-sm flex items-center justify-center">
+                    <Monitor className="size-3 text-purple-400" />
+                  </div>
                 )}
               </div>
             </div>

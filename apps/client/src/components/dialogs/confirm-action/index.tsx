@@ -30,8 +30,14 @@ const ConfirmActionDialog = memo(
     title,
     message,
     confirmLabel,
-    cancelLabel
+    cancelLabel,
+    variant
   }: TConfirmActionDialogProps) => {
+    const isDestructive =
+      variant === 'destructive' ||
+      (confirmLabel &&
+        /delete|remove|leave|kick|ban/i.test(confirmLabel));
+
     return (
       <AlertDialog open={isOpen}>
         <AlertDialogContent>
@@ -46,7 +52,14 @@ const ConfirmActionDialog = memo(
               {cancelLabel ?? 'Cancel'}
             </AlertDialogCancel>
             <AutoFocus>
-              <AlertDialogAction onClick={onConfirm}>
+              <AlertDialogAction
+                onClick={onConfirm}
+                className={
+                  isDestructive
+                    ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                    : undefined
+                }
+              >
                 {confirmLabel ?? 'Confirm'}
               </AlertDialogAction>
             </AutoFocus>

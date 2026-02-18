@@ -53,12 +53,21 @@ const SearchResult = memo(({ message, query, onJump }: TSearchResultProps) => {
   }, [message.channelId, message.id, onJump]);
 
   return (
-    <div className="p-3 hover:bg-secondary/30 border-b border-border/20 last:border-b-0">
+    <div className="p-3 hover:bg-secondary/30 border-b border-border/20 last:border-b-0 group/result">
       <div className="flex items-center gap-1.5 mb-1">
         <Hash className="w-3 h-3 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground font-medium">
+        <span className="text-xs text-muted-foreground font-medium flex-1">
           {channel?.name ?? 'Unknown'}
         </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 px-1.5 text-[10px] opacity-0 group-hover/result:opacity-100 transition-opacity"
+          onClick={handleJump}
+        >
+          Jump
+          <ArrowRight className="w-3 h-3 ml-0.5" />
+        </Button>
       </div>
       <div className="flex items-center gap-2 mb-1">
         <UserAvatar userId={message.userId} className="h-5 w-5" />
@@ -67,19 +76,8 @@ const SearchResult = memo(({ message, query, onJump }: TSearchResultProps) => {
           {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
         </span>
       </div>
-      <div className="text-sm text-muted-foreground pl-7 mb-1.5">
+      <div className="text-sm text-muted-foreground pl-7">
         {highlightMatch(message.content ?? '', query)}
-      </div>
-      <div className="flex justify-end">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs"
-          onClick={handleJump}
-        >
-          Jump
-          <ArrowRight className="w-3 h-3 ml-1" />
-        </Button>
       </div>
     </div>
   );

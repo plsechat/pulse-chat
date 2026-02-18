@@ -82,12 +82,12 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
         </VoiceGrid>
       </div>
 
-      <div className="flex items-center justify-center gap-2 px-3 py-2 border-t border-border bg-secondary/30">
+      <div className="flex items-center justify-center gap-2.5 px-3 py-2.5 border-t border-border bg-secondary/30">
         <Button
           variant="ghost"
           size="icon"
           className={cn(
-            'h-8 w-8 rounded-md transition-all duration-200',
+            'h-9 w-9 rounded-lg transition-all duration-200',
             ownVoiceState.webcamEnabled
               ? 'bg-green-500/15 hover:bg-green-500/25 text-green-400 hover:text-green-300'
               : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
@@ -111,7 +111,7 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
           variant="ghost"
           size="icon"
           className={cn(
-            'h-8 w-8 rounded-md transition-all duration-200',
+            'h-9 w-9 rounded-lg transition-all duration-200',
             ownVoiceState.sharingScreen
               ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
               : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'

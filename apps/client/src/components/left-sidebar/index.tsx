@@ -108,8 +108,8 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
             <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           </button>
         </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuLabel>Server</DropdownMenuLabel>
+            <DropdownMenuContent className="w-56">
+              <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Server</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <Protect permission={Permission.MANAGE_CATEGORIES}>
                 <DropdownMenuItem

@@ -99,7 +99,9 @@ const AllFriends = memo(
     if (friends.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <UserPlus className="mb-4 h-12 w-12 opacity-50" />
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <UserPlus className="h-8 w-8" />
+          </div>
           <p className="text-lg font-medium">No friends yet</p>
           <p className="text-sm">Add friends to start chatting!</p>
         </div>
@@ -204,8 +206,11 @@ const PendingRequests = memo(() => {
   if (requests.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <Check className="mb-4 h-12 w-12 opacity-50" />
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+          <Check className="h-8 w-8" />
+        </div>
         <p className="text-lg font-medium">No pending requests</p>
+        <p className="text-sm">You're all caught up!</p>
       </div>
     );
   }
@@ -368,9 +373,10 @@ const AddFriend = memo(() => {
       )}
 
       {searchQuery.trim() && filteredUsers.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground py-8">
-          No users found matching "{searchQuery}"
-        </p>
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+          <Search className="mb-2 h-8 w-8 opacity-40" />
+          <p className="text-sm">No users found matching "{searchQuery}"</p>
+        </div>
       )}
     </div>
   );
