@@ -33,10 +33,10 @@ const VoiceTimer = memo(({ channelId }: TVoiceTimerProps) => {
       return;
     }
 
-    setElapsed(Date.now() - startedAt);
+    setElapsed(Math.max(0, Date.now() - startedAt));
 
     const interval = setInterval(() => {
-      setElapsed(Date.now() - startedAt);
+      setElapsed(Math.max(0, Date.now() - startedAt));
     }, 1000);
 
     return () => clearInterval(interval);

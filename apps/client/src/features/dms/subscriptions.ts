@@ -7,6 +7,7 @@ import {
 import {
   addDmMessages,
   addDmTypingUser,
+  decryptDmMessageInPlace,
   deleteDmMessage,
   dmCallEnded,
   dmCallStarted,
@@ -20,14 +21,19 @@ const subscribeToDms = () => {
   const trpc = getHomeTRPCClient();
 
   const onNewMessageSub = trpc.dms.onNewMessage.subscribe(undefined, {
-    onData: (message: TJoinedDmMessage) =>
-      addDmMessages(message.dmChannelId, [message], {}, true),
+    onData: async (message: TJoinedDmMessage) => {
+      const decrypted = await decryptDmMessageInPlace(message);
+      addDmMessages(decrypted.dmChannelId, [decrypted], {}, true);
+    },
     onError: (err) =>
       console.error('onDmNewMessage subscription error:', err)
   });
 
   const onMessageUpdateSub = trpc.dms.onMessageUpdate.subscribe(undefined, {
-    onData: (message: TJoinedDmMessage) => updateDmMessage(message),
+    onData: async (message: TJoinedDmMessage) => {
+      const decrypted = await decryptDmMessageInPlace(message);
+      updateDmMessage(decrypted);
+    },
     onError: (err) =>
       console.error('onDmMessageUpdate subscription error:', err)
   });

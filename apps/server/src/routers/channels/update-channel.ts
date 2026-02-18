@@ -3,8 +3,9 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
-import { channels } from '../../db/schema';
+import { channels, servers } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const updateChannelRoute = protectedProcedure
@@ -14,11 +15,34 @@ const updateChannelRoute = protectedProcedure
       name: z.string().min(2).max(24).optional(),
       topic: z.string().max(128).nullable().optional(),
       private: z.boolean().optional(),
-      slowMode: z.number().min(0).max(21600).optional()
+      slowMode: z.number().min(0).max(21600).optional(),
+      e2ee: z.boolean().optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
     await ctx.needsPermission(Permission.MANAGE_CHANNELS);
+
+    // E2EE can only be enabled (not disabled), and only by server owner
+    if (input.e2ee !== undefined) {
+      invariant(input.e2ee === true, {
+        code: 'BAD_REQUEST',
+        message: 'E2EE cannot be disabled once enabled'
+      });
+
+      // Verify caller is server owner
+      if (ctx.activeServerId) {
+        const [server] = await db
+          .select({ ownerId: servers.ownerId })
+          .from(servers)
+          .where(eq(servers.id, ctx.activeServerId))
+          .limit(1);
+
+        invariant(server && server.ownerId === ctx.userId, {
+          code: 'FORBIDDEN',
+          message: 'Only the server owner can enable E2EE on channels'
+        });
+      }
+    }
 
     const [updatedChannel] = await db
       .update(channels)
@@ -26,7 +50,8 @@ const updateChannelRoute = protectedProcedure
         name: input.name,
         topic: input.topic,
         private: input.private,
-        slowMode: input.slowMode
+        slowMode: input.slowMode,
+        e2ee: input.e2ee
       })
       .where(eq(channels.id, input.channelId))
       .returning();

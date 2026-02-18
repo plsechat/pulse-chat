@@ -9,6 +9,7 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import { connectionManager } from '@/lib/connection-manager';
+import { initE2EE } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { getAccessToken, initSupabase } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
@@ -187,6 +188,11 @@ export const loadApp = async () => {
 
       // Try connecting directly — the WebSocket validates the token
       await connect();
+
+      // Initialize E2EE keys (generates if needed, replenishes OTPs)
+      initE2EE().catch((err) =>
+        console.error('E2EE initialization failed:', err)
+      );
 
       // Load persisted federated servers
       loadFederatedServers();

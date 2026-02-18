@@ -4,6 +4,7 @@ import { getFileUrl } from '@/helpers/get-file-url';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { imageExtensions, type TJoinedMessage } from '@pulse/shared';
+import { Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
 import parse from 'html-react-parser';
@@ -106,8 +107,17 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     return [...foundMedia, ...mediaFromFiles];
   }, [foundMedia, message.files]);
 
+  const isDecryptionFailure =
+    message.e2ee && message.content === '[Unable to decrypt]';
+
   return (
     <div className="flex flex-col gap-1">
+      {isDecryptionFailure ? (
+        <div className="flex items-center gap-1.5 text-sm text-destructive/80 italic">
+          <Lock className="h-3 w-3" />
+          <span>Unable to decrypt this message</span>
+        </div>
+      ) : (
       <div className={cn('max-w-full break-words msg-content', isEmojiOnly && 'emoji-only')}>
         {messageHtml}
         {message.edited && (
@@ -118,6 +128,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
           </Tooltip>
         )}
       </div>
+      )}
 
       {allMedia.map((media, index) => {
         if (media.type === 'image') {

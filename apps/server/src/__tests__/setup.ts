@@ -31,6 +31,10 @@ beforeEach(async () => {
 
   // Truncate all tables in reverse dependency order
   await tdb.execute(sql`TRUNCATE TABLE
+    e2ee_sender_keys,
+    user_one_time_pre_keys,
+    user_signed_pre_keys,
+    user_identity_keys,
     plugin_data,
     channel_read_states,
     channel_user_permissions,

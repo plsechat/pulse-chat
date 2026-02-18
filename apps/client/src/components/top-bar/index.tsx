@@ -5,7 +5,7 @@ import {
   useSelectedChannel
 } from '@/features/server/channels/hooks';
 import { cn } from '@/lib/utils';
-import { Hash, LayoutList, List, MessageSquare, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
+import { Hash, LayoutList, List, Lock, MessageSquare, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import { SearchPopover } from '../search/search-popover';
 import { Tooltip } from '../ui/tooltip';
@@ -65,6 +65,11 @@ const TopBar = memo(
             <span className="text-base font-semibold text-foreground truncate">
               {selectedChannel.name}
             </span>
+            {selectedChannel.e2ee && (
+              <Tooltip content="End-to-end encrypted">
+                <Lock className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+              </Tooltip>
+            )}
             {selectedChannel.topic && (
               <>
                 <div className="h-4 w-px bg-border/50 mx-1" />
