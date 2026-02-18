@@ -50,6 +50,14 @@ const registerKeysRoute = protectedProcedure
           }
         });
 
+      // Clear existing signed pre-keys and one-time pre-keys (for key regeneration)
+      await tx
+        .delete(userSignedPreKeys)
+        .where(eq(userSignedPreKeys.userId, ctx.userId));
+      await tx
+        .delete(userOneTimePreKeys)
+        .where(eq(userOneTimePreKeys.userId, ctx.userId));
+
       // Insert signed pre-key
       await tx.insert(userSignedPreKeys).values({
         userId: ctx.userId,

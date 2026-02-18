@@ -28,13 +28,14 @@ describe('e2ee router', () => {
     expect(count).toBe(3);
   });
 
-  test('should upsert identity key on re-registration', async () => {
-    const { caller } = await initTest();
+  test('should upsert identity key and replace keys on re-registration', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
 
-    await caller.e2ee.registerKeys(mockKeys);
+    await caller1.e2ee.registerKeys(mockKeys);
 
-    // Re-register with different identity key
-    await caller.e2ee.registerKeys({
+    // Re-register with different keys (simulates key regeneration)
+    await caller1.e2ee.registerKeys({
       ...mockKeys,
       identityPublicKey: 'updated-identity-key',
       signedPreKey: {
@@ -48,9 +49,15 @@ describe('e2ee router', () => {
       ]
     });
 
-    // Should have original 3 + new 2 OTPs
-    const count = await caller.e2ee.getPreKeyCount();
-    expect(count).toBe(5);
+    // Old OTPs should be cleared, only new ones remain
+    const count = await caller1.e2ee.getPreKeyCount();
+    expect(count).toBe(2);
+
+    // Bundle should reflect new signed pre-key (not old one)
+    const bundle = await caller2.e2ee.getPreKeyBundle({ userId: 1 });
+    expect(bundle!.identityPublicKey).toBe('updated-identity-key');
+    expect(bundle!.signedPreKey.keyId).toBe(2);
+    expect(bundle!.signedPreKey.publicKey).toBe('new-signed-key');
   });
 
   test('should register keys with empty OTP array', async () => {
@@ -284,5 +291,81 @@ describe('e2ee router', () => {
     // User 1 should see the key
     const pendingForUser1 = await caller1.e2ee.getPendingSenderKeys({});
     expect(pendingForUser1.length).toBe(1);
+  });
+
+  // --- Key regeneration ---
+
+  test('should allow re-registration without signed pre-key conflict', async () => {
+    const { caller } = await initTest();
+
+    // Register with keyId 1
+    await caller.e2ee.registerKeys(mockKeys);
+
+    // Re-register with the same signed pre-key keyId (should not conflict)
+    await caller.e2ee.registerKeys({
+      ...mockKeys,
+      signedPreKey: {
+        keyId: 1,
+        publicKey: 'regenerated-signed-key',
+        signature: 'regenerated-signature'
+      },
+      oneTimePreKeys: [{ keyId: 1, publicKey: 'regenerated-otp' }]
+    });
+
+    // Should succeed and only have the new OTP
+    const count = await caller.e2ee.getPreKeyCount();
+    expect(count).toBe(1);
+  });
+
+  test('should distribute sender keys to multiple users', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+
+    // User 1 distributes to user 2 and user 3
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      distributionMessage: 'key-for-user-2'
+    });
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 3,
+      distributionMessage: 'key-for-user-3'
+    });
+
+    const pending2 = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
+    expect(pending2.length).toBe(1);
+    expect(pending2[0]!.distributionMessage).toBe('key-for-user-2');
+
+    const pending3 = await caller3.e2ee.getPendingSenderKeys({ channelId: 1 });
+    expect(pending3.length).toBe(1);
+    expect(pending3[0]!.distributionMessage).toBe('key-for-user-3');
+  });
+
+  test('should handle multiple sender key distributions from different users', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+
+    // User 1 and User 2 both distribute keys to User 3
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 3,
+      distributionMessage: 'key-from-user-1'
+    });
+    await caller2.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 3,
+      distributionMessage: 'key-from-user-2'
+    });
+
+    const pending = await caller3.e2ee.getPendingSenderKeys({ channelId: 1 });
+    expect(pending.length).toBe(2);
+
+    const fromUser1 = pending.find((k) => k.fromUserId === 1);
+    const fromUser2 = pending.find((k) => k.fromUserId === 2);
+    expect(fromUser1!.distributionMessage).toBe('key-from-user-1');
+    expect(fromUser2!.distributionMessage).toBe('key-from-user-2');
   });
 });

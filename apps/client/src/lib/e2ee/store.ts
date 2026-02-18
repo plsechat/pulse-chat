@@ -8,7 +8,7 @@ import type {
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   IDENTITY_KEY: 'identityKey',
@@ -16,7 +16,8 @@ const STORES = {
   PRE_KEYS: 'preKeys',
   SIGNED_PRE_KEYS: 'signedPreKeys',
   SESSIONS: 'sessions',
-  IDENTITIES: 'identities'
+  IDENTITIES: 'identities',
+  SENDER_KEYS: 'senderKeys'
 } as const;
 
 type SerializedKeyPair = {
@@ -62,6 +63,9 @@ async function getDb(): Promise<IDBPDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.IDENTITIES)) {
         db.createObjectStore(STORES.IDENTITIES);
+      }
+      if (!db.objectStoreNames.contains(STORES.SENDER_KEYS)) {
+        db.createObjectStore(STORES.SENDER_KEYS);
       }
     }
   });
@@ -226,6 +230,24 @@ export class SignalProtocolStore implements StorageType {
     const db = await getDb();
     const kp = await db.get(STORES.IDENTITY_KEY, 'identityKey');
     return !!kp;
+  }
+
+  // Sender key methods for channel E2EE
+  async getSenderKey(
+    channelId: number,
+    userId: number
+  ): Promise<string | undefined> {
+    const db = await getDb();
+    return db.get(STORES.SENDER_KEYS, `${channelId}:${userId}`);
+  }
+
+  async storeSenderKey(
+    channelId: number,
+    userId: number,
+    key: string
+  ): Promise<void> {
+    const db = await getDb();
+    await db.put(STORES.SENDER_KEYS, key, `${channelId}:${userId}`);
   }
 
   async clearAll(): Promise<void> {

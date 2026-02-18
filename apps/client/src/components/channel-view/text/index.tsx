@@ -2,7 +2,7 @@ import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
 import { useCan, useChannelCan } from '@/features/server/hooks';
-import { useUserById } from '@/features/server/users/hooks';
+import { useOwnUserId, useUserById, useUsers } from '@/features/server/users/hooks';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useMessages } from '@/features/server/messages/hooks';
 import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
@@ -11,6 +11,7 @@ import { SoundType } from '@/features/server/types';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useUploadFiles } from '@/hooks/use-upload-files';
+import { encryptChannelMessage, ensureChannelSenderKey } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import {
   ChannelPermission,
@@ -70,6 +71,9 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const slowModeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const selectedChannel = useSelectedChannel();
   const slowMode = selectedChannel?.slowMode ?? 0;
+  const isE2ee = selectedChannel?.e2ee ?? false;
+  const ownUserId = useOwnUserId();
+  const serverUsers = useUsers();
   const allPluginCommands = useFlatPluginCommands();
   const { containerRef, onScroll } = useScrollController({
     messages,
@@ -166,12 +170,34 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
     const trpc = getTRPCClient();
 
     try {
-      await trpc.messages.send.mutate({
-        content: preprocessMarkdown(newMessage),
-        channelId,
-        files: files.map((f) => f.id),
-        replyToId: replyingTo?.id
-      });
+      const content = preprocessMarkdown(newMessage);
+
+      if (isE2ee && ownUserId) {
+        // Ensure we have a sender key and distribute to members
+        const memberIds = serverUsers.map((u) => u.id);
+        await ensureChannelSenderKey(channelId, ownUserId, memberIds);
+
+        const encryptedContent = await encryptChannelMessage(
+          channelId,
+          ownUserId,
+          { content }
+        );
+
+        await trpc.messages.send.mutate({
+          encryptedContent,
+          e2ee: true,
+          channelId,
+          files: files.map((f) => f.id),
+          replyToId: replyingTo?.id
+        });
+      } else {
+        await trpc.messages.send.mutate({
+          content,
+          channelId,
+          files: files.map((f) => f.id),
+          replyToId: replyingTo?.id
+        });
+      }
 
       playSound(SoundType.MESSAGE_SENT);
     } catch (error) {
@@ -191,7 +217,10 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
     sendTypingSignal,
     canSendMessages,
     replyingTo,
-    startSlowModeCooldown
+    startSlowModeCooldown,
+    isE2ee,
+    ownUserId,
+    serverUsers
   ]);
 
   const onFileInputChange = useCallback(
@@ -208,18 +237,32 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
       const trpc = getTRPCClient();
+      const content = `<p><a href="${gifUrl}">${gifUrl}</a></p>`;
 
       try {
-        await trpc.messages.send.mutate({
-          content: `<p><a href="${gifUrl}">${gifUrl}</a></p>`,
-          channelId
-        });
+        if (isE2ee && ownUserId) {
+          const memberIds = serverUsers.map((u) => u.id);
+          await ensureChannelSenderKey(channelId, ownUserId, memberIds);
+
+          const encryptedContent = await encryptChannelMessage(
+            channelId,
+            ownUserId,
+            { content }
+          );
+          await trpc.messages.send.mutate({
+            encryptedContent,
+            e2ee: true,
+            channelId
+          });
+        } else {
+          await trpc.messages.send.mutate({ content, channelId });
+        }
         playSound(SoundType.MESSAGE_SENT);
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [channelId]
+    [channelId, isE2ee, ownUserId, serverUsers]
   );
 
   const onRemoveFileClick = useCallback(
