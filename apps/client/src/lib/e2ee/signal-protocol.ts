@@ -129,7 +129,11 @@ export async function encryptMessage(
   const cipher = new SessionCipher(signalStore, address);
 
   const encoder = new TextEncoder();
-  const plaintextBuffer = encoder.encode(plaintext).buffer;
+  const encoded = encoder.encode(plaintext);
+  const plaintextBuffer = encoded.buffer.slice(
+    encoded.byteOffset,
+    encoded.byteOffset + encoded.byteLength
+  ) as ArrayBuffer;
 
   const ciphertext = await cipher.encrypt(plaintextBuffer);
 
