@@ -458,7 +458,7 @@ const ServerStrip = memo(() => {
         <Plus className="h-6 w-6" />
       </button>
 
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'
