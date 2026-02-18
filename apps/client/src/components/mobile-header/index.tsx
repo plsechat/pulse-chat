@@ -1,5 +1,5 @@
 import { useSelectedChannel } from '@/features/server/channels/hooks';
-import { Hash, LayoutList, Menu, Search, Users, Volume2 } from 'lucide-react';
+import { Hash, LayoutList, Menu, Users, Volume2 } from 'lucide-react';
 import { memo } from 'react';
 import { Button } from '../ui/button';
 
@@ -17,7 +17,7 @@ const MobileHeader = memo(
     const channelType = selectedChannel?.type;
 
     return (
-      <div className="flex md:hidden h-12 w-full border-b border-border items-center px-2 gap-1 bg-background shadow-[0_1px_0_rgba(0,0,0,0.2)]">
+      <div className="flex md:hidden h-12 w-full border-b border-border items-center px-2 gap-1 bg-background">
         <Button
           variant="ghost"
           size="icon"

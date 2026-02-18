@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'path';
 import { login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
-import { settings } from '../../db/schema';
+import { servers } from '../../db/schema';
 import { TMP_PATH } from '../../helpers/paths';
 import { fileExists } from '../../utils/file-manager';
 
@@ -18,12 +18,10 @@ describe('/upload', () => {
   let token: string;
 
   beforeEach(async () => {
-    if (token) return;
-
     const response = await login('testowner', 'password123');
-    const data: any = await response.json();
+    const data = (await response.json()) as { accessToken: string };
 
-    token = data.token;
+    token = data.accessToken;
   });
 
   afterAll(async () => {
@@ -88,7 +86,7 @@ describe('/upload', () => {
   });
 
   test('should throw when uploads are disabled', async () => {
-    await tdb.update(settings).set({ storageUploadEnabled: false });
+    await tdb.update(servers).set({ storageUploadEnabled: false });
 
     const file = getMockFile('gonna fail');
     const response = await uploadFile(file, token);
@@ -105,7 +103,7 @@ describe('/upload', () => {
 
   test('should throw when file exceeds max size', async () => {
     await tdb
-      .update(settings)
+      .update(servers)
       .set({ storageUploadMaxFileSize: 5 * 1024 * 1024 }); // 5 MB
 
     const largeContent = 'A'.repeat(5 * 1024 * 1024 + 1); // 5 MB + 1 byte

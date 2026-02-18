@@ -65,7 +65,7 @@ const Details = memo(() => {
           <Row
             icon={<IdCard className="h-4 w-4 text-muted-foreground" />}
             label="Identity"
-            value={user.identity}
+            value={user.supabaseId}
           />
 
           <Row

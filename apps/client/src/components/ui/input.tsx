@@ -58,7 +58,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         />
         {error && (
           <p className="text-sm text-destructive" role="alert">
-            {error}
+            {typeof error === 'string' ? error : 'An error occurred'}
           </p>
         )}
       </div>

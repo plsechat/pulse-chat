@@ -45,10 +45,13 @@ const DmCallBanner = memo(({ dmChannelId }: TDmCallBannerProps) => {
   if (!call || userIds.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-3 bg-emerald-600/20 border-b border-emerald-600/30 px-4 py-2">
-      <Phone className="h-4 w-4 text-emerald-500 animate-pulse" />
+    <div className="flex items-center gap-3 bg-green-500/10 border-b border-green-500/20 px-4 py-2">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-500/20">
+        <Phone className="h-3.5 w-3.5 text-green-500 animate-pulse" />
+      </div>
       <div className="flex-1 flex items-center gap-2 text-sm">
-        <span className="text-emerald-400 font-medium">Voice call active</span>
+        <span className="text-green-500 font-medium">Voice call active</span>
+        <span className="text-muted-foreground/60">·</span>
         <span className="text-muted-foreground">
           {userIds.length} {userIds.length === 1 ? 'participant' : 'participants'}
         </span>

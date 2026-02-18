@@ -1,5 +1,4 @@
 import type {
-  TJoinedServer,
   TJoinedSettings,
   TPublicServerSettings
 } from '@pulse/shared';

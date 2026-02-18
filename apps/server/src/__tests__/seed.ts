@@ -16,6 +16,7 @@ import {
   type TIUser
 } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
+import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
   categories,
@@ -32,6 +33,10 @@ import {
 const TEST_SECRET_TOKEN = 'test-secret-token-for-unit-tests';
 
 const seedDatabase = async (db: PostgresJsDatabase) => {
+  // Clear the in-memory supabase auth store so stale entries from a prior seed
+  // don't collide with the fresh UUIDs generated below.
+  globalThis.__supabaseAuthStore?.clear();
+
   const firstStart = Date.now();
 
   const initialSettings: TISettings = {
@@ -124,6 +129,10 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
 
   await db.insert(roles).values(ownerRole);
 
+  // Advance the roles sequence past the explicitly-set OWNER_ROLE_ID
+  // so the next DEFAULT insert doesn't conflict
+  await db.execute(sql`SELECT setval('roles_id_seq', ${OWNER_ROLE_ID})`);
+
   const ownerPermissions = Object.values(Permission).map((permission) => ({
     roleId: OWNER_ROLE_ID,
     permission,
@@ -184,6 +193,12 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     createdAt: firstStart
   });
 
+  // Set the owner on the server so hasChannelPermission owner bypass works
+  await db
+    .update(servers)
+    .set({ ownerId: insertedOwner!.id })
+    .where(sql`id = 1`);
+
   const regularUser: TIUser = {
     name: 'Test User',
     supabaseId: `test-user-${randomUUIDv7()}`,
@@ -212,6 +227,23 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
   };
 
   await db.insert(messages).values(testMessage);
+
+  // Pre-seed the supabase auth store so login/upload tests can authenticate.
+  // The upload & public & others tests call login('testowner', 'password123')
+  // and login tests call login('testowner@pulse.local', 'password123').
+  const store = globalThis.__supabaseAuthStore;
+  if (store) {
+    store.set('testowner', {
+      supabaseId: ownerUser.supabaseId,
+      password: 'password123',
+      email: 'testowner'
+    });
+    store.set('testowner@pulse.local', {
+      supabaseId: ownerUser.supabaseId,
+      password: 'password123',
+      email: 'testowner@pulse.local'
+    });
+  }
 
   return {
     settings: initialSettings,

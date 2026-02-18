@@ -1,4 +1,4 @@
-import { ServerEvents, UserStatus } from '@pulse/shared';
+import { UserStatus } from '@pulse/shared';
 import { z } from 'zod';
 import { publishUser } from '../../db/publishers';
 import { protectedProcedure } from '../../utils/trpc';

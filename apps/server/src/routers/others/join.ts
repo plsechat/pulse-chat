@@ -1,7 +1,17 @@
 import {
   ActivityLogType,
   ServerEvents,
-  UserStatus
+  UserStatus,
+  type TCategory,
+  type TChannel,
+  type TChannelUserPermissionsMap,
+  type TExternalStreamsMap,
+  type TJoinedEmoji,
+  type TJoinedPublicUser,
+  type TJoinedRole,
+  type TPublicServerSettings,
+  type TReadStateMap,
+  type TVoiceMap
 } from '@pulse/shared';
 import { timingSafeEqual } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -99,21 +109,21 @@ const joinServerRoute = t.procedure
       enqueueLogin(ctx.user.id, connectionInfo);
 
       return {
-        categories: [],
-        channels: [],
-        users: [],
+        categories: [] as TCategory[],
+        channels: [] as TChannel[],
+        users: [] as TJoinedPublicUser[],
         serverId: '',
         serverName: '',
         serverDbId: 0,
         ownUserId: ctx.user.id,
-        voiceMap: {},
-        roles: [],
-        emojis: [],
-        publicSettings: undefined,
-        channelPermissions: [],
-        readStates: [],
+        voiceMap: {} as TVoiceMap,
+        roles: [] as TJoinedRole[],
+        emojis: [] as TJoinedEmoji[],
+        publicSettings: undefined as TPublicServerSettings | undefined,
+        channelPermissions: {} as TChannelUserPermissionsMap,
+        readStates: {} as TReadStateMap,
         commands: pluginManager.getCommands(),
-        externalStreamsMap: {}
+        externalStreamsMap: {} as TExternalStreamsMap
       };
     }
 

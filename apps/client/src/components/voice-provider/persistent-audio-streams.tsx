@@ -56,7 +56,7 @@ const RemoteUserAudio = memo(
       if (!el || !('setSinkId' in el)) return;
 
       const sinkId = realOutputSinkId ?? '';
-      (el as any).setSinkId(sinkId).catch(() => {
+      (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {
         // setSinkId can fail if device disconnected — not critical
       });
     }, [realOutputSinkId]);
@@ -130,7 +130,7 @@ const RemoteScreenShareAudio = memo(
     useEffect(() => {
       if (!audioCtxRef.current) return;
       if (realOutputSinkId && 'setSinkId' in audioCtxRef.current) {
-        (audioCtxRef.current as any).setSinkId(realOutputSinkId).catch(() => {});
+        (audioCtxRef.current as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(realOutputSinkId).catch(() => {});
       }
     }, [realOutputSinkId]);
 
@@ -185,7 +185,7 @@ const ExternalStreamAudio = memo(
       if (!el || !('setSinkId' in el)) return;
 
       const sinkId = realOutputSinkId ?? '';
-      (el as any).setSinkId(sinkId).catch(() => {});
+      (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {});
     }, [realOutputSinkId]);
 
     return (

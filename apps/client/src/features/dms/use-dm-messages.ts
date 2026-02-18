@@ -2,7 +2,7 @@ import type { IRootState } from '@/features/store';
 import type { TJoinedDmMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { addDmMessages, fetchDmMessages } from './actions';
+import { fetchDmMessages } from './actions';
 import { dmMessagesSelector } from './selectors';
 
 export const useDmMessages = (dmChannelId: number) => {

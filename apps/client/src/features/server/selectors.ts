@@ -32,7 +32,7 @@ export const serverNameSelector = (state: IRootState) =>
   state.server.publicSettings?.name;
 
 export const serverIdSelector = (state: IRootState) =>
-  state.server.publicSettings?.serverId;
+  state.server.publicSettings?.publicId;
 
 export const publicServerSettingsSelector = (state: IRootState) =>
   state.server.publicSettings;

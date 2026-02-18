@@ -297,7 +297,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
             <div className="flex gap-2 mt-3">
               <IconButton
                 icon={MessageSquare}
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 title="Send Message"
                 onClick={handleSendMessage}
@@ -305,7 +305,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               {isFriend ? (
                 <IconButton
                   icon={UserMinus}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   title="Remove Friend"
                   onClick={handleRemoveFriend}
@@ -313,7 +313,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               ) : (
                 <IconButton
                   icon={UserPlus}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   title="Add Friend"
                   onClick={handleAddFriend}

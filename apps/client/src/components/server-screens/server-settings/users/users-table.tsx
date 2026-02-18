@@ -12,7 +12,7 @@ const UsersTable = memo(({ users }: TUsersTableProps) => {
     const query = searchTerm.toLowerCase();
     return (
       user.name.toLowerCase().includes(query) ||
-      user.identity?.toLowerCase().includes(query)
+      user.supabaseId?.toLowerCase().includes(query)
     );
   }, []);
 

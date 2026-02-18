@@ -8,8 +8,6 @@ import { db } from '../db';
 import { automodRules } from '../db/schema';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { logger } from '../logger';
-import { pubsub } from './pubsub';
-import { ServerEvents } from '@pulse/shared';
 import { publishMessage } from '../db/publishers';
 
 type TAutomodResult = {

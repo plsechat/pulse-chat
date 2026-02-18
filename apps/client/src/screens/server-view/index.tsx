@@ -80,7 +80,7 @@ const ServerView = memo(() => {
 
   return (
     <div
-      className="flex h-full flex-col"
+      className="flex flex-1 min-h-0 flex-col"
       {...swipeHandlers}
     >
       <div className="flex flex-1 overflow-hidden relative">

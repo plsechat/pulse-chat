@@ -1,0 +1,9 @@
+{
+  "name": "plugin-missing-entry",
+  "version": "1.0.0",
+  "pulse": {
+    "entry": "nonexistent.js",
+    "author": "Test Author",
+    "description": "Plugin with missing entry file"
+  }
+}

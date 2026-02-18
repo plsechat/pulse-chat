@@ -1,4 +1,8 @@
 [test]
-# Preload the db mock FIRST, then the global test setup
-preload = ["./src/__tests__/prepare.ts", "./src/__tests__/mock-db.ts", "./src/__tests__/setup.ts"]
+# Preload order matters:
+# 1. mock-modules — mocks config/logger/supabase BEFORE any code imports them
+# 2. prepare      — creates directories, copies migrations
+# 3. mock-db      — mocks db module, runs migrations against test database
+# 4. setup        — global beforeAll/beforeEach hooks (starts HTTP server, truncates tables)
+preload = ["./src/__tests__/mock-modules.ts", "./src/__tests__/prepare.ts", "./src/__tests__/mock-db.ts", "./src/__tests__/setup.ts"]
 

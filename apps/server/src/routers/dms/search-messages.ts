@@ -2,7 +2,7 @@ import type { TFile, TJoinedDmMessage, TJoinedDmMessageReaction, TMessageReplyPr
 import { and, desc, eq, ilike, inArray, lt, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getDmChannelMemberIds, getDmChannelsForUser } from '../../db/queries/dms';
+import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmChannelMembers, dmMessageFiles, dmMessageReactions, dmMessages, files } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';

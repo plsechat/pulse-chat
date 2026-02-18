@@ -5,8 +5,8 @@ on:
   pull_request:
 
 jobs:
-  test:
-    name: Run Tests
+  lint:
+    name: Lint & Type Check
     runs-on: ubuntu-latest
 
     steps:
@@ -21,10 +21,58 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Run DB Migrations
+      - name: Check types
+        run: bun run check-types
+
+      - name: Lint
+        run: bun run lint
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pulse_test
+          POSTGRES_PASSWORD: pulse_test
+          POSTGRES_DB: pulse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://pulse_test:pulse_test@localhost:5432/pulse_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U pulse_test && break
+            echo "Waiting for postgres ($i/30)..."
+            sleep 2
+          done
+
+      - name: Generate Drizzle migrations
         working-directory: apps/server
         run: bun run db:gen
-        
+
       - name: Run server tests
         working-directory: apps/server
-        run: bun run build
+        run: bun test

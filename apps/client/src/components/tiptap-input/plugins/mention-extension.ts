@@ -68,7 +68,7 @@ export const MentionExtension = Node.create<MentionOptions>({
     ];
   },
 
-  renderHTML({ node, HTMLAttributes }) {
+  renderHTML({ HTMLAttributes }) {
     const name = HTMLAttributes['data-mention-name'] ?? '';
 
     return [

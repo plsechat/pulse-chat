@@ -1,0 +1,78 @@
+services:
+  db:
+    image: supabase/postgres:15.6.1.143
+    restart: unless-stopped
+    container_name: pulse-db
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY:-3600}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth:
+    image: supabase/gotrue:v2.170.0
+    restart: unless-stopped
+    container_name: pulse-auth
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      API_EXTERNAL_URL: ${SITE_URL}
+
+  kong:
+    image: kong:3.4
+    restart: unless-stopped
+    container_name: pulse-kong
+    depends_on:
+      auth:
+        condition: service_started
+    volumes:
+      - ./docker/kong-supabase.yml:/home/kong/kong.yml:ro
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+    ports:
+      - "8000:8000"
+
+  pulse:
+    build: .
+    restart: unless-stopped
+    container_name: pulse
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    ports:
+      - "${PULSE_PORT:-4991}:4991"
+      - "40000-40020:40000-40020/udp"
+    env_file: .env
+    environment:
+      RUNNING_IN_DOCKER: "true"
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: ${SITE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    volumes:
+      - ./data/pulse:/root/.config/pulse

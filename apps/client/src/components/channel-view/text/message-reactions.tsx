@@ -7,8 +7,7 @@ import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import {
   Permission,
-  type TFile,
-  type TJoinedMessageReaction
+  type TFile
 } from '@pulse/shared';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { memo, useCallback, useMemo } from 'react';

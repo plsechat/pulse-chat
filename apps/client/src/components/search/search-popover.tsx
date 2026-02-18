@@ -19,7 +19,7 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
   const [searched, setSearched] = useState(false);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -159,13 +159,16 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
       <div className="flex-1 overflow-y-auto">
         {!searched && !loading && (
           <div className="p-6 text-center text-sm text-muted-foreground">
-            Start typing to search messages
+            <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
+            <p>Start typing to search messages</p>
           </div>
         )}
 
         {searched && results.length === 0 && !loading && (
           <div className="p-6 text-center text-sm text-muted-foreground">
-            No messages found
+            <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
+            <p>No messages found</p>
+            <p className="text-xs mt-1">Try a different search term</p>
           </div>
         )}
 

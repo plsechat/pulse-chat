@@ -92,7 +92,7 @@ class ConnectionManager {
   }
 
   disconnectAll(): void {
-    for (const [domain, conn] of this.connections) {
+    for (const [, conn] of this.connections) {
       conn.wsClient.close();
       conn.status = 'disconnected';
     }

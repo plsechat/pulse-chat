@@ -9,8 +9,8 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import { connectionManager } from '@/lib/connection-manager';
-import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
-import { getAccessToken, initSupabase, supabase } from '@/lib/supabase';
+import { getHomeTRPCClient } from '@/lib/trpc';
+import { getAccessToken, initSupabase } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
 import { connect, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';

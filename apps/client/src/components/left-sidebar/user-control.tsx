@@ -17,7 +17,7 @@ import { memo, useCallback } from 'react';
 import { ServerScreen } from '../server-screens/screens';
 import { Button } from '../ui/button';
 import { UserAvatar } from '../user-avatar';
-import { getStatusLabel, statusConfig, UserStatusBadge } from '../user-status';
+import { getStatusLabel, UserStatusBadge } from '../user-status';
 import { UserPopover } from '../user-popover';
 
 const statusOptions = [
@@ -37,7 +37,7 @@ const UserControl = memo(() => {
     openServerScreen(ServerScreen.USER_SETTINGS);
   }, []);
 
-  const handleStatusChange = useCallback(async (status: UserStatus) => {
+  const handleStatusChange = useCallback(async (status: (typeof statusOptions)[number]) => {
     const trpc = getTRPCClient();
     await trpc.users.setStatus.mutate({ status });
   }, []);

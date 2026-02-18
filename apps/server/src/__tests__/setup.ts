@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, mock } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import { DATA_PATH } from '../helpers/paths';
@@ -10,30 +10,12 @@ import { seedDatabase } from './seed';
 /**
  * Global test setup - truncates all tables and re-seeds before each test.
  * This ensures tests don't interfere with each other.
+ *
+ * NOTE: Console suppression and module mocks (config, logger, supabase)
+ * are handled in mock-modules.ts which runs before this file.
  */
 
-const DISABLE_CONSOLE = true;
 const CLEANUP_AFTER_FINISH = true;
-
-if (DISABLE_CONSOLE) {
-  const noop = () => {};
-
-  global.console.log = noop;
-  global.console.info = noop;
-  global.console.warn = noop;
-  global.console.debug = noop;
-
-  mock.module('../logger', () => ({
-    logger: {
-      info: noop,
-      warn: noop,
-      error: noop,
-      debug: noop,
-      trace: noop,
-      fatal: noop
-    }
-  }));
-}
 
 let testsBaseUrl: string;
 
@@ -67,6 +49,7 @@ beforeEach(async () => {
     roles,
     channels,
     categories,
+    servers,
     settings
     RESTART IDENTITY CASCADE`);
 

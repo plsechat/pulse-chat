@@ -88,7 +88,7 @@ const ServerIcon = memo(
         >
           {server.logo ? (
             <img
-              src={getFileUrl(server.logo.name)}
+              src={getFileUrl(server.logo)}
               alt={server.name}
               className="h-full w-full object-cover"
             />
@@ -146,11 +146,11 @@ const FederatedServerIcon = memo(
           ) : (
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
-          {/* Federation badge */}
-          <div className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 border border-sidebar text-[8px] font-bold text-white">
-            {instanceInitial}
-          </div>
         </button>
+        {/* Federation badge — outside button to avoid overflow-hidden clipping */}
+        <div className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 border border-sidebar text-[8px] font-bold text-white pointer-events-none">
+          {instanceInitial}
+        </div>
       </div>
     );
   }

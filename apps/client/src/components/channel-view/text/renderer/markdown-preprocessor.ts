@@ -48,7 +48,7 @@ function processInlineMarkdown(content: string): string {
       part = part.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
 
       // Italic: _text_ — only at word boundaries, not inside SNAKE_CASE identifiers
-      part = part.replace(/(?<=^|[\s(])_(?!_)(.+?)(?<!_)_(?=[\s.,;:!?)\-]|$)/g, '<em>$1</em>');
+      part = part.replace(/(?<=^|[\s(])_(?!_)(.+?)(?<!_)_(?=[\s.,;:!?)\\-]|$)/g, '<em>$1</em>');
 
       // Strikethrough: ~~text~~
       part = part.replace(/~~(.+?)~~/g, '<s>$1</s>');

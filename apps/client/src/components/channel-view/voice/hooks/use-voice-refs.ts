@@ -119,7 +119,7 @@ const useVoiceRefs = (
     if (!el || !('setSinkId' in el)) return;
 
     const sinkId = realOutputSinkId ?? '';
-    (el as any).setSinkId(sinkId).catch(() => {});
+    (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {});
   }, [audioRef, realOutputSinkId]);
 
   useEffect(() => {
@@ -160,7 +160,7 @@ const useVoiceRefs = (
     if (!el || !('setSinkId' in el)) return;
 
     const sinkId = realOutputSinkId ?? '';
-    (el as any).setSinkId(sinkId).catch(() => {});
+    (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {});
   }, [externalAudioRef, realOutputSinkId]);
 
   return {
