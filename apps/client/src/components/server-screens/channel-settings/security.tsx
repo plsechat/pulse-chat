@@ -8,12 +8,13 @@ import {
 } from '@/components/ui/card';
 import { Group } from '@/components/ui/group';
 import { Switch } from '@/components/ui/switch';
-import { useIsOwnUserOwner } from '@/features/server/hooks';
+import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
+import { useOwnUserId } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Lock } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 type TSecurityProps = {
@@ -21,7 +22,13 @@ type TSecurityProps = {
 };
 
 const Security = memo(({ channelId }: TSecurityProps) => {
-  const isOwner = useIsOwnUserOwner();
+  const ownUserId = useOwnUserId();
+  const activeServerId = useActiveServerId();
+  const joinedServers = useJoinedServers();
+  const isOwner = useMemo(() => {
+    const server = joinedServers.find((s) => s.id === activeServerId);
+    return ownUserId != null && server?.ownerId === ownUserId;
+  }, [joinedServers, activeServerId, ownUserId]);
   const [e2ee, setE2ee] = useState(false);
   const [loadingE2ee, setLoadingE2ee] = useState(true);
 
