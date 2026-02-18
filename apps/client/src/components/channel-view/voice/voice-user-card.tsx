@@ -1,5 +1,6 @@
 import { UserContextMenu } from '@/components/context-menus/user';
 import { UserAvatar } from '@/components/user-avatar';
+import { UserPopover } from '@/components/user-popover';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
 import type { TVoiceUser } from '@/features/server/types';
 import { useOwnUserId } from '@/features/server/users/hooks';
@@ -50,82 +51,84 @@ const VoiceUserCard = memo(
 
     return (
       <UserContextMenu userId={userId}>
-        <div
-          className={cn(
-            'relative bg-card rounded-lg overflow-hidden group',
-            'flex items-center justify-center',
-            'w-full h-full',
-            'border border-border',
-            isActivelySpeaking
-              ? speakingIntensity === 1
-                ? 'speaking-effect-low'
-                : speakingIntensity === 2
-                  ? 'speaking-effect-medium'
-                  : 'speaking-effect-high'
-              : '',
-            className
-          )}
-        >
-          <CardGradient />
-
-          <CardControls>
-            {!isOwnUser && <VolumeButton volumeKey={getUserVolumeKey(userId)} />}
-            {showPinControls && (
-              <PinButton isPinned={isPinned} handlePinToggle={handlePinToggle} />
+        <UserPopover userId={userId}>
+          <div
+            className={cn(
+              'relative bg-card rounded-lg overflow-hidden group',
+              'flex items-center justify-center',
+              'w-full h-full',
+              'border border-border',
+              isActivelySpeaking
+                ? speakingIntensity === 1
+                  ? 'speaking-effect-low'
+                  : speakingIntensity === 2
+                    ? 'speaking-effect-medium'
+                    : 'speaking-effect-high'
+                : '',
+              className
             )}
-          </CardControls>
+          >
+            <CardGradient />
 
-          {hasVideoStream && (
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          )}
-          {!hasVideoStream && (
-            <UserAvatar
-              userId={userId}
-              className="w-12 h-12 md:w-16 md:h-16 lg:w-24 lg:h-24"
-              showStatusBadge={false}
-            />
-          )}
+            <CardControls>
+              {!isOwnUser && <VolumeButton volumeKey={getUserVolumeKey(userId)} />}
+              {showPinControls && (
+                <PinButton isPinned={isPinned} handlePinToggle={handlePinToggle} />
+              )}
+            </CardControls>
 
-          <div className="absolute bottom-0 left-0 right-0 p-2.5">
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="text-white font-medium text-xs truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
-                {voiceUser.name}
-              </span>
+            {hasVideoStream && (
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            )}
+            {!hasVideoStream && (
+              <UserAvatar
+                userId={userId}
+                className="w-12 h-12 md:w-16 md:h-16 lg:w-24 lg:h-24"
+                showStatusBadge={false}
+              />
+            )}
 
-              <div className="flex items-center gap-1">
-                {voiceUser.state.micMuted && (
-                  <div className="h-5 w-5 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
-                    <MicOff className="size-3 text-red-400" />
-                  </div>
-                )}
+            <div className="absolute bottom-0 left-0 right-0 p-2.5">
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="text-white font-medium text-xs truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
+                  {voiceUser.name}
+                </span>
 
-                {voiceUser.state.soundMuted && (
-                  <div className="h-5 w-5 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
-                    <HeadphoneOff className="size-3 text-red-400" />
-                  </div>
-                )}
+                <div className="flex items-center gap-1">
+                  {voiceUser.state.micMuted && (
+                    <div className="h-5 w-5 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
+                      <MicOff className="size-3 text-red-400" />
+                    </div>
+                  )}
 
-                {voiceUser.state.webcamEnabled && (
-                  <div className="h-5 w-5 rounded-full bg-blue-500/30 backdrop-blur-sm flex items-center justify-center">
-                    <Video className="size-3 text-blue-400" />
-                  </div>
-                )}
+                  {voiceUser.state.soundMuted && (
+                    <div className="h-5 w-5 rounded-full bg-red-500/30 backdrop-blur-sm flex items-center justify-center">
+                      <HeadphoneOff className="size-3 text-red-400" />
+                    </div>
+                  )}
 
-                {voiceUser.state.sharingScreen && (
-                  <div className="h-5 w-5 rounded-full bg-purple-500/30 backdrop-blur-sm flex items-center justify-center">
-                    <Monitor className="size-3 text-purple-400" />
-                  </div>
-                )}
+                  {voiceUser.state.webcamEnabled && (
+                    <div className="h-5 w-5 rounded-full bg-blue-500/30 backdrop-blur-sm flex items-center justify-center">
+                      <Video className="size-3 text-blue-400" />
+                    </div>
+                  )}
+
+                  {voiceUser.state.sharingScreen && (
+                    <div className="h-5 w-5 rounded-full bg-purple-500/30 backdrop-blur-sm flex items-center justify-center">
+                      <Monitor className="size-3 text-purple-400" />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </UserPopover>
       </UserContextMenu>
     );
   }

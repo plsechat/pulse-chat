@@ -77,7 +77,8 @@ const joinVoiceRoute = protectedProcedure
     const router = runtime.getRouter();
 
     return {
-      routerRtpCapabilities: router.rtpCapabilities
+      routerRtpCapabilities: router.rtpCapabilities,
+      startedAt: runtime.getState().startedAt
     };
   });
 

@@ -283,6 +283,10 @@ class VoiceRuntime {
   ) => {
     if (this.getUser(userId)) return;
 
+    if (this.state.users.length === 0) {
+      this.state.startedAt = Date.now();
+    }
+
     this.state.users.push({
       userId,
       state: {
@@ -294,6 +298,10 @@ class VoiceRuntime {
 
   public removeUser = (userId: number) => {
     this.state.users = this.state.users.filter((u) => u.userId !== userId);
+
+    if (this.state.users.length === 0) {
+      this.state.startedAt = undefined;
+    }
 
     this.cleanupUserResources(userId);
   };

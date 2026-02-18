@@ -539,6 +539,32 @@ body,
   }
 }
 
+/* Emoji-only messages: larger emoji display */
+.msg-content.emoji-only {
+  line-height: 2.5rem;
+
+  span {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+  }
+
+  img:not(.ProseMirror-separator) {
+    height: 2.5rem;
+    width: 2.5rem;
+  }
+}
+
+/* Appearance settings: font scale & zoom */
+:root {
+  --font-scale: 1;
+  --zoom-level: 1;
+}
+
+html {
+  font-size: calc(16px * var(--font-scale));
+  zoom: var(--zoom-level);
+}
+
 .react-tweet-theme {
   margin: 0 !important;
 }

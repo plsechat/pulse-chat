@@ -151,7 +151,7 @@ export const joinVoice = async (
   const client = getTRPCClient();
 
   try {
-    const { routerRtpCapabilities } = await client.voice.join.mutate({
+    const { routerRtpCapabilities, startedAt } = await client.voice.join.mutate({
       channelId,
       state: { micMuted, soundMuted }
     });
@@ -161,6 +161,10 @@ export const joinVoice = async (
     // subscription handler runs on the server.
     setCurrentVoiceChannelId(channelId);
     setCurrentVoiceServerId(store.getState().app.activeServerId);
+
+    store.dispatch(
+      serverSliceActions.setVoiceSessionStartedAt(startedAt ?? Date.now())
+    );
 
     return routerRtpCapabilities;
   } catch (error) {
@@ -186,6 +190,7 @@ export const leaveVoice = async (): Promise<void> => {
   setCurrentVoiceChannelId(undefined);
   setCurrentVoiceServerId(undefined);
   setPinnedCard(undefined);
+  store.dispatch(serverSliceActions.setVoiceSessionStartedAt(null));
 
   const client = getTRPCClient();
 

@@ -72,14 +72,14 @@ const MessageReactions = memo(
         );
 
         if (gitHubEmoji?.emoji) {
-          return <span className="text-sm">{gitHubEmoji.emoji}</span>;
+          return <span className="text-lg">{gitHubEmoji.emoji}</span>;
         }
 
         return (
           <img
             src={getFileUrl(file)}
             alt={`:${emojiName}:`}
-            className="w-4 h-4 object-contain"
+            className="w-5 h-5 object-contain"
             onError={(e) => {
               // Fallback to text if image fails to load
               const target = e.target as HTMLImageElement;
@@ -126,7 +126,7 @@ const MessageReactions = memo(
     if (!aggregatedReactions.length) return null;
 
     return (
-      <div className="mt-1 flex flex-wrap gap-1">
+      <div className="mt-1 flex flex-wrap gap-1.5">
         {aggregatedReactions.map((reaction) => {
           const tooltipContent = reaction.userIds
             .map((userId) => usernames[userId] || 'Unknown')
@@ -142,10 +142,11 @@ const MessageReactions = memo(
                 onClick={() => handleReactionClick(reaction.emoji)}
                 disabled={!onToggle && !can(Permission.REACT_TO_MESSAGES)}
                 className={cn(
-                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors duration-150',
+                  'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm transition-all duration-150',
                   'bg-accent/40 hover:bg-accent/60',
+                  'hover:scale-105 active:scale-95',
                   reaction.isUserReacted &&
-                    'border border-primary/60 bg-primary/10 hover:bg-primary/20',
+                    'border border-primary bg-primary/10 hover:bg-primary/20',
                   !reaction.isUserReacted && 'border border-transparent',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}

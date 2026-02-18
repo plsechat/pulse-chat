@@ -24,6 +24,7 @@ export type TExternalStream = {
 export type TChannelState = {
   users: TVoiceUser[];
   externalStreams: { [streamId: number]: TExternalStream };
+  startedAt?: number;
 };
 
 export type TTransportParams = {

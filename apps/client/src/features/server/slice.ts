@@ -47,6 +47,7 @@ export interface IServerState {
   externalStreamsMap: TExternalStreamsMap;
   ownVoiceState: TVoiceUserState;
   pinnedCard: TPinnedCard | undefined;
+  voiceSessionStartedAt: number | null;
   channelPermissions: TChannelUserPermissionsMap;
   readStatesMap: {
     [channelId: number]: number | undefined;
@@ -85,6 +86,7 @@ const initialState: IServerState = {
     sharingScreen: false
   },
   pinnedCard: undefined,
+  voiceSessionStartedAt: null,
   channelPermissions: {},
   readStatesMap: {},
   pluginCommands: {},
@@ -522,6 +524,12 @@ export const serverSlice = createSlice({
     },
     setPinnedCard: (state, action: PayloadAction<TPinnedCard | undefined>) => {
       state.pinnedCard = action.payload;
+    },
+    setVoiceSessionStartedAt: (
+      state,
+      action: PayloadAction<number | null>
+    ) => {
+      state.voiceSessionStartedAt = action.payload;
     },
     addExternalStreamToChannel: (
       state,
