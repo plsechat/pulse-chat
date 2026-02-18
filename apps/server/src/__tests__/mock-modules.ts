@@ -49,6 +49,20 @@ mock.module('../logger', () => ({
   }
 }));
 
+// ── In-memory auth store for supabase mock ──
+// Shared via globalThis so seed.ts can pre-populate it.
+// Each entry: { supabaseId: string, password: string, email: string }
+type AuthEntry = { supabaseId: string; password: string; email: string };
+
+declare global {
+  var __supabaseAuthStore: Map<string, AuthEntry>;
+}
+
+globalThis.__supabaseAuthStore =
+  globalThis.__supabaseAuthStore || new Map<string, AuthEntry>();
+
+const authStore = globalThis.__supabaseAuthStore;
+
 // ── Mock supabase (avoids env var check that throws at import time) ──
 // In tests, the access token IS the user's supabaseId.
 // The mock makes supabaseAdmin.auth.getUser(token) return { id: token }
@@ -60,11 +74,121 @@ mock.module('../utils/supabase', () => ({
         data: { user: { id: token } },
         error: null
       }),
+
+      signInWithPassword: async ({
+        email,
+        password
+      }: {
+        email: string;
+        password: string;
+      }) => {
+        const existing = authStore.get(email);
+
+        if (existing) {
+          // Email found — validate password
+          if (existing.password !== password) {
+            return {
+              data: { user: null, session: null },
+              error: { message: 'Invalid login credentials' }
+            };
+          }
+
+          return {
+            data: {
+              user: { id: existing.supabaseId },
+              session: {
+                access_token: existing.supabaseId,
+                refresh_token: crypto.randomUUID()
+              }
+            },
+            error: null
+          };
+        }
+
+        // Email not found — auto-create (mirrors Supabase signUp-on-signIn)
+        const newId = crypto.randomUUID();
+
+        authStore.set(email, { supabaseId: newId, password, email });
+
+        return {
+          data: {
+            user: { id: newId },
+            session: {
+              access_token: newId,
+              refresh_token: crypto.randomUUID()
+            }
+          },
+          error: null
+        };
+      },
+
       admin: {
         generateLink: async () => ({
           data: { actionLink: 'mock-link' },
           error: null
-        })
+        }),
+
+        createUser: async ({
+          email,
+          password
+        }: {
+          email: string;
+          password: string;
+        }) => {
+          if (authStore.has(email)) {
+            return {
+              data: { user: null },
+              error: { message: 'User already registered' }
+            };
+          }
+
+          const newId = crypto.randomUUID();
+          authStore.set(email, { supabaseId: newId, password, email });
+
+          return {
+            data: { user: { id: newId, email } },
+            error: null
+          };
+        },
+
+        getUserById: async (id: string) => {
+          for (const entry of authStore.values()) {
+            if (entry.supabaseId === id) {
+              return {
+                data: { user: { id: entry.supabaseId, email: entry.email } },
+                error: null
+              };
+            }
+          }
+
+          return {
+            data: { user: null },
+            error: { message: 'User not found' }
+          };
+        },
+
+        updateUserById: async (
+          id: string,
+          updates: { password?: string }
+        ) => {
+          for (const [email, entry] of authStore.entries()) {
+            if (entry.supabaseId === id) {
+              if (updates.password) {
+                authStore.set(email, { ...entry, password: updates.password });
+              }
+
+              return {
+                data: { user: { id: entry.supabaseId, email: entry.email } },
+                error: null
+              };
+            }
+          }
+
+          return {
+            data: { user: null },
+            error: { message: 'User not found' }
+          };
+        }
       }
     }
   }

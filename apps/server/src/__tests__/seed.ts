@@ -33,6 +33,10 @@ import {
 const TEST_SECRET_TOKEN = 'test-secret-token-for-unit-tests';
 
 const seedDatabase = async (db: PostgresJsDatabase) => {
+  // Clear the in-memory supabase auth store so stale entries from a prior seed
+  // don't collide with the fresh UUIDs generated below.
+  globalThis.__supabaseAuthStore?.clear();
+
   const firstStart = Date.now();
 
   const initialSettings: TISettings = {
@@ -217,6 +221,23 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
   };
 
   await db.insert(messages).values(testMessage);
+
+  // Pre-seed the supabase auth store so login/upload tests can authenticate.
+  // The upload & public & others tests call login('testowner', 'password123')
+  // and login tests call login('testowner@pulse.local', 'password123').
+  const store = globalThis.__supabaseAuthStore;
+  if (store) {
+    store.set('testowner', {
+      supabaseId: ownerUser.supabaseId,
+      password: 'password123',
+      email: 'testowner'
+    });
+    store.set('testowner@pulse.local', {
+      supabaseId: ownerUser.supabaseId,
+      password: 'password123',
+      email: 'testowner@pulse.local'
+    });
+  }
 
   return {
     settings: initialSettings,

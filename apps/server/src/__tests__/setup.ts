@@ -49,6 +49,7 @@ beforeEach(async () => {
     roles,
     channels,
     categories,
+    servers,
     settings
     RESTART IDENTITY CASCADE`);
 

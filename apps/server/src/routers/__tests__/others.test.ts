@@ -108,7 +108,7 @@ describe('others router', () => {
     const { caller } = await initTest(1);
 
     const response = await login('testowner', 'password123');
-    const { token } = (await response.json()) as { token: string };
+    const { accessToken: token } = (await response.json()) as { accessToken: string };
 
     const logoFile = new File(['logo content'], 'logo.png', {
       type: 'image/png'

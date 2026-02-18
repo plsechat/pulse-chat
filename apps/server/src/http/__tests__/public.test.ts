@@ -1,8 +1,7 @@
 import { ChannelType, type TFile, type TTempFile } from '@pulse/shared';
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
-import { beforeEach } from 'node:test';
 import path from 'path';
 import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
@@ -68,9 +67,9 @@ describe('/public', () => {
 
   beforeEach(async () => {
     const response = await login('testowner', 'password123');
-    const data = (await response.json()) as { token: string };
+    const data = (await response.json()) as { accessToken: string };
 
-    token = data.token;
+    token = data.accessToken;
 
     for (const fileData of filesToCreate) {
       fileData.messageId = null;
