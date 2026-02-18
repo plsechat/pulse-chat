@@ -34,7 +34,7 @@ const infoRouteHandler = async (
     logo: server.logo,
     allowNewUsers: server.allowNewUsers,
     enabledAuthProviders,
-    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseUrl: process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
     giphyApiKey: process.env.GIPHY_API_KEY || undefined
   };
