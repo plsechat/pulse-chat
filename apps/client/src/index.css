@@ -258,8 +258,8 @@ body,
 
 .tiptap,
 .msg-content {
-  line-height: 1.375rem;
-  font-size: 1rem;
+  line-height: calc(1.375rem * var(--font-scale));
+  font-size: calc(1rem * var(--font-scale));
   word-wrap: break-word;
   overflow-wrap: break-word;
 
@@ -554,13 +554,9 @@ body,
   }
 }
 
-/* Appearance settings: font scale */
+/* Appearance settings: font scale — scoped to chat content only */
 :root {
   --font-scale: 1;
-}
-
-html {
-  font-size: calc(16px * var(--font-scale));
 }
 
 .react-tweet-theme {
