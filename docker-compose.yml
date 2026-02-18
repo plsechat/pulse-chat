@@ -18,5 +18,6 @@ services:
       TWITCH_OAUTH_ENABLED: ${TWITCH_OAUTH_ENABLED:-false}
       PUBLIC_IP: ${PUBLIC_IP}
       TRUST_PROXY: "true"
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
     volumes:
       - ./data/pulse:/root/.config/pulse
