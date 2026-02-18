@@ -19,30 +19,29 @@ trap cleanup SIGTERM SIGINT
 docker-entrypoint.sh postgres &
 PG_PID=$!
 
-# Wait for postgres to become ready (local socket, no password needed)
-echo "db-entrypoint: waiting for PostgreSQL to accept connections..."
-for i in $(seq 1 60); do
+# Wait for postgres AND successfully sync the auth password.
+# pg_isready can briefly pass during the init phase, so we loop until
+# the ALTER ROLE actually succeeds (meaning the real postgres is up and
+# the supabase_auth_admin role exists).
+echo "db-entrypoint: waiting for PostgreSQL and syncing auth password..."
+SYNCED=0
+for i in $(seq 1 90); do
   if pg_isready -U postgres -q 2>/dev/null; then
-    break
-  fi
-  if [ "$i" -eq 60 ]; then
-    echo "db-entrypoint: ERROR — PostgreSQL did not become ready in 60s"
-    exit 1
+    # Use psql variable binding (:'var') for safe password injection
+    if psql -U postgres -v password="$POSTGRES_PASSWORD" \
+         -c "ALTER ROLE supabase_auth_admin WITH PASSWORD :'password';" \
+         2>/dev/null; then
+      echo "db-entrypoint: supabase_auth_admin password synced"
+      SYNCED=1
+      break
+    fi
   fi
   sleep 1
 done
 
-# Set supabase_auth_admin password to match current POSTGRES_PASSWORD.
-# Uses local socket (peer/trust auth) so this works even if the password changed.
-echo "db-entrypoint: syncing supabase_auth_admin password..."
-psql -U postgres -v password="$POSTGRES_PASSWORD" \
-  -c "DO \$\$ BEGIN
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'supabase_auth_admin') THEN
-      ALTER ROLE supabase_auth_admin WITH PASSWORD :'password';
-    END IF;
-  END \$\$;" 2>/dev/null && \
-  echo "db-entrypoint: supabase_auth_admin password synced" || \
-  echo "db-entrypoint: WARNING — could not sync auth password (role may not exist yet on first boot)"
+if [ "$SYNCED" -eq 0 ]; then
+  echo "db-entrypoint: WARNING — timed out syncing auth password (role may not exist yet on first boot)"
+fi
 
 # Signal that DB init is complete (used by healthcheck)
 touch /tmp/.db-init-complete
