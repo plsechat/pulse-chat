@@ -1,4 +1,4 @@
-import { signalStore } from './store';
+import { signalStore, type SignalProtocolStore } from './store';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const IV_LENGTH = 12;
@@ -9,8 +9,11 @@ const IV_LENGTH = 12;
  */
 export async function generateSenderKey(
   channelId: number,
-  ownUserId: number
+  ownUserId: number,
+  store?: SignalProtocolStore
 ): Promise<string> {
+  const s = store ?? signalStore;
+
   const key = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
     true,
@@ -20,7 +23,7 @@ export async function generateSenderKey(
   const rawKey = await crypto.subtle.exportKey('raw', key);
   const keyBase64 = arrayBufferToBase64(rawKey);
 
-  await signalStore.storeSenderKey(channelId, ownUserId, keyBase64);
+  await s.storeSenderKey(channelId, ownUserId, keyBase64);
   return keyBase64;
 }
 
@@ -29,9 +32,11 @@ export async function generateSenderKey(
  */
 export async function hasSenderKey(
   channelId: number,
-  userId: number
+  userId: number,
+  store?: SignalProtocolStore
 ): Promise<boolean> {
-  const key = await signalStore.getSenderKey(channelId, userId);
+  const s = store ?? signalStore;
+  const key = await s.getSenderKey(channelId, userId);
   return !!key;
 }
 
@@ -41,9 +46,11 @@ export async function hasSenderKey(
 export async function storeSenderKeyForUser(
   channelId: number,
   userId: number,
-  keyBase64: string
+  keyBase64: string,
+  store?: SignalProtocolStore
 ): Promise<void> {
-  await signalStore.storeSenderKey(channelId, userId, keyBase64);
+  const s = store ?? signalStore;
+  await s.storeSenderKey(channelId, userId, keyBase64);
 }
 
 /**
@@ -64,9 +71,11 @@ async function importKey(keyBase64: string): Promise<CryptoKey> {
 export async function encryptWithSenderKey(
   channelId: number,
   ownUserId: number,
-  plaintext: string
+  plaintext: string,
+  store?: SignalProtocolStore
 ): Promise<string> {
-  const keyBase64 = await signalStore.getSenderKey(channelId, ownUserId);
+  const s = store ?? signalStore;
+  const keyBase64 = await s.getSenderKey(channelId, ownUserId);
   if (!keyBase64) {
     throw new Error(`No sender key found for channel ${channelId}`);
   }
@@ -97,9 +106,11 @@ export async function encryptWithSenderKey(
 export async function decryptWithSenderKey(
   channelId: number,
   fromUserId: number,
-  ciphertextBase64: string
+  ciphertextBase64: string,
+  store?: SignalProtocolStore
 ): Promise<string> {
-  const keyBase64 = await signalStore.getSenderKey(channelId, fromUserId);
+  const s = store ?? signalStore;
+  const keyBase64 = await s.getSenderKey(channelId, fromUserId);
   if (!keyBase64) {
     throw new Error(
       `No sender key found for user ${fromUserId} in channel ${channelId}`

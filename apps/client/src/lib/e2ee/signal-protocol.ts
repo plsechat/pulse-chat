@@ -4,7 +4,7 @@ import init, {
   SessionCipher,
   SignalProtocolAddress
 } from '@privacyresearch/libsignal-protocol-typescript';
-import { signalStore } from './store';
+import { signalStore, type SignalProtocolStore } from './store';
 import type { PreKeyBundle } from './types';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
@@ -20,13 +20,17 @@ async function ensureInitialized(): Promise<void> {
  * Generate a new identity (key pair + registration ID + signed pre-key + batch of OTPs).
  * Returns the public portions to upload to the server.
  */
-export async function generateKeys(oneTimePreKeyCount = 100) {
+export async function generateKeys(
+  oneTimePreKeyCount = 100,
+  store?: SignalProtocolStore
+) {
   await ensureInitialized();
+  const s = store ?? signalStore;
 
   const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
   const registrationId = KeyHelper.generateRegistrationId();
 
-  await signalStore.saveLocalIdentity(identityKeyPair, registrationId);
+  await s.saveLocalIdentity(identityKeyPair, registrationId);
 
   // Generate signed pre-key
   const signedPreKeyId = 1;
@@ -34,13 +38,13 @@ export async function generateKeys(oneTimePreKeyCount = 100) {
     identityKeyPair,
     signedPreKeyId
   );
-  await signalStore.storeSignedPreKey(signedPreKeyId, signedPreKey.keyPair);
+  await s.storeSignedPreKey(signedPreKeyId, signedPreKey.keyPair);
 
   // Generate one-time pre-keys
   const oneTimePreKeys: { keyId: number; publicKey: string }[] = [];
   for (let i = 1; i <= oneTimePreKeyCount; i++) {
     const preKey = await KeyHelper.generatePreKey(i);
-    await signalStore.storePreKey(i, preKey.keyPair);
+    await s.storePreKey(i, preKey.keyPair);
     oneTimePreKeys.push({
       keyId: i,
       publicKey: arrayBufferToBase64(preKey.keyPair.pubKey)
@@ -62,15 +66,19 @@ export async function generateKeys(oneTimePreKeyCount = 100) {
 /**
  * Check if the user has already generated keys.
  */
-export async function hasKeys(): Promise<boolean> {
-  return signalStore.hasLocalIdentity();
+export async function hasKeys(store?: SignalProtocolStore): Promise<boolean> {
+  const s = store ?? signalStore;
+  return s.hasLocalIdentity();
 }
 
 /**
  * Get the local identity public key (base64).
  */
-export async function getIdentityPublicKey(): Promise<string | null> {
-  const kp = await signalStore.getIdentityKeyPair();
+export async function getIdentityPublicKey(
+  store?: SignalProtocolStore
+): Promise<string | null> {
+  const s = store ?? signalStore;
+  const kp = await s.getIdentityKeyPair();
   if (!kp) return null;
   return arrayBufferToBase64(kp.pubKey);
 }
@@ -80,12 +88,14 @@ export async function getIdentityPublicKey(): Promise<string | null> {
  */
 export async function buildSession(
   userId: number,
-  bundle: PreKeyBundle
+  bundle: PreKeyBundle,
+  store?: SignalProtocolStore
 ): Promise<void> {
   await ensureInitialized();
+  const s = store ?? signalStore;
 
   const address = new SignalProtocolAddress(String(userId), 1);
-  const builder = new SessionBuilder(signalStore, address);
+  const builder = new SessionBuilder(s, address);
 
   const preKeyBundle = {
     registrationId: bundle.registrationId,
@@ -109,9 +119,13 @@ export async function buildSession(
 /**
  * Check if we have an active session with a user.
  */
-export async function hasSession(userId: number): Promise<boolean> {
+export async function hasSession(
+  userId: number,
+  store?: SignalProtocolStore
+): Promise<boolean> {
+  const s = store ?? signalStore;
   const address = new SignalProtocolAddress(String(userId), 1);
-  const session = await signalStore.loadSession(address.toString());
+  const session = await s.loadSession(address.toString());
   return !!session;
 }
 
@@ -121,12 +135,14 @@ export async function hasSession(userId: number): Promise<boolean> {
  */
 export async function encryptMessage(
   userId: number,
-  plaintext: string
+  plaintext: string,
+  store?: SignalProtocolStore
 ): Promise<string> {
   await ensureInitialized();
+  const s = store ?? signalStore;
 
   const address = new SignalProtocolAddress(String(userId), 1);
-  const cipher = new SessionCipher(signalStore, address);
+  const cipher = new SessionCipher(s, address);
 
   const encoder = new TextEncoder();
   const encoded = encoder.encode(plaintext);
@@ -150,12 +166,14 @@ export async function encryptMessage(
  */
 export async function decryptMessage(
   userId: number,
-  ciphertextJson: string
+  ciphertextJson: string,
+  store?: SignalProtocolStore
 ): Promise<string> {
   await ensureInitialized();
+  const s = store ?? signalStore;
 
   const address = new SignalProtocolAddress(String(userId), 1);
-  const cipher = new SessionCipher(signalStore, address);
+  const cipher = new SessionCipher(s, address);
 
   const ciphertext = JSON.parse(ciphertextJson) as {
     type: number;
@@ -187,14 +205,16 @@ export async function decryptMessage(
  */
 export async function generateOneTimePreKeys(
   startId: number,
-  count: number
+  count: number,
+  store?: SignalProtocolStore
 ) {
   await ensureInitialized();
+  const s = store ?? signalStore;
 
   const keys: { keyId: number; publicKey: string }[] = [];
   for (let i = startId; i < startId + count; i++) {
     const preKey = await KeyHelper.generatePreKey(i);
-    await signalStore.storePreKey(i, preKey.keyPair);
+    await s.storePreKey(i, preKey.keyPair);
     keys.push({
       keyId: i,
       publicKey: arrayBufferToBase64(preKey.keyPair.pubKey)
@@ -206,10 +226,14 @@ export async function generateOneTimePreKeys(
 /**
  * Generate a new signed pre-key for rotation.
  */
-export async function generateSignedPreKey(keyId: number) {
+export async function generateSignedPreKey(
+  keyId: number,
+  store?: SignalProtocolStore
+) {
   await ensureInitialized();
+  const s = store ?? signalStore;
 
-  const identityKeyPair = await signalStore.getIdentityKeyPair();
+  const identityKeyPair = await s.getIdentityKeyPair();
   if (!identityKeyPair) {
     throw new Error('No identity key pair found');
   }
@@ -218,7 +242,7 @@ export async function generateSignedPreKey(keyId: number) {
     identityKeyPair,
     keyId
   );
-  await signalStore.storeSignedPreKey(keyId, signedPreKey.keyPair);
+  await s.storeSignedPreKey(keyId, signedPreKey.keyPair);
 
   return {
     keyId,

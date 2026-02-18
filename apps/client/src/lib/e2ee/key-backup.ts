@@ -1,10 +1,21 @@
 import { openDB } from 'idb';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
-const DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 1;
+const HOME_DB_NAME = 'pulse-e2ee';
+const DB_VERSION = 2;
 
 const STORE_NAMES = [
+  'identityKey',
+  'registrationId',
+  'preKeys',
+  'signedPreKeys',
+  'sessions',
+  'identities',
+  'senderKeys'
+] as const;
+
+// V1 stores (before senderKeys was added)
+const V1_STORE_NAMES = [
   'identityKey',
   'registrationId',
   'preKeys',
@@ -18,11 +29,15 @@ export const PBKDF2_ITERATIONS = 600_000;
 export const BACKUP_STORE_NAMES = STORE_NAMES;
 
 export type BackupPayload = {
-  version: 1;
+  version: 1 | 2;
   salt: string;
   iv: string;
   ciphertext: string;
 };
+
+function getDbName(domain?: string): string {
+  return domain ? `pulse-e2ee-${domain}` : HOME_DB_NAME;
+}
 
 export async function deriveBackupKey(
   passphrase: string,
@@ -70,7 +85,7 @@ export async function encryptBackupData(
   );
 
   return {
-    version: 1,
+    version: 2,
     salt: arrayBufferToBase64(salt.buffer),
     iv: arrayBufferToBase64(iv.buffer),
     ciphertext: arrayBufferToBase64(ciphertext)
@@ -81,7 +96,7 @@ export async function decryptBackupPayload(
   payload: BackupPayload,
   passphrase: string
 ): Promise<Record<string, unknown[]>> {
-  if (payload.version !== 1) {
+  if (payload.version !== 1 && payload.version !== 2) {
     throw new Error(`Unsupported backup version: ${payload.version}`);
   }
 
@@ -115,8 +130,10 @@ export async function decryptBackupPayload(
     throw new Error('Decrypted data is not valid JSON');
   }
 
-  // Validate all expected stores are present
-  for (const storeName of STORE_NAMES) {
+  // Validate stores — v1 backups won't have senderKeys, which is fine
+  const requiredStores =
+    payload.version === 1 ? V1_STORE_NAMES : STORE_NAMES;
+  for (const storeName of requiredStores) {
     if (!Array.isArray(data[storeName])) {
       throw new Error(`Backup is missing store: ${storeName}`);
     }
@@ -125,8 +142,18 @@ export async function decryptBackupPayload(
   return data;
 }
 
-async function readAllStores(): Promise<Record<string, unknown[]>> {
-  const db = await openDB(DB_NAME, DB_VERSION);
+async function readAllStores(
+  dbName: string
+): Promise<Record<string, unknown[]>> {
+  const db = await openDB(dbName, DB_VERSION, {
+    upgrade(db) {
+      for (const storeName of STORE_NAMES) {
+        if (!db.objectStoreNames.contains(storeName)) {
+          db.createObjectStore(storeName);
+        }
+      }
+    }
+  });
   const data: Record<string, unknown[]> = {};
 
   for (const storeName of STORE_NAMES) {
@@ -144,9 +171,10 @@ async function readAllStores(): Promise<Record<string, unknown[]>> {
 }
 
 async function writeAllStores(
+  dbName: string,
   data: Record<string, { key: IDBValidKey; value: unknown }[]>
 ): Promise<void> {
-  const db = await openDB(DB_NAME, DB_VERSION, {
+  const db = await openDB(dbName, DB_VERSION, {
     upgrade(db) {
       for (const storeName of STORE_NAMES) {
         if (!db.objectStoreNames.contains(storeName)) {
@@ -173,16 +201,22 @@ async function writeAllStores(
   db.close();
 }
 
-export async function exportKeys(passphrase: string): Promise<Blob> {
-  const storeData = await readAllStores();
+export async function exportKeys(
+  passphrase: string,
+  domain?: string
+): Promise<Blob> {
+  const dbName = getDbName(domain);
+  const storeData = await readAllStores(dbName);
   const payload = await encryptBackupData(storeData, passphrase);
   return new Blob([JSON.stringify(payload)], { type: 'application/json' });
 }
 
 export async function importKeys(
   file: File,
-  passphrase: string
+  passphrase: string,
+  domain?: string
 ): Promise<void> {
+  const dbName = getDbName(domain);
   const text = await file.text();
   let payload: BackupPayload;
 
@@ -194,6 +228,7 @@ export async function importKeys(
 
   const data = await decryptBackupPayload(payload, passphrase);
   await writeAllStores(
+    dbName,
     data as Record<string, { key: IDBValidKey; value: unknown }[]>
   );
 }
