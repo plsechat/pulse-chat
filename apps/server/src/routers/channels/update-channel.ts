@@ -1,10 +1,11 @@
-import { ActivityLogType, Permission } from '@pulse/shared';
+import { ActivityLogType, OWNER_ROLE_ID, Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
 import { channels, servers } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { getUserRoles } from '../users/get-user-roles';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -47,7 +48,13 @@ const updateChannelRoute = protectedProcedure
         .where(eq(servers.id, channel.serverId))
         .limit(1);
 
-      invariant(server && server.ownerId === ctx.userId, {
+      // Check ownerId on server record, or fall back to Owner role
+      // (the default seeded server has ownerId = null)
+      const isOwnerById = server && server.ownerId === ctx.userId;
+      const userRoles = await getUserRoles(ctx.userId, channel.serverId);
+      const isOwnerByRole = userRoles.some((r) => r.id === OWNER_ROLE_ID);
+
+      invariant(isOwnerById || isOwnerByRole, {
         code: 'FORBIDDEN',
         message: 'Only the server owner can enable E2EE on channels'
       });

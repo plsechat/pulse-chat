@@ -9,6 +9,7 @@ import {
 import { Group } from '@/components/ui/group';
 import { Switch } from '@/components/ui/switch';
 import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
+import { useIsOwnUserOwner } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -25,10 +26,15 @@ const Security = memo(({ channelId }: TSecurityProps) => {
   const ownUserId = useOwnUserId();
   const activeServerId = useActiveServerId();
   const joinedServers = useJoinedServers();
+  const isOwnerByRole = useIsOwnUserOwner();
   const isOwner = useMemo(() => {
+    // Check ownerId on the server record (works for user-created servers)
     const server = joinedServers.find((s) => s.id === activeServerId);
-    return ownUserId != null && server?.ownerId === ownUserId;
-  }, [joinedServers, activeServerId, ownUserId]);
+    const isOwnerById = ownUserId != null && server?.ownerId === ownUserId;
+    // Fall back to role-based check (works for the default seeded server
+    // where ownerId is null but the Owner role is assigned)
+    return isOwnerById || isOwnerByRole;
+  }, [joinedServers, activeServerId, ownUserId, isOwnerByRole]);
   const [e2ee, setE2ee] = useState(false);
   const [loadingE2ee, setLoadingE2ee] = useState(true);
 
