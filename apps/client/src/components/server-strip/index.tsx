@@ -295,7 +295,7 @@ const ServerStrip = memo(() => {
 
   return (
     <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
-      <div className="relative flex items-center justify-center">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
@@ -303,7 +303,7 @@ const ServerStrip = memo(() => {
         <button
           onClick={handleHomeClick}
           className={cn(
-            'group relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
+            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
             activeView === 'home'
               ? 'bg-primary text-primary-foreground rounded-xl'
               : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
