@@ -3,6 +3,7 @@ FROM oven/bun:1.3.5 AS builder
 WORKDIR /app
 COPY . .
 RUN bun install
+RUN cd apps/server && bunx drizzle-kit generate --dialect postgresql --schema ./src/db/schema.ts --out ./src/db/migrations
 RUN cd apps/server && bun run build/build.ts --target linux-x64
 
 # Stage 2: Runtime
