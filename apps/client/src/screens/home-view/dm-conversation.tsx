@@ -59,8 +59,20 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
 
+  const inputAreaRef = useRef<HTMLDivElement>(null);
+
   const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles } =
     useUploadFiles(false);
+
+  const handleReply = useCallback((message: TJoinedDmMessage) => {
+    setReplyingTo(message);
+    requestAnimationFrame(() => {
+      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
+      if (containerRef.current) {
+        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      }
+    });
+  }, []);
 
   const sendTypingSignal = useMemo(
     () =>
@@ -179,7 +191,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
       >
         <div className="space-y-4">
           {groupedMessages.map((group, index) => (
-            <DmMessagesGroup key={index} group={group} onReply={setReplyingTo} />
+            <DmMessagesGroup key={index} group={group} onReply={handleReply} />
           ))}
         </div>
       </div>
@@ -214,7 +226,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 rounded-lg">
+        <div ref={inputAreaRef} className="flex items-center gap-2 rounded-lg">
           <input
             ref={fileInputRef}
             type="file"
