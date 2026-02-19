@@ -77,17 +77,19 @@ export function setupPermissions(session: Session): void {
     return granted;
   });
 
-  // Required for getDisplayMedia() — screen sharing in voice channels
-  // audio: 'loopback' captures system audio on Windows only.
-  // macOS has no native loopback audio API (same limitation as Discord desktop).
-  session.setDisplayMediaRequestHandler(async (_request, callback) => {
-    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
-    if (sources.length > 0) {
-      const streams: Record<string, unknown> = { video: sources[0] };
-      if (process.platform === 'win32') {
-        streams.audio = 'loopback';
+  // Required for getDisplayMedia() — screen sharing in voice channels.
+  // On Windows: use the legacy callback path so we can enable loopback audio capture.
+  // On macOS/Linux: use the native OS picker (ScreenCaptureKit on macOS) for full
+  // hardware-accelerated quality. The legacy desktopCapturer path ignores getDisplayMedia
+  // constraints (resolution, frameRate) and throttles bitrate via software encoding.
+  if (process.platform === 'win32') {
+    session.setDisplayMediaRequestHandler(async (_request, callback) => {
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      if (sources.length > 0) {
+        callback({ video: sources[0], audio: 'loopback' } as { video: Electron.DesktopCapturerSource });
       }
-      callback(streams as { video: Electron.DesktopCapturerSource });
-    }
-  }, { useSystemPicker: true });
+    });
+  } else {
+    session.setDisplayMediaRequestHandler(null, { useSystemPicker: true });
+  }
 }
