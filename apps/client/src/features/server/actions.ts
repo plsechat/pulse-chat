@@ -153,4 +153,9 @@ export const disconnectFromServer = () => {
   unsubscribeFromVoice?.();
   unsubscribeFromVoice = null;
   currentHandshakeHash = null;
+
+  // Clear E2EE keys from IndexedDB so the next user doesn't inherit them
+  import('@/lib/e2ee').then(({ signalStore }) =>
+    signalStore.clearAll().catch(() => {})
+  );
 };
