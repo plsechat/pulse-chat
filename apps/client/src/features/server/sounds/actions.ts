@@ -8,7 +8,7 @@ const audioCtx = new (window.AudioContext ||
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).webkitAudioContext)();
 
-const SOUNDS_VOLUME = 2;
+const SOUNDS_VOLUME = 5;
 
 const now = () => audioCtx.currentTime;
 
