@@ -48,6 +48,9 @@ const kickRoute = protectedProcedure
     // Notify other members to remove the user from the member list
     publishUser(input.userId, 'delete');
 
+    // Notify other members to remove the user from member list
+    publishUser(input.userId, 'delete');
+
     enqueueActivityLog({
       type: ActivityLogType.USER_KICKED,
       userId: input.userId,
