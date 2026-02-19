@@ -6,6 +6,8 @@ import {
   encryptMessage,
   generateKeys,
   generateOneTimePreKeys,
+  generateSignedPreKey,
+  getIdentityPublicKey,
   hasKeys,
   hasSession
 } from './signal-protocol';
@@ -19,6 +21,7 @@ import {
 import {
   getActiveStore,
   getStoreForInstance,
+  signalStore,
   type SignalProtocolStore
 } from './store';
 
@@ -48,24 +51,74 @@ export async function initE2EE(): Promise<void> {
 }
 
 /**
- * Initialize E2EE keys on a federated instance.
- * Generates a separate identity and registers it with the remote server.
+ * Initialize E2EE on a federated instance by reusing the home identity.
+ * Copies the home identity key pair into the per-instance store (which
+ * keeps its own sessions and sender keys to avoid user-ID collisions),
+ * then generates a fresh signed pre-key and OTPs and registers them
+ * on the remote server.
  */
 export async function initE2EEForInstance(domain: string): Promise<void> {
   const store = getStoreForInstance(domain);
   const keysExist = await hasKeys(store);
 
-  if (!keysExist) {
-    const keys = await generateKeys(OTP_REPLENISH_COUNT, store);
+  // Detect if the home identity changed since we last copied it.
+  // If so, wipe the stale per-instance store and re-register.
+  const needsReRegister =
+    keysExist && (await identityDrifted(store, signalStore));
+
+  if (!keysExist || needsReRegister) {
+    if (needsReRegister) {
+      console.log(`[E2EE] Home identity changed — re-registering on ${domain}`);
+      await store.clearAll();
+    }
+
+    // Copy the home identity (same key pair + registration ID) into the
+    // per-instance store so all servers see the same cryptographic identity.
+    await store.copyIdentityFrom(signalStore);
+
+    // Generate a fresh signed pre-key (signed with the shared identity)
+    const signedPreKey = await generateSignedPreKey(1, store);
+
+    // Generate fresh OTPs for this instance (each server consumes independently)
+    const oneTimePreKeys = await generateOneTimePreKeys(
+      nextOtpKeyId,
+      OTP_REPLENISH_COUNT,
+      store
+    );
+    nextOtpKeyId += OTP_REPLENISH_COUNT;
+
+    // Read public identity for registration
+    const identityPubKey = await getIdentityPublicKey(store);
+    const registrationId = await store.getLocalRegistrationId();
+
     // getTRPCClient() routes to remote when activeInstanceDomain is set
     const trpc = getTRPCClient();
-    await trpc.e2ee.registerKeys.mutate(keys);
-    console.log(`[E2EE] Registered keys on federated instance: ${domain}`);
+    await trpc.e2ee.registerKeys.mutate({
+      identityPublicKey: identityPubKey!,
+      registrationId: registrationId!,
+      signedPreKey,
+      oneTimePreKeys
+    });
+    console.log(`[E2EE] Registered home identity on federated instance: ${domain}`);
     return;
   }
 
   // Check OTP count and replenish on remote if needed
   await replenishOTPsIfNeeded(store, getTRPCClient());
+}
+
+/**
+ * Compare the identity public key in two stores.
+ * Returns true if they differ (i.e. the home key was regenerated).
+ */
+async function identityDrifted(
+  instanceStore: SignalProtocolStore,
+  homeStore: SignalProtocolStore
+): Promise<boolean> {
+  const instanceKey = await getIdentityPublicKey(instanceStore);
+  const homeKey = await getIdentityPublicKey(homeStore);
+  if (!instanceKey || !homeKey) return true;
+  return instanceKey !== homeKey;
 }
 
 /**

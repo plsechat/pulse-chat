@@ -19,7 +19,7 @@ describe('tests setup', () => {
     ]);
 
     expect(settingsResults.length).toBe(1);
-    expect(usersResults.length).toBe(2);
+    expect(usersResults.length).toBe(3);
     expect(channelsResults.length).toBe(2);
     expect(rolesResults.length).toBe(3);
     expect(messagesResults.length).toBe(1);

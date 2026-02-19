@@ -252,6 +252,15 @@ export class SignalProtocolStore implements StorageType {
     await db.put(STORES.SENDER_KEYS, key, cacheKey);
   }
 
+  async copyIdentityFrom(source: SignalProtocolStore): Promise<void> {
+    const keyPair = await source.getIdentityKeyPair();
+    const registrationId = await source.getLocalRegistrationId();
+    if (!keyPair || registrationId === undefined) {
+      throw new Error('Source store has no identity to copy');
+    }
+    await this.saveLocalIdentity(keyPair, registrationId);
+  }
+
   async clearAll(): Promise<void> {
     this.senderKeyCache.clear();
     const db = await this.getDb();
