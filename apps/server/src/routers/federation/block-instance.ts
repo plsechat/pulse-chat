@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import z from 'zod';
 import { db } from '../../db';
 import { deleteShadowUsersByInstance } from '../../db/mutations/federation';
+import { getFederationInstanceById } from '../../db/queries/federation';
 import { getFirstServer } from '../../db/queries/servers';
 import { federationInstances } from '../../db/schema';
 import { invalidateCorsCache } from '../../http/cors';
@@ -18,6 +19,9 @@ const blockInstanceRoute = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     const server = await getFirstServer();
     await ctx.needsPermission(Permission.MANAGE_SETTINGS, server?.id);
+
+    // Look up domain before blocking so we can include it in the event
+    const instance = await getFederationInstanceById(input.instanceId);
 
     // Delete shadow users from this instance
     await deleteShadowUsersByInstance(input.instanceId);
@@ -35,7 +39,8 @@ const blockInstanceRoute = protectedProcedure
 
     pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {
       instanceId: input.instanceId,
-      status: 'blocked'
+      status: 'blocked',
+      domain: instance?.domain
     });
 
     return { success: true };

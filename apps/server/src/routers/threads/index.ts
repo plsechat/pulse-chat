@@ -2,6 +2,11 @@ import { t } from '../../utils/trpc';
 import { archiveThreadRoute } from './archive-thread';
 import { createForumPostRoute } from './create-forum-post';
 import { createThreadRoute } from './create-thread';
+import {
+  onThreadCreateRoute,
+  onThreadDeleteRoute,
+  onThreadUpdateRoute
+} from './events';
 import { getThreadsRoute } from './get-threads';
 import {
   createForumTagRoute,
@@ -18,5 +23,8 @@ export const threadsRouter = t.router({
   getForumTags: getForumTagsRoute,
   createForumTag: createForumTagRoute,
   updateForumTag: updateForumTagRoute,
-  deleteForumTag: deleteForumTagRoute
+  deleteForumTag: deleteForumTagRoute,
+  onThreadCreate: onThreadCreateRoute,
+  onThreadUpdate: onThreadUpdateRoute,
+  onThreadDelete: onThreadDeleteRoute
 });

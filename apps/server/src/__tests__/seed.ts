@@ -218,6 +218,28 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     createdAt: firstStart
   });
 
+  const thirdUser: TIUser = {
+    name: 'Test User 2',
+    supabaseId: `test-user2-${randomUUIDv7()}`,
+    publicId: randomUUIDv7(),
+    avatarId: null,
+    bannerId: null,
+    bio: null,
+    bannerColor: null,
+    createdAt: firstStart
+  };
+
+  const [insertedThirdUser] = await db
+    .insert(users)
+    .values(thirdUser)
+    .returning();
+
+  await db.insert(userRoles).values({
+    userId: insertedThirdUser!.id,
+    roleId: insertedDefaultRole!.id,
+    createdAt: firstStart
+  });
+
   const testMessage: TIMessage = {
     userId: insertedOwner!.id,
     channelId: 1,

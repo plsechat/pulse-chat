@@ -33,7 +33,7 @@ import parse from 'html-react-parser';
 import { format, formatDistance, subDays } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -387,7 +387,14 @@ const DmHeader = memo(({ dmChannelId }: { dmChannelId: number }) => {
           showUserPopover
         />
       )}
-      <span className="flex-1 font-semibold text-foreground">{displayName}</span>
+      <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
+        {displayName}
+        {channel && !channel.isGroup && (
+          <Tooltip content="End-to-end encrypted">
+            <Lock className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+          </Tooltip>
+        )}
+      </span>
       <Button
         variant="ghost"
         size="icon"
@@ -474,6 +481,18 @@ const DmPinnedMessagesPanel = memo(
     useEffect(() => {
       fetchPinned();
     }, [fetchPinned]);
+
+    // Refetch when DM message updates arrive (pin/unpin)
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.dmChannelId === dmChannelId) {
+          fetchPinned();
+        }
+      };
+      window.addEventListener('dm-pinned-messages-changed', handler);
+      return () => window.removeEventListener('dm-pinned-messages-changed', handler);
+    }, [dmChannelId, fetchPinned]);
 
     const onUnpin = useCallback(async (dmMessageId: number) => {
       const trpc = getTRPCClient();
@@ -842,13 +861,21 @@ const DmMessageContent = memo(
       [message.files]
     );
 
+    const isDecryptionFailure =
+      message.e2ee && message.content === '[Unable to decrypt]';
+
     return (
       <div className="flex flex-col gap-1">
-        {message.content && (
+        {isDecryptionFailure ? (
+          <div className="flex items-center gap-1.5 text-sm text-destructive/80 italic">
+            <Lock className="h-3 w-3" />
+            <span>Unable to decrypt this message</span>
+          </div>
+        ) : message.content ? (
           <div className="max-w-full break-words msg-content">
             {messageHtml}
           </div>
-        )}
+        ) : null}
 
         {message.updatedAt && (
           <span className="text-[10px] text-muted-foreground">(edited)</span>

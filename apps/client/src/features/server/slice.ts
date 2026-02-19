@@ -291,6 +291,12 @@ export const serverSlice = createSlice({
       action: PayloadAction<TPublicServerSettings | undefined>
     ) => {
       state.publicSettings = action.payload;
+
+      // Sync name/description into server info so the UI updates in realtime
+      if (action.payload && state.info) {
+        state.info.name = action.payload.name;
+        state.info.description = action.payload.description ?? '';
+      }
     },
 
     // ROLES ------------------------------------------------------------

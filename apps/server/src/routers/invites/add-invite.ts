@@ -1,7 +1,13 @@
-import { ActivityLogType, getRandomString, Permission } from '@pulse/shared';
+import {
+  ActivityLogType,
+  getRandomString,
+  Permission,
+  ServerEvents
+} from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { invites } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
@@ -43,6 +49,13 @@ const addInviteRoute = protectedProcedure
         createdAt: Date.now()
       })
       .returning();
+
+    // Notify server members so admin invite lists update
+    const memberIds = await getServerMemberIds(input.serverId);
+    ctx.pubsub.publishFor(memberIds, ServerEvents.INVITE_CREATE, {
+      inviteId: invite!.id,
+      serverId: input.serverId
+    });
 
     enqueueActivityLog({
       type: ActivityLogType.CREATED_INVITE,

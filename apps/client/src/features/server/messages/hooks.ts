@@ -1,10 +1,48 @@
 import type { IRootState } from '@/features/store';
+import {
+  decryptChannelMessage,
+  fetchAndProcessPendingSenderKeys
+} from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { addMessages } from './actions';
 import { messagesByChannelIdSelector } from './selectors';
+
+async function decryptE2eeMessages(
+  messages: TJoinedMessage[]
+): Promise<TJoinedMessage[]> {
+  // Pre-fetch all pending sender keys for channels in this batch so that
+  // the per-message decryptChannelMessage calls hit the in-memory cache
+  // instead of each independently fetching from the server.
+  const e2eeChannelIds = new Set(
+    messages
+      .filter((m) => m.e2ee && m.encryptedContent)
+      .map((m) => m.channelId)
+  );
+  for (const channelId of e2eeChannelIds) {
+    await fetchAndProcessPendingSenderKeys(channelId);
+  }
+
+  return Promise.all(
+    messages.map(async (msg) => {
+      if (!msg.e2ee || !msg.encryptedContent) return msg;
+
+      try {
+        const payload = await decryptChannelMessage(
+          msg.channelId,
+          msg.userId,
+          msg.encryptedContent
+        );
+        return { ...msg, content: payload.content };
+      } catch (err) {
+        console.error('[E2EE] Failed to decrypt channel message:', err);
+        return { ...msg, content: '[Unable to decrypt]' };
+      }
+    })
+  );
+}
 
 export const useMessagesByChannelId = (channelId: number) =>
   useSelector((state: IRootState) =>
@@ -33,7 +71,8 @@ export const useMessages = (channelId: number) => {
             limit: DEFAULT_MESSAGES_LIMIT
           });
 
-        const page = [...rawPage].reverse();
+        const decryptedPage = await decryptE2eeMessages(rawPage);
+        const page = [...decryptedPage].reverse();
         const existingIds = new Set(messages.map((m) => m.id));
         const filtered = page.filter((m) => !existingIds.has(m.id));
 

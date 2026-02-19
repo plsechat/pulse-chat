@@ -7,6 +7,7 @@ import {
 import {
   addDmMessages,
   addDmTypingUser,
+  decryptDmMessageInPlace,
   deleteDmMessage,
   dmCallEnded,
   dmCallStarted,
@@ -20,14 +21,26 @@ const subscribeToDms = () => {
   const trpc = getHomeTRPCClient();
 
   const onNewMessageSub = trpc.dms.onNewMessage.subscribe(undefined, {
-    onData: (message: TJoinedDmMessage) =>
-      addDmMessages(message.dmChannelId, [message], {}, true),
+    onData: async (message: TJoinedDmMessage) => {
+      const decrypted = await decryptDmMessageInPlace(message);
+      addDmMessages(decrypted.dmChannelId, [decrypted], {}, true);
+    },
     onError: (err) =>
       console.error('onDmNewMessage subscription error:', err)
   });
 
   const onMessageUpdateSub = trpc.dms.onMessageUpdate.subscribe(undefined, {
-    onData: (message: TJoinedDmMessage) => updateDmMessage(message),
+    onData: async (message: TJoinedDmMessage) => {
+      const decrypted = await decryptDmMessageInPlace(message);
+      updateDmMessage(decrypted);
+
+      // Notify pinned messages panel so it can refetch
+      window.dispatchEvent(
+        new CustomEvent('dm-pinned-messages-changed', {
+          detail: { dmChannelId: decrypted.dmChannelId }
+        })
+      );
+    },
     onError: (err) =>
       console.error('onDmMessageUpdate subscription error:', err)
   });
