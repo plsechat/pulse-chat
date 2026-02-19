@@ -1,5 +1,5 @@
 import { ServerEvents } from '@pulse/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -33,6 +33,16 @@ const registerKeysRoute = protectedProcedure
     const now = Date.now();
 
     await db.transaction(async (tx) => {
+      // Check if identity key is changing (key reset detection)
+      const [existing] = await tx
+        .select({ identityPublicKey: userIdentityKeys.identityPublicKey })
+        .from(userIdentityKeys)
+        .where(eq(userIdentityKeys.userId, ctx.userId))
+        .limit(1);
+
+      const identityChanged =
+        existing && existing.identityPublicKey !== input.identityPublicKey;
+
       // Upsert identity key
       await tx
         .insert(userIdentityKeys)
@@ -76,6 +86,18 @@ const registerKeysRoute = protectedProcedure
             publicKey: key.publicKey,
             createdAt: now
           }))
+        );
+      }
+
+      // On identity change: delete all sender key distributions involving
+      // this user — they were encrypted with the old identity and are now
+      // undecryptable. Fresh distributions will be created on reconnect.
+      if (identityChanged) {
+        await tx.delete(e2eeSenderKeys).where(
+          or(
+            eq(e2eeSenderKeys.fromUserId, ctx.userId),
+            eq(e2eeSenderKeys.toUserId, ctx.userId)
+          )
         );
       }
     });
@@ -138,6 +160,18 @@ const getPreKeyBundleRoute = protectedProcedure
           }
         : null
     };
+  });
+
+const getIdentityPublicKeyRoute = protectedProcedure
+  .input(z.object({ userId: z.number() }))
+  .query(async ({ input }) => {
+    const [key] = await db
+      .select({ identityPublicKey: userIdentityKeys.identityPublicKey })
+      .from(userIdentityKeys)
+      .where(eq(userIdentityKeys.userId, input.userId))
+      .limit(1);
+
+    return key?.identityPublicKey ?? null;
   });
 
 const uploadOneTimePreKeysRoute = protectedProcedure
@@ -267,6 +301,7 @@ const onSenderKeyDistributionRoute = protectedProcedure.subscription(
 export const e2eeRouter = t.router({
   registerKeys: registerKeysRoute,
   getPreKeyBundle: getPreKeyBundleRoute,
+  getIdentityPublicKey: getIdentityPublicKeyRoute,
   uploadOneTimePreKeys: uploadOneTimePreKeysRoute,
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,

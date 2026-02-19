@@ -19,7 +19,14 @@ async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
 
   const memberIds = state.server.users.map((u) => u.id);
 
-  const { ensureChannelSenderKey } = await import('@/lib/e2ee');
+  const { ensureChannelSenderKey, clearDistributedMember } = await import(
+    '@/lib/e2ee'
+  );
+
+  // Clear the user from distributedMembers so we don't skip them.
+  // If their identity changed (key reset), ensureSession with
+  // verifyIdentity: true will detect the mismatch and rebuild.
+  clearDistributedMember(joinedUserId);
 
   for (const channel of e2eeChannels) {
     try {

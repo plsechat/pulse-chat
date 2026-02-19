@@ -397,4 +397,86 @@ describe('e2ee router', () => {
     expect(fromUser1!.distributionMessage).toBe('key-from-user-1');
     expect(fromUser2!.distributionMessage).toBe('key-from-user-2');
   });
+
+  // --- getIdentityPublicKey ---
+
+  test('should return identity public key for a user', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    const key = await caller2.e2ee.getIdentityPublicKey({ userId: 1 });
+    expect(key).toBe(mockKeys.identityPublicKey);
+  });
+
+  test('should return null for user with no identity key', async () => {
+    const { caller } = await initTest();
+
+    const key = await caller.e2ee.getIdentityPublicKey({ userId: 999 });
+    expect(key).toBeNull();
+  });
+
+  // --- Key reset: stale distribution cleanup ---
+
+  test('should delete stale sender key distributions on identity change', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    // Register initial keys for user 1
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    // Distribute a sender key from user 1 to user 2
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      distributionMessage: 'old-key-data'
+    });
+
+    // Distribute a sender key from user 2 to user 1
+    await caller2.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 1,
+      distributionMessage: 'key-for-user-1'
+    });
+
+    // Verify distributions exist
+    const pending2 = await caller2.e2ee.getPendingSenderKeys({});
+    expect(pending2.length).toBe(1);
+    const pending1 = await caller1.e2ee.getPendingSenderKeys({});
+    expect(pending1.length).toBe(1);
+
+    // User 1 re-registers with a NEW identity key (simulating key reset)
+    await caller1.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'completely-new-identity-key'
+    });
+
+    // All distributions involving user 1 should be deleted
+    const pending2After = await caller2.e2ee.getPendingSenderKeys({});
+    expect(pending2After.length).toBe(0);
+    const pending1After = await caller1.e2ee.getPendingSenderKeys({});
+    expect(pending1After.length).toBe(0);
+  });
+
+  test('should not delete distributions when re-registering with same identity', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      distributionMessage: 'valid-key'
+    });
+
+    // Re-register with SAME identity key (e.g. OTP replenishment)
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    // Distribution should still exist
+    const pending = await caller2.e2ee.getPendingSenderKeys({});
+    expect(pending.length).toBe(1);
+    expect(pending[0]!.distributionMessage).toBe('valid-key');
+  });
 });

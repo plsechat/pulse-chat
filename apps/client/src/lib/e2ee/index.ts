@@ -148,27 +148,45 @@ async function replenishOTPsIfNeeded(
  * Ensure we have a session with a user. If not, fetch their pre-key bundle
  * and establish one via X3DH.
  *
- * For DM callers: use defaults (home store, home tRPC).
- * For channel callers on federated instances: pass the instance store + remote tRPC.
+ * When `verifyIdentity` is true, checks whether the remote user's server-side
+ * identity key still matches what we have stored locally. If it changed (key
+ * reset), the stale session is cleared and a fresh one is built. This avoids
+ * encrypting with an old session that the reset user can't decrypt.
  */
 async function ensureSession(
   userId: number,
   opts?: {
     store?: SignalProtocolStore;
     trpc?: ReturnType<typeof getHomeTRPCClient>;
+    verifyIdentity?: boolean;
   }
 ): Promise<void> {
-  const store = opts?.store;
-  if (await hasSession(userId, store)) return;
-
+  const s = opts?.store ?? signalStore;
   const trpc = opts?.trpc ?? getHomeTRPCClient();
+
+  if (await hasSession(userId, s)) {
+    if (opts?.verifyIdentity) {
+      const serverKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
+      const localKey = await s.getStoredIdentityKey(userId);
+
+      if (serverKey && localKey && serverKey !== localKey) {
+        // Identity changed — clear stale session so we rebuild below
+        await s.clearUserSession(userId);
+      } else {
+        return;
+      }
+    } else {
+      return;
+    }
+  }
+
   const bundle = await trpc.e2ee.getPreKeyBundle.query({ userId });
 
   if (!bundle) {
     throw new Error(`User ${userId} has no E2EE keys registered`);
   }
 
-  await buildSession(userId, bundle as PreKeyBundle, store);
+  await buildSession(userId, bundle as PreKeyBundle, s);
 }
 
 /**
@@ -204,6 +222,17 @@ export async function decryptDmMessage(
  * Cleared on page reload, which forces re-distribution (safe & idempotent).
  */
 const distributedMembers = new Map<number, Set<number>>();
+
+/**
+ * Remove a user from all distributedMembers sets, forcing re-distribution
+ * on the next ensureChannelSenderKey call. Used when a user's identity
+ * may have changed (key reset, reconnect).
+ */
+export function clearDistributedMember(userId: number): void {
+  for (const members of distributedMembers.values()) {
+    members.delete(userId);
+  }
+}
 
 /**
  * Ensure we have a sender key for this channel and that it has been
@@ -251,7 +280,7 @@ export async function ensureChannelSenderKey(
 
   for (const memberId of otherMembers) {
     try {
-      await ensureSession(memberId, { store, trpc });
+      await ensureSession(memberId, { store, trpc, verifyIdentity: true });
       const encryptedKey = await encryptMessage(memberId, keyBase64, store);
       await trpc.e2ee.distributeSenderKey.mutate({
         channelId,

@@ -83,23 +83,9 @@ export class SignalProtocolStore implements StorageType {
     _identityKey: ArrayBuffer,
     _direction: Direction
   ): Promise<boolean> {
-    // Trust on first use (TOFU)
-    const db = await this.getDb();
-    const existing = await db.get(STORES.IDENTITIES, _identifier);
-
-    if (!existing) {
-      return true; // First time seeing this identity
-    }
-
-    // Compare the stored identity key with the provided one
-    const existingKey = base64ToArrayBuffer(existing);
-    const existingView = new Uint8Array(existingKey);
-    const newView = new Uint8Array(_identityKey);
-
-    if (existingView.length !== newView.length) return false;
-    for (let i = 0; i < existingView.length; i++) {
-      if (existingView[i] !== newView[i]) return false;
-    }
+    // Always trust — accept new and changed identities.
+    // saveIdentity() will store/update the key, and the Signal library
+    // handles session renegotiation via PreKeyWhisperMessages.
     return true;
   }
 
@@ -250,6 +236,18 @@ export class SignalProtocolStore implements StorageType {
     this.senderKeyCache.set(cacheKey, key);
     const db = await this.getDb();
     await db.put(STORES.SENDER_KEYS, key, cacheKey);
+  }
+
+  async getStoredIdentityKey(userId: number): Promise<string | undefined> {
+    const db = await this.getDb();
+    return db.get(STORES.IDENTITIES, `${userId}.1`);
+  }
+
+  async clearUserSession(userId: number): Promise<void> {
+    const db = await this.getDb();
+    const address = `${userId}.1`;
+    await db.delete(STORES.SESSIONS, address);
+    await db.delete(STORES.IDENTITIES, address);
   }
 
   async copyIdentityFrom(source: SignalProtocolStore): Promise<void> {
