@@ -7,6 +7,7 @@ import {
 } from '@/features/server/actions';
 import { loadFederatedServers } from '@/features/app/actions';
 import { store } from '@/features/store';
+import { getAccessToken } from '@/lib/supabase';
 import { DisconnectCode } from '@pulse/shared';
 
 const MAX_ATTEMPTS = 10;
@@ -17,9 +18,9 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let attemptCount = 0;
 let isReconnecting = false;
 
-/** Whether the disconnect code is non-recoverable (user was kicked/banned). */
+/** Whether the disconnect code is non-recoverable (user was banned). */
 const isNonRecoverable = (code: number) =>
-  code === DisconnectCode.KICKED || code === DisconnectCode.BANNED;
+  code === DisconnectCode.BANNED;
 
 /** Exponential backoff with jitter: base * 2^attempt + random jitter, capped. */
 const getDelay = (attempt: number) => {
@@ -30,6 +31,22 @@ const getDelay = (attempt: number) => {
 
 const attemptReconnect = async () => {
   if (!isReconnecting) return;
+
+  // Don't attempt reconnection without a valid auth token — this would just
+  // spam the server with UNAUTHORIZED errors and get rejected every time.
+  const token = await getAccessToken();
+  if (!token) {
+    console.warn('[reconnect] no access token, stopping reconnection');
+    stopReconnecting();
+    setConnected(false);
+    setDisconnectInfo({
+      code: DisconnectCode.UNEXPECTED,
+      reason: 'Session expired. Please sign in again.',
+      wasClean: false,
+      time: new Date()
+    });
+    return;
+  }
 
   attemptCount++;
   setReconnectAttempt(attemptCount);

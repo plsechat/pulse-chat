@@ -24,6 +24,7 @@ import {
   messages,
   rolePermissions,
   roles,
+  serverMembers,
   servers,
   settings,
   userRoles,
@@ -239,6 +240,28 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     roleId: insertedDefaultRole!.id,
     createdAt: firstStart
   });
+
+  // Add all users as server members
+  await db.insert(serverMembers).values([
+    {
+      serverId: 1,
+      userId: insertedOwner!.id,
+      joinedAt: firstStart,
+      position: 0
+    },
+    {
+      serverId: 1,
+      userId: insertedUser!.id,
+      joinedAt: firstStart,
+      position: 0
+    },
+    {
+      serverId: 1,
+      userId: insertedThirdUser!.id,
+      joinedAt: firstStart,
+      position: 0
+    }
+  ]);
 
   const testMessage: TIMessage = {
     userId: insertedOwner!.id,

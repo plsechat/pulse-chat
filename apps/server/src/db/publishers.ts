@@ -1,6 +1,7 @@
 import {
   ChannelPermission,
   ServerEvents,
+  UserStatus,
   type TChannelUserPermissionsMap
 } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
@@ -63,6 +64,26 @@ const publishMessage = async (
   });
 
   await Promise.all(promises);
+
+  // Signal server-level unread increment without extra DB queries.
+  // publishMessage is fire-and-forget (not awaited by callers), so heavy DB
+  // queries here risk deadlocking with concurrent table operations in tests.
+  // Exact counts are computed on initial join and on mark-as-read.
+  if (type === 'create') {
+    const [channelRow] = await db
+      .select({ serverId: channels.serverId })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1);
+
+    if (channelRow) {
+      pubsub.publishFor(
+        usersToNotify,
+        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+        { serverId: channelRow.serverId, count: -1 }
+      );
+    }
+  }
 };
 
 const publishEmoji = async (
@@ -117,7 +138,8 @@ const publishRole = async (
 
 const publishUser = async (
   userId: number | undefined,
-  type: 'create' | 'update' | 'delete'
+  type: 'create' | 'update' | 'delete',
+  statusOverride?: UserStatus
 ) => {
   if (!userId) return;
 
@@ -129,6 +151,13 @@ const publishUser = async (
   const user = await getPublicUserById(userId);
 
   if (!user) return;
+
+  if (statusOverride !== undefined) {
+    // Invisible should appear as offline to other users
+    user.status = statusOverride === UserStatus.INVISIBLE
+      ? UserStatus.OFFLINE
+      : statusOverride;
+  }
 
   const targetEvent =
     type === 'create' ? ServerEvents.USER_CREATE : ServerEvents.USER_UPDATE;

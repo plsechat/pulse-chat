@@ -11,7 +11,8 @@ import {
   useActiveServerId,
   useActiveView,
   useFederatedServers,
-  useJoinedServers
+  useJoinedServers,
+  useServerUnreadCounts
 } from '@/features/app/hooks';
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { appSliceActions } from '@/features/app/slice';
@@ -44,7 +45,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { useCurrentVoiceServerId } from '@/features/server/channels/hooks';
-import { useHasAnyUnread, useHasAnyVoiceUsers } from '@/features/server/hooks';
+import { useHasAnyVoiceUsers } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -88,7 +89,7 @@ const ServerIcon = memo(
     return (
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
           isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
         )} />
         <button
@@ -138,7 +139,7 @@ const FederatedServerIcon = memo(
       <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
-            'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+            'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
             isActive ? 'h-10' : 'h-0 group-hover:h-5'
           )}
         />
@@ -209,7 +210,7 @@ const ServerStrip = memo(() => {
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
   const ownUserId = useOwnUserId();
-  const hasAnyUnread = useHasAnyUnread();
+  const serverUnreadCounts = useServerUnreadCounts();
   const hasAnyVoiceUsers = useHasAnyVoiceUsers();
   const currentVoiceServerId = useCurrentVoiceServerId();
   const federatedServers = useFederatedServers();
@@ -287,15 +288,21 @@ const ServerStrip = memo(() => {
       try {
         const trpc = getTRPCClient();
         await trpc.notifications.markServerAsRead.mutate({ serverId });
-        // Optimistically reset all read states to 0
+        // Optimistically reset server-level unread count
+        store.dispatch(
+          appSliceActions.setServerUnreadCount({ serverId, count: 0 })
+        );
+        // Also clear active server's channel read states if applicable
         const state = store.getState();
-        for (const channelId of Object.keys(state.server.readStatesMap)) {
-          store.dispatch(
-            serverSliceActions.setChannelReadState({
-              channelId: Number(channelId),
-              count: 0
-            })
-          );
+        if (state.app.activeServerId === serverId) {
+          for (const channelId of Object.keys(state.server.readStatesMap)) {
+            store.dispatch(
+              serverSliceActions.setChannelReadState({
+                channelId: Number(channelId),
+                count: 0
+              })
+            );
+          }
         }
         toast.success('Marked as read');
       } catch {
@@ -387,7 +394,7 @@ const ServerStrip = memo(() => {
     <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
           activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
         )} />
         <button
@@ -440,9 +447,7 @@ const ServerStrip = memo(() => {
                           !activeInstanceDomain
                         }
                         hasUnread={
-                          activeServerId === server.id &&
-                          !activeInstanceDomain &&
-                          hasAnyUnread
+                          (serverUnreadCounts[server.id] ?? 0) > 0
                         }
                         hasVoiceActivity={
                           server.id === currentVoiceServerId ||
@@ -455,14 +460,13 @@ const ServerStrip = memo(() => {
                     </div>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    {activeServerId === server.id &&
-                      !activeInstanceDomain && (
-                        <ContextMenuItem
-                          onClick={() => handleMarkAsRead(server.id)}
-                        >
-                          Mark as Read
-                        </ContextMenuItem>
-                      )}
+                    {(serverUnreadCounts[server.id] ?? 0) > 0 && (
+                      <ContextMenuItem
+                        onClick={() => handleMarkAsRead(server.id)}
+                      >
+                        Mark as Read
+                      </ContextMenuItem>
+                    )}
                     <ContextMenuCheckboxItem
                       checked={serverMuted}
                       onCheckedChange={(checked) =>
@@ -567,7 +571,7 @@ const ServerStrip = memo(() => {
 
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'
         )} />
         <button

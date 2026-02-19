@@ -31,7 +31,7 @@ const User = memo(({ userId, name, banned, status, _identity }: TUserProps) => {
     <UserPopover userId={userId}>
       <div className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent/40 select-none transition-colors duration-150 cursor-pointer">
         <div className="relative flex-shrink-0">
-          <UserAvatar userId={userId} className="h-8 w-8" />
+          <UserAvatar userId={userId} className="h-8 w-8" showStatusBadge={false} />
           <div className="absolute -bottom-0.5 -right-0.5">
             <UserStatusBadge
               status={status || UserStatus.OFFLINE}

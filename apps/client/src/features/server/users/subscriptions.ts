@@ -1,6 +1,9 @@
+import { appSliceActions } from '@/features/app/slice';
+import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
 import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
+import { toast } from 'sonner';
 import { addUser, handleUserJoin, removeUser, updateUser } from './actions';
 
 /**
@@ -83,12 +86,35 @@ const subscribeToUsers = () => {
     onError: (err) => console.error('onUserDelete subscription error:', err)
   });
 
+  const onKickedSub = trpc.users.onKicked.subscribe(undefined, {
+    onData: ({ serverId, reason }: { serverId: number; reason?: string }) => {
+      toast.error(
+        reason
+          ? `You have been kicked: ${reason}`
+          : 'You have been kicked from the server'
+      );
+
+      // Remove the server from the joined list
+      store.dispatch(appSliceActions.removeJoinedServer(serverId));
+
+      // If we're currently viewing the kicked server, navigate to home
+      const state = store.getState();
+      if (state.app.activeServerId === serverId) {
+        resetServerState();
+        store.dispatch(appSliceActions.setActiveView('home'));
+        store.dispatch(appSliceActions.setActiveServerId(undefined));
+      }
+    },
+    onError: (err) => console.error('onKicked subscription error:', err)
+  });
+
   return () => {
     onUserJoinSub.unsubscribe();
     onUserLeaveSub.unsubscribe();
     onUserUpdateSub.unsubscribe();
     onUserCreateSub.unsubscribe();
     onUserDeleteSub.unsubscribe();
+    onKickedSub.unsubscribe();
   };
 };
 

@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { setActiveThreadId } from '@/features/server/channels/actions';
+import { setActiveThreadId, setHighlightedMessageId } from '@/features/server/channels/actions';
 import { useThreadsByParentChannelId } from '@/features/server/channels/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Archive, MessageSquare } from 'lucide-react';
@@ -20,6 +20,7 @@ type TThreadItem = {
   archived: boolean;
   parentChannelId: number;
   createdAt: number;
+  sourceMessageId?: number | null;
 };
 
 const ThreadListPopover = memo(
@@ -76,12 +77,29 @@ const ThreadListPopover = memo(
       lastMessageAt: null,
       archived: t.archived,
       parentChannelId: channelId,
-      createdAt: t.createdAt
+      createdAt: t.createdAt,
+      sourceMessageId: null
     }));
 
     const onThreadClick = useCallback(
-      (threadId: number) => {
+      (threadId: number, sourceMessageId?: number | null) => {
         setActiveThreadId(threadId);
+
+        // Scroll the main channel to the source message and highlight it
+        if (sourceMessageId) {
+          setHighlightedMessageId(sourceMessageId);
+
+          requestAnimationFrame(() => {
+            const el = document.getElementById(`msg-${sourceMessageId}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          });
+
+          // Clear highlight after animation
+          setTimeout(() => setHighlightedMessageId(undefined), 2500);
+        }
+
         onClose();
       },
       [onClose]
@@ -115,7 +133,7 @@ const ThreadListPopover = memo(
               <button
                 key={thread.id}
                 type="button"
-                onClick={() => onThreadClick(thread.id)}
+                onClick={() => onThreadClick(thread.id, thread.sourceMessageId)}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors text-left"
               >
                 <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />

@@ -22,3 +22,6 @@ export const federatedServersSelector = (state: IRootState) =>
 
 export const activeInstanceDomainSelector = (state: IRootState) =>
   state.app.activeInstanceDomain;
+
+export const serverUnreadCountsSelector = (state: IRootState) =>
+  state.app.serverUnreadCounts;
