@@ -1,4 +1,4 @@
-import type { AppRouter, TConnectionParams } from '@pulse/shared';
+import { DisconnectCode, type AppRouter, type TConnectionParams } from '@pulse/shared';
 import { createTRPCProxyClient, createWSClient, wsLink } from '@trpc/client';
 
 type TConnection = {
@@ -48,6 +48,11 @@ class ConnectionManager {
       },
       onClose: (cause) => {
         console.log('[ConnectionManager] WebSocket closed to', instanceDomain, 'cause:', cause);
+        if (cause?.code === DisconnectCode.FEDERATION_REJECTED) {
+          console.warn('[ConnectionManager] Federation rejected by', instanceDomain, '— stopping reconnect');
+          wsClient.close();
+          this.connections.delete(instanceDomain);
+        }
       }
     });
 

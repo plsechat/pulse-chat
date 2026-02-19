@@ -1,3 +1,4 @@
+import { decryptChannelMessage } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedMessage } from '@pulse/shared';
 import {
@@ -7,18 +8,40 @@ import {
   updateMessage
 } from './actions';
 
+async function decryptE2eeMessage(
+  message: TJoinedMessage
+): Promise<TJoinedMessage> {
+  if (!message.e2ee || !message.encryptedContent) return message;
+
+  try {
+    const payload = await decryptChannelMessage(
+      message.channelId,
+      message.userId,
+      message.encryptedContent
+    );
+    return { ...message, content: payload.content };
+  } catch (err) {
+    console.error('[E2EE] Failed to decrypt channel message:', err);
+    return { ...message, content: '[Unable to decrypt]' };
+  }
+}
+
 const subscribeToMessages = () => {
   const trpc = getTRPCClient();
 
   const onMessageSub = trpc.messages.onNew.subscribe(undefined, {
-    onData: (message: TJoinedMessage) =>
-      addMessages(message.channelId, [message], {}, true),
+    onData: async (message: TJoinedMessage) => {
+      const decrypted = await decryptE2eeMessage(message);
+      addMessages(decrypted.channelId, [decrypted], {}, true);
+    },
     onError: (err) => console.error('onMessage subscription error:', err)
   });
 
   const onMessageUpdateSub = trpc.messages.onUpdate.subscribe(undefined, {
-    onData: (message: TJoinedMessage) =>
-      updateMessage(message.channelId, message),
+    onData: async (message: TJoinedMessage) => {
+      const decrypted = await decryptE2eeMessage(message);
+      updateMessage(decrypted.channelId, decrypted);
+    },
     onError: (err) => console.error('onMessageUpdate subscription error:', err)
   });
 
@@ -63,6 +86,51 @@ const subscribeToMessages = () => {
     onError: (err) => console.error('onMessageUnpin subscription error:', err)
   });
 
+  // Subscribe to sender key distributions for channel E2EE
+  const onSenderKeyDistSub = trpc.e2ee.onSenderKeyDistribution.subscribe(
+    undefined,
+    {
+      onData: async ({
+        channelId,
+        fromUserId
+      }: {
+        channelId: number;
+        fromUserId: number;
+      }) => {
+        try {
+          const { fetchAndProcessPendingSenderKeys } = await import(
+            '@/lib/e2ee'
+          );
+          await fetchAndProcessPendingSenderKeys(channelId);
+        } catch (err) {
+          console.error(
+            `[E2EE] Failed to process sender key from user ${fromUserId}:`,
+            err
+          );
+        }
+      },
+      onError: (err) =>
+        console.error('onSenderKeyDistribution subscription error:', err)
+    }
+  );
+
+  // Subscribe to E2EE identity resets (key regeneration broadcasts)
+  const onIdentityResetSub = trpc.e2ee.onIdentityReset.subscribe(undefined, {
+    onData: async ({ userId }: { userId: number }) => {
+      try {
+        const { handlePeerIdentityReset } = await import('@/lib/e2ee');
+        await handlePeerIdentityReset(userId);
+      } catch (err) {
+        console.error(
+          `[E2EE] Failed to handle identity reset for user ${userId}:`,
+          err
+        );
+      }
+    },
+    onError: (err) =>
+      console.error('onIdentityReset subscription error:', err)
+  });
+
   return () => {
     onMessageSub.unsubscribe();
     onMessageUpdateSub.unsubscribe();
@@ -70,6 +138,8 @@ const subscribeToMessages = () => {
     onMessageTypingSub.unsubscribe();
     onMessagePinSub.unsubscribe();
     onMessageUnpinSub.unsubscribe();
+    onSenderKeyDistSub.unsubscribe();
+    onIdentityResetSub.unsubscribe();
   };
 };
 

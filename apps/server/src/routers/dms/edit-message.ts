@@ -12,7 +12,8 @@ const editMessageRoute = protectedProcedure
   .input(
     z.object({
       messageId: z.number(),
-      content: z.string().max(4000)
+      content: z.string().max(4000).optional(),
+      encryptedContent: z.string().max(16000).optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -32,9 +33,28 @@ const editMessageRoute = protectedProcedure
       message: 'You can only edit your own messages'
     });
 
+    const updateSet: Record<string, unknown> = {
+      edited: true,
+      updatedAt: Date.now()
+    };
+
+    if (msg.e2ee) {
+      invariant(input.encryptedContent, {
+        code: 'BAD_REQUEST',
+        message: 'E2EE messages must be edited with encryptedContent'
+      });
+      updateSet.encryptedContent = input.encryptedContent;
+    } else {
+      invariant(input.content, {
+        code: 'BAD_REQUEST',
+        message: 'Non-E2EE messages must be edited with content'
+      });
+      updateSet.content = input.content;
+    }
+
     await db
       .update(dmMessages)
-      .set({ content: input.content, edited: true, updatedAt: Date.now() })
+      .set(updateSet)
       .where(eq(dmMessages.id, input.messageId));
 
     const joined = await getDmMessage(input.messageId);

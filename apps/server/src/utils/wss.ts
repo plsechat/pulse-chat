@@ -1,6 +1,7 @@
 import {
   ActivityLogType,
   ChannelPermission,
+  DisconnectCode,
   Permission,
   ServerEvents,
   UserStatus,
@@ -46,7 +47,8 @@ const getUserIp = (userId: number): string | undefined => {
 
 const createContext = async ({
   info,
-  req
+  req,
+  res
 }: CreateWSSContextFnOptions): Promise<Context> => {
   const params = info.connectionParams as TConnectionParams;
 
@@ -62,6 +64,10 @@ const createContext = async ({
     const fedResult = await verifyFederationToken(params.federationToken);
     logger.info('[wss/createContext] federation token verification result=%o',
       fedResult ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : null);
+
+    if (!fedResult) {
+      res.close(DisconnectCode.FEDERATION_REJECTED, 'Invalid federation token');
+    }
 
     invariant(fedResult, {
       code: 'UNAUTHORIZED',

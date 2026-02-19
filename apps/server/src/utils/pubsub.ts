@@ -183,6 +183,15 @@ type Events = {
     instanceId?: number;
     status: string;
   };
+
+  [ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION]: {
+    channelId: number;
+    fromUserId: number;
+  };
+
+  [ServerEvents.E2EE_IDENTITY_RESET]: {
+    userId: number;
+  };
 };
 
 class PubSub {

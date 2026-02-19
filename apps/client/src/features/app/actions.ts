@@ -9,6 +9,7 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import { connectionManager } from '@/lib/connection-manager';
+import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { getAccessToken, initSupabase } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
@@ -187,6 +188,11 @@ export const loadApp = async () => {
 
       // Try connecting directly — the WebSocket validates the token
       await connect();
+
+      // Initialize E2EE (replenishes OTPs if keys exist, otherwise no-op)
+      initE2EE().catch((err) =>
+        console.error('E2EE initialization failed:', err)
+      );
 
       // Load persisted federated servers
       loadFederatedServers();
@@ -397,6 +403,11 @@ export const switchToFederatedServer = async (
 
     // Reinit subscriptions so they use the remote tRPC client
     reinitServerSubscriptions();
+
+    // Initialize E2EE keys on the federated instance
+    initE2EEForInstance(instanceDomain).catch((err) =>
+      console.error('[E2EE] Federation E2EE init failed:', err)
+    );
   } catch (error) {
     console.error('Failed to load federated server data:', error);
     toast.error('Failed to load federated server data');

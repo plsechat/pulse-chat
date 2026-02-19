@@ -21,7 +21,8 @@ const searchDmMessagesRoute = protectedProcedure
   .query(async ({ ctx, input }) => {
     const escapedQuery = input.query.replace(/[%_\\]/g, '\\$&');
     const conditions: SQL[] = [
-      ilike(dmMessages.content, `%${escapedQuery}%`)
+      ilike(dmMessages.content, `%${escapedQuery}%`),
+      eq(dmMessages.e2ee, false)
     ];
 
     if (input.dmChannelId) {

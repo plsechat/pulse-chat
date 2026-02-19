@@ -35,6 +35,10 @@ import {
   automodRules,
   federationKeys,
   federationInstances,
+  userIdentityKeys,
+  userSignedPreKeys,
+  userOneTimePreKeys,
+  e2eeSenderKeys,
 } from "../../../apps/server/src/db/schema";
 import type { UserStatus } from "./types";
 import type { Permission } from "./statics";
@@ -109,6 +113,10 @@ export type TAutomodRule = InferSelectModel<typeof automodRules>;
 export type TIAutomodRule = InferInsertModel<typeof automodRules>;
 export type TFederationKey = InferSelectModel<typeof federationKeys>;
 export type TFederationInstance = InferSelectModel<typeof federationInstances>;
+export type TUserIdentityKey = InferSelectModel<typeof userIdentityKeys>;
+export type TUserSignedPreKey = InferSelectModel<typeof userSignedPreKeys>;
+export type TUserOneTimePreKey = InferSelectModel<typeof userOneTimePreKeys>;
+export type TE2eeSenderKey = InferSelectModel<typeof e2eeSenderKeys>;
 
 export type TStorageSettings = Pick<
   TSettings,

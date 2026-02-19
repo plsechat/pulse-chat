@@ -1,9 +1,12 @@
-import { UserAvatar } from '@/components/user-avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useDmChannels } from '@/features/dms/hooks';
 import { useFriendRequests } from '@/features/friends/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getFileUrl } from '@/helpers/get-file-url';
+import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
-import type { TJoinedDmChannel } from '@pulse/shared';
+import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
+import { AvatarImage } from '@radix-ui/react-avatar';
 import { MessageSquare, Plus, Users } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import type { THomeTab } from '.';
@@ -138,22 +141,20 @@ const DmChannelItem = memo(
         {channel.isGroup ? (
           <div className="relative h-8 w-8 flex-shrink-0">
             {otherMembers.slice(0, 2).map((m, i) => (
-              <UserAvatar
+              <DmMemberAvatar
                 key={m.id}
-                userId={m.id}
+                member={m}
                 className={cn(
                   'h-6 w-6 absolute border-2 border-background',
                   i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
                 )}
-                showUserPopover={false}
               />
             ))}
           </div>
         ) : (
-          <UserAvatar
-            userId={otherMembers[0].id}
+          <DmMemberAvatar
+            member={otherMembers[0]}
             className="h-8 w-8 flex-shrink-0"
-            showUserPopover={false}
           />
         )}
         <div className="flex min-w-0 flex-1 flex-col items-start">
@@ -177,6 +178,18 @@ const DmChannelItem = memo(
       </button>
     );
   }
+);
+
+/** Avatar rendered directly from DM channel member data — no Redux lookup needed. */
+const DmMemberAvatar = memo(
+  ({ member, className }: { member: TJoinedPublicUser; className?: string }) => (
+    <Avatar className={cn('h-8 w-8', className)}>
+      <AvatarImage src={getFileUrl(member.avatar)} />
+      <AvatarFallback className="bg-muted text-xs">
+        {getInitialsFromName(member.name)}
+      </AvatarFallback>
+    </Avatar>
+  )
 );
 
 export { HomeSidebar };
