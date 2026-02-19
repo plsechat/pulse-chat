@@ -161,12 +161,34 @@ function getDmRecipientUserId(dmChannelId: number): number | null {
 }
 
 /**
+ * In-memory plaintext cache for own sent DM messages.
+ * Keyed by encryptedContent so we can recover the plaintext when the
+ * subscription echo arrives (own messages are encrypted for the recipient,
+ * not for ourselves, so we cannot decrypt them via Signal Protocol).
+ */
+const ownSentPlaintextCache = new Map<string, string>();
+
+/**
  * Decrypt an E2EE DM message in-place, replacing encryptedContent with decrypted content.
  */
 export async function decryptDmMessageInPlace(
   message: TJoinedDmMessage
 ): Promise<TJoinedDmMessage> {
   if (!message.e2ee || !message.encryptedContent) return message;
+
+  const ownUserId = ownUserIdSelector(store.getState());
+
+  // Own messages are encrypted for the recipient — we cannot decrypt them.
+  // Use the in-memory cache populated at send time for the current session.
+  if (message.userId === ownUserId) {
+    const cached = ownSentPlaintextCache.get(message.encryptedContent);
+    if (cached !== undefined) {
+      return { ...message, content: cached };
+    }
+    // Cache miss: historical message from a previous session.
+    // The plaintext is genuinely unavailable (encrypted for the recipient only).
+    return { ...message, content: '[Encrypted message]' };
+  }
 
   try {
     const payload = await decryptDmMessage(message.userId, message.encryptedContent);
@@ -201,6 +223,9 @@ export const sendDmMessage = async (
       const encryptedContent = await encryptDmMessage(recipientUserId, {
         content
       });
+      // Cache plaintext so we can display our own message when the
+      // subscription echo arrives (own messages can't be self-decrypted).
+      ownSentPlaintextCache.set(encryptedContent, content);
       await trpc.dms.sendMessage.mutate({
         dmChannelId,
         encryptedContent,
