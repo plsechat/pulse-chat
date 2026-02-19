@@ -53,16 +53,6 @@ const publishMessage = async (
   // only send count updates to users OTHER than the message author
   const usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
 
-  // Look up the channel's serverId for server-level unread updates
-  const [channelRow] =
-    type === 'create'
-      ? await db
-          .select({ serverId: channels.serverId })
-          .from(channels)
-          .where(eq(channels.id, channelId))
-          .limit(1)
-      : [];
-
   const promises = usersToNotify.map(async (userId) => {
     const readState = await getChannelsReadStatesForUser(userId, channelId);
     const count = readState[channelId] ?? 0;
@@ -71,22 +61,35 @@ const publishMessage = async (
       channelId,
       count
     });
-
-    // Also publish server-level unread count on new messages
-    if (type === 'create' && channelRow) {
-      const serverCount = await getServerUnreadCount(
-        userId,
-        channelRow.serverId
-      );
-      pubsub.publishFor(
-        userId,
-        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-        { serverId: channelRow.serverId, count: serverCount }
-      );
-    }
   });
 
   await Promise.all(promises);
+
+  // Publish server-level unread counts asynchronously (non-blocking)
+  if (type === 'create') {
+    void db
+      .select({ serverId: channels.serverId })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1)
+      .then(([channelRow]) => {
+        if (!channelRow) return;
+        return Promise.all(
+          usersToNotify.map(async (userId) => {
+            const serverCount = await getServerUnreadCount(
+              userId,
+              channelRow.serverId
+            );
+            pubsub.publishFor(
+              userId,
+              ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+              { serverId: channelRow.serverId, count: serverCount }
+            );
+          })
+        );
+      })
+      .catch(() => {});
+  }
 };
 
 const publishEmoji = async (
