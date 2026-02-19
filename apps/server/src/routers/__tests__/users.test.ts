@@ -1,7 +1,9 @@
 import { type TTempFile } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { initTest, uploadFile } from '../../__tests__/helpers';
+import { createMockContext } from '../../__tests__/context';
+import { getCaller, getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
 import { tdb } from '../../__tests__/setup';
+import { appRouter } from '../../routers';
 
 describe('users router', () => {
   test('should throw when user lacks permissions (getAll)', async () => {
@@ -432,7 +434,13 @@ describe('users router', () => {
   });
 
   test('should throw when kicking non-member user', async () => {
-    const { caller } = await initTest();
+    // Build a caller with activeServerId pre-set so the kick route's
+    // invariant(ctx.activeServerId) passes before reaching the membership check.
+    const mockedToken = await getMockedToken(1);
+    const ctx = await createMockContext({ customToken: mockedToken });
+    ctx.authenticated = true;
+    ctx.activeServerId = 1;
+    const caller = appRouter.createCaller(ctx);
 
     await expect(
       caller.users.kick({

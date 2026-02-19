@@ -59,13 +59,7 @@ const initTest = async (userId: number = 1) => {
     handshakeHash: handshakeHash
   });
 
-  // tRPC createCaller snapshots context at creation time, so mutations
-  // from joinServer (which sets activeServerId) aren't visible to later calls.
-  // Recreate the caller with activeServerId already set.
-  ctx.activeServerId = initialData.serverDbId;
-  const serverCaller = appRouter.createCaller(ctx);
-
-  return { caller: serverCaller, mockedToken, initialData, ctx };
+  return { caller, mockedToken, initialData, ctx };
 };
 
 const login = async (email: string, password: string, invite?: string) =>
