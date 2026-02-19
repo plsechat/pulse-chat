@@ -194,8 +194,8 @@ export const loadApp = async () => {
         console.error('E2EE initialization failed:', err)
       );
 
-      // Load persisted federated servers
-      loadFederatedServers();
+      // Load persisted federated servers and validate against home instance
+      await loadFederatedServers();
 
       // Check for invite code in URL and auto-join that server
       await handleInviteFromUrl();
@@ -424,7 +424,7 @@ export const setActiveInstanceDomain = (domain: string | null) => {
   }
 };
 
-const saveFederatedServers = () => {
+export const saveFederatedServers = () => {
   const state = store.getState();
   setLocalStorageItemAsJSON(
     LocalStorageKey.FEDERATED_SERVERS,
@@ -432,11 +432,55 @@ const saveFederatedServers = () => {
   );
 };
 
-export const loadFederatedServers = () => {
+export const loadFederatedServers = async () => {
   const saved = getLocalStorageItemAsJSON<TFederatedServerEntry[]>(
     LocalStorageKey.FEDERATED_SERVERS
   );
-  if (saved && saved.length > 0) {
-    store.dispatch(appSliceActions.setFederatedServers(saved));
+  if (!saved || saved.length === 0) return;
+
+  store.dispatch(appSliceActions.setFederatedServers(saved));
+
+  // Validate stored federated servers against the home server's instance list
+  try {
+    const trpc = getHomeTRPCClient();
+    const instances = await trpc.federation.listInstances.query();
+    const activeDomains = new Set(
+      instances.filter((i) => i.status === 'active').map((i) => i.domain)
+    );
+
+    const staleDomains = new Set<string>();
+    for (const entry of saved) {
+      if (!activeDomains.has(entry.instanceDomain)) {
+        staleDomains.add(entry.instanceDomain);
+      }
+    }
+
+    if (staleDomains.size === 0) return;
+
+    const state = store.getState();
+    const activeDomain = state.app.activeInstanceDomain;
+
+    for (const domain of staleDomains) {
+      const entries = saved.filter((s) => s.instanceDomain === domain);
+      for (const entry of entries) {
+        store.dispatch(
+          appSliceActions.removeFederatedServer({
+            instanceDomain: entry.instanceDomain,
+            serverId: entry.server.id
+          })
+        );
+      }
+      connectionManager.disconnectRemote(domain);
+    }
+
+    saveFederatedServers();
+
+    // If user was viewing a removed federated server, reset to home
+    if (activeDomain && staleDomains.has(activeDomain)) {
+      store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+      store.dispatch(appSliceActions.setActiveView('home'));
+    }
+  } catch (error) {
+    console.error('Failed to validate federated servers:', error);
   }
 };

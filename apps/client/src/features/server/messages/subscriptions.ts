@@ -1,5 +1,9 @@
+import { saveFederatedServers } from '@/features/app/actions';
+import { appSliceActions } from '@/features/app/slice';
+import { store } from '@/features/store';
+import { connectionManager } from '@/lib/connection-manager';
 import { decryptChannelMessage } from '@/lib/e2ee';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import type { TJoinedMessage, TThreadInfo } from '@pulse/shared';
 import {
   addMessages,
@@ -178,6 +182,45 @@ const subscribeToMessages = () => {
     onError: (err) => console.error('onThreadDelete subscription error:', err)
   });
 
+  // Subscribe to federation instance updates for real-time cleanup
+  const homeTrpc = getHomeTRPCClient();
+  const onFederationInstanceUpdateSub =
+    homeTrpc.federation.onInstanceUpdate.subscribe(undefined, {
+      onData: (event: { status: string; domain?: string }) => {
+        if (
+          (event.status === 'removed' || event.status === 'blocked') &&
+          event.domain
+        ) {
+          const state = store.getState();
+          const entries = state.app.federatedServers.filter(
+            (s) => s.instanceDomain === event.domain
+          );
+
+          if (entries.length === 0) return;
+
+          for (const entry of entries) {
+            store.dispatch(
+              appSliceActions.removeFederatedServer({
+                instanceDomain: entry.instanceDomain,
+                serverId: entry.server.id
+              })
+            );
+          }
+
+          saveFederatedServers();
+          connectionManager.disconnectRemote(event.domain);
+
+          // If user was viewing a removed federated server, reset to home
+          if (state.app.activeInstanceDomain === event.domain) {
+            store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+            store.dispatch(appSliceActions.setActiveView('home'));
+          }
+        }
+      },
+      onError: (err) =>
+        console.error('onFederationInstanceUpdate subscription error:', err)
+    });
+
   return () => {
     onMessageSub.unsubscribe();
     onMessageUpdateSub.unsubscribe();
@@ -193,6 +236,7 @@ const subscribeToMessages = () => {
     onInviteCreateSub.unsubscribe();
     onInviteDeleteSub.unsubscribe();
     onNoteUpdateSub.unsubscribe();
+    onFederationInstanceUpdateSub.unsubscribe();
   };
 };
 
