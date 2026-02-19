@@ -147,8 +147,19 @@ export async function decryptDmMessage(
 // --- Channel E2EE (Sender Keys) ---
 
 /**
- * Ensure we have a sender key for this channel.
- * If not, generate one and distribute it to all provided member IDs.
+ * Track which members have successfully received our sender key per channel.
+ * Cleared on page reload, which forces re-distribution (safe & idempotent).
+ */
+const distributedMembers = new Map<number, Set<number>>();
+
+/**
+ * Ensure we have a sender key for this channel and that it has been
+ * distributed to all provided member IDs.
+ *
+ * On first call: generates a new AES-256-GCM key and distributes it.
+ * On subsequent calls: re-distributes to any members who haven't received
+ * the key yet (e.g. new members, or members whose first distribution failed).
+ *
  * Uses the active instance store so it works on federated servers.
  */
 export async function ensureChannelSenderKey(
@@ -157,13 +168,33 @@ export async function ensureChannelSenderKey(
   memberUserIds: number[]
 ): Promise<void> {
   const store = getActiveStore();
-  if (await hasSenderKey(channelId, ownUserId, store)) return;
+  const hasKey = await hasSenderKey(channelId, ownUserId, store);
 
-  const keyBase64 = await generateSenderKey(channelId, ownUserId, store);
+  let keyBase64: string | undefined;
+
+  if (!hasKey) {
+    keyBase64 = await generateSenderKey(channelId, ownUserId, store);
+    distributedMembers.set(channelId, new Set());
+  }
+
+  // Determine which members still need the key
+  const distributed = distributedMembers.get(channelId) ?? new Set();
+  const otherMembers = memberUserIds.filter(
+    (id) => id !== ownUserId && !distributed.has(id)
+  );
+
+  if (otherMembers.length === 0) return;
+
+  // Read key from store if we didn't just generate it
+  if (!keyBase64) {
+    keyBase64 = await store.getSenderKey(channelId, ownUserId);
+    if (!keyBase64) {
+      throw new Error(`Sender key not found for channel ${channelId}`);
+    }
+  }
 
   // Distribute the key to each member via Signal Protocol
   const trpc = getTRPCClient();
-  const otherMembers = memberUserIds.filter((id) => id !== ownUserId);
 
   for (const memberId of otherMembers) {
     try {
@@ -174,6 +205,7 @@ export async function ensureChannelSenderKey(
         toUserId: memberId,
         distributionMessage: encryptedKey
       });
+      distributed.add(memberId);
     } catch (err) {
       console.warn(
         `[E2EE] Failed to distribute sender key to user ${memberId}:`,
@@ -181,6 +213,8 @@ export async function ensureChannelSenderKey(
       );
     }
   }
+
+  distributedMembers.set(channelId, distributed);
 }
 
 /**
@@ -205,8 +239,7 @@ export async function processIncomingSenderKey(
 /**
  * Dedup map to prevent concurrent fetches for the same channel from racing.
  * Without this, the subscription handler and message decrypt handler can both
- * call getPendingSenderKeys (which deletes on read) simultaneously — the first
- * one gets the keys, the second gets an empty result and fails to decrypt.
+ * fire concurrent HTTP requests and redundantly process the same keys.
  */
 const activeSenderKeyFetches = new Map<
   number | undefined,
@@ -240,8 +273,16 @@ async function doFetchAndProcessPendingSenderKeys(
     channelId
   });
 
+  const processedIds: number[] = [];
+
   for (const key of pending) {
     try {
+      // Skip Signal Protocol decryption if we already have this sender's key
+      if (await hasSenderKey(key.channelId, key.fromUserId, store)) {
+        processedIds.push(key.id);
+        continue;
+      }
+
       const keyBase64 = await decryptMessage(
         key.fromUserId,
         key.distributionMessage,
@@ -253,11 +294,22 @@ async function doFetchAndProcessPendingSenderKeys(
         keyBase64,
         store
       );
+      processedIds.push(key.id);
     } catch (err) {
       console.warn(
         `[E2EE] Failed to process sender key from user ${key.fromUserId}:`,
         err
       );
+      // Don't add to processedIds — key stays on server for retry
+    }
+  }
+
+  // Acknowledge successfully processed keys so the server can delete them
+  if (processedIds.length > 0) {
+    try {
+      await trpc.e2ee.acknowledgeSenderKeys.mutate({ ids: processedIds });
+    } catch {
+      // Non-fatal: keys will be re-fetched and deduped on next attempt
     }
   }
 }
@@ -278,7 +330,7 @@ export async function encryptChannelMessage(
 
 /**
  * Decrypt a channel message using the sender's key.
- * If the key is missing, tries to fetch pending keys first.
+ * If the key is missing, tries to fetch pending keys first, with retries.
  * Uses the active instance store.
  */
 export async function decryptChannelMessage(
@@ -293,10 +345,17 @@ export async function decryptChannelMessage(
     await fetchAndProcessPendingSenderKeys(channelId);
   }
 
-  // If still missing, the subscription handler may be processing a global
-  // fetch that hasn't stored the key yet — wait briefly and check once more
+  // If still missing, the distribution may still be in transit from the
+  // sender — wait and retry with a fresh fetch from the server
   if (!(await hasSenderKey(channelId, fromUserId, store))) {
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1000));
+    await fetchAndProcessPendingSenderKeys(channelId);
+  }
+
+  // Final retry with a longer wait
+  if (!(await hasSenderKey(channelId, fromUserId, store))) {
+    await new Promise((r) => setTimeout(r, 2000));
+    await fetchAndProcessPendingSenderKeys(channelId);
   }
 
   const plaintext = await decryptWithSenderKey(

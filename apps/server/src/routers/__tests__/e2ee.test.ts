@@ -227,12 +227,13 @@ describe('e2ee router', () => {
     const pending = await caller2.e2ee.getPendingSenderKeys({});
 
     expect(pending.length).toBe(1);
+    expect(pending[0]!.id).toBeDefined();
     expect(pending[0]!.channelId).toBe(1);
     expect(pending[0]!.fromUserId).toBe(1);
     expect(pending[0]!.distributionMessage).toBe('encrypted-sender-key-data');
   });
 
-  test('should delete sender keys after fetching', async () => {
+  test('should keep sender keys until acknowledged', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
@@ -245,10 +246,38 @@ describe('e2ee router', () => {
     // First fetch returns the key
     const first = await caller2.e2ee.getPendingSenderKeys({});
     expect(first.length).toBe(1);
+    expect(first[0]!.id).toBeDefined();
 
-    // Second fetch should be empty (keys were deleted)
+    // Second fetch should still return the key (not deleted yet)
     const second = await caller2.e2ee.getPendingSenderKeys({});
-    expect(second.length).toBe(0);
+    expect(second.length).toBe(1);
+
+    // Acknowledge the key
+    await caller2.e2ee.acknowledgeSenderKeys({ ids: [first[0]!.id] });
+
+    // Now it should be gone
+    const third = await caller2.e2ee.getPendingSenderKeys({});
+    expect(third.length).toBe(0);
+  });
+
+  test('should only allow acknowledging own sender keys', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      distributionMessage: 'key-data'
+    });
+
+    const pending = await caller2.e2ee.getPendingSenderKeys({});
+
+    // User 1 tries to acknowledge user 2's key — should not delete it
+    await caller1.e2ee.acknowledgeSenderKeys({ ids: [pending[0]!.id] });
+
+    // Key should still be there for user 2
+    const stillPending = await caller2.e2ee.getPendingSenderKeys({});
+    expect(stillPending.length).toBe(1);
   });
 
   test('should filter sender keys by channel', async () => {

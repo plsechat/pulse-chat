@@ -232,21 +232,27 @@ const getPendingSenderKeysRoute = protectedProcedure
       .from(e2eeSenderKeys)
       .where(and(...conditions));
 
-    // Delete fetched keys
-    if (keys.length > 0) {
-      const ids = keys.map((k) => k.id);
-      await db
-        .delete(e2eeSenderKeys)
-        .where(
-          sql`${e2eeSenderKeys.id} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`
-        );
-    }
-
     return keys.map((k) => ({
+      id: k.id,
       channelId: k.channelId,
       fromUserId: k.fromUserId,
       distributionMessage: k.distributionMessage
     }));
+  });
+
+const acknowledgeSenderKeysRoute = protectedProcedure
+  .input(z.object({ ids: z.array(z.number()) }))
+  .mutation(async ({ ctx, input }) => {
+    if (input.ids.length === 0) return;
+
+    await db
+      .delete(e2eeSenderKeys)
+      .where(
+        and(
+          eq(e2eeSenderKeys.toUserId, ctx.userId),
+          sql`${e2eeSenderKeys.id} IN (${sql.join(input.ids.map((id) => sql`${id}`), sql`, `)})`
+        )
+      );
   });
 
 const onSenderKeyDistributionRoute = protectedProcedure.subscription(
@@ -266,5 +272,6 @@ export const e2eeRouter = t.router({
   rotateSignedPreKey: rotateSignedPreKeyRoute,
   distributeSenderKey: distributeSenderKeyRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
+  acknowledgeSenderKeys: acknowledgeSenderKeysRoute,
   onSenderKeyDistribution: onSenderKeyDistributionRoute
 });
