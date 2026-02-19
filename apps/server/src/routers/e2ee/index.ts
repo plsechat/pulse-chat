@@ -5,6 +5,7 @@ import { db } from '../../db';
 import {
   e2eeSenderKeys,
   userIdentityKeys,
+  userKeyBackups,
   userOneTimePreKeys,
   userSignedPreKeys
 } from '../../db/schema';
@@ -31,6 +32,7 @@ const registerKeysRoute = protectedProcedure
   )
   .mutation(async ({ ctx, input }) => {
     const now = Date.now();
+    let identityChanged = false;
 
     await db.transaction(async (tx) => {
       // Check if identity key is changing (key reset detection)
@@ -40,8 +42,9 @@ const registerKeysRoute = protectedProcedure
         .where(eq(userIdentityKeys.userId, ctx.userId))
         .limit(1);
 
-      const identityChanged =
-        existing && existing.identityPublicKey !== input.identityPublicKey;
+      identityChanged = !!(
+        existing && existing.identityPublicKey !== input.identityPublicKey
+      );
 
       // Upsert identity key
       await tx
@@ -101,6 +104,13 @@ const registerKeysRoute = protectedProcedure
         );
       }
     });
+
+    // Broadcast identity reset after transaction commits
+    if (identityChanged) {
+      pubsub.publish(ServerEvents.E2EE_IDENTITY_RESET, {
+        userId: ctx.userId
+      });
+    }
   });
 
 const getPreKeyBundleRoute = protectedProcedure
@@ -289,6 +299,46 @@ const acknowledgeSenderKeysRoute = protectedProcedure
       );
   });
 
+const uploadKeyBackupRoute = protectedProcedure
+  .input(z.object({ encryptedData: z.string() }))
+  .mutation(async ({ ctx, input }) => {
+    const now = Date.now();
+    await db
+      .insert(userKeyBackups)
+      .values({
+        userId: ctx.userId,
+        encryptedData: input.encryptedData,
+        createdAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: userKeyBackups.userId,
+        set: {
+          encryptedData: input.encryptedData,
+          updatedAt: now
+        }
+      });
+  });
+
+const getKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
+  const [backup] = await db
+    .select({ encryptedData: userKeyBackups.encryptedData })
+    .from(userKeyBackups)
+    .where(eq(userKeyBackups.userId, ctx.userId))
+    .limit(1);
+
+  return backup ?? null;
+});
+
+const hasKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
+  const [result] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(userKeyBackups)
+    .where(eq(userKeyBackups.userId, ctx.userId));
+
+  return (result?.count ?? 0) > 0;
+});
+
 const onSenderKeyDistributionRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
     return ctx.pubsub.subscribeFor(
@@ -297,6 +347,10 @@ const onSenderKeyDistributionRoute = protectedProcedure.subscription(
     );
   }
 );
+
+const onIdentityResetRoute = protectedProcedure.subscription(async () => {
+  return pubsub.subscribe(ServerEvents.E2EE_IDENTITY_RESET);
+});
 
 export const e2eeRouter = t.router({
   registerKeys: registerKeysRoute,
@@ -308,5 +362,9 @@ export const e2eeRouter = t.router({
   distributeSenderKey: distributeSenderKeyRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
   acknowledgeSenderKeys: acknowledgeSenderKeysRoute,
-  onSenderKeyDistribution: onSenderKeyDistributionRoute
+  uploadKeyBackup: uploadKeyBackupRoute,
+  getKeyBackup: getKeyBackupRoute,
+  hasKeyBackup: hasKeyBackupRoute,
+  onSenderKeyDistribution: onSenderKeyDistributionRoute,
+  onIdentityReset: onIdentityResetRoute
 });

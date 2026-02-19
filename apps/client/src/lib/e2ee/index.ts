@@ -31,23 +31,41 @@ const OTP_REPLENISH_COUNT = 100;
 // Track the next OTP key ID to avoid collisions
 let nextOtpKeyId = 101; // Start after initial batch of 100
 
+export type InitE2EEResult = {
+  needsPassphrase: boolean;
+  isNew: boolean;
+};
+
 /**
  * Initialize E2EE keys on the home instance. Called once after auth.
- * If the user has no keys, generate and register them with the server.
- * If they have keys, check OTP count and replenish if needed.
+ * If the user has no keys and a server backup exists, returns { needsPassphrase: true }
+ * so the caller can prompt for a passphrase.
+ * If no keys and no backup, generates new keys.
+ * If keys exist, replenishes OTPs.
  */
-export async function initE2EE(): Promise<void> {
+export async function initE2EE(): Promise<InitE2EEResult> {
   const keysExist = await hasKeys();
 
-  if (!keysExist) {
-    const keys = await generateKeys(OTP_REPLENISH_COUNT);
-    const trpc = getHomeTRPCClient();
-    await trpc.e2ee.registerKeys.mutate(keys);
-    return;
+  if (keysExist) {
+    await replenishOTPsIfNeeded();
+    return { needsPassphrase: false, isNew: false };
   }
 
-  // Check OTP count and replenish if needed
-  await replenishOTPsIfNeeded();
+  // No local keys — check if server has a backup
+  const trpc = getHomeTRPCClient();
+  try {
+    const hasBackup = await trpc.e2ee.hasKeyBackup.query();
+    if (hasBackup) {
+      return { needsPassphrase: true, isNew: false };
+    }
+  } catch {
+    // If backup check fails, fall through to generate new keys
+  }
+
+  // No backup — generate new keys
+  const keys = await generateKeys(OTP_REPLENISH_COUNT);
+  await trpc.e2ee.registerKeys.mutate(keys);
+  return { needsPassphrase: false, isNew: true };
 }
 
 /**
@@ -359,12 +377,6 @@ async function doFetchAndProcessPendingSenderKeys(
 
   for (const key of pending) {
     try {
-      // Skip Signal Protocol decryption if we already have this sender's key
-      if (await hasSenderKey(key.channelId, key.fromUserId, store)) {
-        processedIds.push(key.id);
-        continue;
-      }
-
       const keyBase64 = await decryptMessage(
         key.fromUserId,
         key.distributionMessage,
@@ -440,13 +452,117 @@ export async function decryptChannelMessage(
     await fetchAndProcessPendingSenderKeys(channelId);
   }
 
-  const plaintext = await decryptWithSenderKey(
-    channelId,
-    fromUserId,
-    encryptedContent,
-    store
-  );
-  return JSON.parse(plaintext) as E2EEPlaintext;
+  try {
+    const plaintext = await decryptWithSenderKey(
+      channelId,
+      fromUserId,
+      encryptedContent,
+      store
+    );
+    return JSON.parse(plaintext) as E2EEPlaintext;
+  } catch {
+    // Decryption failed — the sender may have reset keys. Fetch fresh
+    // sender keys (which now always overwrites old keys) and retry once.
+    await fetchAndProcessPendingSenderKeys(channelId);
+    const plaintext = await decryptWithSenderKey(
+      channelId,
+      fromUserId,
+      encryptedContent,
+      store
+    );
+    return JSON.parse(plaintext) as E2EEPlaintext;
+  }
+}
+
+// --- Key Reset Handling ---
+
+/**
+ * Flag to prevent the identity reset broadcast handler from reloading
+ * the tab that initiated the reset. Set true before own key reset,
+ * cleared after redistribution.
+ */
+let _isLocalReset = false;
+
+export function setLocalResetFlag(value: boolean): void {
+  _isLocalReset = value;
+}
+
+/**
+ * Handle a peer (or own other-tab) identity reset broadcast.
+ * - If userId matches our own and we didn't initiate it locally: reload
+ *   (another tab reset our keys — IDB already updated, clear in-memory state)
+ * - If peer: clear Signal session, clear distributedMembers for that user,
+ *   then re-distribute own sender keys to them for all E2EE channels.
+ */
+export async function handlePeerIdentityReset(
+  userId: number
+): Promise<void> {
+  const { store: reduxStore } = await import('@/features/store');
+  const state = reduxStore.getState();
+  const ownUserId = state.server.ownUserId;
+
+  if (userId === ownUserId) {
+    if (!_isLocalReset) {
+      // Another tab reset our keys — reload to pick up new IDB state
+      window.location.reload();
+    }
+    return;
+  }
+
+  // Peer reset their keys — clear our stale session with them
+  const store = getActiveStore();
+  await store.clearUserSession(userId);
+  clearDistributedMember(userId);
+
+  // Re-distribute own sender keys to the reset peer for all E2EE channels
+  const channels = state.server.channels.filter((c) => c.e2ee);
+  const users = state.server.users;
+
+  for (const channel of channels) {
+    const channelUserIds = users.map((u) => u.id);
+    if (!channelUserIds.includes(userId)) continue;
+
+    try {
+      await ensureChannelSenderKey(channel.id, ownUserId!, [
+        ownUserId!,
+        userId
+      ]);
+    } catch (err) {
+      console.warn(
+        `[E2EE] Failed to re-distribute sender key to reset user ${userId} in channel ${channel.id}:`,
+        err
+      );
+    }
+  }
+}
+
+/**
+ * After own key reset: clear all distributedMembers and re-distribute
+ * new sender keys to all members of all E2EE channels.
+ */
+export async function redistributeOwnSenderKeys(): Promise<void> {
+  const { store: reduxStore } = await import('@/features/store');
+  const state = reduxStore.getState();
+  const ownUserId = state.server.ownUserId;
+  if (!ownUserId) return;
+
+  // Clear all distribution tracking — we have new keys
+  distributedMembers.clear();
+
+  const channels = state.server.channels.filter((c) => c.e2ee);
+  const users = state.server.users;
+
+  for (const channel of channels) {
+    const memberIds = users.map((u) => u.id);
+    try {
+      await ensureChannelSenderKey(channel.id, ownUserId, memberIds);
+    } catch (err) {
+      console.warn(
+        `[E2EE] Failed to redistribute sender key for channel ${channel.id}:`,
+        err
+      );
+    }
+  }
 }
 
 // Re-export types and utilities

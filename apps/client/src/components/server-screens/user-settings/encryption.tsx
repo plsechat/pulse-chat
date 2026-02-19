@@ -1,10 +1,21 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { exportKeys, importKeys } from '@/lib/e2ee/key-backup';
+import {
+  exportKeys,
+  importKeys,
+  uploadBackupToServer
+} from '@/lib/e2ee/key-backup';
 import { hasKeys, signalStore } from '@/lib/e2ee';
 import { initE2EE } from '@/lib/e2ee';
 import { useFilePicker } from '@/hooks/use-file-picker';
-import { Download, KeyRound, Upload, ShieldCheck, ShieldAlert } from 'lucide-react';
+import {
+  Cloud,
+  Download,
+  KeyRound,
+  Upload,
+  ShieldCheck,
+  ShieldAlert
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -20,6 +31,11 @@ const Encryption = memo(() => {
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
   const [generating, setGenerating] = useState(false);
+
+  const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [backupConfirm, setBackupConfirm] = useState('');
+  const [backupError, setBackupError] = useState('');
+  const [backingUp, setBackingUp] = useState(false);
 
   const openFilePicker = useFilePicker();
 
@@ -41,8 +57,22 @@ const Encryption = memo(() => {
       if (hasE2eeKeys) {
         await signalStore.clearAll();
       }
+
+      const { setLocalResetFlag, redistributeOwnSenderKeys } = await import(
+        '@/lib/e2ee'
+      );
+
+      setLocalResetFlag(true);
       await initE2EE();
       setHasE2eeKeys(true);
+
+      // Re-distribute new sender keys to all E2EE channel members
+      redistributeOwnSenderKeys()
+        .catch((err) =>
+          console.error('[E2EE] Failed to redistribute sender keys:', err)
+        )
+        .finally(() => setLocalResetFlag(false));
+
       toast.success(hasE2eeKeys ? 'Keys regenerated successfully' : 'Keys generated successfully');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate keys';
@@ -132,6 +162,35 @@ const Encryption = memo(() => {
     }
   }, [importFile, importPassphrase]);
 
+  const handleServerBackup = useCallback(async () => {
+    setBackupError('');
+
+    if (backupPassphrase.length < 8) {
+      setBackupError('Passphrase must be at least 8 characters');
+      return;
+    }
+
+    if (backupPassphrase !== backupConfirm) {
+      setBackupError('Passphrases do not match');
+      return;
+    }
+
+    setBackingUp(true);
+    try {
+      await uploadBackupToServer(backupPassphrase);
+      setBackupPassphrase('');
+      setBackupConfirm('');
+      toast.success('Keys backed up to server');
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to back up keys';
+      setBackupError(message);
+      toast.error(message);
+    } finally {
+      setBackingUp(false);
+    }
+  }, [backupPassphrase, backupConfirm]);
+
   return (
     <div className="space-y-8">
       {/* Status */}
@@ -188,6 +247,49 @@ const Encryption = memo(() => {
               ? 'Regenerate Keys'
               : 'Generate Keys'}
         </Button>
+      </div>
+
+      {/* Server Backup */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-base font-medium">Server Backup</h3>
+          <p className="text-sm text-muted-foreground">
+            Back up your encryption keys to the server, protected by a
+            passphrase. You can restore them on any device by entering the same
+            passphrase during login.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <Input
+            type="password"
+            placeholder="Passphrase (min. 8 characters)"
+            value={backupPassphrase}
+            onChange={(e) => {
+              setBackupPassphrase(e.target.value);
+              setBackupError('');
+            }}
+          />
+          <Input
+            type="password"
+            placeholder="Confirm passphrase"
+            value={backupConfirm}
+            onChange={(e) => {
+              setBackupConfirm(e.target.value);
+              setBackupError('');
+            }}
+          />
+          {backupError && (
+            <p className="text-sm text-destructive">{backupError}</p>
+          )}
+          <Button
+            onClick={handleServerBackup}
+            disabled={backingUp || hasE2eeKeys === false}
+          >
+            <Cloud className="mr-2 h-4 w-4" />
+            {backingUp ? 'Backing up...' : 'Back Up to Server'}
+          </Button>
+        </div>
       </div>
 
       {/* Export */}

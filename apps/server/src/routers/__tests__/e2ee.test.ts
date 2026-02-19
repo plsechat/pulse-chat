@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { ServerEvents } from '@pulse/shared';
 import { initTest } from '../../__tests__/helpers';
+import { pubsub } from '../../utils/pubsub';
 
 describe('e2ee router', () => {
   const mockKeys = {
@@ -478,5 +480,122 @@ describe('e2ee router', () => {
     const pending = await caller2.e2ee.getPendingSenderKeys({});
     expect(pending.length).toBe(1);
     expect(pending[0]!.distributionMessage).toBe('valid-key');
+  });
+
+  // --- Identity reset broadcast ---
+
+  test('should publish E2EE_IDENTITY_RESET when identity key changes', async () => {
+    const { caller } = await initTest(1);
+    const publishedEvents: { topic: string; payload: unknown }[] = [];
+    const original = pubsub.publish.bind(pubsub);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pubsub as any).publish = (topic: string, payload: unknown) => {
+      publishedEvents.push({ topic, payload });
+      return original(topic as never, payload as never);
+    };
+
+    // Register initial keys
+    await caller.e2ee.registerKeys(mockKeys);
+
+    // Re-register with changed identity key
+    await caller.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'new-identity-key-for-reset'
+    });
+
+    // Verify the reset event was published
+    const resetEvents = publishedEvents.filter(
+      (e) => e.topic === ServerEvents.E2EE_IDENTITY_RESET
+    );
+    expect(resetEvents.length).toBe(1);
+    expect(resetEvents[0]!.payload).toEqual({ userId: 1 });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pubsub as any).publish = original;
+  });
+
+  test('should NOT publish E2EE_IDENTITY_RESET when re-registering with same key', async () => {
+    const { caller } = await initTest(1);
+    const publishedEvents: { topic: string; payload: unknown }[] = [];
+    const original = pubsub.publish.bind(pubsub);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pubsub as any).publish = (topic: string, payload: unknown) => {
+      publishedEvents.push({ topic, payload });
+      return original(topic as never, payload as never);
+    };
+
+    // Register initial keys
+    await caller.e2ee.registerKeys(mockKeys);
+    publishedEvents.length = 0;
+
+    // Re-register with same identity key
+    await caller.e2ee.registerKeys(mockKeys);
+
+    // No reset event should be published
+    const resetEvents = publishedEvents.filter(
+      (e) => e.topic === ServerEvents.E2EE_IDENTITY_RESET
+    );
+    expect(resetEvents.length).toBe(0);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pubsub as any).publish = original;
+  });
+
+  // --- Key backup ---
+
+  test('should store and retrieve key backup', async () => {
+    const { caller } = await initTest(1);
+
+    await caller.e2ee.uploadKeyBackup({
+      encryptedData: '{"version":2,"salt":"abc","iv":"def","ciphertext":"ghi"}'
+    });
+
+    const backup = await caller.e2ee.getKeyBackup();
+    expect(backup).not.toBeNull();
+    expect(backup!.encryptedData).toBe(
+      '{"version":2,"salt":"abc","iv":"def","ciphertext":"ghi"}'
+    );
+  });
+
+  test('should return null when no backup exists', async () => {
+    const { caller } = await initTest(1);
+
+    const backup = await caller.e2ee.getKeyBackup();
+    expect(backup).toBeNull();
+  });
+
+  test('hasKeyBackup should return correct boolean', async () => {
+    const { caller } = await initTest(1);
+
+    const before = await caller.e2ee.hasKeyBackup();
+    expect(before).toBe(false);
+
+    await caller.e2ee.uploadKeyBackup({ encryptedData: 'encrypted-blob' });
+
+    const after = await caller.e2ee.hasKeyBackup();
+    expect(after).toBe(true);
+  });
+
+  test('should upsert key backup (uploading twice overwrites)', async () => {
+    const { caller } = await initTest(1);
+
+    await caller.e2ee.uploadKeyBackup({ encryptedData: 'first-backup' });
+    await caller.e2ee.uploadKeyBackup({ encryptedData: 'second-backup' });
+
+    const backup = await caller.e2ee.getKeyBackup();
+    expect(backup!.encryptedData).toBe('second-backup');
+  });
+
+  test('key backups are per-user', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.uploadKeyBackup({ encryptedData: 'user1-backup' });
+
+    const backup1 = await caller1.e2ee.getKeyBackup();
+    expect(backup1!.encryptedData).toBe('user1-backup');
+
+    const backup2 = await caller2.e2ee.getKeyBackup();
+    expect(backup2).toBeNull();
   });
 });

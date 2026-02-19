@@ -945,6 +945,15 @@ const userOneTimePreKeys = pgTable(
   ]
 );
 
+const userKeyBackups = pgTable('user_key_backups', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  encryptedData: text('encrypted_data').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+});
+
 const e2eeSenderKeys = pgTable(
   'e2ee_sender_keys',
   {
@@ -1005,6 +1014,7 @@ export {
   servers,
   settings,
   userIdentityKeys,
+  userKeyBackups,
   userNotes,
   userOneTimePreKeys,
   userRoles,

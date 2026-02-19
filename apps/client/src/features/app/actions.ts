@@ -190,9 +190,15 @@ export const loadApp = async () => {
       await connect();
 
       // Initialize E2EE keys (generates if needed, replenishes OTPs)
-      initE2EE().catch((err) =>
-        console.error('E2EE initialization failed:', err)
-      );
+      initE2EE()
+        .then((result) => {
+          if (result.needsPassphrase) {
+            window.dispatchEvent(new CustomEvent('e2ee-needs-passphrase'));
+          } else if (result.isNew) {
+            window.dispatchEvent(new CustomEvent('e2ee-new-keys'));
+          }
+        })
+        .catch((err) => console.error('E2EE initialization failed:', err));
 
       // Load persisted federated servers
       loadFederatedServers();

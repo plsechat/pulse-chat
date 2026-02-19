@@ -114,6 +114,23 @@ const subscribeToMessages = () => {
     }
   );
 
+  // Subscribe to E2EE identity resets (key regeneration broadcasts)
+  const onIdentityResetSub = trpc.e2ee.onIdentityReset.subscribe(undefined, {
+    onData: async ({ userId }: { userId: number }) => {
+      try {
+        const { handlePeerIdentityReset } = await import('@/lib/e2ee');
+        await handlePeerIdentityReset(userId);
+      } catch (err) {
+        console.error(
+          `[E2EE] Failed to handle identity reset for user ${userId}:`,
+          err
+        );
+      }
+    },
+    onError: (err) =>
+      console.error('onIdentityReset subscription error:', err)
+  });
+
   return () => {
     onMessageSub.unsubscribe();
     onMessageUpdateSub.unsubscribe();
@@ -122,6 +139,7 @@ const subscribeToMessages = () => {
     onMessagePinSub.unsubscribe();
     onMessageUnpinSub.unsubscribe();
     onSenderKeyDistSub.unsubscribe();
+    onIdentityResetSub.unsubscribe();
   };
 };
 

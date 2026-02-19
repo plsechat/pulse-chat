@@ -74,6 +74,7 @@ export enum ServerEvents {
   FEDERATION_INSTANCE_UPDATE = "federationInstanceUpdate",
 
   E2EE_SENDER_KEY_DISTRIBUTION = "e2eeSenderKeyDistribution",
+  E2EE_IDENTITY_RESET = "e2eeIdentityReset",
 }
 
 export type TNewMessage = {

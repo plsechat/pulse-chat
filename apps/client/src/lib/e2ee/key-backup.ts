@@ -232,3 +232,53 @@ export async function importKeys(
     data as Record<string, { key: IDBValidKey; value: unknown }[]>
   );
 }
+
+/**
+ * Upload an encrypted key backup to the server.
+ * Reads all IDB stores, encrypts with the given passphrase,
+ * and sends the encrypted blob to the server.
+ */
+export async function uploadBackupToServer(
+  passphrase: string,
+  domain?: string
+): Promise<void> {
+  const { getHomeTRPCClient } = await import('@/lib/trpc');
+  const dbName = getDbName(domain);
+  const storeData = await readAllStores(dbName);
+  const payload = await encryptBackupData(storeData, passphrase);
+  const trpc = getHomeTRPCClient();
+  await trpc.e2ee.uploadKeyBackup.mutate({
+    encryptedData: JSON.stringify(payload)
+  });
+}
+
+/**
+ * Restore keys from a server-side backup.
+ * Downloads the encrypted blob, decrypts with passphrase, writes to IDB.
+ */
+export async function restoreBackupFromServer(
+  passphrase: string,
+  domain?: string
+): Promise<void> {
+  const { getHomeTRPCClient } = await import('@/lib/trpc');
+  const trpc = getHomeTRPCClient();
+  const backup = await trpc.e2ee.getKeyBackup.query();
+
+  if (!backup) {
+    throw new Error('No server backup found');
+  }
+
+  let payload: BackupPayload;
+  try {
+    payload = JSON.parse(backup.encryptedData) as BackupPayload;
+  } catch {
+    throw new Error('Server backup data is corrupted');
+  }
+
+  const data = await decryptBackupPayload(payload, passphrase);
+  const dbName = getDbName(domain);
+  await writeAllStores(
+    dbName,
+    data as Record<string, { key: IDBValidKey; value: unknown }[]>
+  );
+}

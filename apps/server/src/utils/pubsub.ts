@@ -188,6 +188,10 @@ type Events = {
     channelId: number;
     fromUserId: number;
   };
+
+  [ServerEvents.E2EE_IDENTITY_RESET]: {
+    userId: number;
+  };
 };
 
 class PubSub {
