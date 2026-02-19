@@ -49,10 +49,25 @@ const subscribeToServer = () => {
       console.error('onServerMemberLeave subscription error:', err)
   });
 
+  const onUnreadCountUpdateSub =
+    trpc.servers.onUnreadCountUpdate.subscribe(undefined, {
+      onData: (data: { serverId: number; count: number }) => {
+        store.dispatch(
+          appSliceActions.setServerUnreadCount({
+            serverId: data.serverId,
+            count: data.count
+          })
+        );
+      },
+      onError: (err) =>
+        console.error('onUnreadCountUpdate subscription error:', err)
+    });
+
   return () => {
     onSettingsUpdateSub.unsubscribe();
     onMemberJoinSub.unsubscribe();
     onMemberLeaveSub.unsubscribe();
+    onUnreadCountUpdateSub.unsubscribe();
   };
 };
 

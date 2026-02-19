@@ -63,6 +63,7 @@ export enum ServerEvents {
 
   SERVER_MEMBER_JOIN = "serverMemberJoin",
   SERVER_MEMBER_LEAVE = "serverMemberLeave",
+  SERVER_UNREAD_COUNT_UPDATE = "serverUnreadCountUpdate",
 
   MESSAGE_PIN = "messagePin",
   MESSAGE_UNPIN = "messageUnpin",

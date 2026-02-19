@@ -164,6 +164,11 @@ type Events = {
     userId: number;
   };
 
+  [ServerEvents.SERVER_UNREAD_COUNT_UPDATE]: {
+    serverId: number;
+    count: number;
+  };
+
   [ServerEvents.MESSAGE_PIN]: {
     messageId: number;
     channelId: number;

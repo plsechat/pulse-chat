@@ -2,7 +2,8 @@ import { ChannelPermission, ServerEvents } from '@pulse/shared';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { channelReadStates, messages } from '../../db/schema';
+import { getServerUnreadCount } from '../../db/queries/servers';
+import { channelReadStates, channels, messages } from '../../db/schema';
 import { protectedProcedure } from '../../utils/trpc';
 
 const markAsReadRoute = protectedProcedure
@@ -71,6 +72,25 @@ const markAsReadRoute = protectedProcedure
       channelId,
       count: 0
     });
+
+    // Also publish server-level unread count update
+    const [channel] = await db
+      .select({ serverId: channels.serverId })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1);
+
+    if (channel) {
+      const serverCount = await getServerUnreadCount(
+        ctx.userId,
+        channel.serverId
+      );
+      ctx.pubsub.publishFor(
+        ctx.userId,
+        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+        { serverId: channel.serverId, count: serverCount }
+      );
+    }
   });
 
 export { markAsReadRoute };

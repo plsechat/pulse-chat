@@ -11,7 +11,8 @@ import {
   useActiveServerId,
   useActiveView,
   useFederatedServers,
-  useJoinedServers
+  useJoinedServers,
+  useServerUnreadCounts
 } from '@/features/app/hooks';
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { appSliceActions } from '@/features/app/slice';
@@ -44,7 +45,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { useCurrentVoiceServerId } from '@/features/server/channels/hooks';
-import { useHasAnyUnread, useHasAnyVoiceUsers } from '@/features/server/hooks';
+import { useHasAnyVoiceUsers } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -209,7 +210,7 @@ const ServerStrip = memo(() => {
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
   const ownUserId = useOwnUserId();
-  const hasAnyUnread = useHasAnyUnread();
+  const serverUnreadCounts = useServerUnreadCounts();
   const hasAnyVoiceUsers = useHasAnyVoiceUsers();
   const currentVoiceServerId = useCurrentVoiceServerId();
   const federatedServers = useFederatedServers();
@@ -287,15 +288,21 @@ const ServerStrip = memo(() => {
       try {
         const trpc = getTRPCClient();
         await trpc.notifications.markServerAsRead.mutate({ serverId });
-        // Optimistically reset all read states to 0
+        // Optimistically reset server-level unread count
+        store.dispatch(
+          appSliceActions.setServerUnreadCount({ serverId, count: 0 })
+        );
+        // Also clear active server's channel read states if applicable
         const state = store.getState();
-        for (const channelId of Object.keys(state.server.readStatesMap)) {
-          store.dispatch(
-            serverSliceActions.setChannelReadState({
-              channelId: Number(channelId),
-              count: 0
-            })
-          );
+        if (state.app.activeServerId === serverId) {
+          for (const channelId of Object.keys(state.server.readStatesMap)) {
+            store.dispatch(
+              serverSliceActions.setChannelReadState({
+                channelId: Number(channelId),
+                count: 0
+              })
+            );
+          }
         }
         toast.success('Marked as read');
       } catch {
@@ -440,9 +447,7 @@ const ServerStrip = memo(() => {
                           !activeInstanceDomain
                         }
                         hasUnread={
-                          activeServerId === server.id &&
-                          !activeInstanceDomain &&
-                          hasAnyUnread
+                          (serverUnreadCounts[server.id] ?? 0) > 0
                         }
                         hasVoiceActivity={
                           server.id === currentVoiceServerId ||
@@ -455,14 +460,13 @@ const ServerStrip = memo(() => {
                     </div>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    {activeServerId === server.id &&
-                      !activeInstanceDomain && (
-                        <ContextMenuItem
-                          onClick={() => handleMarkAsRead(server.id)}
-                        >
-                          Mark as Read
-                        </ContextMenuItem>
-                      )}
+                    {(serverUnreadCounts[server.id] ?? 0) > 0 && (
+                      <ContextMenuItem
+                        onClick={() => handleMarkAsRead(server.id)}
+                      >
+                        Mark as Read
+                      </ContextMenuItem>
+                    )}
                     <ContextMenuCheckboxItem
                       checked={serverMuted}
                       onCheckedChange={(checked) =>
