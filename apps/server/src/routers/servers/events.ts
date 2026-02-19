@@ -9,4 +9,11 @@ const onMemberLeaveRoute = protectedProcedure.subscription(({ ctx }) => {
   return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.SERVER_MEMBER_LEAVE);
 });
 
-export { onMemberJoinRoute, onMemberLeaveRoute };
+const onUnreadCountUpdateRoute = protectedProcedure.subscription(({ ctx }) => {
+  return ctx.pubsub.subscribeFor(
+    ctx.userId,
+    ServerEvents.SERVER_UNREAD_COUNT_UPDATE
+  );
+});
+
+export { onMemberJoinRoute, onMemberLeaveRoute, onUnreadCountUpdateRoute };

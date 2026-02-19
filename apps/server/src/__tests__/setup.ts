@@ -43,6 +43,7 @@ beforeEach(async () => {
     message_files,
     activity_log,
     logins,
+    server_members,
     user_roles,
     messages,
     emojis,

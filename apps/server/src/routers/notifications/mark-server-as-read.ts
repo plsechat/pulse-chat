@@ -1,3 +1,4 @@
+import { ServerEvents } from '@pulse/shared';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -59,6 +60,13 @@ const markServerAsReadRoute = protectedProcedure
         });
       }
     }
+
+    // Publish server-level unread count = 0 (all channels just marked read)
+    ctx.pubsub.publishFor(
+      ctx.userId,
+      ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+      { serverId: input.serverId, count: 0 }
+    );
   });
 
 export { markServerAsReadRoute };

@@ -9,7 +9,8 @@ import {
   federatedServersSelector,
   joinedServersSelector,
   modViewOpenSelector,
-  modViewUserIdSelector
+  modViewUserIdSelector,
+  serverUnreadCountsSelector
 } from './selectors';
 
 export const useIsAppLoading = () => useSelector(appLoadingSelector);
@@ -34,3 +35,6 @@ export const useFederatedServers = () =>
 
 export const useActiveInstanceDomain = () =>
   useSelector(activeInstanceDomainSelector);
+
+export const useServerUnreadCounts = () =>
+  useSelector(serverUnreadCountsSelector);

@@ -17,8 +17,9 @@ const setStatusRoute = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     ctx.setUserStatus(ctx.userId, input.status);
 
-    // Broadcast the status change to all connected users
-    publishUser(ctx.userId, 'update');
+    // Broadcast the status change to all connected users (include the
+    // runtime status since it's not stored in the database)
+    publishUser(ctx.userId, 'update', input.status);
   });
 
 export { setStatusRoute };

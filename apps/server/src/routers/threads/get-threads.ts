@@ -1,5 +1,6 @@
 import { ChannelType } from '@pulse/shared';
-import { and, count, desc, eq, max } from 'drizzle-orm';
+import { and, count, desc, eq, max, min } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channels, messages } from '../../db/schema';
@@ -22,6 +23,10 @@ const getThreadsRoute = protectedProcedure
       conditions.push(eq(channels.archived, false));
     }
 
+    // sourceMessages: the message in the parent channel whose threadId points
+    // to this thread — i.e. the message that originally spawned the thread.
+    const sourceMessages = alias(messages, 'sourceMessages');
+
     const threads = await db
       .select({
         id: channels.id,
@@ -30,10 +35,12 @@ const getThreadsRoute = protectedProcedure
         parentChannelId: channels.parentChannelId,
         createdAt: channels.createdAt,
         messageCount: count(messages.id),
-        lastMessageAt: max(messages.createdAt)
+        lastMessageAt: max(messages.createdAt),
+        sourceMessageId: min(sourceMessages.id)
       })
       .from(channels)
       .leftJoin(messages, eq(messages.channelId, channels.id))
+      .leftJoin(sourceMessages, eq(sourceMessages.threadId, channels.id))
       .where(and(...conditions))
       .groupBy(channels.id)
       .orderBy(desc(channels.createdAt));
@@ -45,7 +52,8 @@ const getThreadsRoute = protectedProcedure
       lastMessageAt: t.lastMessageAt ? Number(t.lastMessageAt) : null,
       archived: t.archived,
       parentChannelId: t.parentChannelId!,
-      createdAt: t.createdAt
+      createdAt: t.createdAt,
+      sourceMessageId: t.sourceMessageId
     }));
   });
 

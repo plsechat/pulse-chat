@@ -1,4 +1,5 @@
 import { encryptDmMessage, decryptDmMessage } from '@/lib/e2ee';
+import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { TYPING_MS, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
@@ -29,6 +30,10 @@ export const addDmMessages = (
     const ownUserId = ownUserIdSelector(state);
     if (messages[0].userId !== ownUserId) {
       playSound(SoundType.MESSAGE_RECEIVED);
+      sendDesktopNotification(
+        'New Direct Message',
+        messages[0].content?.slice(0, 100) || 'New message received'
+      );
 
       // Increment unread count if this channel is not currently selected
       const selectedId = state.dms.selectedChannelId;

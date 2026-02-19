@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, Monitor, Palette, User, Lock, ShieldCheck } from 'lucide-react';
+import { ChevronLeft, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
@@ -7,8 +7,9 @@ import { Devices } from './devices';
 import { Encryption } from './encryption';
 import { Password } from './password';
 import { Profile } from './profile';
+import { SoundsNotifications } from './sounds-notifications';
 
-type Section = 'profile' | 'password' | 'encryption' | 'appearance' | 'devices';
+type Section = 'profile' | 'password' | 'encryption' | 'appearance' | 'sounds' | 'devices';
 
 type NavItem = {
   id: Section;
@@ -34,6 +35,7 @@ const NAV_SECTIONS: NavCategory[] = [
     heading: 'App Settings',
     items: [
       { id: 'appearance', label: 'Appearance', icon: <Palette className="h-4 w-4" /> },
+      { id: 'sounds', label: 'Sounds & Notifications', icon: <Volume2 className="h-4 w-4" /> },
       { id: 'devices', label: 'Voice & Video', icon: <Monitor className="h-4 w-4" /> }
     ]
   }
@@ -44,6 +46,7 @@ const SECTION_TITLES: Record<Section, string> = {
   password: 'Password',
   encryption: 'Encryption',
   appearance: 'Appearance',
+  sounds: 'Sounds & Notifications',
   devices: 'Voice & Video'
 };
 
@@ -52,6 +55,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   password: 'Manage your account password.',
   encryption: 'Manage your end-to-end encryption keys.',
   appearance: 'Customize how the app looks.',
+  sounds: 'Control sound effects and desktop notifications.',
   devices: 'Configure your audio and video devices.'
 };
 
@@ -60,6 +64,7 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   password: Password,
   encryption: Encryption,
   appearance: Appearance,
+  sounds: SoundsNotifications,
   devices: Devices
 };
 
