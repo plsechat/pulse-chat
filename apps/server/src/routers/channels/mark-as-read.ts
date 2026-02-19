@@ -73,25 +73,24 @@ const markAsReadRoute = protectedProcedure
       count: 0
     });
 
-    // Publish server-level unread count update asynchronously
-    void db
+    // Publish server-level unread count update
+    const [channel] = await db
       .select({ serverId: channels.serverId })
       .from(channels)
       .where(eq(channels.id, channelId))
-      .limit(1)
-      .then(async ([channel]) => {
-        if (!channel) return;
-        const serverCount = await getServerUnreadCount(
-          ctx.userId,
-          channel.serverId
-        );
-        ctx.pubsub.publishFor(
-          ctx.userId,
-          ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-          { serverId: channel.serverId, count: serverCount }
-        );
-      })
-      .catch(() => {});
+      .limit(1);
+
+    if (channel) {
+      const serverCount = await getServerUnreadCount(
+        ctx.userId,
+        channel.serverId
+      );
+      ctx.pubsub.publishFor(
+        ctx.userId,
+        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+        { serverId: channel.serverId, count: serverCount }
+      );
+    }
   });
 
 export { markAsReadRoute };

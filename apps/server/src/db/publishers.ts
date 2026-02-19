@@ -53,43 +53,40 @@ const publishMessage = async (
   // only send count updates to users OTHER than the message author
   const usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
 
-  const promises = usersToNotify.map(async (userId) => {
-    const readState = await getChannelsReadStatesForUser(userId, channelId);
-    const count = readState[channelId] ?? 0;
+  // Pre-fetch serverId for server-level unread updates on new messages
+  const [channelRow] =
+    type === 'create'
+      ? await db
+          .select({ serverId: channels.serverId })
+          .from(channels)
+          .where(eq(channels.id, channelId))
+          .limit(1)
+      : [];
 
+  const promises = usersToNotify.map(async (userId) => {
+    // Run channel and server unread queries in parallel
+    const [readState, serverCount] = await Promise.all([
+      getChannelsReadStatesForUser(userId, channelId),
+      type === 'create' && channelRow
+        ? getServerUnreadCount(userId, channelRow.serverId)
+        : Promise.resolve(undefined)
+    ]);
+
+    const count = readState[channelId] ?? 0;
     pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
       channelId,
       count
     });
+
+    if (serverCount !== undefined && channelRow) {
+      pubsub.publishFor(userId, ServerEvents.SERVER_UNREAD_COUNT_UPDATE, {
+        serverId: channelRow.serverId,
+        count: serverCount
+      });
+    }
   });
 
   await Promise.all(promises);
-
-  // Publish server-level unread counts asynchronously (non-blocking)
-  if (type === 'create') {
-    void db
-      .select({ serverId: channels.serverId })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .limit(1)
-      .then(([channelRow]) => {
-        if (!channelRow) return;
-        return Promise.all(
-          usersToNotify.map(async (userId) => {
-            const serverCount = await getServerUnreadCount(
-              userId,
-              channelRow.serverId
-            );
-            pubsub.publishFor(
-              userId,
-              ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-              { serverId: channelRow.serverId, count: serverCount }
-            );
-          })
-        );
-      })
-      .catch(() => {});
-  }
 };
 
 const publishEmoji = async (
