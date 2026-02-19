@@ -3,7 +3,9 @@ import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useThreadsByParentChannelId } from '@/features/server/channels/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Archive, MessageSquare } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
+import type { IRootState } from '@/features/store';
 
 type TThreadListPopoverProps = {
   channelId: number;
@@ -26,27 +28,46 @@ const ThreadListPopover = memo(
     const [serverThreads, setServerThreads] = useState<TThreadItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [showArchived, setShowArchived] = useState(false);
+    const channels = useSelector((s: IRootState) => s.server.channels);
+    const mounted = useRef(false);
+
+    const fetchThreads = useCallback(async () => {
+      const trpc = getTRPCClient();
+
+      try {
+        const threads = await trpc.threads.getAll.query({
+          channelId,
+          includeArchived: showArchived
+        });
+
+        setServerThreads(threads);
+      } catch {
+        // Fall back to local data
+      } finally {
+        setLoading(false);
+      }
+    }, [channelId, showArchived]);
 
     useEffect(() => {
-      const fetchThreads = async () => {
-        const trpc = getTRPCClient();
-
-        try {
-          const threads = await trpc.threads.getAll.query({
-            channelId,
-            includeArchived: showArchived
-          });
-
-          setServerThreads(threads);
-        } catch {
-          // Fall back to local data
-        } finally {
-          setLoading(false);
-        }
-      };
-
       fetchThreads();
-    }, [channelId, showArchived]);
+    }, [fetchThreads]);
+
+    // Refetch when channels change (threads are channels)
+    useEffect(() => {
+      if (!mounted.current) {
+        mounted.current = true;
+        return;
+      }
+      fetchThreads();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [channels]);
+
+    // Refetch on custom threads-changed event (from thread subscriptions)
+    useEffect(() => {
+      const handler = () => { fetchThreads(); };
+      window.addEventListener('threads-changed', handler);
+      return () => window.removeEventListener('threads-changed', handler);
+    }, [fetchThreads]);
 
     const threads = serverThreads.length > 0 ? serverThreads : localThreads.map((t) => ({
       id: t.id,

@@ -1,6 +1,6 @@
 import { decryptChannelMessage } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage, TThreadInfo } from '@pulse/shared';
 import {
   addMessages,
   addTypingUser,
@@ -131,6 +131,53 @@ const subscribeToMessages = () => {
       console.error('onIdentityReset subscription error:', err)
   });
 
+  // Invite subscriptions
+  const onInviteCreateSub = trpc.invites.onInviteCreate.subscribe(undefined, {
+    onData: () => {
+      window.dispatchEvent(new CustomEvent('invites-changed'));
+    },
+    onError: (err) => console.error('onInviteCreate subscription error:', err)
+  });
+
+  const onInviteDeleteSub = trpc.invites.onInviteDelete.subscribe(undefined, {
+    onData: () => {
+      window.dispatchEvent(new CustomEvent('invites-changed'));
+    },
+    onError: (err) => console.error('onInviteDelete subscription error:', err)
+  });
+
+  // Note subscriptions
+  const onNoteUpdateSub = trpc.notes.onNoteUpdate.subscribe(undefined, {
+    onData: ({ targetUserId }: { targetUserId: number }) => {
+      window.dispatchEvent(
+        new CustomEvent('notes-changed', { detail: { targetUserId } })
+      );
+    },
+    onError: (err) => console.error('onNoteUpdate subscription error:', err)
+  });
+
+  // Thread subscriptions
+  const onThreadCreateSub = trpc.threads.onThreadCreate.subscribe(undefined, {
+    onData: (_thread: TThreadInfo) => {
+      window.dispatchEvent(new CustomEvent('threads-changed'));
+    },
+    onError: (err) => console.error('onThreadCreate subscription error:', err)
+  });
+
+  const onThreadUpdateSub = trpc.threads.onThreadUpdate.subscribe(undefined, {
+    onData: (_thread: TThreadInfo) => {
+      window.dispatchEvent(new CustomEvent('threads-changed'));
+    },
+    onError: (err) => console.error('onThreadUpdate subscription error:', err)
+  });
+
+  const onThreadDeleteSub = trpc.threads.onThreadDelete.subscribe(undefined, {
+    onData: (_threadId: number) => {
+      window.dispatchEvent(new CustomEvent('threads-changed'));
+    },
+    onError: (err) => console.error('onThreadDelete subscription error:', err)
+  });
+
   return () => {
     onMessageSub.unsubscribe();
     onMessageUpdateSub.unsubscribe();
@@ -140,6 +187,12 @@ const subscribeToMessages = () => {
     onMessageUnpinSub.unsubscribe();
     onSenderKeyDistSub.unsubscribe();
     onIdentityResetSub.unsubscribe();
+    onThreadCreateSub.unsubscribe();
+    onThreadUpdateSub.unsubscribe();
+    onThreadDeleteSub.unsubscribe();
+    onInviteCreateSub.unsubscribe();
+    onInviteDeleteSub.unsubscribe();
+    onNoteUpdateSub.unsubscribe();
   };
 };
 

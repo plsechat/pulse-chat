@@ -192,6 +192,19 @@ type Events = {
   [ServerEvents.E2EE_IDENTITY_RESET]: {
     userId: number;
   };
+
+  [ServerEvents.INVITE_CREATE]: {
+    inviteId: number;
+    serverId: number;
+  };
+  [ServerEvents.INVITE_DELETE]: {
+    inviteId: number;
+    serverId: number;
+  };
+
+  [ServerEvents.USER_NOTE_UPDATE]: {
+    targetUserId: number;
+  };
 };
 
 class PubSub {
