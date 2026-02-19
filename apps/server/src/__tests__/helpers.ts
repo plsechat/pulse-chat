@@ -59,11 +59,13 @@ const initTest = async (userId: number = 1) => {
     handshakeHash: handshakeHash
   });
 
-  // Ensure activeServerId is set on the context object.
-  // tRPC createCaller may not persist context mutations across procedure calls.
+  // tRPC createCaller snapshots context at creation time, so mutations
+  // from joinServer (which sets activeServerId) aren't visible to later calls.
+  // Recreate the caller with activeServerId already set.
   ctx.activeServerId = initialData.serverDbId;
+  const serverCaller = appRouter.createCaller(ctx);
 
-  return { caller, mockedToken, initialData, ctx };
+  return { caller: serverCaller, mockedToken, initialData, ctx };
 };
 
 const login = async (email: string, password: string, invite?: string) =>
