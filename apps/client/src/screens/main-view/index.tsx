@@ -3,6 +3,7 @@ import { ServerStrip } from '@/components/server-strip';
 import { useActiveView } from '@/features/app/hooks';
 import { VoiceProvider } from '@/components/voice-provider';
 import { PersistentAudioStreams } from '@/components/voice-provider/persistent-audio-streams';
+import { useAutoAway } from '@/hooks/use-auto-away';
 import { useTabNotifications } from '@/hooks/use-tab-notifications';
 import { memo } from 'react';
 import { DiscoverView } from '../discover-view';
@@ -12,6 +13,7 @@ import { ServerView } from '../server-view';
 const MainView = memo(() => {
   const activeView = useActiveView();
   useTabNotifications();
+  useAutoAway();
 
   const renderView = () => {
     switch (activeView) {
