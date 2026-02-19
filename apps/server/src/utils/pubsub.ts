@@ -205,6 +205,11 @@ type Events = {
   [ServerEvents.USER_NOTE_UPDATE]: {
     targetUserId: number;
   };
+
+  [ServerEvents.USER_KICKED]: {
+    serverId: number;
+    reason?: string;
+  };
 };
 
 class PubSub {

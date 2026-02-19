@@ -7,6 +7,7 @@ import {
   onUserCreateRoute,
   onUserDeleteRoute,
   onUserJoinRoute,
+  onUserKickedRoute,
   onUserLeaveRoute,
   onUserUpdateRoute
 } from './events';
@@ -36,5 +37,6 @@ export const usersRouter = t.router({
   onLeave: onUserLeaveRoute,
   onUpdate: onUserUpdateRoute,
   onCreate: onUserCreateRoute,
-  onDelete: onUserDeleteRoute
+  onDelete: onUserDeleteRoute,
+  onKicked: onUserKickedRoute
 });

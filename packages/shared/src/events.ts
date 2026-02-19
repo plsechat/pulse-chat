@@ -80,6 +80,8 @@ export enum ServerEvents {
   INVITE_DELETE = "inviteDelete",
 
   USER_NOTE_UPDATE = "userNoteUpdate",
+
+  USER_KICKED = "userKicked",
 }
 
 export type TNewMessage = {
