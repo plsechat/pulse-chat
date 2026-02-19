@@ -16,7 +16,7 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
+  packages: write
 
 jobs:
   build-and-publish:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Get new version
         id: get_version
-        run: echo "::set-output name=version::$(jq -r .version package.json)"
+        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
 
       - name: Identify user
         run: |
@@ -50,11 +50,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -63,13 +64,13 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/pulse:latest
-            ${{ secrets.DOCKER_USERNAME }}/pulse:v${{ steps.get_version.outputs.version }}
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:v${{ steps.get_version.outputs.version }}
           labels: |
             org.opencontainers.image.title=Pulse
             org.opencontainers.image.description=Pulse Server
             org.opencontainers.image.version=${{ steps.get_version.outputs.version }}
-            org.opencontainers.image.source=https://github.com/Pulse/pulse
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -90,7 +91,7 @@ jobs:
 
             ## Docker Image
             ```bash
-            docker pull ${{ secrets.DOCKER_USERNAME }}/pulse:v${{ steps.get_version.outputs.version }}
+            docker pull ghcr.io/${{ github.repository }}:v${{ steps.get_version.outputs.version }}
             ```
       - name: Commit and push version bump
         if: ${{ inputs.bump != 'none' }}
