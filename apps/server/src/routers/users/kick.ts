@@ -1,7 +1,10 @@
 import { ActivityLogType, Permission, ServerEvents } from '@pulse/shared';
 import z from 'zod';
 import { publishUser } from '../../db/publishers';
-import { removeServerMember } from '../../db/queries/servers';
+import {
+  isServerMember,
+  removeServerMember
+} from '../../db/queries/servers';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -19,6 +22,12 @@ const kickRoute = protectedProcedure
     invariant(ctx.activeServerId, {
       code: 'BAD_REQUEST',
       message: 'No active server'
+    });
+
+    const isMember = await isServerMember(ctx.activeServerId, input.userId);
+    invariant(isMember, {
+      code: 'NOT_FOUND',
+      message: 'User is not a member of this server'
     });
 
     // Remove the user from this server (same as leaving)

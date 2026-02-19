@@ -431,15 +431,14 @@ describe('users router', () => {
     expect(info.user.banReason).toBeNull();
   });
 
-  test('should succeed silently when kicking non-member user', async () => {
+  test('should throw when kicking non-member user', async () => {
     const { caller } = await initTest();
 
-    // Kicking a non-member is a no-op (DB delete finds no rows)
     await expect(
       caller.users.kick({
         userId: 999
       })
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow('User is not a member of this server');
   });
 
   test('should handle multiple role operations', async () => {
