@@ -223,13 +223,22 @@ export class SignalProtocolStore implements StorageType {
     return !!kp;
   }
 
+  // In-memory sender key cache to avoid repeated IndexedDB reads
+  private senderKeyCache = new Map<string, string>();
+
   // Sender key methods for channel E2EE
   async getSenderKey(
     channelId: number,
     userId: number
   ): Promise<string | undefined> {
+    const cacheKey = `${channelId}:${userId}`;
+    const cached = this.senderKeyCache.get(cacheKey);
+    if (cached) return cached;
+
     const db = await this.getDb();
-    return db.get(STORES.SENDER_KEYS, `${channelId}:${userId}`);
+    const value = await db.get(STORES.SENDER_KEYS, cacheKey);
+    if (value) this.senderKeyCache.set(cacheKey, value);
+    return value;
   }
 
   async storeSenderKey(
@@ -237,11 +246,14 @@ export class SignalProtocolStore implements StorageType {
     userId: number,
     key: string
   ): Promise<void> {
+    const cacheKey = `${channelId}:${userId}`;
+    this.senderKeyCache.set(cacheKey, key);
     const db = await this.getDb();
-    await db.put(STORES.SENDER_KEYS, key, `${channelId}:${userId}`);
+    await db.put(STORES.SENDER_KEYS, key, cacheKey);
   }
 
   async clearAll(): Promise<void> {
+    this.senderKeyCache.clear();
     const db = await this.getDb();
     const tx = db.transaction(Object.values(STORES), 'readwrite');
     for (const store of Object.values(STORES)) {

@@ -54,14 +54,28 @@ export async function storeSenderKeyForUser(
 }
 
 /**
- * Import a base64 key string as a CryptoKey.
+ * Cache imported CryptoKey objects so we don't call importKey
+ * repeatedly for the same sender key (e.g. 50 messages from one user).
+ */
+const cryptoKeyCache = new Map<string, CryptoKey>();
+
+/**
+ * Import a base64 key string as a CryptoKey (cached).
  */
 async function importKey(keyBase64: string): Promise<CryptoKey> {
+  const cached = cryptoKeyCache.get(keyBase64);
+  if (cached) return cached;
+
   const rawKey = base64ToArrayBuffer(keyBase64);
-  return crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, [
-    'encrypt',
-    'decrypt'
-  ]);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    rawKey,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+  cryptoKeyCache.set(keyBase64, key);
+  return key;
 }
 
 /**

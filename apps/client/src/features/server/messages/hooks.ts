@@ -1,5 +1,8 @@
 import type { IRootState } from '@/features/store';
-import { decryptChannelMessage } from '@/lib/e2ee';
+import {
+  decryptChannelMessage,
+  fetchAndProcessPendingSenderKeys
+} from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -10,6 +13,18 @@ import { messagesByChannelIdSelector } from './selectors';
 async function decryptE2eeMessages(
   messages: TJoinedMessage[]
 ): Promise<TJoinedMessage[]> {
+  // Pre-fetch all pending sender keys for channels in this batch so that
+  // the per-message decryptChannelMessage calls hit the in-memory cache
+  // instead of each independently fetching from the server.
+  const e2eeChannelIds = new Set(
+    messages
+      .filter((m) => m.e2ee && m.encryptedContent)
+      .map((m) => m.channelId)
+  );
+  for (const channelId of e2eeChannelIds) {
+    await fetchAndProcessPendingSenderKeys(channelId);
+  }
+
   return Promise.all(
     messages.map(async (msg) => {
       if (!msg.e2ee || !msg.encryptedContent) return msg;
