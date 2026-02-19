@@ -1,3 +1,4 @@
+import { encryptDmMessage, decryptDmMessage } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { TYPING_MS, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
@@ -37,6 +38,17 @@ export const addDmMessages = (
     }
   }
   store.dispatch(dmsSliceActions.addMessages({ dmChannelId, messages, opts }));
+
+  // Update the channel's lastMessage so the sidebar snippet stays current
+  if (isSubscription && messages.length > 0) {
+    const lastMsg = messages[messages.length - 1];
+    store.dispatch(
+      dmsSliceActions.updateChannelLastMessage({
+        dmChannelId,
+        lastMessage: lastMsg
+      })
+    );
+  }
 };
 
 export const updateDmMessage = (message: TJoinedDmMessage) => {
@@ -119,7 +131,10 @@ export const fetchDmMessages = async (
   const trpc = getHomeTRPCClient();
   try {
     const result = await trpc.dms.getMessages.query({ dmChannelId, cursor });
-    addDmMessages(dmChannelId, result.messages, { prepend: !!cursor });
+
+    // Decrypt any E2EE messages
+    const decryptedMessages = await decryptDmMessages(result.messages);
+    addDmMessages(dmChannelId, decryptedMessages, { prepend: !!cursor });
 
     // Clear unread badge when fetching the first page (user opened the channel)
     if (!cursor) {
@@ -132,6 +147,45 @@ export const fetchDmMessages = async (
   }
 };
 
+/**
+ * Get the other user's ID in a 1-on-1 DM channel.
+ */
+function getDmRecipientUserId(dmChannelId: number): number | null {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  if (!channel || channel.isGroup) return null;
+
+  const otherMember = channel.members.find((m) => m.id !== ownUserId);
+  return otherMember?.id ?? null;
+}
+
+/**
+ * Decrypt an E2EE DM message in-place, replacing encryptedContent with decrypted content.
+ */
+export async function decryptDmMessageInPlace(
+  message: TJoinedDmMessage
+): Promise<TJoinedDmMessage> {
+  if (!message.e2ee || !message.encryptedContent) return message;
+
+  try {
+    const payload = await decryptDmMessage(message.userId, message.encryptedContent);
+    return { ...message, content: payload.content };
+  } catch (err) {
+    console.error('[E2EE] Failed to decrypt DM message:', err);
+    return { ...message, content: '[Unable to decrypt]' };
+  }
+}
+
+/**
+ * Decrypt an array of E2EE DM messages.
+ */
+async function decryptDmMessages(
+  messages: TJoinedDmMessage[]
+): Promise<TJoinedDmMessage[]> {
+  return Promise.all(messages.map(decryptDmMessageInPlace));
+}
+
 export const sendDmMessage = async (
   dmChannelId: number,
   content: string,
@@ -139,11 +193,62 @@ export const sendDmMessage = async (
   replyToId?: number
 ) => {
   const trpc = getHomeTRPCClient();
+  const recipientUserId = getDmRecipientUserId(dmChannelId);
+
+  // For 1-on-1 DMs, encrypt the message
+  if (recipientUserId) {
+    try {
+      const encryptedContent = await encryptDmMessage(recipientUserId, {
+        content
+      });
+      await trpc.dms.sendMessage.mutate({
+        dmChannelId,
+        encryptedContent,
+        e2ee: true,
+        files,
+        replyToId
+      });
+      return;
+    } catch (err) {
+      console.error('[E2EE] Encryption failed, sending plaintext:', err);
+      // Fall through to plaintext if encryption fails
+    }
+  }
+
   await trpc.dms.sendMessage.mutate({ dmChannelId, content, files, replyToId });
 };
 
 export const editDmMessage = async (messageId: number, content: string) => {
   const trpc = getHomeTRPCClient();
+
+  // Check if the original message was E2EE
+  const state = store.getState();
+  let isE2ee = false;
+  let recipientUserId: number | null = null;
+
+  for (const [, messages] of Object.entries(state.dms.messagesMap)) {
+    const msg = messages.find((m) => m.id === messageId);
+    if (msg) {
+      isE2ee = msg.e2ee;
+      if (isE2ee) {
+        recipientUserId = getDmRecipientUserId(msg.dmChannelId);
+      }
+      break;
+    }
+  }
+
+  if (isE2ee && recipientUserId) {
+    try {
+      const encryptedContent = await encryptDmMessage(recipientUserId, {
+        content
+      });
+      await trpc.dms.editMessage.mutate({ messageId, encryptedContent });
+      return;
+    } catch (err) {
+      console.error('[E2EE] Edit encryption failed:', err);
+    }
+  }
+
   await trpc.dms.editMessage.mutate({ messageId, content });
 };
 

@@ -19,12 +19,15 @@ import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
 import { checkAutomod, executeAutomodActions } from '../../utils/automod';
 import { fileManager } from '../../utils/file-manager';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const sendMessageRoute = protectedProcedure
   .input(
     z.object({
-      content: z.string().max(4000),
+      content: z.string().max(4000).optional(),
+      encryptedContent: z.string().max(16000).optional(),
+      e2ee: z.boolean().optional(),
       channelId: z.number(),
       files: z.array(z.string()).optional(),
       replyToId: z.number().optional()
@@ -39,13 +42,35 @@ const sendMessageRoute = protectedProcedure
       )
     ]);
 
-    // Slow mode enforcement
+    const isE2ee = !!input.e2ee;
+
+    // Check channel E2EE flag matches the message
     const [channel] = await db
-      .select({ slowMode: channels.slowMode })
+      .select({ slowMode: channels.slowMode, e2ee: channels.e2ee })
       .from(channels)
       .where(eq(channels.id, input.channelId))
       .limit(1);
 
+    if (channel?.e2ee) {
+      invariant(isE2ee && input.encryptedContent, {
+        code: 'BAD_REQUEST',
+        message: 'This channel requires E2EE messages'
+      });
+    }
+
+    if (isE2ee) {
+      invariant(input.encryptedContent, {
+        code: 'BAD_REQUEST',
+        message: 'E2EE messages must include encryptedContent'
+      });
+    } else {
+      invariant(input.content, {
+        code: 'BAD_REQUEST',
+        message: 'Non-E2EE messages must include content'
+      });
+    }
+
+    // Slow mode enforcement
     if (channel && channel.slowMode > 0) {
       const [lastMessage] = await db
         .select({ createdAt: messages.createdAt })
@@ -73,126 +98,127 @@ const sendMessageRoute = protectedProcedure
       }
     }
 
-    // Automod check
-    if (ctx.activeServerId) {
-      const automodResult = await checkAutomod(
-        input.content,
-        input.channelId,
-        ctx.userId,
-        ctx.activeServerId
-      );
-
-      if (automodResult.blocked && automodResult.actions) {
-        await executeAutomodActions(automodResult.actions, {
-          channelId: input.channelId,
-          userId: ctx.userId,
-          content: input.content,
-          serverId: ctx.activeServerId,
-          ruleName: automodResult.matchedRuleName ?? 'Unknown'
-        });
-
-        ctx.throwValidationError(
-          'automod',
-          'Message blocked by auto-moderation.'
-        );
-      }
-    }
-
-    let targetContent = input.content;
+    // Skip automod and plugin processing for E2EE messages
+    const content = input.content!;
+    let targetContent: string | null = isE2ee ? null : content;
     let editable = true;
     let commandExecutor: ((messageId: number) => void) | undefined = undefined;
 
-    const { enablePlugins } = await getSettings();
+    if (!isE2ee) {
+      // Automod check
+      if (ctx.activeServerId) {
+        const automodResult = await checkAutomod(
+          content,
+          input.channelId,
+          ctx.userId,
+          ctx.activeServerId
+        );
 
-    if (enablePlugins) {
-      // when plugins are enabled, need to check if the message is a command
-      // this might be improved in the future with a more robust parser
-      const plainText = getPlainTextFromHtml(input.content);
-      const { args, commandName } = parseCommandArgs(plainText);
-      const foundCommand = pluginManager.getCommandByName(commandName);
+        if (automodResult.blocked && automodResult.actions) {
+          await executeAutomodActions(automodResult.actions, {
+            channelId: input.channelId,
+            userId: ctx.userId,
+            content,
+            serverId: ctx.activeServerId,
+            ruleName: automodResult.matchedRuleName ?? 'Unknown'
+          });
 
-      if (foundCommand) {
-        if (await ctx.hasPermission(Permission.EXECUTE_PLUGIN_COMMANDS)) {
-          const argsObject: Record<string, unknown> = {};
-
-          if (foundCommand.args) {
-            foundCommand.args.forEach((argDef, index) => {
-              if (index < args.length) {
-                const value = args[index];
-
-                if (argDef.type === 'number') {
-                  argsObject[argDef.name] = Number(value);
-                } else if (argDef.type === 'boolean') {
-                  argsObject[argDef.name] = value === 'true';
-                } else {
-                  argsObject[argDef.name] = value;
-                }
-              }
-            });
-          }
-
-          const plugin = await pluginManager.getPluginInfo(
-            foundCommand?.pluginId || ''
+          ctx.throwValidationError(
+            'automod',
+            'Message blocked by auto-moderation.'
           );
+        }
+      }
 
-          editable = false;
-          targetContent = toDomCommand(
-            { ...foundCommand, imageUrl: plugin?.logo, status: 'pending' },
-            args
-          );
+      const { enablePlugins } = await getSettings();
 
-          // do not await, let it run in background
-          commandExecutor = (messageId: number) => {
-            const updateCommandStatus = (
-              status: 'completed' | 'failed',
-              response?: unknown
-            ) => {
-              const updatedContent = toDomCommand(
-                {
-                  ...foundCommand,
-                  imageUrl: plugin?.logo,
-                  response,
-                  status
-                },
-                args
-              );
+      if (enablePlugins) {
+        const plainText = getPlainTextFromHtml(content);
+        const { args, commandName } = parseCommandArgs(plainText);
+        const foundCommand = pluginManager.getCommandByName(commandName);
 
-              db.update(messages)
-                .set({ content: updatedContent })
-                .where(eq(messages.id, messageId))
-                .execute();
+        if (foundCommand) {
+          if (await ctx.hasPermission(Permission.EXECUTE_PLUGIN_COMMANDS)) {
+            const argsObject: Record<string, unknown> = {};
 
-              publishMessage(messageId, input.channelId, 'update');
-            };
+            if (foundCommand.args) {
+              foundCommand.args.forEach((argDef, index) => {
+                if (index < args.length) {
+                  const value = args[index];
 
-            pluginManager
-              .executeCommand(
-                foundCommand.pluginId,
-                foundCommand.name,
-                getInvokerCtxFromTrpcCtx(ctx),
-                argsObject
-              )
-              .then((response) => {
-                updateCommandStatus('completed', response);
-              })
-              .catch((error) => {
-                updateCommandStatus(
-                  'failed',
-                  error?.message || 'Unknown error'
-                );
-              })
-              .finally(() => {
-                enqueueActivityLog({
-                  type: ActivityLogType.EXECUTED_PLUGIN_COMMAND,
-                  userId: ctx.user.id,
-                  details: {
-                    pluginId: foundCommand.pluginId,
-                    commandName: foundCommand.name,
-                    args: argsObject
+                  if (argDef.type === 'number') {
+                    argsObject[argDef.name] = Number(value);
+                  } else if (argDef.type === 'boolean') {
+                    argsObject[argDef.name] = value === 'true';
+                  } else {
+                    argsObject[argDef.name] = value;
                   }
-                });
+                }
               });
-          };
+            }
+
+            const plugin = await pluginManager.getPluginInfo(
+              foundCommand?.pluginId || ''
+            );
+
+            editable = false;
+            targetContent = toDomCommand(
+              { ...foundCommand, imageUrl: plugin?.logo, status: 'pending' },
+              args
+            );
+
+            commandExecutor = (messageId: number) => {
+              const updateCommandStatus = (
+                status: 'completed' | 'failed',
+                response?: unknown
+              ) => {
+                const updatedContent = toDomCommand(
+                  {
+                    ...foundCommand,
+                    imageUrl: plugin?.logo,
+                    response,
+                    status
+                  },
+                  args
+                );
+
+                db.update(messages)
+                  .set({ content: updatedContent })
+                  .where(eq(messages.id, messageId))
+                  .execute();
+
+                publishMessage(messageId, input.channelId, 'update');
+              };
+
+              pluginManager
+                .executeCommand(
+                  foundCommand.pluginId,
+                  foundCommand.name,
+                  getInvokerCtxFromTrpcCtx(ctx),
+                  argsObject
+                )
+                .then((response) => {
+                  updateCommandStatus('completed', response);
+                })
+                .catch((error) => {
+                  updateCommandStatus(
+                    'failed',
+                    error?.message || 'Unknown error'
+                  );
+                })
+                .finally(() => {
+                  enqueueActivityLog({
+                    type: ActivityLogType.EXECUTED_PLUGIN_COMMAND,
+                    userId: ctx.user.id,
+                    details: {
+                      pluginId: foundCommand.pluginId,
+                      commandName: foundCommand.name,
+                      args: argsObject
+                    }
+                  });
+                });
+            };
+          }
         }
       }
     }
@@ -203,6 +229,8 @@ const sendMessageRoute = protectedProcedure
         channelId: input.channelId,
         userId: ctx.userId,
         content: targetContent,
+        encryptedContent: isE2ee ? input.encryptedContent : null,
+        e2ee: isE2ee,
         editable,
         replyToId: input.replyToId,
         createdAt: Date.now()
@@ -224,14 +252,17 @@ const sendMessageRoute = protectedProcedure
     }
 
     publishMessage(message!.id, input.channelId, 'create');
-    enqueueProcessMetadata(targetContent, message!.id);
 
-    eventBus.emit('message:created', {
-      messageId: message!.id,
-      channelId: input.channelId,
-      userId: ctx.userId,
-      content: targetContent
-    });
+    if (!isE2ee && targetContent) {
+      enqueueProcessMetadata(targetContent, message!.id);
+
+      eventBus.emit('message:created', {
+        messageId: message!.id,
+        channelId: input.channelId,
+        userId: ctx.userId,
+        content: targetContent
+      });
+    }
 
     return message!.id;
   });

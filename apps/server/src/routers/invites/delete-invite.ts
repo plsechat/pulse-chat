@@ -1,7 +1,8 @@
-import { ActivityLogType, Permission } from '@pulse/shared';
+import { ActivityLogType, Permission, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { invites } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
@@ -24,6 +25,13 @@ const deleteInviteRoute = protectedProcedure
     invariant(removedInvite, {
       code: 'NOT_FOUND',
       message: 'Invite not found'
+    });
+
+    // Notify server members so admin invite lists update
+    const memberIds = await getServerMemberIds(removedInvite.serverId);
+    ctx.pubsub.publishFor(memberIds, ServerEvents.INVITE_DELETE, {
+      inviteId: removedInvite.id,
+      serverId: removedInvite.serverId
     });
 
     enqueueActivityLog({

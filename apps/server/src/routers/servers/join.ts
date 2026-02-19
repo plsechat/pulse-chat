@@ -2,17 +2,18 @@ import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { getDefaultRoleForServer } from '../../db/queries/roles';
 import {
   addServerMember,
   getServerById,
+  getServerMemberIds,
   getServersByUserId,
   isServerMember
 } from '../../db/queries/servers';
-import { getDefaultRoleForServer } from '../../db/queries/roles';
-import { invites } from '../../db/schema';
+import { getPublicUserById } from '../../db/queries/users';
+import { invites, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
-import { userRoles } from '../../db/schema';
 
 const joinServerByInviteRoute = protectedProcedure
   .input(
@@ -99,6 +100,17 @@ const joinServerByInviteRoute = protectedProcedure
       userId: ctx.userId,
       server: summary
     });
+
+    // Notify existing members so they see the new user in the member list
+    const memberIds = await getServerMemberIds(server.id);
+    const publicUser = await getPublicUserById(ctx.userId);
+    if (publicUser) {
+      ctx.pubsub.publishFor(
+        memberIds.filter((id) => id !== ctx.userId),
+        ServerEvents.USER_JOIN,
+        publicUser
+      );
+    }
 
     return summary;
   });

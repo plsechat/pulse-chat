@@ -14,6 +14,7 @@ import {
   useJoinedServers
 } from '@/features/app/hooks';
 import type { TFederatedServerEntry } from '@/features/app/slice';
+import { appSliceActions } from '@/features/app/slice';
 import { getHandshakeHash } from '@/features/server/actions';
 import { useFriendRequests } from '@/features/friends/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
@@ -49,8 +50,22 @@ import { getTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { store } from '@/features/store';
 import { serverSliceActions } from '@/features/server/slice';
+import {
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Compass, Home, Plus, Volume2 } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { TServerSummary } from '@pulse/shared';
 
@@ -71,7 +86,7 @@ const ServerIcon = memo(
     const firstLetter = server.name.charAt(0).toUpperCase();
 
     return (
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
@@ -120,7 +135,7 @@ const FederatedServerIcon = memo(
     const instanceInitial = entry.instanceDomain.charAt(0).toUpperCase();
 
     return (
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
             'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
@@ -156,6 +171,37 @@ const FederatedServerIcon = memo(
   }
 );
 
+const SortableServerItem = memo(
+  ({ children, serverId }: { children: React.ReactNode; serverId: number }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging
+    } = useSortable({ id: serverId });
+
+    return (
+      <div
+        ref={setNodeRef}
+        className="w-full"
+        style={{
+          transform: CSS.Transform.toString(
+            transform && { ...transform, x: 0 }
+          ),
+          transition,
+          opacity: isDragging ? 0.5 : 1
+        }}
+        {...attributes}
+        {...listeners}
+      >
+        {children}
+      </div>
+    );
+  }
+);
+
 const ServerStrip = memo(() => {
   const activeView = useActiveView();
   const friendRequests = useFriendRequests();
@@ -168,6 +214,19 @@ const ServerStrip = memo(() => {
   const currentVoiceServerId = useCurrentVoiceServerId();
   const federatedServers = useFederatedServers();
   const activeInstanceDomain = useActiveInstanceDomain();
+
+  const serverIds = useMemo(
+    () => joinedServers.map((s) => s.id),
+    [joinedServers]
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8
+      }
+    })
+  );
 
   const [deleteTarget, setDeleteTarget] = useState<TServerSummary | null>(null);
   const [serverMuted, setServerMuted] = useState(false);
@@ -293,9 +352,40 @@ const ServerStrip = memo(() => {
     []
   );
 
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+
+      if (!over || active.id === over.id) {
+        return;
+      }
+
+      const oldIndex = serverIds.indexOf(active.id as number);
+      const newIndex = serverIds.indexOf(over.id as number);
+
+      if (oldIndex === -1 || newIndex === -1) {
+        return;
+      }
+
+      const reorderedIds = [...serverIds];
+      const [movedId] = reorderedIds.splice(oldIndex, 1);
+      reorderedIds.splice(newIndex, 0, movedId!);
+
+      store.dispatch(appSliceActions.reorderJoinedServers(reorderedIds));
+
+      try {
+        const trpc = getTRPCClient();
+        await trpc.servers.reorder.mutate({ serverIds: reorderedIds });
+      } catch {
+        toast.error('Failed to reorder servers');
+      }
+    },
+    [serverIds]
+  );
+
   return (
     <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
-      <div className="relative flex items-center justify-center">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
@@ -303,7 +393,7 @@ const ServerStrip = memo(() => {
         <button
           onClick={handleHomeClick}
           className={cn(
-            'group relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
+            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
             activeView === 'home'
               ? 'bg-primary text-primary-foreground rounded-xl'
               : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
@@ -321,98 +411,115 @@ const ServerStrip = memo(() => {
 
       <div className="mx-2 h-0.5 w-8 bg-border" />
 
-      {joinedServers.map((server) => {
-        const isOwner = ownUserId != null && server.ownerId === ownUserId;
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={serverIds}
+          strategy={verticalListSortingStrategy}
+        >
+          {joinedServers.map((server) => {
+            const isOwner = ownUserId != null && server.ownerId === ownUserId;
 
-        return (
-          <ContextMenu
-            key={server.id}
-            onOpenChange={(open) => handleContextMenuOpen(open, server.id)}
-          >
-            <ContextMenuTrigger asChild>
-              <div>
-                <ServerIcon
-                  server={server}
-                  isActive={
-                    activeView === 'server' &&
-                    activeServerId === server.id &&
-                    !activeInstanceDomain
+            return (
+              <SortableServerItem key={server.id} serverId={server.id}>
+                <ContextMenu
+                  onOpenChange={(open) =>
+                    handleContextMenuOpen(open, server.id)
                   }
-                  hasUnread={
-                    activeServerId === server.id &&
-                    !activeInstanceDomain &&
-                    hasAnyUnread
-                  }
-                  hasVoiceActivity={
-                    server.id === currentVoiceServerId ||
-                    (activeServerId === server.id &&
-                      !activeInstanceDomain &&
-                      hasAnyVoiceUsers)
-                  }
-                  onClick={() => handleServerClick(server.id)}
-                />
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              {activeServerId === server.id && !activeInstanceDomain && (
-                <ContextMenuItem
-                  onClick={() => handleMarkAsRead(server.id)}
                 >
-                  Mark as Read
-                </ContextMenuItem>
-              )}
-              <ContextMenuCheckboxItem
-                checked={serverMuted}
-                onCheckedChange={(checked) =>
-                  handleToggleMute(server.id, !!checked)
-                }
-              >
-                Mute Server
-              </ContextMenuCheckboxItem>
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>Notifications</ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                  <ContextMenuRadioGroup
-                    value={serverNotifLevel}
-                    onValueChange={(value) =>
-                      handleSetNotificationLevel(server.id, value)
-                    }
-                  >
-                    <ContextMenuRadioItem value="all">
-                      All Messages
-                    </ContextMenuRadioItem>
-                    <ContextMenuRadioItem value="mentions">
-                      Only @Mentions
-                    </ContextMenuRadioItem>
-                    <ContextMenuRadioItem value="nothing">
-                      Nothing
-                    </ContextMenuRadioItem>
-                    <ContextMenuRadioItem value="default">
-                      Default
-                    </ContextMenuRadioItem>
-                  </ContextMenuRadioGroup>
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-              <ContextMenuSeparator />
-              {isOwner ? (
-                <ContextMenuItem
-                  variant="destructive"
-                  onClick={() => setDeleteTarget(server)}
-                >
-                  Delete Server
-                </ContextMenuItem>
-              ) : (
-                <ContextMenuItem
-                  variant="destructive"
-                  onClick={() => handleLeaveServer(server.id)}
-                >
-                  Leave Server
-                </ContextMenuItem>
-              )}
-            </ContextMenuContent>
-          </ContextMenu>
-        );
-      })}
+                  <ContextMenuTrigger asChild>
+                    <div className="w-full">
+                      <ServerIcon
+                        server={server}
+                        isActive={
+                          activeView === 'server' &&
+                          activeServerId === server.id &&
+                          !activeInstanceDomain
+                        }
+                        hasUnread={
+                          activeServerId === server.id &&
+                          !activeInstanceDomain &&
+                          hasAnyUnread
+                        }
+                        hasVoiceActivity={
+                          server.id === currentVoiceServerId ||
+                          (activeServerId === server.id &&
+                            !activeInstanceDomain &&
+                            hasAnyVoiceUsers)
+                        }
+                        onClick={() => handleServerClick(server.id)}
+                      />
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    {activeServerId === server.id &&
+                      !activeInstanceDomain && (
+                        <ContextMenuItem
+                          onClick={() => handleMarkAsRead(server.id)}
+                        >
+                          Mark as Read
+                        </ContextMenuItem>
+                      )}
+                    <ContextMenuCheckboxItem
+                      checked={serverMuted}
+                      onCheckedChange={(checked) =>
+                        handleToggleMute(server.id, !!checked)
+                      }
+                    >
+                      Mute Server
+                    </ContextMenuCheckboxItem>
+                    <ContextMenuSub>
+                      <ContextMenuSubTrigger>
+                        Notifications
+                      </ContextMenuSubTrigger>
+                      <ContextMenuSubContent>
+                        <ContextMenuRadioGroup
+                          value={serverNotifLevel}
+                          onValueChange={(value) =>
+                            handleSetNotificationLevel(server.id, value)
+                          }
+                        >
+                          <ContextMenuRadioItem value="all">
+                            All Messages
+                          </ContextMenuRadioItem>
+                          <ContextMenuRadioItem value="mentions">
+                            Only @Mentions
+                          </ContextMenuRadioItem>
+                          <ContextMenuRadioItem value="nothing">
+                            Nothing
+                          </ContextMenuRadioItem>
+                          <ContextMenuRadioItem value="default">
+                            Default
+                          </ContextMenuRadioItem>
+                        </ContextMenuRadioGroup>
+                      </ContextMenuSubContent>
+                    </ContextMenuSub>
+                    <ContextMenuSeparator />
+                    {isOwner ? (
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() => setDeleteTarget(server)}
+                      >
+                        Delete Server
+                      </ContextMenuItem>
+                    ) : (
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() => handleLeaveServer(server.id)}
+                      >
+                        Leave Server
+                      </ContextMenuItem>
+                    )}
+                  </ContextMenuContent>
+                </ContextMenu>
+              </SortableServerItem>
+            );
+          })}
+        </SortableContext>
+      </DndContext>
 
       {federatedServers.length > 0 && (
         <>
@@ -420,7 +527,7 @@ const ServerStrip = memo(() => {
           {federatedServers.map((entry) => (
             <ContextMenu key={`${entry.instanceDomain}:${entry.server.id}`}>
               <ContextMenuTrigger asChild>
-                <div>
+                <div className="w-full">
                   <FederatedServerIcon
                     entry={entry}
                     isActive={
@@ -458,7 +565,7 @@ const ServerStrip = memo(() => {
         <Plus className="h-6 w-6" />
       </button>
 
-      <div className="relative flex items-center justify-center group">
+      <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
           'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'

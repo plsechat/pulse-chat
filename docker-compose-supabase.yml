@@ -3,17 +3,19 @@ services:
     image: supabase/postgres:15.6.1.143
     restart: unless-stopped
     container_name: pulse-db
+    entrypoint: ["/bin/bash", "/docker-entrypoint-custom/db-entrypoint.sh"]
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./docker/db-entrypoint.sh:/docker-entrypoint-custom/db-entrypoint.sh:ro
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXP: ${JWT_EXPIRY:-3600}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres && test -f /tmp/.db-init-complete"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   auth:
     image: supabase/gotrue:v2.170.0
@@ -36,6 +38,11 @@ services:
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
       API_EXTERNAL_URL: ${SITE_URL}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   kong:
     image: kong:3.4
@@ -43,7 +50,7 @@ services:
     container_name: pulse-kong
     depends_on:
       auth:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./docker/kong-supabase.yml:/home/kong/kong.yml:ro
     environment:
@@ -53,6 +60,11 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   pulse:
     build: .
@@ -62,7 +74,7 @@ services:
       db:
         condition: service_healthy
       kong:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "${PULSE_PORT:-4991}:4991"
       - "40000-40020:40000-40020/udp"

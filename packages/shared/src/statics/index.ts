@@ -10,6 +10,7 @@ export const TYPING_MS = 300;
 
 export enum DisconnectCode {
   UNEXPECTED = 1006,
+  FEDERATION_REJECTED = 4003,
   KICKED = 40000,
   BANNED = 40001,
   SERVER_SHUTDOWN = 40002,

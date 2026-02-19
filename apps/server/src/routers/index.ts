@@ -20,6 +20,7 @@ import { usersRouter } from './users';
 import { voiceRouter } from './voice';
 import { webhooksRouter } from './webhooks';
 import { automodRouter } from './automod';
+import { e2eeRouter } from './e2ee';
 
 const appRouter = t.router({
   others: othersRouter,
@@ -42,7 +43,8 @@ const appRouter = t.router({
   threads: threadsRouter,
   webhooks: webhooksRouter,
   automod: automodRouter,
-  federation: federationRouter
+  federation: federationRouter,
+  e2ee: e2eeRouter
 });
 
 type AppRouter = typeof appRouter;

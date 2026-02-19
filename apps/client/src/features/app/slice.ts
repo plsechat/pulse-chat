@@ -79,6 +79,14 @@ export const appSlice = createSlice({
         state.activeServerId = undefined;
       }
     },
+    reorderJoinedServers: (state, action: PayloadAction<number[]>) => {
+      const serverMap = new Map(
+        state.joinedServers.map((s) => [s.id, s])
+      );
+      state.joinedServers = action.payload
+        .map((id) => serverMap.get(id))
+        .filter((s): s is TServerSummary => !!s);
+    },
     setActiveServerId: (state, action: PayloadAction<number | undefined>) => {
       state.activeServerId = action.payload;
     },
