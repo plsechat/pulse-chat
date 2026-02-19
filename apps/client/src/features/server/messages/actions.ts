@@ -1,3 +1,4 @@
+import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
 import { TYPING_MS, type TJoinedMessage } from '@pulse/shared';
@@ -35,6 +36,10 @@ export const addMessages = (
 
     if (!isFromOwnUser) {
       playSound(SoundType.MESSAGE_RECEIVED);
+      sendDesktopNotification(
+        'New Message',
+        targetMessage.content?.slice(0, 100) || 'New message received'
+      );
     }
 
     if (channelId === selectedChannelId && !isFromOwnUser) {
