@@ -41,25 +41,29 @@ const getMockedToken = async (userId: number) => {
 const getCaller = async (userId: number) => {
   const mockedToken = await getMockedToken(userId);
 
-  const caller = appRouter.createCaller(
-    await createMockContext({
-      customToken: mockedToken
-    })
-  );
+  const ctx = await createMockContext({
+    customToken: mockedToken
+  });
 
-  return { caller, mockedToken };
+  const caller = appRouter.createCaller(ctx);
+
+  return { caller, mockedToken, ctx };
 };
 
 // this will basically simulate a specific user connecting to the server
 const initTest = async (userId: number = 1) => {
-  const { caller, mockedToken } = await getCaller(userId);
+  const { caller, mockedToken, ctx } = await getCaller(userId);
   const { handshakeHash } = await caller.others.handshake();
 
   const initialData = await caller.others.joinServer({
     handshakeHash: handshakeHash
   });
 
-  return { caller, mockedToken, initialData };
+  // Ensure activeServerId is set on the context object.
+  // tRPC createCaller may not persist context mutations across procedure calls.
+  ctx.activeServerId = initialData.serverDbId;
+
+  return { caller, mockedToken, initialData, ctx };
 };
 
 const login = async (email: string, password: string, invite?: string) =>
