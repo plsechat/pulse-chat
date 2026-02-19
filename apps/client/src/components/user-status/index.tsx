@@ -30,9 +30,9 @@ const UserStatusBadge = memo(({ status, className }: TUserStatusBadgeProps) => {
     return (
       <div
         className={cn(
-          'relative flex items-center justify-center rounded-full border-2 border-card',
+          'relative flex items-center justify-center rounded-full border-2 border-card h-3 w-3',
           config.color,
-          className || 'h-3 w-3'
+          className
         )}
       >
         <Moon className="h-[60%] w-[60%] text-card fill-card" />
@@ -44,9 +44,9 @@ const UserStatusBadge = memo(({ status, className }: TUserStatusBadgeProps) => {
     return (
       <div
         className={cn(
-          'relative flex items-center justify-center rounded-full border-2 border-card',
+          'relative flex items-center justify-center rounded-full border-2 border-card h-3 w-3',
           config.color,
-          className || 'h-3 w-3'
+          className
         )}
       >
         <MinusCircle className="h-[70%] w-[70%] text-card fill-rose-500 stroke-card" />
@@ -58,12 +58,12 @@ const UserStatusBadge = memo(({ status, className }: TUserStatusBadgeProps) => {
   return (
     <div
       className={cn(
-        'rounded-full border-2 border-card',
+        'rounded-full border-2 border-card h-3 w-3',
         config.color,
         // Invisible/Offline: hollow ring effect
         (status === UserStatus.INVISIBLE || status === UserStatus.OFFLINE) &&
           'bg-transparent ring-[2px] ring-inset ring-gray-500',
-        className || 'h-3 w-3'
+        className
       )}
     />
   );
