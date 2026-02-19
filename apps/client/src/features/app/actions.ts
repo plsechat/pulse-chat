@@ -189,16 +189,10 @@ export const loadApp = async () => {
       // Try connecting directly — the WebSocket validates the token
       await connect();
 
-      // Initialize E2EE keys (generates if needed, replenishes OTPs)
-      initE2EE()
-        .then((result) => {
-          if (result.needsPassphrase) {
-            window.dispatchEvent(new CustomEvent('e2ee-needs-passphrase'));
-          } else if (result.isNew) {
-            window.dispatchEvent(new CustomEvent('e2ee-new-keys'));
-          }
-        })
-        .catch((err) => console.error('E2EE initialization failed:', err));
+      // Initialize E2EE (replenishes OTPs if keys exist, otherwise no-op)
+      initE2EE().catch((err) =>
+        console.error('E2EE initialization failed:', err)
+      );
 
       // Load persisted federated servers
       loadFederatedServers();

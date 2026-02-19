@@ -31,41 +31,68 @@ const OTP_REPLENISH_COUNT = 100;
 // Track the next OTP key ID to avoid collisions
 let nextOtpKeyId = 101; // Start after initial batch of 100
 
-export type InitE2EEResult = {
-  needsPassphrase: boolean;
-  isNew: boolean;
-};
-
 /**
- * Initialize E2EE keys on the home instance. Called once after auth.
- * If the user has no keys and a server backup exists, returns { needsPassphrase: true }
- * so the caller can prompt for a passphrase.
- * If no keys and no backup, generates new keys.
- * If keys exist, replenishes OTPs.
+ * Initialize E2EE on the home instance. Called once after auth.
+ * If keys exist, replenishes OTPs. If not, does nothing — keys are
+ * set up on demand via ensureE2EEKeys() when the user tries to
+ * participate in an encrypted channel/DM.
  */
-export async function initE2EE(): Promise<InitE2EEResult> {
+export async function initE2EE(): Promise<void> {
   const keysExist = await hasKeys();
 
   if (keysExist) {
     await replenishOTPsIfNeeded();
-    return { needsPassphrase: false, isNew: false };
   }
+}
 
-  // No local keys — check if server has a backup
-  const trpc = getHomeTRPCClient();
-  try {
-    const hasBackup = await trpc.e2ee.hasKeyBackup.query();
-    if (hasBackup) {
-      return { needsPassphrase: true, isNew: false };
-    }
-  } catch {
-    // If backup check fails, fall through to generate new keys
+/**
+ * Set up E2EE keys. Called by the setup modal after the user chooses.
+ * - mode 'restore': restores from server backup using passphrase
+ * - mode 'generate': generates fresh keys and registers with server
+ */
+export async function setupE2EEKeys(
+  mode: 'restore' | 'generate',
+  passphrase?: string
+): Promise<void> {
+  if (mode === 'restore') {
+    if (!passphrase) throw new Error('Passphrase required for restore');
+    const { restoreBackupFromServer } = await import('./key-backup');
+    await restoreBackupFromServer(passphrase);
+    await replenishOTPsIfNeeded();
+  } else {
+    const trpc = getHomeTRPCClient();
+    const keys = await generateKeys(OTP_REPLENISH_COUNT);
+    await trpc.e2ee.registerKeys.mutate(keys);
   }
+}
 
-  // No backup — generate new keys
-  const keys = await generateKeys(OTP_REPLENISH_COUNT);
-  await trpc.e2ee.registerKeys.mutate(keys);
-  return { needsPassphrase: false, isNew: true };
+// Singleton state for the ensureE2EEKeys gate
+let pendingSetup: Promise<void> | null = null;
+
+/**
+ * Gate that ensures E2EE keys exist before proceeding.
+ * If keys exist, resolves immediately. If not, dispatches an
+ * `e2ee-setup-needed` CustomEvent with resolve/reject callbacks
+ * so the UI can show the setup modal. Returns a Promise that
+ * resolves when the user completes setup or rejects on cancel.
+ * Singleton: only one modal opens even if multiple operations trigger.
+ */
+export async function ensureE2EEKeys(): Promise<void> {
+  if (await hasKeys()) return;
+
+  if (pendingSetup) return pendingSetup;
+
+  pendingSetup = new Promise<void>((resolve, reject) => {
+    window.dispatchEvent(
+      new CustomEvent('e2ee-setup-needed', {
+        detail: { resolve, reject }
+      })
+    );
+  }).finally(() => {
+    pendingSetup = null;
+  });
+
+  return pendingSetup;
 }
 
 /**
@@ -76,6 +103,8 @@ export async function initE2EE(): Promise<InitE2EEResult> {
  * on the remote server.
  */
 export async function initE2EEForInstance(domain: string): Promise<void> {
+  await ensureE2EEKeys();
+
   const store = getStoreForInstance(domain);
   const keysExist = await hasKeys(store);
 
@@ -216,6 +245,7 @@ export async function encryptDmMessage(
   recipientUserId: number,
   payload: E2EEPlaintext
 ): Promise<string> {
+  await ensureE2EEKeys();
   await ensureSession(recipientUserId);
   const plaintext = JSON.stringify(payload);
   return encryptMessage(recipientUserId, plaintext);
@@ -267,6 +297,7 @@ export async function ensureChannelSenderKey(
   ownUserId: number,
   memberUserIds: number[]
 ): Promise<void> {
+  await ensureE2EEKeys();
   const store = getActiveStore();
   const hasKey = await hasSenderKey(channelId, ownUserId, store);
 
@@ -417,6 +448,7 @@ export async function encryptChannelMessage(
   ownUserId: number,
   payload: E2EEPlaintext
 ): Promise<string> {
+  await ensureE2EEKeys();
   const store = getActiveStore();
   const plaintext = JSON.stringify(payload);
   return encryptWithSenderKey(channelId, ownUserId, plaintext, store);

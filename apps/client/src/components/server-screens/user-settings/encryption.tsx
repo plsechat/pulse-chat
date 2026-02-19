@@ -5,8 +5,7 @@ import {
   importKeys,
   uploadBackupToServer
 } from '@/lib/e2ee/key-backup';
-import { hasKeys, signalStore } from '@/lib/e2ee';
-import { initE2EE } from '@/lib/e2ee';
+import { hasKeys, signalStore, setupE2EEKeys, initE2EE } from '@/lib/e2ee';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import {
   Cloud,
@@ -63,7 +62,7 @@ const Encryption = memo(() => {
       );
 
       setLocalResetFlag(true);
-      await initE2EE();
+      await setupE2EEKeys('generate');
       setHasE2eeKeys(true);
 
       // Re-distribute new sender keys to all E2EE channel members

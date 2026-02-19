@@ -7,7 +7,7 @@ import { Provider } from 'react-redux';
 import { StoreDebug } from './components/debug/store-debug.tsx';
 import { DevicesProvider } from './components/devices-provider/index.tsx';
 import { DialogsProvider } from './components/dialogs/index.tsx';
-import { E2EEPassphraseModal } from './components/e2ee-passphrase-modal.tsx';
+import { E2EESetupModal } from './components/e2ee-setup-modal.tsx';
 import { Routing } from './components/routing/index.tsx';
 import { ServerScreensProvider } from './components/server-screens/index.tsx';
 import { ThemeProvider } from './components/theme-provider/index.tsx';
@@ -26,7 +26,7 @@ createRoot(document.getElementById('root')!).render(
         <StoreDebug />
         <DevicesProvider>
           <DialogsProvider />
-          <E2EEPassphraseModal />
+          <E2EESetupModal />
           <ServerScreensProvider />
           <Routing />
         </DevicesProvider>
