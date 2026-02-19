@@ -1,5 +1,6 @@
 import { ActivityLogType, DisconnectCode, Permission } from '@pulse/shared';
 import z from 'zod';
+import { publishUser } from '../../db/publishers';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -22,6 +23,9 @@ const kickRoute = protectedProcedure
     });
 
     userWs.close(DisconnectCode.KICKED, input.reason);
+
+    // Notify other members to remove the user from member list
+    publishUser(input.userId, 'delete');
 
     enqueueActivityLog({
       type: ActivityLogType.USER_KICKED,

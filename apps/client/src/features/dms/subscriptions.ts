@@ -33,6 +33,13 @@ const subscribeToDms = () => {
     onData: async (message: TJoinedDmMessage) => {
       const decrypted = await decryptDmMessageInPlace(message);
       updateDmMessage(decrypted);
+
+      // Notify pinned messages panel so it can refetch
+      window.dispatchEvent(
+        new CustomEvent('dm-pinned-messages-changed', {
+          detail: { dmChannelId: decrypted.dmChannelId }
+        })
+      );
     },
     onError: (err) =>
       console.error('onDmMessageUpdate subscription error:', err)

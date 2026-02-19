@@ -75,6 +75,11 @@ export enum ServerEvents {
 
   E2EE_SENDER_KEY_DISTRIBUTION = "e2eeSenderKeyDistribution",
   E2EE_IDENTITY_RESET = "e2eeIdentityReset",
+
+  INVITE_CREATE = "inviteCreate",
+  INVITE_DELETE = "inviteDelete",
+
+  USER_NOTE_UPDATE = "userNoteUpdate",
 }
 
 export type TNewMessage = {

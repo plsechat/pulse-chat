@@ -1,4 +1,5 @@
 import { requestConfirmation } from '@/features/dialogs/actions';
+import type { IRootState } from '@/features/store';
 import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
@@ -26,9 +27,31 @@ import {
   type TStorageSettings
 } from '@pulse/shared';
 import { filesize } from 'filesize';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { useCan } from '../hooks';
+
+/**
+ * Calls `refetch` whenever the watched Redux selector value changes,
+ * skipping the initial mount.
+ */
+function useSubscriptionRefetch<T>(
+  selector: (state: IRootState) => T,
+  refetch: () => void
+) {
+  const value = useSelector(selector);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+}
 
 // TODO: review this whole file for optimizations and improvements
 
@@ -97,6 +120,8 @@ export const useAdminGeneral = (serverId: number | undefined) => {
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
+
+  useSubscriptionRefetch((s) => s.server.publicSettings, fetchSettings);
 
   return {
     settings,
@@ -285,6 +310,8 @@ export const useAdminChannelGeneral = (channelId: number) => {
     fetchChannel();
   }, [fetchChannel]);
 
+  useSubscriptionRefetch((s) => s.server.channels, fetchChannel);
+
   return {
     channel,
     refetch: fetchChannel,
@@ -339,6 +366,8 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
     fetchCategory();
   }, [fetchCategory]);
 
+  useSubscriptionRefetch((s) => s.server.categories, fetchCategory);
+
   return {
     category,
     refetch: fetchCategory,
@@ -379,6 +408,8 @@ export const useAdminEmojis = (serverId: number | undefined) => {
     fetchEmojis();
   }, [fetchEmojis]);
 
+  useSubscriptionRefetch((s) => s.server.emojis, fetchEmojis);
+
   return {
     emojis,
     refetch: fetchEmojis,
@@ -417,6 +448,8 @@ export const useAdminRoles = (serverId: number | undefined) => {
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
+
+  useSubscriptionRefetch((s) => s.server.roles, fetchRoles);
 
   return {
     roles,
@@ -501,6 +534,8 @@ export const useAdminStorage = (serverId: number | undefined) => {
     fetchStorageSettings();
   }, [fetchStorageSettings]);
 
+  useSubscriptionRefetch((s) => s.server.publicSettings, fetchStorageSettings);
+
   return {
     values,
     labels,
@@ -530,6 +565,8 @@ export const useAdminUsers = () => {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  useSubscriptionRefetch((s) => s.server.users, fetchUsers);
 
   return {
     users,
@@ -562,6 +599,8 @@ export const useAdminChannelPermissions = (channelId: number) => {
   useEffect(() => {
     fetchPermissions();
   }, [fetchPermissions]);
+
+  useSubscriptionRefetch((s) => s.server.channelPermissions, fetchPermissions);
 
   return {
     rolePermissions,
@@ -624,6 +663,13 @@ export const useAdminInvites = (serverId: number | undefined) => {
 
   useEffect(() => {
     fetchInvites();
+  }, [fetchInvites]);
+
+  // Refetch when invite events arrive
+  useEffect(() => {
+    const handler = () => { fetchInvites(); };
+    window.addEventListener('invites-changed', handler);
+    return () => window.removeEventListener('invites-changed', handler);
   }, [fetchInvites]);
 
   return {

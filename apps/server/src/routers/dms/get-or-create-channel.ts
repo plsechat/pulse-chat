@@ -1,3 +1,4 @@
+import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
 import { findDmChannelBetween, getDmChannelsForUser } from '../../db/queries/dms';
@@ -36,6 +37,13 @@ const getOrCreateChannelRoute = protectedProcedure
       { dmChannelId: channel!.id, userId: ctx.userId, createdAt: now },
       { dmChannelId: channel!.id, userId: input.userId, createdAt: now }
     ]);
+
+    // Notify the other user so their DM list updates
+    ctx.pubsub.publishFor(input.userId, ServerEvents.DM_CHANNEL_UPDATE, {
+      dmChannelId: channel!.id,
+      name: null,
+      iconFileId: null
+    });
 
     const channels = await getDmChannelsForUser(ctx.userId);
     return channels.find((c) => c.id === channel!.id)!;

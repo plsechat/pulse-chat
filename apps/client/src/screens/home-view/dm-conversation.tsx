@@ -482,6 +482,18 @@ const DmPinnedMessagesPanel = memo(
       fetchPinned();
     }, [fetchPinned]);
 
+    // Refetch when DM message updates arrive (pin/unpin)
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        if (detail?.dmChannelId === dmChannelId) {
+          fetchPinned();
+        }
+      };
+      window.addEventListener('dm-pinned-messages-changed', handler);
+      return () => window.removeEventListener('dm-pinned-messages-changed', handler);
+    }, [dmChannelId, fetchPinned]);
+
     const onUnpin = useCallback(async (dmMessageId: number) => {
       const trpc = getTRPCClient();
 

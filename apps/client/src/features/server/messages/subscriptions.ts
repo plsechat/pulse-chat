@@ -1,6 +1,10 @@
+import { saveFederatedServers } from '@/features/app/actions';
+import { appSliceActions } from '@/features/app/slice';
+import { store } from '@/features/store';
+import { connectionManager } from '@/lib/connection-manager';
 import { decryptChannelMessage } from '@/lib/e2ee';
-import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedMessage } from '@pulse/shared';
+import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
+import type { TJoinedMessage, TThreadInfo } from '@pulse/shared';
 import {
   addMessages,
   addTypingUser,
@@ -131,6 +135,92 @@ const subscribeToMessages = () => {
       console.error('onIdentityReset subscription error:', err)
   });
 
+  // Invite subscriptions
+  const onInviteCreateSub = trpc.invites.onInviteCreate.subscribe(undefined, {
+    onData: () => {
+      window.dispatchEvent(new CustomEvent('invites-changed'));
+    },
+    onError: (err) => console.error('onInviteCreate subscription error:', err)
+  });
+
+  const onInviteDeleteSub = trpc.invites.onInviteDelete.subscribe(undefined, {
+    onData: () => {
+      window.dispatchEvent(new CustomEvent('invites-changed'));
+    },
+    onError: (err) => console.error('onInviteDelete subscription error:', err)
+  });
+
+  // Note subscriptions
+  const onNoteUpdateSub = trpc.notes.onNoteUpdate.subscribe(undefined, {
+    onData: ({ targetUserId }: { targetUserId: number }) => {
+      window.dispatchEvent(
+        new CustomEvent('notes-changed', { detail: { targetUserId } })
+      );
+    },
+    onError: (err) => console.error('onNoteUpdate subscription error:', err)
+  });
+
+  // Thread subscriptions
+  const onThreadCreateSub = trpc.threads.onThreadCreate.subscribe(undefined, {
+    onData: (_thread: TThreadInfo) => {
+      window.dispatchEvent(new CustomEvent('threads-changed'));
+    },
+    onError: (err) => console.error('onThreadCreate subscription error:', err)
+  });
+
+  const onThreadUpdateSub = trpc.threads.onThreadUpdate.subscribe(undefined, {
+    onData: (_thread: TThreadInfo) => {
+      window.dispatchEvent(new CustomEvent('threads-changed'));
+    },
+    onError: (err) => console.error('onThreadUpdate subscription error:', err)
+  });
+
+  const onThreadDeleteSub = trpc.threads.onThreadDelete.subscribe(undefined, {
+    onData: (_threadId: number) => {
+      window.dispatchEvent(new CustomEvent('threads-changed'));
+    },
+    onError: (err) => console.error('onThreadDelete subscription error:', err)
+  });
+
+  // Subscribe to federation instance updates for real-time cleanup
+  const homeTrpc = getHomeTRPCClient();
+  const onFederationInstanceUpdateSub =
+    homeTrpc.federation.onInstanceUpdate.subscribe(undefined, {
+      onData: (event: { status: string; domain?: string }) => {
+        if (
+          (event.status === 'removed' || event.status === 'blocked') &&
+          event.domain
+        ) {
+          const state = store.getState();
+          const entries = state.app.federatedServers.filter(
+            (s) => s.instanceDomain === event.domain
+          );
+
+          if (entries.length === 0) return;
+
+          for (const entry of entries) {
+            store.dispatch(
+              appSliceActions.removeFederatedServer({
+                instanceDomain: entry.instanceDomain,
+                serverId: entry.server.id
+              })
+            );
+          }
+
+          saveFederatedServers();
+          connectionManager.disconnectRemote(event.domain);
+
+          // If user was viewing a removed federated server, reset to home
+          if (state.app.activeInstanceDomain === event.domain) {
+            store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+            store.dispatch(appSliceActions.setActiveView('home'));
+          }
+        }
+      },
+      onError: (err) =>
+        console.error('onFederationInstanceUpdate subscription error:', err)
+    });
+
   return () => {
     onMessageSub.unsubscribe();
     onMessageUpdateSub.unsubscribe();
@@ -140,6 +230,13 @@ const subscribeToMessages = () => {
     onMessageUnpinSub.unsubscribe();
     onSenderKeyDistSub.unsubscribe();
     onIdentityResetSub.unsubscribe();
+    onThreadCreateSub.unsubscribe();
+    onThreadUpdateSub.unsubscribe();
+    onThreadDeleteSub.unsubscribe();
+    onInviteCreateSub.unsubscribe();
+    onInviteDeleteSub.unsubscribe();
+    onNoteUpdateSub.unsubscribe();
+    onFederationInstanceUpdateSub.unsubscribe();
   };
 };
 
