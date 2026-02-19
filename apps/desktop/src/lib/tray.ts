@@ -12,7 +12,7 @@ export function destroyTray(): void {
   }
 }
 
-export function createTray(win: BrowserWindow, store: Store): Tray {
+export function createTray(win: BrowserWindow, store: Store, onChangeServer: () => void): Tray {
   const iconPath = path.join(__dirname, '..', '..', 'assets', 'icon.png');
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
 
@@ -36,6 +36,15 @@ export function createTray(win: BrowserWindow, store: Store): Tray {
         checked: minimizeToTray,
         click: (menuItem) => {
           store.set('minimizeToTray', menuItem.checked);
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Change Server',
+        click: () => {
+          win.show();
+          win.focus();
+          onChangeServer();
         },
       },
       { type: 'separator' },
