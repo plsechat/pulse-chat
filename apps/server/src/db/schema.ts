@@ -117,7 +117,8 @@ const serverMembers = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     joinedAt: bigint('joined_at', { mode: 'number' }).notNull(),
     muted: boolean('muted').notNull().default(false),
-    notificationLevel: text('notification_level').notNull().default('default')
+    notificationLevel: text('notification_level').notNull().default('default'),
+    position: integer('position').notNull().default(0)
   },
   (t) => [
     primaryKey({ columns: [t.serverId, t.userId] }),

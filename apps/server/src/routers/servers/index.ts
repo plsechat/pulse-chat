@@ -9,6 +9,7 @@ import { joinServerByInviteRoute } from './join';
 import { joinDiscoverRoute } from './join-discover';
 import { joinFederatedRoute } from './join-federated';
 import { leaveServerRoute } from './leave';
+import { reorderServersRoute } from './reorder';
 import { transferOwnerRoute } from './transfer-owner';
 import { updateServerRoute } from './update';
 
@@ -21,6 +22,7 @@ export const serversRouter = t.router({
   joinFederated: joinFederatedRoute,
   discover: discoverServersRoute,
   leave: leaveServerRoute,
+  reorder: reorderServersRoute,
   getAll: getAllServersRoute,
   getMembers: getServerMembersRoute,
   transferOwner: transferOwnerRoute,
