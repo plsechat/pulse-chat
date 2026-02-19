@@ -438,13 +438,13 @@ Common issues:
 docker exec pulse curl -s http://kong:8000/auth/v1/health
 ```
 
-If GoTrue returns database errors, the `supabase_auth_admin` role password may not match. Fix:
+The `supabase_auth_admin` password is synced automatically on every container start via `docker/db-entrypoint.sh`. If you change `POSTGRES_PASSWORD` in your `.env`, just restart:
 
 ```bash
-docker exec -it pulse-db psql -U supabase_admin -d postgres -c \
-  "ALTER ROLE supabase_auth_admin WITH PASSWORD 'your-POSTGRES_PASSWORD';"
-docker compose -f docker-compose-supabase.yml restart auth
+docker compose -f docker-compose-supabase.yml up -d
 ```
+
+The DB container will re-sync the password automatically.
 
 ### WebRTC voice/video not working
 

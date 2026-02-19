@@ -1,3 +1,4 @@
+import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
 import { userNotes } from '../../db/schema';
@@ -24,6 +25,11 @@ const addNoteRoute = protectedProcedure
         content: userNotes.content,
         createdAt: userNotes.createdAt
       });
+
+    // Notify the same user across tabs
+    ctx.pubsub.publishFor(ctx.userId, ServerEvents.USER_NOTE_UPDATE, {
+      targetUserId: input.targetUserId
+    });
 
     return note;
   });

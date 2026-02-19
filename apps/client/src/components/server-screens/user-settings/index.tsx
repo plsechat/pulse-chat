@@ -1,13 +1,14 @@
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, Monitor, Palette, User, Lock } from 'lucide-react';
+import { ChevronLeft, Monitor, Palette, User, Lock, ShieldCheck } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
 import { Devices } from './devices';
+import { Encryption } from './encryption';
 import { Password } from './password';
 import { Profile } from './profile';
 
-type Section = 'profile' | 'password' | 'appearance' | 'devices';
+type Section = 'profile' | 'password' | 'encryption' | 'appearance' | 'devices';
 
 type NavItem = {
   id: Section;
@@ -25,7 +26,8 @@ const NAV_SECTIONS: NavCategory[] = [
     heading: 'User Settings',
     items: [
       { id: 'profile', label: 'My Account', icon: <User className="h-4 w-4" /> },
-      { id: 'password', label: 'Password', icon: <Lock className="h-4 w-4" /> }
+      { id: 'password', label: 'Password', icon: <Lock className="h-4 w-4" /> },
+      { id: 'encryption', label: 'Encryption', icon: <ShieldCheck className="h-4 w-4" /> }
     ]
   },
   {
@@ -40,6 +42,7 @@ const NAV_SECTIONS: NavCategory[] = [
 const SECTION_TITLES: Record<Section, string> = {
   profile: 'My Account',
   password: 'Password',
+  encryption: 'Encryption',
   appearance: 'Appearance',
   devices: 'Voice & Video'
 };
@@ -47,6 +50,7 @@ const SECTION_TITLES: Record<Section, string> = {
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
   profile: 'Update your personal information and settings.',
   password: 'Manage your account password.',
+  encryption: 'Manage your end-to-end encryption keys.',
   appearance: 'Customize how the app looks.',
   devices: 'Configure your audio and video devices.'
 };
@@ -54,6 +58,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   profile: Profile,
   password: Password,
+  encryption: Encryption,
   appearance: Appearance,
   devices: Devices
 };

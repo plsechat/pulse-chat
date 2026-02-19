@@ -26,6 +26,7 @@ const files = pgTable(
     size: integer('size').notNull(),
     mimeType: text('mime_type').notNull(),
     extension: text('extension').notNull(),
+    encrypted: boolean('encrypted').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -117,7 +118,8 @@ const serverMembers = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     joinedAt: bigint('joined_at', { mode: 'number' }).notNull(),
     muted: boolean('muted').notNull().default(false),
-    notificationLevel: text('notification_level').notNull().default('default')
+    notificationLevel: text('notification_level').notNull().default('default'),
+    position: integer('position').notNull().default(0)
   },
   (t) => [
     primaryKey({ columns: [t.serverId, t.userId] }),
@@ -189,6 +191,7 @@ const channels = pgTable(
     archived: boolean('archived').notNull().default(false),
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
+    e2ee: boolean('e2ee').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -299,6 +302,8 @@ const messages = pgTable(
   {
     id: serial('id').primaryKey(),
     content: text('content'),
+    encryptedContent: text('encrypted_content'),
+    e2ee: boolean('e2ee').notNull().default(false),
     userId: integer('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -637,6 +642,7 @@ const dmChannels = pgTable('dm_channels', {
     onDelete: 'set null'
   }),
   isGroup: boolean('is_group').notNull().default(false),
+  e2ee: boolean('e2ee').notNull().default(true),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' })
 });
@@ -664,6 +670,8 @@ const dmMessages = pgTable(
   {
     id: serial('id').primaryKey(),
     content: text('content'),
+    encryptedContent: text('encrypted_content'),
+    e2ee: boolean('e2ee').notNull().default(false),
     userId: integer('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -892,6 +900,85 @@ const federationInstances = pgTable(
   ]
 );
 
+// E2EE tables
+
+const userIdentityKeys = pgTable('user_identity_keys', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  identityPublicKey: text('identity_public_key').notNull(),
+  registrationId: integer('registration_id').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull()
+});
+
+const userSignedPreKeys = pgTable(
+  'user_signed_pre_keys',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    keyId: integer('key_id').notNull(),
+    publicKey: text('public_key').notNull(),
+    signature: text('signature').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('user_signed_pre_keys_user_idx').on(t.userId),
+    uniqueIndex('user_signed_pre_keys_user_key_idx').on(t.userId, t.keyId)
+  ]
+);
+
+const userOneTimePreKeys = pgTable(
+  'user_one_time_pre_keys',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    keyId: integer('key_id').notNull(),
+    publicKey: text('public_key').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('user_otp_keys_user_idx').on(t.userId),
+    uniqueIndex('user_otp_keys_user_key_idx').on(t.userId, t.keyId)
+  ]
+);
+
+const userKeyBackups = pgTable('user_key_backups', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  encryptedData: text('encrypted_data').notNull(),
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+});
+
+const e2eeSenderKeys = pgTable(
+  'e2ee_sender_keys',
+  {
+    id: serial('id').primaryKey(),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    fromUserId: integer('from_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    toUserId: integer('to_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    distributionMessage: text('distribution_message').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('e2ee_sender_keys_channel_idx').on(t.channelId),
+    index('e2ee_sender_keys_from_idx').on(t.fromUserId),
+    index('e2ee_sender_keys_to_idx').on(t.toUserId),
+    index('e2ee_sender_keys_channel_to_idx').on(t.channelId, t.toUserId)
+  ]
+);
+
 export {
   activityLog,
   automodRules,
@@ -907,6 +994,7 @@ export {
   dmMessageReactions,
   dmMessages,
   dmReadStates,
+  e2eeSenderKeys,
   emojis,
   federationInstances,
   federationKeys,
@@ -926,8 +1014,12 @@ export {
   serverMembers,
   servers,
   settings,
+  userIdentityKeys,
+  userKeyBackups,
   userNotes,
+  userOneTimePreKeys,
   userRoles,
+  userSignedPreKeys,
   users,
   webhooks
 };

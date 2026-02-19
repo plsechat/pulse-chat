@@ -1,5 +1,5 @@
 import type { TJoinedServer, TServerSummary } from '@pulse/shared';
-import { and, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq, max } from 'drizzle-orm';
 import { db } from '..';
 import { files, serverMembers, servers } from '../schema';
 
@@ -70,7 +70,8 @@ const getServersByUserId = async (
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-    .where(eq(serverMembers.userId, userId));
+    .where(eq(serverMembers.userId, userId))
+    .orderBy(asc(serverMembers.position));
 
   const results: TServerSummary[] = [];
 
@@ -133,12 +134,20 @@ const isServerMember = async (
 };
 
 const addServerMember = async (serverId: number, userId: number) => {
+  const [row] = await db
+    .select({ maxPos: max(serverMembers.position) })
+    .from(serverMembers)
+    .where(eq(serverMembers.userId, userId));
+
+  const nextPosition = (row?.maxPos ?? -1) + 1;
+
   await db
     .insert(serverMembers)
     .values({
       serverId,
       userId,
-      joinedAt: Date.now()
+      joinedAt: Date.now(),
+      position: nextPosition
     })
     .onConflictDoNothing();
 };

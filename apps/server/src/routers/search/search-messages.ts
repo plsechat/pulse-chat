@@ -36,7 +36,8 @@ const searchMessagesRoute = protectedProcedure
   .query(async ({ ctx, input }) => {
     const escapedQuery = input.query.replace(/[%_\\]/g, '\\$&');
     const conditions: SQL[] = [
-      ilike(messages.content, `%${escapedQuery}%`)
+      ilike(messages.content, `%${escapedQuery}%`),
+      eq(messages.e2ee, false)
     ];
 
     if (input.channelId) {

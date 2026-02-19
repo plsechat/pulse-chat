@@ -24,7 +24,7 @@ import {
   UserPlus,
   X
 } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Protect } from '../protect';
 import { RoleBadge } from '../role-badge';
@@ -70,6 +70,18 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       // silently fail
     }
   }, [userId]);
+
+  // Refetch notes when they change in another tab
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.targetUserId === userId && notesLoaded) {
+        fetchNotes();
+      }
+    };
+    window.addEventListener('notes-changed', handler);
+    return () => window.removeEventListener('notes-changed', handler);
+  }, [userId, notesLoaded, fetchNotes]);
 
   const handlePopoverOpen = useCallback(
     (open: boolean) => {
