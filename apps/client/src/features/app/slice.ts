@@ -158,7 +158,11 @@ export const appSlice = createSlice({
       action: PayloadAction<{ serverId: number; count: number }>
     ) => {
       const { serverId, count } = action.payload;
-      if (count > 0) {
+      if (count === -1) {
+        // Increment signal from new message (no exact count computed)
+        state.serverUnreadCounts[serverId] =
+          (state.serverUnreadCounts[serverId] ?? 0) + 1;
+      } else if (count > 0) {
         state.serverUnreadCounts[serverId] = count;
       } else {
         delete state.serverUnreadCounts[serverId];

@@ -17,7 +17,7 @@ import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
 import { getServerPublicSettings } from './queries/server';
-import { getServerMemberIds, getServerUnreadCount } from './queries/servers';
+import { getServerMemberIds } from './queries/servers';
 import { getPublicUserById } from './queries/users';
 import { categories, channels } from './schema';
 
@@ -53,40 +53,37 @@ const publishMessage = async (
   // only send count updates to users OTHER than the message author
   const usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
 
-  // Pre-fetch serverId for server-level unread updates on new messages
-  const [channelRow] =
-    type === 'create'
-      ? await db
-          .select({ serverId: channels.serverId })
-          .from(channels)
-          .where(eq(channels.id, channelId))
-          .limit(1)
-      : [];
-
   const promises = usersToNotify.map(async (userId) => {
-    // Run channel and server unread queries in parallel
-    const [readState, serverCount] = await Promise.all([
-      getChannelsReadStatesForUser(userId, channelId),
-      type === 'create' && channelRow
-        ? getServerUnreadCount(userId, channelRow.serverId)
-        : Promise.resolve(undefined)
-    ]);
-
+    const readState = await getChannelsReadStatesForUser(userId, channelId);
     const count = readState[channelId] ?? 0;
+
     pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
       channelId,
       count
     });
-
-    if (serverCount !== undefined && channelRow) {
-      pubsub.publishFor(userId, ServerEvents.SERVER_UNREAD_COUNT_UPDATE, {
-        serverId: channelRow.serverId,
-        count: serverCount
-      });
-    }
   });
 
   await Promise.all(promises);
+
+  // Signal server-level unread increment without extra DB queries.
+  // publishMessage is fire-and-forget (not awaited by callers), so heavy DB
+  // queries here risk deadlocking with concurrent table operations in tests.
+  // Exact counts are computed on initial join and on mark-as-read.
+  if (type === 'create') {
+    const [channelRow] = await db
+      .select({ serverId: channels.serverId })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1);
+
+    if (channelRow) {
+      pubsub.publishFor(
+        usersToNotify,
+        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+        { serverId: channelRow.serverId, count: -1 }
+      );
+    }
+  }
 };
 
 const publishEmoji = async (
