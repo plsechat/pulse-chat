@@ -23,6 +23,7 @@ export interface TAppState {
   activeServerId: number | undefined;
   federatedServers: TFederatedServerEntry[];
   activeInstanceDomain: string | null;
+  serverUnreadCounts: Record<number, number>;
 }
 
 const initialState: TAppState = {
@@ -34,7 +35,8 @@ const initialState: TAppState = {
   joinedServers: [],
   activeServerId: undefined,
   federatedServers: [],
-  activeInstanceDomain: null
+  activeInstanceDomain: null,
+  serverUnreadCounts: {}
 };
 
 export const appSlice = createSlice({
@@ -143,6 +145,27 @@ export const appSlice = createSlice({
           entry.federationToken = action.payload.token;
           entry.tokenExpiresAt = action.payload.expiresAt;
         }
+      }
+    },
+    setServerUnreadCounts: (
+      state,
+      action: PayloadAction<Record<number, number>>
+    ) => {
+      state.serverUnreadCounts = action.payload;
+    },
+    setServerUnreadCount: (
+      state,
+      action: PayloadAction<{ serverId: number; count: number }>
+    ) => {
+      const { serverId, count } = action.payload;
+      if (count === -1) {
+        // Increment signal from new message (no exact count computed)
+        state.serverUnreadCounts[serverId] =
+          (state.serverUnreadCounts[serverId] ?? 0) + 1;
+      } else if (count > 0) {
+        state.serverUnreadCounts[serverId] = count;
+      } else {
+        delete state.serverUnreadCounts[serverId];
       }
     }
   }

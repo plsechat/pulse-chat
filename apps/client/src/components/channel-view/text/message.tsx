@@ -1,8 +1,11 @@
 import { useCan } from '@/features/server/hooks';
 import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
+import type { IRootState } from '@/features/store';
+import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { Pin, Reply } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { MessageActions } from './message-actions';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
@@ -34,6 +37,10 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const isFromOwnUser = useIsOwnUser(message.userId);
   const can = useCan();
+  const highlightedId = useSelector(
+    (s: IRootState) => s.server.highlightedMessageId
+  );
+  const isHighlighted = highlightedId === message.id;
 
   const canEdit = isFromOwnUser;
   const canDelete = useMemo(
@@ -42,7 +49,13 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   );
 
   return (
-    <div className="min-w-0 flex-1 relative group leading-[1.375rem]">
+    <div
+      id={`msg-${message.id}`}
+      className={cn(
+        'min-w-0 flex-1 relative group leading-[1.375rem]',
+        isHighlighted && 'animate-msg-highlight rounded'
+      )}
+    >
       {message.pinned && (
         <div className="flex items-center gap-1 text-xs text-yellow-500 mb-0.5 pl-1">
           <Pin className="w-3 h-3" />

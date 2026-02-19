@@ -52,10 +52,30 @@ export const fetchJoinedServers = async () => {
   }
 };
 
+export const fetchServerUnreadCounts = async () => {
+  try {
+    const trpc = getHomeTRPCClient();
+    const counts = await trpc.servers.getUnreadCounts.query();
+    store.dispatch(appSliceActions.setServerUnreadCounts(counts));
+  } catch (error) {
+    console.error('Error fetching server unread counts:', error);
+  }
+};
+
 export const switchServer = async (
   serverId: number,
   handshakeHash: string
 ) => {
+  // Already viewing this server — nothing to do
+  const { app } = store.getState();
+  if (
+    app.activeView === 'server' &&
+    app.activeServerId === serverId &&
+    !app.activeInstanceDomain
+  ) {
+    return;
+  }
+
   // Clear federation context so tRPC routes go to home instance
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
   store.dispatch(appSliceActions.setActiveServerId(serverId));
@@ -248,6 +268,7 @@ export const resetApp = () => {
   store.dispatch(appSliceActions.setActiveView('home'));
   store.dispatch(appSliceActions.setJoinedServers([]));
   store.dispatch(appSliceActions.setActiveServerId(undefined));
+  store.dispatch(appSliceActions.setServerUnreadCounts({}));
   store.dispatch(appSliceActions.setFederatedServers([]));
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
   connectionManager.disconnectAll();
@@ -343,6 +364,16 @@ export const switchToFederatedServer = async (
   serverId: number
 ) => {
   const state = store.getState();
+
+  // Already viewing this federated server — nothing to do
+  if (
+    state.app.activeView === 'server' &&
+    state.app.activeServerId === serverId &&
+    state.app.activeInstanceDomain === instanceDomain
+  ) {
+    return;
+  }
+
   const entry = state.app.federatedServers.find(
     (s) => s.instanceDomain === instanceDomain && s.server.id === serverId
   );

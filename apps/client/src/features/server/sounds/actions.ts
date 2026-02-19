@@ -1,10 +1,14 @@
+import {
+  getMasterVolumeMultiplier,
+  isCategoryEnabledForSound
+} from '@/hooks/use-sound-notification-settings';
 import { SoundType } from '../types';
 
 const audioCtx = new (window.AudioContext ||
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).webkitAudioContext)();
 
-const SOUNDS_VOLUME = 2;
+const SOUNDS_VOLUME = 5;
 
 const now = () => audioCtx.currentTime;
 
@@ -20,7 +24,10 @@ const createOsc = (type: OscillatorType, freq: number) => {
 const createGain = (value = 1) => {
   const gain = audioCtx.createGain();
 
-  gain.gain.setValueAtTime(value * SOUNDS_VOLUME, now());
+  gain.gain.setValueAtTime(
+    value * SOUNDS_VOLUME * getMasterVolumeMultiplier(),
+    now()
+  );
 
   return gain;
 };
@@ -298,6 +305,8 @@ const sfxRemoteUserLeftVoiceChannel = () => {
 };
 
 export const playSound = (type: SoundType) => {
+  if (!isCategoryEnabledForSound(type)) return;
+
   switch (type) {
     case SoundType.MESSAGE_RECEIVED:
       return sfxMessageReceived();
@@ -334,6 +343,47 @@ export const playSound = (type: SoundType) => {
     case SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL:
       return sfxRemoteUserLeftVoiceChannel();
 
+    default:
+      return;
+  }
+};
+
+/** Play a sound for the settings preview buttons (skips category gate). */
+export const playSoundForPreview = (type: SoundType) => {
+  // Resume AudioContext if suspended (browsers require user gesture)
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
+  switch (type) {
+    case SoundType.MESSAGE_RECEIVED:
+      return sfxMessageReceived();
+    case SoundType.MESSAGE_SENT:
+      return sfxMessageSent();
+    case SoundType.OWN_USER_JOINED_VOICE_CHANNEL:
+      return sfxOwnUserJoinedVoiceChannel();
+    case SoundType.OWN_USER_LEFT_VOICE_CHANNEL:
+      return sfxOwnUserLeftVoiceChannel();
+    case SoundType.OWN_USER_MUTED_MIC:
+      return sfxOwnUserMutedMic();
+    case SoundType.OWN_USER_UNMUTED_MIC:
+      return sfxOwnUserUnmutedMic();
+    case SoundType.OWN_USER_MUTED_SOUND:
+      return sfxOwnUserMutedSound();
+    case SoundType.OWN_USER_UNMUTED_SOUND:
+      return sfxOwnUserUnmutedSound();
+    case SoundType.OWN_USER_STARTED_WEBCAM:
+      return sfxOwnUserStartedWebcam();
+    case SoundType.OWN_USER_STOPPED_WEBCAM:
+      return sfxOwnUserStoppedWebcam();
+    case SoundType.OWN_USER_STARTED_SCREENSHARE:
+      return sfxOwnUserStartedScreenshare();
+    case SoundType.OWN_USER_STOPPED_SCREENSHARE:
+      return sfxOwnUserStoppedScreenshare();
+    case SoundType.REMOTE_USER_JOINED_VOICE_CHANNEL:
+      return sfxRemoteUserJoinedVoiceChannel();
+    case SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL:
+      return sfxRemoteUserLeftVoiceChannel();
     default:
       return;
   }

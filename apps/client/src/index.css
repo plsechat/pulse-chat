@@ -643,6 +643,21 @@ body,
   animation: speaking-glow-high 0.8s ease-in-out infinite;
 }
 
+/* thread highlight — flash background when scrolling to a thread's source message */
+
+@keyframes msg-highlight {
+  0% {
+    background-color: oklch(from var(--primary) l c h / 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-msg-highlight {
+  animation: msg-highlight 2s ease-out forwards;
+}
+
 /* mentions */
 
 .mention {
