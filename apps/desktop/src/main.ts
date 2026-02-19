@@ -12,6 +12,14 @@ const store = new Store();
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
+function disconnectServer(): void {
+  store.delete('serverUrl');
+  store.delete('serverName');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.loadFile(SERVER_SELECTOR_PATH);
+  }
+}
+
 function createWindow(): BrowserWindow {
   const windowState = loadWindowState(store);
 
@@ -139,12 +147,7 @@ function setupIpcHandlers(): void {
   });
 
   ipcMain.handle('disconnect-server', () => {
-    store.delete('serverUrl');
-    store.delete('serverName');
-
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadFile(SERVER_SELECTOR_PATH);
-    }
+    disconnectServer();
   });
 
   ipcMain.handle('get-settings', () => {
@@ -204,7 +207,7 @@ app.whenReady().then(async () => {
 
   setupIpcHandlers();
   mainWindow = createWindow();
-  createTray(mainWindow, store);
+  createTray(mainWindow, store, disconnectServer);
 
   app.on('activate', () => {
     // macOS: re-create window when dock icon clicked
