@@ -185,6 +185,7 @@ const SortableServerItem = memo(
     return (
       <div
         ref={setNodeRef}
+        className="w-full"
         style={{
           transform: CSS.Transform.toString(
             transform && { ...transform, x: 0 }
