@@ -56,6 +56,16 @@ export const switchServer = async (
   serverId: number,
   handshakeHash: string
 ) => {
+  // Already viewing this server — nothing to do
+  const { app } = store.getState();
+  if (
+    app.activeView === 'server' &&
+    app.activeServerId === serverId &&
+    !app.activeInstanceDomain
+  ) {
+    return;
+  }
+
   // Clear federation context so tRPC routes go to home instance
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
   store.dispatch(appSliceActions.setActiveServerId(serverId));
@@ -343,6 +353,16 @@ export const switchToFederatedServer = async (
   serverId: number
 ) => {
   const state = store.getState();
+
+  // Already viewing this federated server — nothing to do
+  if (
+    state.app.activeView === 'server' &&
+    state.app.activeServerId === serverId &&
+    state.app.activeInstanceDomain === instanceDomain
+  ) {
+    return;
+  }
+
   const entry = state.app.federatedServers.find(
     (s) => s.instanceDomain === instanceDomain && s.server.id === serverId
   );
