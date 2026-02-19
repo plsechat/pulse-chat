@@ -203,10 +203,35 @@ export async function processIncomingSenderKey(
 }
 
 /**
+ * Dedup map to prevent concurrent fetches for the same channel from racing.
+ * Without this, the subscription handler and message decrypt handler can both
+ * call getPendingSenderKeys (which deletes on read) simultaneously — the first
+ * one gets the keys, the second gets an empty result and fails to decrypt.
+ */
+const activeSenderKeyFetches = new Map<
+  number | undefined,
+  Promise<void>
+>();
+
+/**
  * Fetch and process all pending sender keys from the server.
  * Uses the active instance store + active tRPC client.
+ * Concurrent calls for the same channelId share one in-flight request.
  */
-export async function fetchAndProcessPendingSenderKeys(
+export function fetchAndProcessPendingSenderKeys(
+  channelId?: number
+): Promise<void> {
+  const existing = activeSenderKeyFetches.get(channelId);
+  if (existing) return existing;
+
+  const promise = doFetchAndProcessPendingSenderKeys(channelId).finally(() => {
+    activeSenderKeyFetches.delete(channelId);
+  });
+  activeSenderKeyFetches.set(channelId, promise);
+  return promise;
+}
+
+async function doFetchAndProcessPendingSenderKeys(
   channelId?: number
 ): Promise<void> {
   const store = getActiveStore();
@@ -266,6 +291,12 @@ export async function decryptChannelMessage(
   // Try to fetch pending sender keys if we don't have this user's key
   if (!(await hasSenderKey(channelId, fromUserId, store))) {
     await fetchAndProcessPendingSenderKeys(channelId);
+  }
+
+  // If still missing, the subscription handler may be processing a global
+  // fetch that hasn't stored the key yet — wait briefly and check once more
+  if (!(await hasSenderKey(channelId, fromUserId, store))) {
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   const plaintext = await decryptWithSenderKey(

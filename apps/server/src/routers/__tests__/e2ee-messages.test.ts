@@ -349,12 +349,13 @@ describe('e2ee messages', () => {
       limit: 50
     });
 
-    expect(result.messages.length).toBe(2);
-    expect(result.messages.every((m) => m.e2ee === true)).toBe(true);
-    expect(result.messages.every((m) => m.content === null)).toBe(true);
+    // Filter to E2EE messages only (seed creates a plaintext message)
+    const e2eeMessages = result.messages.filter((m) => m.e2ee);
+    expect(e2eeMessages.length).toBe(2);
+    expect(e2eeMessages.every((m) => m.content === null)).toBe(true);
 
-    const fromUser1 = result.messages.find((m) => m.userId === 1);
-    const fromUser2 = result.messages.find((m) => m.userId === 2);
+    const fromUser1 = e2eeMessages.find((m) => m.userId === 1);
+    const fromUser2 = e2eeMessages.find((m) => m.userId === 2);
     expect(fromUser1!.encryptedContent).toBe('encrypted-from-user1');
     expect(fromUser2!.encryptedContent).toBe('encrypted-from-user2');
   });
