@@ -11,3 +11,6 @@ apps/desktop/out/
 apps/desktop/node_modules
 apps/server/node_modules
 apps/client/node_modules
+.DS_Store
+*.tsbuildinfo
+Thumbs.db

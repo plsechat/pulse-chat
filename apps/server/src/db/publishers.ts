@@ -1,6 +1,7 @@
 import {
   ChannelPermission,
   ServerEvents,
+  UserStatus,
   type TChannelUserPermissionsMap
 } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
@@ -117,7 +118,8 @@ const publishRole = async (
 
 const publishUser = async (
   userId: number | undefined,
-  type: 'create' | 'update' | 'delete'
+  type: 'create' | 'update' | 'delete',
+  statusOverride?: UserStatus
 ) => {
   if (!userId) return;
 
@@ -129,6 +131,13 @@ const publishUser = async (
   const user = await getPublicUserById(userId);
 
   if (!user) return;
+
+  if (statusOverride !== undefined) {
+    // Invisible should appear as offline to other users
+    user.status = statusOverride === UserStatus.INVISIBLE
+      ? UserStatus.OFFLINE
+      : statusOverride;
+  }
 
   const targetEvent =
     type === 'create' ? ServerEvents.USER_CREATE : ServerEvents.USER_UPDATE;

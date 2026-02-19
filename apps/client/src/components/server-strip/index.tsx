@@ -88,7 +88,7 @@ const ServerIcon = memo(
     return (
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
           isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
         )} />
         <button
@@ -138,7 +138,7 @@ const FederatedServerIcon = memo(
       <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
-            'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+            'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
             isActive ? 'h-10' : 'h-0 group-hover:h-5'
           )}
         />
@@ -387,7 +387,7 @@ const ServerStrip = memo(() => {
     <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
           activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
         )} />
         <button
@@ -567,7 +567,7 @@ const ServerStrip = memo(() => {
 
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute left-0 w-1 rounded-r-full bg-white transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'
         )} />
         <button

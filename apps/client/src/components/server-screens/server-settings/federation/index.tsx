@@ -25,6 +25,7 @@ import {
   Trash2,
   Clock
 } from 'lucide-react';
+import { parseTrpcErrors } from '@/helpers/parse-trpc-errors';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -112,7 +113,8 @@ const Federation = memo(() => {
       fetchData();
     } catch (error) {
       console.error('Failed to add instance:', error);
-      toast.error('Failed to add instance');
+      const errors = parseTrpcErrors(error);
+      toast.error(errors.remoteUrl || errors._general || 'Failed to add instance');
     } finally {
       setAdding(false);
     }

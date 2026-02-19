@@ -1,4 +1,5 @@
 import type { TPinnedCard } from '@/components/channel-view/voice/hooks/use-pin-card-controller';
+import { LocalStorageKey } from '@/helpers/storage';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   TCategory,
@@ -53,6 +54,7 @@ export interface IServerState {
   };
   pluginCommands: TCommandsMapByPlugin;
   activeThreadId: number | undefined;
+  highlightedMessageId: number | undefined;
 }
 
 const initialState: IServerState = {
@@ -88,7 +90,8 @@ const initialState: IServerState = {
   channelPermissions: {},
   readStatesMap: {},
   pluginCommands: {},
-  activeThreadId: undefined
+  activeThreadId: undefined,
+  highlightedMessageId: undefined
 };
 
 export const serverSlice = createSlice({
@@ -166,7 +169,26 @@ export const serverSlice = createSlice({
       // Clear transient state from previous server
       state.messagesMap = {};
       state.typingMap = {};
-      state.selectedChannelId = undefined;
+
+      // Restore the last-selected channel for this server (if it still exists)
+      let restoredChannelId: number | undefined;
+      try {
+        const raw = localStorage.getItem(LocalStorageKey.SERVER_CHANNEL_MAP);
+        if (raw) {
+          const map = JSON.parse(raw) as Record<string, number>;
+          const savedId = map[action.payload.serverId];
+          if (
+            savedId !== undefined &&
+            action.payload.channels.some((c) => c.id === savedId)
+          ) {
+            restoredChannelId = savedId;
+          }
+        }
+      } catch {
+        // ignore corrupt localStorage
+      }
+      state.selectedChannelId = restoredChannelId;
+
       // Preserve currentVoiceChannelId so voice persists across server navigation
       // Voice is only disconnected when the user explicitly leaves
     },
@@ -623,6 +645,13 @@ export const serverSlice = createSlice({
       action: PayloadAction<number | undefined>
     ) => {
       state.activeThreadId = action.payload;
+    },
+
+    setHighlightedMessageId: (
+      state,
+      action: PayloadAction<number | undefined>
+    ) => {
+      state.highlightedMessageId = action.payload;
     }
   }
 });

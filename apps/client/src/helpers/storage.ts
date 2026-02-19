@@ -13,7 +13,8 @@ export enum LocalStorageKey {
   ACTIVE_SERVER_ID = 'pulse-active-server-id',
   FEDERATED_SERVERS = 'pulse-federated-servers',
   ACTIVE_INSTANCE = 'pulse-active-instance',
-  APPEARANCE_SETTINGS = 'pulse-appearance-settings'
+  APPEARANCE_SETTINGS = 'pulse-appearance-settings',
+  SERVER_CHANNEL_MAP = 'pulse-server-channel-map'
 }
 
 const getLocalStorageItem = (key: LocalStorageKey): string | null => {
