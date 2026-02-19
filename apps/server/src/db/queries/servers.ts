@@ -1,7 +1,14 @@
 import type { TJoinedServer, TServerSummary } from '@pulse/shared';
-import { and, asc, count, eq, max } from 'drizzle-orm';
+import { and, asc, count, eq, max, sql } from 'drizzle-orm';
 import { db } from '..';
-import { files, serverMembers, servers } from '../schema';
+import {
+  channelReadStates,
+  channels,
+  files,
+  messages,
+  serverMembers,
+  servers
+} from '../schema';
 
 const getServerById = async (
   serverId: number
@@ -243,6 +250,80 @@ const getDiscoverableServers = async (
   return results;
 };
 
+const getServerUnreadCounts = async (
+  userId: number
+): Promise<Record<number, number>> => {
+  const results = await db
+    .select({
+      serverId: channels.serverId,
+      unreadCount: sql<number>`
+        COUNT(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND (${channelReadStates.lastReadMessageId} IS NULL
+              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+          THEN 1
+        END)
+      `.as('unread_count')
+    })
+    .from(channels)
+    .innerJoin(
+      serverMembers,
+      and(
+        eq(serverMembers.serverId, channels.serverId),
+        eq(serverMembers.userId, userId)
+      )
+    )
+    .innerJoin(messages, eq(messages.channelId, channels.id))
+    .leftJoin(
+      channelReadStates,
+      and(
+        eq(channelReadStates.channelId, channels.id),
+        eq(channelReadStates.userId, userId)
+      )
+    )
+    .groupBy(channels.serverId);
+
+  const map: Record<number, number> = {};
+
+  for (const row of results) {
+    const c = Number(row.unreadCount);
+    if (c > 0) {
+      map[row.serverId] = c;
+    }
+  }
+
+  return map;
+};
+
+const getServerUnreadCount = async (
+  userId: number,
+  serverId: number
+): Promise<number> => {
+  const [result] = await db
+    .select({
+      unreadCount: sql<number>`
+        COUNT(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND (${channelReadStates.lastReadMessageId} IS NULL
+              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+          THEN 1
+        END)
+      `.as('unread_count')
+    })
+    .from(channels)
+    .innerJoin(messages, eq(messages.channelId, channels.id))
+    .leftJoin(
+      channelReadStates,
+      and(
+        eq(channelReadStates.channelId, channels.id),
+        eq(channelReadStates.userId, userId)
+      )
+    )
+    .where(eq(channels.serverId, serverId));
+
+  return Number(result?.unreadCount ?? 0);
+};
+
 export {
   addServerMember,
   getDiscoverableServers,
@@ -250,6 +331,8 @@ export {
   getServerById,
   getServerByPublicId,
   getServerMemberIds,
+  getServerUnreadCount,
+  getServerUnreadCounts,
   getServersByUserId,
   isServerMember,
   removeServerMember

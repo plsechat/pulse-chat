@@ -862,7 +862,9 @@ const DmMessageContent = memo(
     );
 
     const isDecryptionFailure =
-      message.e2ee && message.content === '[Unable to decrypt]';
+      message.e2ee &&
+      (message.content === '[Unable to decrypt]' ||
+        message.content === '[Encrypted message]');
 
     return (
       <div className="flex flex-col gap-1">

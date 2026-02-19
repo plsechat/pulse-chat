@@ -1,6 +1,7 @@
 import { Dialog } from '@/components/dialogs/dialogs';
 import {
   fetchJoinedServers,
+  fetchServerUnreadCounts,
   getSavedActiveServerId,
   setActiveServerId
 } from '@/features/app/actions';
@@ -120,11 +121,12 @@ export const joinServer = async (
 
   setPluginCommands(data.commands);
 
-  // Fetch friends, DM data, and joined servers in parallel
+  // Fetch friends, DM data, joined servers, and unread counts in parallel
   fetchFriends();
   fetchFriendRequests();
   fetchDmChannels();
   fetchActiveDmCalls();
+  fetchServerUnreadCounts();
 
   const servers = await fetchJoinedServers();
 

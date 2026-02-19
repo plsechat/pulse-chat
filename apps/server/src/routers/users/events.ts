@@ -21,10 +21,15 @@ const onUserDeleteRoute = protectedProcedure.subscription(async ({ ctx }) => {
   return ctx.pubsub.subscribe(ServerEvents.USER_DELETE);
 });
 
+const onUserKickedRoute = protectedProcedure.subscription(async ({ ctx }) => {
+  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_KICKED);
+});
+
 export {
   onUserCreateRoute,
   onUserDeleteRoute,
   onUserJoinRoute,
+  onUserKickedRoute,
   onUserLeaveRoute,
   onUserUpdateRoute
 };
