@@ -1,6 +1,6 @@
 services:
   pulse:
-    image: ghcr.io/plsechat/pulse-server:latest
+    image: ghcr.io/plsechat/pulse-chat:latest
     restart: unless-stopped
     container_name: pulse
     network_mode: host
