@@ -42,6 +42,7 @@ const removeRoleRoute = protectedProcedure
         )
       );
 
+    ctx.invalidatePermissionCache();
     publishUser(input.userId, 'update');
   });
 
