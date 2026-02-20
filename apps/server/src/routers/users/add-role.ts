@@ -39,6 +39,7 @@ const addRoleRoute = protectedProcedure
       createdAt: Date.now()
     });
 
+    ctx.invalidatePermissionCache();
     publishUser(input.userId, 'update');
   });
 

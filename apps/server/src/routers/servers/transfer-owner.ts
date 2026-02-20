@@ -43,6 +43,8 @@ const transferOwnerRoute = protectedProcedure
         updatedAt: Date.now()
       })
       .where(eq(servers.id, input.serverId));
+
+    ctx.invalidatePermissionCache();
   });
 
 export { transferOwnerRoute };

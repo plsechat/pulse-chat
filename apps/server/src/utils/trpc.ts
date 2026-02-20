@@ -47,6 +47,7 @@ export type Context = {
   getConnectionInfo: () => TConnectionInfo | undefined;
   throwValidationError: (field: string, message: string) => never;
   saveUserIp: (userId: number, ip: string) => Promise<void>;
+  invalidatePermissionCache: () => void;
 };
 
 const t = initTRPC.context<Context>().create();

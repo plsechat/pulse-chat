@@ -4,7 +4,7 @@ import type {
   TJoinedDmMessage,
   TJoinedDmMessageReaction
 } from '@pulse/shared';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   dmChannelMembers,
@@ -15,11 +15,12 @@ import {
   dmReadStates,
   files
 } from '../schema';
-import { getPublicUserById } from './users';
+import { getPublicUsersByIds } from './users';
 
 const getDmChannelsForUser = async (
   userId: number
 ): Promise<TJoinedDmChannel[]> => {
+  // Query 1: Get channel IDs the user belongs to
   const memberRows = await db
     .select({ dmChannelId: dmChannelMembers.dmChannelId })
     .from(dmChannelMembers)
@@ -29,72 +30,116 @@ const getDmChannelsForUser = async (
 
   if (channelIds.length === 0) return [];
 
+  // Query 2: Get channel data
   const channelRows = await db
     .select()
     .from(dmChannels)
     .where(inArray(dmChannels.id, channelIds));
 
-  const result: TJoinedDmChannel[] = [];
+  // Query 3: Batch-fetch all members for all channels
+  const allMemberRows = await db
+    .select({
+      dmChannelId: dmChannelMembers.dmChannelId,
+      userId: dmChannelMembers.userId
+    })
+    .from(dmChannelMembers)
+    .where(inArray(dmChannelMembers.dmChannelId, channelIds));
 
-  for (const channel of channelRows) {
-    const members = await db
-      .select({ userId: dmChannelMembers.userId })
-      .from(dmChannelMembers)
-      .where(eq(dmChannelMembers.dmChannelId, channel.id));
+  // Query 4: Batch-fetch all public users
+  const uniqueUserIds = [...new Set(allMemberRows.map((r) => r.userId))];
+  const usersMap = await getPublicUsersByIds(uniqueUserIds);
 
-    const joinedMembers = [];
+  // Query 5: Batch-fetch last messages using DISTINCT ON
+  const lastMessages = await db
+    .selectDistinctOn([dmMessages.dmChannelId])
+    .from(dmMessages)
+    .where(inArray(dmMessages.dmChannelId, channelIds))
+    .orderBy(dmMessages.dmChannelId, desc(dmMessages.createdAt));
 
-    for (const m of members) {
-      const user = await getPublicUserById(m.userId);
-      if (user) joinedMembers.push(user);
-    }
+  const lastMsgMap = new Map(lastMessages.map((m) => [m.dmChannelId, m]));
 
-    const [lastMsg] = await db
-      .select()
-      .from(dmMessages)
-      .where(eq(dmMessages.dmChannelId, channel.id))
-      .orderBy(desc(dmMessages.createdAt))
-      .limit(1);
-
-    const [readState] = await db
-      .select()
-      .from(dmReadStates)
-      .where(
-        and(
-          eq(dmReadStates.userId, userId),
-          eq(dmReadStates.dmChannelId, channel.id)
-        )
+  // Query 6: Batch-fetch read states
+  const readStates = await db
+    .select()
+    .from(dmReadStates)
+    .where(
+      and(
+        eq(dmReadStates.userId, userId),
+        inArray(dmReadStates.dmChannelId, channelIds)
       )
-      .limit(1);
+    );
 
-    let unreadCount = 0;
+  const readStateMap = new Map(readStates.map((rs) => [rs.dmChannelId, rs]));
 
-    if (readState?.lastReadMessageId) {
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(dmMessages)
-        .where(
-          and(
-            eq(dmMessages.dmChannelId, channel.id),
-            sql`${dmMessages.id} > ${readState.lastReadMessageId}`
-          )
-        );
-      unreadCount = Number(countResult?.count ?? 0);
-    } else if (lastMsg) {
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(dmMessages)
-        .where(eq(dmMessages.dmChannelId, channel.id));
-      unreadCount = Number(countResult?.count ?? 0);
+  // Query 7: Batch-fetch unread counts
+  // Split into two groups: channels with read state (count after lastRead) and without (count all)
+  const unreadCountMap = new Map<number, number>();
+
+  const withReadState = channelIds.filter(
+    (id) => readStateMap.get(id)?.lastReadMessageId
+  );
+  const withoutReadState = channelIds.filter(
+    (id) => !readStateMap.get(id)?.lastReadMessageId
+  );
+
+  if (withReadState.length > 0) {
+    const conditions = withReadState.map((chId) =>
+      and(
+        eq(dmMessages.dmChannelId, chId),
+        sql`${dmMessages.id} > ${readStateMap.get(chId)!.lastReadMessageId}`
+      )
+    );
+    const counts = await db
+      .select({
+        dmChannelId: dmMessages.dmChannelId,
+        count: sql<number>`count(*)`
+      })
+      .from(dmMessages)
+      .where(or(...conditions))
+      .groupBy(dmMessages.dmChannelId);
+
+    for (const c of counts) {
+      unreadCountMap.set(c.dmChannelId, Number(c.count));
     }
-
-    result.push({
-      ...channel,
-      members: joinedMembers,
-      lastMessage: lastMsg ?? null,
-      unreadCount
-    });
   }
+
+  if (withoutReadState.length > 0) {
+    const counts = await db
+      .select({
+        dmChannelId: dmMessages.dmChannelId,
+        count: sql<number>`count(*)`
+      })
+      .from(dmMessages)
+      .where(inArray(dmMessages.dmChannelId, withoutReadState))
+      .groupBy(dmMessages.dmChannelId);
+
+    for (const c of counts) {
+      unreadCountMap.set(c.dmChannelId, Number(c.count));
+    }
+  }
+
+  // Group members by channel
+  const membersByChannel = new Map<number, number[]>();
+  for (const row of allMemberRows) {
+    if (!membersByChannel.has(row.dmChannelId))
+      membersByChannel.set(row.dmChannelId, []);
+    membersByChannel.get(row.dmChannelId)!.push(row.userId);
+  }
+
+  // Assemble results
+  const result: TJoinedDmChannel[] = channelRows.map((channel) => {
+    const memberUserIds = membersByChannel.get(channel.id) ?? [];
+    const members = memberUserIds
+      .map((uid) => usersMap.get(uid))
+      .filter((u) => u !== undefined);
+
+    return {
+      ...channel,
+      members,
+      lastMessage: lastMsgMap.get(channel.id) ?? null,
+      unreadCount: unreadCountMap.get(channel.id) ?? 0
+    };
+  });
 
   // Sort by last message time (most recent first)
   result.sort((a, b) => {
@@ -110,36 +155,38 @@ const findDmChannelBetween = async (
   userId1: number,
   userId2: number
 ): Promise<number | null> => {
-  // Find DM channels that contain both users (1-on-1 only: not group, exactly 2 members)
-  const rows = await db
+  // Query 1: Get non-group DM channels for userId1
+  const candidates = await db
     .select({ dmChannelId: dmChannelMembers.dmChannelId })
     .from(dmChannelMembers)
-    .where(eq(dmChannelMembers.userId, userId1));
+    .innerJoin(dmChannels, eq(dmChannels.id, dmChannelMembers.dmChannelId))
+    .where(
+      and(
+        eq(dmChannelMembers.userId, userId1),
+        eq(dmChannels.isGroup, false)
+      )
+    );
 
-  for (const row of rows) {
-    // Check that this channel is not a group DM
-    const [channel] = await db
-      .select({ isGroup: dmChannels.isGroup })
-      .from(dmChannels)
-      .where(eq(dmChannels.id, row.dmChannelId))
-      .limit(1);
+  if (candidates.length === 0) return null;
 
-    if (channel?.isGroup) continue;
+  const candidateIds = candidates.map((r) => r.dmChannelId);
 
-    const members = await db
-      .select({ userId: dmChannelMembers.userId })
-      .from(dmChannelMembers)
-      .where(eq(dmChannelMembers.dmChannelId, row.dmChannelId));
+  // Query 2: Find channels with exactly 2 members that include userId2
+  const matches = await db
+    .select({
+      dmChannelId: dmChannelMembers.dmChannelId
+    })
+    .from(dmChannelMembers)
+    .where(inArray(dmChannelMembers.dmChannelId, candidateIds))
+    .groupBy(dmChannelMembers.dmChannelId)
+    .having(
+      and(
+        sql`count(*) = 2`,
+        sql`bool_or(${dmChannelMembers.userId} = ${userId2})`
+      )
+    );
 
-    if (
-      members.length === 2 &&
-      members.some((m) => m.userId === userId2)
-    ) {
-      return row.dmChannelId;
-    }
-  }
-
-  return null;
+  return matches[0]?.dmChannelId ?? null;
 };
 
 const getDmMessage = async (
