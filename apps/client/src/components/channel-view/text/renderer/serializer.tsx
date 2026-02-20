@@ -18,8 +18,14 @@ for (const emoji of gitHubEmojis) {
 
 function extractText(node: DOMNode): string {
   if (node instanceof Text) return node.data;
-  if (node instanceof Element && node.children) {
-    return node.children.map((child) => extractText(child as DOMNode)).join('');
+  if (node instanceof Element) {
+    if (node.name === 'br') return '\n';
+    const inner = node.children
+      ? node.children.map((child) => extractText(child as DOMNode)).join('')
+      : '';
+    // Block elements get a trailing newline so consecutive <p>s produce line breaks
+    if (node.name === 'p' || node.name === 'div') return inner + '\n';
+    return inner;
   }
   return '';
 }
