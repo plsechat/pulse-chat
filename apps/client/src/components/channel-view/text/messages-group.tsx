@@ -10,6 +10,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { memo } from 'react';
 import { Tooltip } from '../../ui/tooltip';
 import { Message } from './message';
+import { MessageErrorBoundary } from './message-error-boundary';
 
 type TMessagesGroupProps = {
   group: TJoinedMessage[];
@@ -52,7 +53,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
 
   if (compactMode) {
     return (
-      <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-2 pl-[40px] pr-12 relative py-0.5 hover:bg-foreground/[0.02]')}>
+      <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-2 pl-[40px] pr-12 relative py-0.5')}>
         <UserContextMenu userId={user.id}>
           <div className="absolute left-3 top-1">
             <UserAvatar userId={user.id} className="h-5 w-5" showUserPopover />
@@ -89,7 +90,9 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
             )}
           </div>
           {group.map((message) => (
-            <Message key={message.id} message={message} onReply={() => onReply(message)} />
+            <MessageErrorBoundary key={message.id} messageId={message.id}>
+              <Message message={message} onReply={() => onReply(message)} />
+            </MessageErrorBoundary>
           ))}
         </div>
       </div>
@@ -97,7 +100,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   }
 
   return (
-    <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5 hover:bg-foreground/[0.02]')}>
+    <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5')}>
       <UserContextMenu userId={user.id}>
         <div className="absolute left-4 top-1">
           <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
@@ -134,7 +137,9 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
           </Tooltip>
         </div>
         {group.map((message) => (
-          <Message key={message.id} message={message} onReply={() => onReply(message)} />
+          <MessageErrorBoundary key={message.id} messageId={message.id}>
+            <Message message={message} onReply={() => onReply(message)} />
+          </MessageErrorBoundary>
         ))}
       </div>
     </div>
