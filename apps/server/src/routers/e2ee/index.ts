@@ -11,6 +11,7 @@ import {
 } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, t } from '../../utils/trpc';
+import { insertIdentityResetMessages } from './identity-reset-messages';
 
 const registerKeysRoute = protectedProcedure
   .input(
@@ -105,8 +106,10 @@ const registerKeysRoute = protectedProcedure
       }
     });
 
-    // Broadcast identity reset after transaction commits
+    // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
+      await insertIdentityResetMessages(ctx.userId);
+
       pubsub.publish(ServerEvents.E2EE_IDENTITY_RESET, {
         userId: ctx.userId
       });

@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { Button } from '../../ui/button';
 import { FileCard } from './file-card';
 import { MessagesGroup } from './messages-group';
+import { SystemMessage } from './system-message';
 import { TextSkeleton } from './text-skeleton';
 import { useScrollController } from './use-scroll-controller';
 import { UsersTyping } from './users-typing';
@@ -299,9 +300,12 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         onScroll={onScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4 animate-in fade-in duration-500"
       >
-        {groupedMessages.map((group, index) => (
-          <MessagesGroup key={index} group={group} onReply={handleReply} />
-        ))}
+        {groupedMessages.map((group, index) => {
+          if (group[0].type === 'system') {
+            return <SystemMessage key={index} message={group[0]} />;
+          }
+          return <MessagesGroup key={index} group={group} onReply={handleReply} />;
+        })}
       </div>
 
       {!isAtBottom && (

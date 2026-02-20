@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { ServerEvents } from '@pulse/shared';
+import { ChannelType, ServerEvents } from '@pulse/shared';
+import { randomUUIDv7 } from 'bun';
+import { eq } from 'drizzle-orm';
+import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
+import { channels, dmChannelMembers, dmChannels, dmMessages, messages } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 
 describe('e2ee router', () => {
@@ -680,5 +684,126 @@ describe('e2ee router', () => {
 
     const backup2 = await caller2.e2ee.getKeyBackup();
     expect(backup2).toBeNull();
+  });
+
+  // --- Identity reset system messages ---
+
+  test('should insert system messages into E2EE channels on identity reset', async () => {
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    // Create an E2EE channel
+    await tdb.insert(channels).values({
+      type: ChannelType.TEXT,
+      name: 'E2EE Channel',
+      position: 10,
+      e2ee: true,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    });
+
+    // Register initial keys
+    await caller.e2ee.registerKeys(mockKeys);
+
+    // Re-register with changed identity key (triggers identity reset)
+    await caller.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'changed-identity-for-system-msg'
+    });
+
+    // Query system messages in the E2EE channel
+    const systemMsgs = await tdb
+      .select()
+      .from(messages)
+      .where(eq(messages.type, 'system'));
+
+    expect(systemMsgs.length).toBeGreaterThanOrEqual(1);
+
+    const resetMsg = systemMsgs.find((m) => m.content === 'identity_reset');
+    expect(resetMsg).toBeDefined();
+    expect(resetMsg!.userId).toBe(1);
+    expect(resetMsg!.e2ee).toBe(false);
+    expect(resetMsg!.editable).toBe(false);
+    expect(resetMsg!.type).toBe('system');
+  });
+
+  test('should insert system messages into E2EE DMs on identity reset', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const tdb = getTestDb();
+
+    // Create an E2EE DM channel between users 1 and 2
+    const now = Date.now();
+    const [dmChannel] = await tdb.insert(dmChannels).values({
+      ownerId: 1,
+      e2ee: true,
+      isGroup: false,
+      createdAt: now
+    }).returning();
+
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: dmChannel!.id, userId: 1, createdAt: now },
+      { dmChannelId: dmChannel!.id, userId: 2, createdAt: now }
+    ]);
+
+    // Register initial keys
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    // Re-register with changed identity key
+    await caller1.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'changed-identity-for-dm-system-msg'
+    });
+
+    // Query system messages in the DM channel
+    const systemMsgs = await tdb
+      .select()
+      .from(dmMessages)
+      .where(eq(dmMessages.type, 'system'));
+
+    expect(systemMsgs.length).toBeGreaterThanOrEqual(1);
+
+    const resetMsg = systemMsgs.find(
+      (m) => m.content === 'identity_reset' && m.dmChannelId === dmChannel!.id
+    );
+    expect(resetMsg).toBeDefined();
+    expect(resetMsg!.userId).toBe(1);
+    expect(resetMsg!.e2ee).toBe(false);
+    expect(resetMsg!.type).toBe('system');
+  });
+
+  test('should NOT insert system messages when re-registering with same identity', async () => {
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    // Create an E2EE channel
+    await tdb.insert(channels).values({
+      type: ChannelType.TEXT,
+      name: 'E2EE No Reset',
+      position: 11,
+      e2ee: true,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    });
+
+    // Register initial keys
+    await caller.e2ee.registerKeys(mockKeys);
+
+    // Re-register with SAME identity key
+    await caller.e2ee.registerKeys(mockKeys);
+
+    // No system messages should be inserted
+    const systemMsgs = await tdb
+      .select()
+      .from(messages)
+      .where(eq(messages.type, 'system'));
+
+    expect(systemMsgs.length).toBe(0);
   });
 });
