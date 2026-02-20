@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   pulse:
     image: ghcr.io/plsechat/pulse-server:latest
