@@ -206,11 +206,18 @@ export async function decryptDmMessageInPlace(
 
 /**
  * Decrypt an array of E2EE DM messages.
+ * Must be sequential — Signal Protocol's Double Ratchet requires messages
+ * from the same sender to be decrypted in order (the first PreKeyWhisperMessage
+ * establishes the session that subsequent WhisperMessages depend on).
  */
 async function decryptDmMessages(
   messages: TJoinedDmMessage[]
 ): Promise<TJoinedDmMessage[]> {
-  return Promise.all(messages.map(decryptDmMessageInPlace));
+  const results: TJoinedDmMessage[] = [];
+  for (const msg of messages) {
+    results.push(await decryptDmMessageInPlace(msg));
+  }
+  return results;
 }
 
 export const sendDmMessage = async (
@@ -272,6 +279,9 @@ export const editDmMessage = async (messageId: number, content: string) => {
       const encryptedContent = await encryptDmMessage(recipientUserId, {
         content
       });
+      // Cache plaintext so we can display our own edited message when the
+      // subscription echo arrives (same as sendDmMessage).
+      ownSentPlaintextCache.set(encryptedContent, content);
       await trpc.dms.editMessage.mutate({ messageId, encryptedContent });
       return;
     } catch (err) {
