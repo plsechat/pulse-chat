@@ -232,7 +232,12 @@ Configure `/etc/caddy/Caddyfile`:
 
 ```
 your-domain.com {
-    reverse_proxy localhost:4991
+    handle /auth/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle {
+        reverse_proxy localhost:4991
+    }
 }
 ```
 
@@ -254,6 +259,15 @@ Create `/etc/nginx/sites-available/pulse`:
 ```nginx
 server {
     server_name your-domain.com;
+
+    location /auth/v1/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:4991;
