@@ -108,7 +108,12 @@ const registerKeysRoute = protectedProcedure
 
     // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
-      await insertIdentityResetMessages(ctx.userId);
+      try {
+        await insertIdentityResetMessages(ctx.userId);
+      } catch (err) {
+        // Non-fatal: don't block key registration if system messages fail
+        console.error('[E2EE] insertIdentityResetMessages failed:', err);
+      }
 
       pubsub.publish(ServerEvents.E2EE_IDENTITY_RESET, {
         userId: ctx.userId
