@@ -52,7 +52,7 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
     <div
       id={`msg-${message.id}`}
       className={cn(
-        'min-w-0 flex-1 relative group leading-[1.375rem]',
+        'min-w-0 flex-1 relative group leading-[1.375rem] hover:bg-foreground/[0.02] rounded',
         isHighlighted && 'animate-msg-highlight rounded'
       )}
     >
