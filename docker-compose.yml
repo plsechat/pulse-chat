@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   pulse:
-    image: ${IMAGE_NAME}
+    image: ghcr.io/plsechat/pulse-server:latest
     restart: unless-stopped
     container_name: pulse
     network_mode: host
