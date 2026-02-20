@@ -18,8 +18,14 @@ for (const emoji of gitHubEmojis) {
 
 function extractText(node: DOMNode): string {
   if (node instanceof Text) return node.data;
-  if (node instanceof Element && node.children) {
-    return node.children.map((child) => extractText(child as DOMNode)).join('');
+  if (node instanceof Element) {
+    if (node.name === 'br') return '\n';
+    const inner = node.children
+      ? node.children.map((child) => extractText(child as DOMNode)).join('')
+      : '';
+    // Block elements get a trailing newline so consecutive <p>s produce line breaks
+    if (node.name === 'p' || node.name === 'div') return inner + '\n';
+    return inner;
   }
   return '';
 }
@@ -51,33 +57,42 @@ const serializer = (
 
   if (domNode instanceof Element && domNode.name === 'a') {
     const href = domNode.attribs.href;
-    const url = new URL(href);
 
-    const isTweet =
-      url.hostname.match(/(twitter|x).com/) && href.match(twitterRegex);
-    const isYoutube =
-      url.hostname.match(/(youtube.com|youtu.be)/) && href.match(youtubeRegex);
+    let url: URL | null = null;
+    try {
+      url = new URL(href);
+    } catch {
+      // Invalid or relative URL — skip special handling, render as plain link
+    }
 
-    const isImage = imageExtensions.some((ext) => href.endsWith(ext));
+    if (url) {
+      const isTweet =
+        url.hostname.match(/(twitter|x).com/) && href.match(twitterRegex);
+      const isYoutube =
+        url.hostname.match(/(youtube.com|youtu.be)/) &&
+        href.match(youtubeRegex);
 
-    if (isTweet) {
-      const tweetId = href.match(twitterRegex)?.[0].split('/').pop();
+      const isImage = imageExtensions.some((ext) => href.endsWith(ext));
 
-      if (tweetId) {
-        return <TwitterOverride tweetId={tweetId} />;
+      if (isTweet) {
+        const tweetId = href.match(twitterRegex)?.[0].split('/').pop();
+
+        if (tweetId) {
+          return <TwitterOverride tweetId={tweetId} />;
+        }
+      } else if (isYoutube) {
+        const videoId = href.match(
+          /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/
+        )?.[7];
+
+        if (videoId) {
+          return <YoutubeOverride videoId={videoId} />;
+        }
+      } else if (isImage) {
+        pushMedia({ type: 'image', url: href });
+
+        return <></>;
       }
-    } else if (isYoutube) {
-      const videoId = href.match(
-        /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/
-      )?.[7];
-
-      if (videoId) {
-        return <YoutubeOverride videoId={videoId} />;
-      }
-    } else if (isImage) {
-      pushMedia({ type: 'image', url: href });
-
-      return <></>;
     }
   } else if (domNode instanceof Element && domNode.name === 'command') {
     const command = parseDomCommand(domNode);

@@ -64,10 +64,16 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       }
     }
 
-    const messageHtml = parse(sanitized, {
-      replace: (domNode) =>
-        serializer(domNode, (found) => foundMedia.push(found))
-    });
+    let messageHtml;
+    try {
+      messageHtml = parse(sanitized, {
+        replace: (domNode) =>
+          serializer(domNode, (found) => foundMedia.push(found))
+      });
+    } catch (err) {
+      console.error('[MessageRenderer] serialization failed, rendering plain:', err);
+      messageHtml = parse(sanitized);
+    }
 
     return { messageHtml, foundMedia, isEmojiOnly };
   }, [message.content, message.files.length]);

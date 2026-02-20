@@ -14,6 +14,16 @@
  * - Blockquote lines: <p>&gt; text</p> → <blockquote><p>text</p></blockquote>
  */
 
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -66,11 +76,13 @@ export function preprocessMarkdown(html: string): string {
   html = html.replace(
     /<p>```(\w*)<\/p>([\s\S]*?)<p>```<\/p>/g,
     (_match, lang: string, content: string) => {
-      // Extract text content from inner paragraphs
+      // Extract text content from inner paragraphs, stripping all HTML tags
+      // (TipTap may inject <a>, <strong>, etc. from auto-linking/formatting)
       const lines = content
         .replace(/<p>/g, '')
         .replace(/<\/p>/g, '\n')
         .replace(/<br\s*\/?>/g, '\n')
+        .replace(/<[^>]+>/g, '')
         .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
@@ -85,6 +97,7 @@ export function preprocessMarkdown(html: string): string {
     (_match, lang: string, content: string) => {
       const lines = content
         .replace(/<br[^>]*>/g, '\n')
+        .replace(/<[^>]+>/g, '')
         .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
@@ -96,7 +109,7 @@ export function preprocessMarkdown(html: string): string {
   html = html.replace(
     /<p>```([^`]+?)```<\/p>/g,
     (_match, content: string) => {
-      return `<pre><code>${escapeHtml(content.trim())}</code></pre>`;
+      return `<pre><code>${escapeHtml(decodeEntities(content.trim()))}</code></pre>`;
     }
   );
 
