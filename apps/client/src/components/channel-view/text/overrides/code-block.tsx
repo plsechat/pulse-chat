@@ -21,10 +21,14 @@ const CodeBlockOverride = memo(({ code, language }: TCodeBlockOverrideProps) => 
 
   const displayLang = language || result.language || '';
 
-  const onCopy = useCallback(() => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const onCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard write failed
+    }
   }, [code]);
 
   return (
