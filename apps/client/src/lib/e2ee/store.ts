@@ -9,7 +9,7 @@ import { store as reduxStore } from '@/features/store';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   IDENTITY_KEY: 'identityKey',
@@ -18,7 +18,8 @@ const STORES = {
   SIGNED_PRE_KEYS: 'signedPreKeys',
   SESSIONS: 'sessions',
   IDENTITIES: 'identities',
-  SENDER_KEYS: 'senderKeys'
+  SENDER_KEYS: 'senderKeys',
+  DISTRIBUTED_MEMBERS: 'distributedMembers'
 } as const;
 
 type SerializedKeyPair = {
@@ -257,6 +258,50 @@ export class SignalProtocolStore implements StorageType {
       throw new Error('Source store has no identity to copy');
     }
     await this.saveLocalIdentity(keyPair, registrationId);
+  }
+
+  // --- Distributed Members persistence ---
+
+  async getDistributedMembers(channelId: number): Promise<number[]> {
+    const db = await this.getDb();
+    const value = await db.get(
+      STORES.DISTRIBUTED_MEMBERS,
+      String(channelId)
+    );
+    return value ?? [];
+  }
+
+  async setDistributedMembers(
+    channelId: number,
+    memberIds: number[]
+  ): Promise<void> {
+    const db = await this.getDb();
+    await db.put(
+      STORES.DISTRIBUTED_MEMBERS,
+      memberIds,
+      String(channelId)
+    );
+  }
+
+  async clearDistributedMemberFromAll(userId: number): Promise<void> {
+    const db = await this.getDb();
+    const tx = db.transaction(STORES.DISTRIBUTED_MEMBERS, 'readwrite');
+    const store = tx.objectStore(STORES.DISTRIBUTED_MEMBERS);
+    let cursor = await store.openCursor();
+    while (cursor) {
+      const members: number[] = cursor.value;
+      const filtered = members.filter((id) => id !== userId);
+      if (filtered.length !== members.length) {
+        await cursor.update(filtered);
+      }
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+
+  async clearAllDistributedMembers(): Promise<void> {
+    const db = await this.getDb();
+    await db.clear(STORES.DISTRIBUTED_MEMBERS);
   }
 
   async clearAll(): Promise<void> {

@@ -262,6 +262,43 @@ const distributeSenderKeyRoute = protectedProcedure
     );
   });
 
+const distributeSenderKeysBatchRoute = protectedProcedure
+  .input(
+    z.object({
+      channelId: z.number(),
+      distributions: z.array(
+        z.object({
+          toUserId: z.number(),
+          distributionMessage: z.string()
+        })
+      )
+    })
+  )
+  .mutation(async ({ ctx, input }) => {
+    if (input.distributions.length === 0) return;
+
+    await db.insert(e2eeSenderKeys).values(
+      input.distributions.map((d) => ({
+        channelId: input.channelId,
+        fromUserId: ctx.userId,
+        toUserId: d.toUserId,
+        distributionMessage: d.distributionMessage,
+        createdAt: Date.now()
+      }))
+    );
+
+    for (const d of input.distributions) {
+      pubsub.publishFor(
+        d.toUserId,
+        ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION,
+        {
+          channelId: input.channelId,
+          fromUserId: ctx.userId
+        }
+      );
+    }
+  });
+
 const getPendingSenderKeysRoute = protectedProcedure
   .input(z.object({ channelId: z.number().optional() }))
   .query(async ({ ctx, input }) => {
@@ -360,6 +397,7 @@ export const e2eeRouter = t.router({
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,
   distributeSenderKey: distributeSenderKeyRoute,
+  distributeSenderKeysBatch: distributeSenderKeysBatchRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
   acknowledgeSenderKeys: acknowledgeSenderKeysRoute,
   uploadKeyBackup: uploadKeyBackupRoute,

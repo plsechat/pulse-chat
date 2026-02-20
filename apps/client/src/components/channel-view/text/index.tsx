@@ -2,7 +2,7 @@ import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
 import { useCan, useChannelCan } from '@/features/server/hooks';
-import { useOwnUserId, useUserById, useUsers } from '@/features/server/users/hooks';
+import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useMessages } from '@/features/server/messages/hooks';
 import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
@@ -73,7 +73,6 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const slowMode = selectedChannel?.slowMode ?? 0;
   const isE2ee = selectedChannel?.e2ee ?? false;
   const ownUserId = useOwnUserId();
-  const serverUsers = useUsers();
   const allPluginCommands = useFlatPluginCommands();
   const { containerRef, onScroll, scrollToBottom, isAtBottom } = useScrollController({
     channelId,
@@ -175,8 +174,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
-        const memberIds = serverUsers.map((u) => u.id);
-        await ensureChannelSenderKey(channelId, ownUserId, memberIds);
+        await ensureChannelSenderKey(channelId, ownUserId);
 
         const encryptedContent = await encryptChannelMessage(
           channelId,
@@ -220,8 +218,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
     replyingTo,
     startSlowModeCooldown,
     isE2ee,
-    ownUserId,
-    serverUsers
+    ownUserId
   ]);
 
   const onFileInputChange = useCallback(
@@ -242,8 +239,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
 
       try {
         if (isE2ee && ownUserId) {
-          const memberIds = serverUsers.map((u) => u.id);
-          await ensureChannelSenderKey(channelId, ownUserId, memberIds);
+          await ensureChannelSenderKey(channelId, ownUserId);
 
           const encryptedContent = await encryptChannelMessage(
             channelId,
@@ -263,7 +259,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [channelId, isE2ee, ownUserId, serverUsers]
+    [channelId, isE2ee, ownUserId]
   );
 
   const onRemoveFileClick = useCallback(
