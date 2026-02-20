@@ -62,7 +62,6 @@ const TiptapInput = memo(
     const extensions = useMemo(() => {
       const exts = [
         StarterKit.configure({
-          codeBlock: false,
           hardBreak: {
             HTMLAttributes: {
               class: 'hard-break'
@@ -115,7 +114,7 @@ const TiptapInput = memo(
         attributes: {
           'data-placeholder': placeholder ?? 'Message...'
         },
-        handleKeyDown: (_view, event) => {
+        handleKeyDown: (view, event) => {
           const suggestionElement = document.querySelector('.bg-popover');
           const hasSuggestions =
             suggestionElement && document.body.contains(suggestionElement);
@@ -127,6 +126,12 @@ const TiptapInput = memo(
 
             // if suggestions are active, don't handle Enter - let the suggestion handle it
             if (hasSuggestions) {
+              return false;
+            }
+
+            // Inside a code block, Enter creates a new line instead of submitting
+            const { $from } = view.state.selection;
+            if ($from.parent.type.name === 'codeBlock') {
               return false;
             }
 
