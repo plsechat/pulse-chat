@@ -31,6 +31,29 @@ const OTP_REPLENISH_COUNT = 100;
 // Track the next OTP key ID to avoid collisions
 let nextOtpKeyId = 101; // Start after initial batch of 100
 
+// --- Channel Member Cache ---
+// Cache of channel → member IDs, fetched from the server's getVisibleUsers route.
+// This ensures we only distribute sender keys to users who can actually view the channel.
+const channelMemberCache = new Map<number, number[]>();
+
+async function getChannelMemberIds(channelId: number): Promise<number[]> {
+  const cached = channelMemberCache.get(channelId);
+  if (cached) return cached;
+
+  const trpc = getTRPCClient();
+  const memberIds = await trpc.channels.getVisibleUsers.query({ channelId });
+  channelMemberCache.set(channelId, memberIds);
+  return memberIds;
+}
+
+export function invalidateChannelMembers(channelId?: number): void {
+  if (channelId !== undefined) {
+    channelMemberCache.delete(channelId);
+  } else {
+    channelMemberCache.clear();
+  }
+}
+
 /**
  * Initialize E2EE on the home instance. Called once after auth.
  * If keys exist, replenishes OTPs. If not, does nothing — keys are
@@ -267,9 +290,31 @@ export async function decryptDmMessage(
 
 /**
  * Track which members have successfully received our sender key per channel.
- * Cleared on page reload, which forces re-distribution (safe & idempotent).
+ * Write-through cache backed by IDB — survives page reloads.
  */
 const distributedMembers = new Map<number, Set<number>>();
+
+async function loadDistributedMembers(
+  channelId: number
+): Promise<Set<number>> {
+  const cached = distributedMembers.get(channelId);
+  if (cached) return cached;
+
+  const store = getActiveStore();
+  const persisted = await store.getDistributedMembers(channelId);
+  const set = new Set(persisted);
+  distributedMembers.set(channelId, set);
+  return set;
+}
+
+async function saveDistributedMembers(
+  channelId: number,
+  members: Set<number>
+): Promise<void> {
+  distributedMembers.set(channelId, members);
+  const store = getActiveStore();
+  await store.setDistributedMembers(channelId, [...members]);
+}
 
 /**
  * Remove a user from all distributedMembers sets, forcing re-distribution
@@ -280,22 +325,25 @@ export function clearDistributedMember(userId: number): void {
   for (const members of distributedMembers.values()) {
     members.delete(userId);
   }
+  // Persist asynchronously (fire-and-forget)
+  getActiveStore().clearDistributedMemberFromAll(userId).catch(() => {});
 }
 
 /**
  * Ensure we have a sender key for this channel and that it has been
- * distributed to all provided member IDs.
+ * distributed to all channel members.
  *
  * On first call: generates a new AES-256-GCM key and distributes it.
  * On subsequent calls: re-distributes to any members who haven't received
  * the key yet (e.g. new members, or members whose first distribution failed).
  *
- * Uses the active instance store so it works on federated servers.
+ * Fetches the authoritative member list from the server (respects channel
+ * permissions for private channels). Uses the active instance store so it
+ * works on federated servers.
  */
 export async function ensureChannelSenderKey(
   channelId: number,
-  ownUserId: number,
-  memberUserIds: number[]
+  ownUserId: number
 ): Promise<void> {
   await ensureE2EEKeys();
   const store = getActiveStore();
@@ -308,8 +356,11 @@ export async function ensureChannelSenderKey(
     distributedMembers.set(channelId, new Set());
   }
 
-  // Determine which members still need the key
-  const distributed = distributedMembers.get(channelId) ?? new Set();
+  // Fetch authoritative member list from server
+  const memberUserIds = await getChannelMemberIds(channelId);
+
+  // Determine which members still need the key (load from IDB on first access)
+  const distributed = await loadDistributedMembers(channelId);
   const otherMembers = memberUserIds.filter(
     (id) => id !== ownUserId && !distributed.has(id)
   );
@@ -325,27 +376,46 @@ export async function ensureChannelSenderKey(
   }
 
   // Distribute the key to each member via Signal Protocol
+  // Encrypt in parallel (batches of 10 to avoid overwhelming the server),
+  // then send all distributions in a single batch API call.
   const trpc = getTRPCClient();
+  const CONCURRENCY = 10;
+  const distributions: { toUserId: number; distributionMessage: string }[] = [];
 
-  for (const memberId of otherMembers) {
-    try {
-      await ensureSession(memberId, { store, trpc, verifyIdentity: true });
-      const encryptedKey = await encryptMessage(memberId, keyBase64, store);
-      await trpc.e2ee.distributeSenderKey.mutate({
-        channelId,
-        toUserId: memberId,
-        distributionMessage: encryptedKey
-      });
-      distributed.add(memberId);
-    } catch (err) {
-      console.warn(
-        `[E2EE] Failed to distribute sender key to user ${memberId}:`,
-        err
-      );
+  for (let i = 0; i < otherMembers.length; i += CONCURRENCY) {
+    const chunk = otherMembers.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(async (memberId) => {
+        await ensureSession(memberId, { store, trpc, verifyIdentity: true });
+        const encrypted = await encryptMessage(memberId, keyBase64!, store);
+        return { toUserId: memberId, distributionMessage: encrypted };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        distributions.push(r.value);
+      } else {
+        console.warn('[E2EE] Failed to encrypt sender key:', r.reason);
+      }
     }
   }
 
-  distributedMembers.set(channelId, distributed);
+  // Single batch API call instead of N individual calls
+  if (distributions.length > 0) {
+    try {
+      await trpc.e2ee.distributeSenderKeysBatch.mutate({
+        channelId,
+        distributions
+      });
+      for (const d of distributions) {
+        distributed.add(d.toUserId);
+      }
+    } catch (err) {
+      console.warn('[E2EE] Batch distribution failed:', err);
+    }
+  }
+
+  await saveDistributedMembers(channelId, distributed);
 }
 
 /**
@@ -456,7 +526,8 @@ export async function encryptChannelMessage(
 
 /**
  * Decrypt a channel message using the sender's key.
- * If the key is missing, tries to fetch pending keys first, with retries.
+ * If the key is missing, tries to fetch pending keys with bounded
+ * exponential backoff (max ~3.5s total wait).
  * Uses the active instance store.
  */
 export async function decryptChannelMessage(
@@ -465,23 +536,19 @@ export async function decryptChannelMessage(
   encryptedContent: string
 ): Promise<E2EEPlaintext> {
   const store = getActiveStore();
+  const MAX_RETRIES = 3;
+  const BASE_DELAY = 500;
 
-  // Try to fetch pending sender keys if we don't have this user's key
-  if (!(await hasSenderKey(channelId, fromUserId, store))) {
+  // Try to acquire the sender key with bounded retries
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (await hasSenderKey(channelId, fromUserId, store)) break;
     await fetchAndProcessPendingSenderKeys(channelId);
-  }
-
-  // If still missing, the distribution may still be in transit from the
-  // sender — wait and retry with a fresh fetch from the server
-  if (!(await hasSenderKey(channelId, fromUserId, store))) {
-    await new Promise((r) => setTimeout(r, 1000));
-    await fetchAndProcessPendingSenderKeys(channelId);
-  }
-
-  // Final retry with a longer wait
-  if (!(await hasSenderKey(channelId, fromUserId, store))) {
-    await new Promise((r) => setTimeout(r, 2000));
-    await fetchAndProcessPendingSenderKeys(channelId);
+    if (await hasSenderKey(channelId, fromUserId, store)) break;
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) =>
+        setTimeout(r, BASE_DELAY * Math.pow(2, attempt))
+      );
+    }
   }
 
   try {
@@ -546,19 +613,16 @@ export async function handlePeerIdentityReset(
   await store.clearUserSession(userId);
   clearDistributedMember(userId);
 
-  // Re-distribute own sender keys to the reset peer for all E2EE channels
+  // Invalidate member cache in case the reset user's permissions changed
+  invalidateChannelMembers();
+
+  // Re-distribute own sender keys to all channel members (the reset user
+  // will be included via the server-fetched member list)
   const channels = state.server.channels.filter((c) => c.e2ee);
-  const users = state.server.users;
 
   for (const channel of channels) {
-    const channelUserIds = users.map((u) => u.id);
-    if (!channelUserIds.includes(userId)) continue;
-
     try {
-      await ensureChannelSenderKey(channel.id, ownUserId!, [
-        ownUserId!,
-        userId
-      ]);
+      await ensureChannelSenderKey(channel.id, ownUserId!);
     } catch (err) {
       console.warn(
         `[E2EE] Failed to re-distribute sender key to reset user ${userId} in channel ${channel.id}:`,
@@ -580,14 +644,14 @@ export async function redistributeOwnSenderKeys(): Promise<void> {
 
   // Clear all distribution tracking — we have new keys
   distributedMembers.clear();
+  await getActiveStore().clearAllDistributedMembers();
+  invalidateChannelMembers();
 
   const channels = state.server.channels.filter((c) => c.e2ee);
-  const users = state.server.users;
 
   for (const channel of channels) {
-    const memberIds = users.map((u) => u.id);
     try {
-      await ensureChannelSenderKey(channel.id, ownUserId, memberIds);
+      await ensureChannelSenderKey(channel.id, ownUserId);
     } catch (err) {
       console.warn(
         `[E2EE] Failed to redistribute sender key for channel ${channel.id}:`,

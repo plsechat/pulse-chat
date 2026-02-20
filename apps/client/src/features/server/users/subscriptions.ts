@@ -20,8 +20,6 @@ async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
   const e2eeChannels = state.server.channels.filter((c) => c.e2ee);
   if (e2eeChannels.length === 0) return;
 
-  const memberIds = state.server.users.map((u) => u.id);
-
   const { ensureChannelSenderKey, clearDistributedMember } = await import(
     '@/lib/e2ee'
   );
@@ -33,7 +31,7 @@ async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
 
   for (const channel of e2eeChannels) {
     try {
-      await ensureChannelSenderKey(channel.id, ownUserId, memberIds);
+      await ensureChannelSenderKey(channel.id, ownUserId);
     } catch (err) {
       console.warn(
         `[E2EE] Proactive key distribution failed for channel ${channel.id}:`,

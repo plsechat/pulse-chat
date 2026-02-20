@@ -400,6 +400,89 @@ describe('e2ee router', () => {
     expect(fromUser2!.distributionMessage).toBe('key-from-user-2');
   });
 
+  // --- distributeSenderKeysBatch ---
+
+  test('should batch distribute sender keys in a single call', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      distributions: [
+        { toUserId: 2, distributionMessage: 'batch-key-for-user-2' },
+        { toUserId: 3, distributionMessage: 'batch-key-for-user-3' }
+      ]
+    });
+
+    const pending2 = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
+    expect(pending2.length).toBe(1);
+    expect(pending2[0]!.fromUserId).toBe(1);
+    expect(pending2[0]!.distributionMessage).toBe('batch-key-for-user-2');
+
+    const pending3 = await caller3.e2ee.getPendingSenderKeys({ channelId: 1 });
+    expect(pending3.length).toBe(1);
+    expect(pending3[0]!.fromUserId).toBe(1);
+    expect(pending3[0]!.distributionMessage).toBe('batch-key-for-user-3');
+  });
+
+  test('should handle empty batch distribution', async () => {
+    const { caller } = await initTest(1);
+
+    // Should not throw
+    await caller.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      distributions: []
+    });
+  });
+
+  test('batch distributed keys should be acknowledgeable', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      distributions: [
+        { toUserId: 2, distributionMessage: 'key-to-ack' }
+      ]
+    });
+
+    const pending = await caller2.e2ee.getPendingSenderKeys({});
+    expect(pending.length).toBe(1);
+
+    await caller2.e2ee.acknowledgeSenderKeys({ ids: [pending[0]!.id] });
+
+    const after = await caller2.e2ee.getPendingSenderKeys({});
+    expect(after.length).toBe(0);
+  });
+
+  test('batch distributed keys should be cleaned up on identity reset', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      distributions: [
+        { toUserId: 2, distributionMessage: 'batch-key-data' }
+      ]
+    });
+
+    const pending = await caller2.e2ee.getPendingSenderKeys({});
+    expect(pending.length).toBe(1);
+
+    // User 1 resets identity
+    await caller1.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'new-identity-after-batch'
+    });
+
+    // Batch-distributed keys should be cleaned up
+    const after = await caller2.e2ee.getPendingSenderKeys({});
+    expect(after.length).toBe(0);
+  });
+
   // --- getIdentityPublicKey ---
 
   test('should return identity public key for a user', async () => {
