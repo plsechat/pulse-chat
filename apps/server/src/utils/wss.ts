@@ -108,8 +108,8 @@ const createContext = async ({
 
   // Per-connection permission cache (lazy-loaded, invalidated on mutations)
   let _cachedUser: TJoinedUser | undefined;
-  let _cachedServerMap = new Map<number, TJoinedServer | undefined>();
-  let _cachedRolesMap = new Map<string, TJoinedRole[]>();
+  const _cachedServerMap = new Map<number, TJoinedServer | undefined>();
+  const _cachedRolesMap = new Map<string, TJoinedRole[]>();
   let _cachedChannelPerms: TChannelUserPermissionsMap | undefined;
 
   const getCachedUser = async () => {
