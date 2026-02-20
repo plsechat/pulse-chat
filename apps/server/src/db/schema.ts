@@ -323,6 +323,7 @@ const messages = pgTable(
     }),
     webhookId: integer('webhook_id'),
     edited: boolean('edited').notNull().default(false),
+    type: text('type').notNull().default('user'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -686,6 +687,7 @@ const dmMessages = pgTable(
       onDelete: 'set null'
     }),
     edited: boolean('edited').notNull().default(false),
+    type: text('type').notNull().default('user'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },

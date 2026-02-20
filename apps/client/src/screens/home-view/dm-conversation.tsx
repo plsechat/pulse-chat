@@ -43,6 +43,7 @@ import { DmVoicePanel } from '@/components/dm-call/dm-voice-panel';
 import { useDmCall, useOwnDmCallChannelId } from '@/features/dms/hooks';
 import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
 import { useVoice } from '@/features/server/voice/hooks';
+import { SystemMessage } from '@/components/channel-view/text/system-message';
 import { DmSearchPopover } from './dm-search-popover';
 
 type TDmConversationProps = {
@@ -190,9 +191,12 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
         className="flex-1 overflow-y-auto overflow-x-hidden p-2"
       >
         <div className="space-y-4">
-          {groupedMessages.map((group, index) => (
-            <DmMessagesGroup key={index} group={group} onReply={handleReply} />
-          ))}
+          {groupedMessages.map((group, index) => {
+            if (group[0].type === 'system') {
+              return <SystemMessage key={index} message={group[0]} />;
+            }
+            return <DmMessagesGroup key={index} group={group} onReply={handleReply} />;
+          })}
         </div>
       </div>
 
