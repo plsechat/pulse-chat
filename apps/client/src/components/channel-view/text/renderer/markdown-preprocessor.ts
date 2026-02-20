@@ -66,11 +66,13 @@ export function preprocessMarkdown(html: string): string {
   html = html.replace(
     /<p>```(\w*)<\/p>([\s\S]*?)<p>```<\/p>/g,
     (_match, lang: string, content: string) => {
-      // Extract text content from inner paragraphs
+      // Extract text content from inner paragraphs, stripping all HTML tags
+      // (TipTap may inject <a>, <strong>, etc. from auto-linking/formatting)
       const lines = content
         .replace(/<p>/g, '')
         .replace(/<\/p>/g, '\n')
         .replace(/<br\s*\/?>/g, '\n')
+        .replace(/<[^>]+>/g, '')
         .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
@@ -85,6 +87,7 @@ export function preprocessMarkdown(html: string): string {
     (_match, lang: string, content: string) => {
       const lines = content
         .replace(/<br[^>]*>/g, '\n')
+        .replace(/<[^>]+>/g, '')
         .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
