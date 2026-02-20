@@ -78,14 +78,12 @@ export function preprocessMarkdown(html: string): string {
     (_match, lang: string, content: string) => {
       // Extract text content from inner paragraphs, stripping all HTML tags
       // (TipTap may inject <a>, <strong>, etc. from auto-linking/formatting)
-      const lines = decodeEntities(
-        content
-          .replace(/<p>/g, '')
-          .replace(/<\/p>/g, '\n')
-          .replace(/<br\s*\/?>/g, '\n')
-          .replace(/<[^>]+>/g, '')
-          .trim()
-      );
+      const lines = content
+        .replace(/<p>/g, '')
+        .replace(/<\/p>/g, '\n')
+        .replace(/<br\s*\/?>/g, '\n')
+        .replace(/<[^>]+>/g, '')
+        .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
       return `<pre><code${langClass}>${escapeHtml(lines)}</code></pre>`;
@@ -97,12 +95,10 @@ export function preprocessMarkdown(html: string): string {
   html = html.replace(
     /<p>```(\w*)(?:<br[^>]*>)([\s\S]*?)```<\/p>/g,
     (_match, lang: string, content: string) => {
-      const lines = decodeEntities(
-        content
-          .replace(/<br[^>]*>/g, '\n')
-          .replace(/<[^>]+>/g, '')
-          .trim()
-      );
+      const lines = content
+        .replace(/<br[^>]*>/g, '\n')
+        .replace(/<[^>]+>/g, '')
+        .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
       return `<pre><code${langClass}>${escapeHtml(lines)}</code></pre>`;
