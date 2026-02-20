@@ -67,7 +67,7 @@ services:
       retries: 10
 
   pulse:
-    build: .
+    image: ghcr.io/plsechat/pulse-server:latest
     restart: unless-stopped
     container_name: pulse
     depends_on:
