@@ -126,7 +126,17 @@ const TiptapInput = memo(
           const hasMarkup = /<\/?[a-z][\w-]*(?:\s[^>]*)?\/?>/i.test(text);
 
           if (fromCodeBlock || hasMarkup) {
-            editor?.chain().focus().setCodeBlock().insertContent(text).run();
+            // Use insertText so TipTap treats the string as literal text,
+            // not as HTML (otherwise `<p>html</p>` would create a paragraph node).
+            editor
+              ?.chain()
+              .focus()
+              .setCodeBlock()
+              .command(({ tr, dispatch }) => {
+                if (dispatch) tr.insertText(text);
+                return true;
+              })
+              .run();
           } else {
             editor?.commands.insertContent(text);
           }

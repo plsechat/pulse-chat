@@ -86,7 +86,7 @@ export function preprocessMarkdown(html: string): string {
         .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
-      return `<pre><code${langClass}>${escapeHtml(lines)}</code></pre>`;
+      return `<pre><code${langClass}>${escapeHtml(decodeEntities(lines))}</code></pre>`;
     }
   );
 
@@ -101,7 +101,7 @@ export function preprocessMarkdown(html: string): string {
         .trim();
 
       const langClass = lang ? ` class="language-${lang}"` : '';
-      return `<pre><code${langClass}>${escapeHtml(lines)}</code></pre>`;
+      return `<pre><code${langClass}>${escapeHtml(decodeEntities(lines))}</code></pre>`;
     }
   );
 
