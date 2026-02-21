@@ -33,13 +33,14 @@ export const MentionSuggestion = {
     const roles: { id: number; name: string; color: string }[] =
       storage?.roles ?? [];
     const isDm: boolean = storage?.isDm ?? false;
+    const ownUserId: number = storage?.ownUserId ?? 0;
 
     const q = query.toLowerCase();
 
     // In DMs, only show participant users — no @all or roles
     if (isDm) {
       return users
-        .filter((u) => u.name.toLowerCase().includes(q))
+        .filter((u) => u.id !== ownUserId && u.name.toLowerCase().includes(q))
         .slice(0, 8)
         .map((u) => ({ type: 'user' as const, id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity }));
     }
@@ -56,7 +57,7 @@ export const MentionSuggestion = {
       .map((r) => ({ type: 'role', id: r.id, name: r.name, color: r.color }));
 
     const matchedUsers: TMentionItem[] = users
-      .filter((u) => u.name.toLowerCase().includes(q))
+      .filter((u) => u.id !== ownUserId && u.name.toLowerCase().includes(q))
       .slice(0, 8)
       .map((u) => ({ type: 'user', id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity }));
 

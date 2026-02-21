@@ -10,6 +10,7 @@ export interface MentionOptions {
   users: { id: number; name: string; avatar?: { name: string } | null }[];
   roles: { id: number; name: string; color: string }[];
   isDm: boolean;
+  ownUserId: number;
   suggestion: typeof MentionSuggestion;
 }
 
@@ -25,6 +26,7 @@ export const MentionExtension = Node.create<MentionOptions>({
       users: [],
       roles: [],
       isDm: false,
+      ownUserId: 0,
       suggestion: MentionSuggestion
     };
   },
@@ -33,7 +35,8 @@ export const MentionExtension = Node.create<MentionOptions>({
     return {
       users: this.options.users,
       roles: this.options.roles,
-      isDm: this.options.isDm
+      isDm: this.options.isDm,
+      ownUserId: this.options.ownUserId
     };
   },
 

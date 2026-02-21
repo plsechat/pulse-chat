@@ -2,7 +2,7 @@ import { EmojiPicker } from '@/components/emoji-picker';
 import { Button } from '@/components/ui/button';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
-import { useUsers } from '@/features/server/users/hooks';
+import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import type { TCommandInfo } from '@pulse/shared';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -58,6 +58,7 @@ const TiptapInput = memo(
     const customEmojis = useCustomEmojis();
     const users = useUsers();
     const roles = useRoles();
+    const ownUserId = useOwnUserId();
     const isDm = !!dmMembers;
 
     const mentionUsers = useMemo(
@@ -93,6 +94,7 @@ const TiptapInput = memo(
           users: mentionUsers,
           roles: mentionRoles,
           isDm,
+          ownUserId: ownUserId ?? 0,
           suggestion: MentionSuggestion
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any
@@ -109,7 +111,7 @@ const TiptapInput = memo(
       }
 
       return exts;
-    }, [customEmojis, commands, mentionUsers, mentionRoles, isDm]);
+    }, [customEmojis, commands, mentionUsers, mentionRoles, isDm, ownUserId]);
 
     const editor = useEditor({
       extensions,
@@ -205,6 +207,7 @@ const TiptapInput = memo(
           storage[MENTION_STORAGE_KEY].users = mentionUsers;
           storage[MENTION_STORAGE_KEY].roles = mentionRoles;
           storage[MENTION_STORAGE_KEY].isDm = isDm;
+          storage[MENTION_STORAGE_KEY].ownUserId = ownUserId ?? 0;
         }
       }
     }, [editor, mentionUsers, mentionRoles, isDm]);
