@@ -14,3 +14,4 @@ apps/client/node_modules
 .DS_Store
 *.tsbuildinfo
 Thumbs.db
+docker-compose.yml
