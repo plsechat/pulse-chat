@@ -1,4 +1,4 @@
-import { saveFederatedServers } from '@/features/app/actions';
+import { saveFederatedServers, setActiveView } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
 import { connectionManager } from '@/lib/connection-manager';
@@ -213,7 +213,7 @@ const subscribeToMessages = () => {
           // If user was viewing a removed federated server, reset to home
           if (state.app.activeInstanceDomain === event.domain) {
             store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-            store.dispatch(appSliceActions.setActiveView('home'));
+            setActiveView('home');
           }
         }
       },

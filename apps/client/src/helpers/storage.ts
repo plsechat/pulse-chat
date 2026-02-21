@@ -15,7 +15,12 @@ export enum LocalStorageKey {
   ACTIVE_INSTANCE = 'pulse-active-instance',
   APPEARANCE_SETTINGS = 'pulse-appearance-settings',
   SERVER_CHANNEL_MAP = 'pulse-server-channel-map',
-  SOUND_NOTIFICATION_SETTINGS = 'pulse-sound-notification-settings'
+  SOUND_NOTIFICATION_SETTINGS = 'pulse-sound-notification-settings',
+  ACTIVE_VIEW = 'pulse-active-view',
+  SCROLL_POSITIONS = 'pulse-scroll-positions',
+  DM_SCROLL_POSITIONS = 'pulse-dm-scroll-positions',
+  ACTIVE_DM_CHANNEL_ID = 'pulse-active-dm-channel-id',
+  HOME_TAB = 'pulse-home-tab'
 }
 
 const getLocalStorageItem = (key: LocalStorageKey): string | null => {

@@ -80,7 +80,7 @@ export const switchServer = async (
   // Clear federation context so tRPC routes go to home instance
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
   store.dispatch(appSliceActions.setActiveServerId(serverId));
-  store.dispatch(appSliceActions.setActiveView('server'));
+  setActiveView('server');
 
   // Re-join with the new serverId to load its data
   await joinServer(handshakeHash, undefined, serverId);
@@ -120,7 +120,7 @@ export const leaveServer = async (serverId: number) => {
     const trpc = getHomeTRPCClient();
     await trpc.servers.leave.mutate({ serverId });
     store.dispatch(appSliceActions.removeJoinedServer(serverId));
-    store.dispatch(appSliceActions.setActiveView('home'));
+    setActiveView('home');
     toast.success('Left server');
   } catch (error) {
     console.error('Error leaving server:', error);
@@ -133,7 +133,7 @@ export const deleteServer = async (serverId: number) => {
     const trpc = getHomeTRPCClient();
     await trpc.servers.delete.mutate({ serverId });
     store.dispatch(appSliceActions.removeJoinedServer(serverId));
-    store.dispatch(appSliceActions.setActiveView('home'));
+    setActiveView('home');
     toast.success('Server deleted');
   } catch (error) {
     console.error('Error deleting server:', error);
@@ -241,8 +241,18 @@ export const setModViewOpen = (isOpen: boolean, userId?: number) =>
     })
   );
 
-export const setActiveView = (view: TActiveView) =>
+export const setActiveView = (view: TActiveView) => {
   store.dispatch(appSliceActions.setActiveView(view));
+  setLocalStorageItem(LocalStorageKey.ACTIVE_VIEW, view);
+};
+
+export const getSavedActiveView = (): TActiveView | undefined => {
+  const saved = getLocalStorageItem(LocalStorageKey.ACTIVE_VIEW);
+  if (saved === 'home' || saved === 'server' || saved === 'discover') {
+    return saved;
+  }
+  return undefined;
+};
 
 export const setActiveServerId = (id: number | undefined) => {
   store.dispatch(appSliceActions.setActiveServerId(id));
@@ -266,7 +276,7 @@ export const resetApp = () => {
       userId: undefined
     })
   );
-  store.dispatch(appSliceActions.setActiveView('home'));
+  setActiveView('home');
   store.dispatch(appSliceActions.setJoinedServers([]));
   store.dispatch(appSliceActions.setActiveServerId(undefined));
   store.dispatch(appSliceActions.setServerUnreadCounts({}));
@@ -357,7 +367,7 @@ export const leaveFederatedServer = async (
     connectionManager.disconnectRemote(instanceDomain);
   }
 
-  store.dispatch(appSliceActions.setActiveView('home'));
+  setActiveView('home');
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
 };
 
@@ -417,7 +427,7 @@ export const switchToFederatedServer = async (
 
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   store.dispatch(appSliceActions.setActiveInstanceDomain(instanceDomain));
-  store.dispatch(appSliceActions.setActiveView('server'));
+  setActiveView('server');
 
   // Load channel/category/user data from the remote instance
   try {
@@ -511,7 +521,7 @@ export const loadFederatedServers = async () => {
     // If user was viewing a removed federated server, reset to home
     if (activeDomain && staleDomains.has(activeDomain)) {
       store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-      store.dispatch(appSliceActions.setActiveView('home'));
+      setActiveView('home');
     }
   } catch (error) {
     console.error('Failed to validate federated servers:', error);

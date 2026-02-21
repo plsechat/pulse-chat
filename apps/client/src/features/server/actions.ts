@@ -3,7 +3,9 @@ import {
   fetchJoinedServers,
   fetchServerUnreadCounts,
   getSavedActiveServerId,
-  setActiveServerId
+  getSavedActiveView,
+  setActiveServerId,
+  setActiveView
 } from '@/features/app/actions';
 import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
 import { fetchFriendRequests, fetchFriends } from '@/features/friends/actions';
@@ -13,7 +15,6 @@ import { cleanup, connectToTRPC, getHomeTRPCClient } from '@/lib/trpc';
 import { type TPublicServerSettings, type TServerInfo } from '@pulse/shared';
 import { openDialog } from '../dialogs/actions';
 import { store } from '../store';
-import { appSliceActions } from '../app/slice';
 import { setPluginCommands } from './plugins/actions';
 import { infoSelector } from './selectors';
 import { serverSliceActions } from './slice';
@@ -130,11 +131,14 @@ export const joinServer = async (
 
   const servers = await fetchJoinedServers();
 
-  // If user has servers, switch to server view; otherwise show discover
-  if (servers.length > 0) {
-    store.dispatch(appSliceActions.setActiveView('server'));
+  // Restore the last active view, falling back to server/discover based on membership
+  const savedView = getSavedActiveView();
+  if (savedView && (savedView !== 'server' || servers.length > 0)) {
+    setActiveView(savedView);
+  } else if (servers.length > 0) {
+    setActiveView('server');
   } else {
-    store.dispatch(appSliceActions.setActiveView('discover'));
+    setActiveView('discover');
   }
 };
 
