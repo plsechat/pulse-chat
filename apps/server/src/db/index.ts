@@ -23,7 +23,7 @@ const loadDb = async () => {
   // Clear Drizzle migration tracking so migrations re-run from scratch.
   // All migration SQL is patched to be idempotent (IF NOT EXISTS, etc.)
   // so re-applying is always safe and prevents hash mismatch errors.
-  await client`DELETE FROM __drizzle_migrations`.catch(() => {});
+  await client`DELETE FROM drizzle.__drizzle_migrations`.catch(() => {});
 
   await migrate(db, { migrationsFolder: DRIZZLE_PATH });
   await seedDatabase();
