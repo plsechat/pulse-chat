@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import type { IRootState } from '../store';
 import { useChannelById, useChannelPermissionsById } from './channels/hooks';
 import {
+  channelMentionCountByIdSelector,
   channelReadStateByIdSelector,
   hasAnyUnreadSelector
 } from './channels/selectors';
@@ -121,6 +122,11 @@ export const useOwnVoiceUser = () => useSelector(ownVoiceUserSelector);
 export const useUnreadMessagesCount = (channelId: number) =>
   useSelector((state: IRootState) =>
     channelReadStateByIdSelector(state, channelId)
+  );
+
+export const useMentionCount = (channelId: number) =>
+  useSelector((state: IRootState) =>
+    channelMentionCountByIdSelector(state, channelId)
   );
 
 export const useHasAnyUnread = () => useSelector(hasAnyUnreadSelector);

@@ -61,6 +61,15 @@ const markServerAsReadRoute = protectedProcedure
       }
     }
 
+    // Publish per-channel read state clear for each channel
+    for (const channel of serverChannels) {
+      ctx.pubsub.publishFor(
+        ctx.userId,
+        ServerEvents.CHANNEL_READ_STATES_UPDATE,
+        { channelId: channel.id, count: 0, mentionCount: 0 }
+      );
+    }
+
     // Publish server-level unread count = 0 (all channels just marked read)
     ctx.pubsub.publishFor(
       ctx.userId,

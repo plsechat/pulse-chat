@@ -324,6 +324,7 @@ const messages = pgTable(
     webhookId: integer('webhook_id'),
     edited: boolean('edited').notNull().default(false),
     type: text('type').notNull().default('user'),
+    mentionedUserIds: jsonb('mentioned_user_ids').$type<number[]>(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },

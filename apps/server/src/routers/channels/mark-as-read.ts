@@ -70,7 +70,8 @@ const markAsReadRoute = protectedProcedure
     // Notify the user that their read state is now clear
     ctx.pubsub.publishFor(ctx.userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
       channelId,
-      count: 0
+      count: 0,
+      mentionCount: 0
     });
 
     // Publish server-level unread count update

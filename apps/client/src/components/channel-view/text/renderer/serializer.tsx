@@ -103,7 +103,7 @@ const serializer = (
     domNode.name === 'span' &&
     domNode.attribs['data-mention-type']
   ) {
-    const type = domNode.attribs['data-mention-type'] as 'user' | 'role';
+    const type = domNode.attribs['data-mention-type'] as 'user' | 'role' | 'all';
     const id = Number(domNode.attribs['data-mention-id']);
     const name =
       domNode.attribs['data-mention-name'] ||

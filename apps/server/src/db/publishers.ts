@@ -54,12 +54,14 @@ const publishMessage = async (
   const usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
 
   const promises = usersToNotify.map(async (userId) => {
-    const readState = await getChannelsReadStatesForUser(userId, channelId);
-    const count = readState[channelId] ?? 0;
+    const { readStates, mentionStates } = await getChannelsReadStatesForUser(userId, channelId);
+    const count = readStates[channelId] ?? 0;
+    const mentionCount = mentionStates[channelId] ?? 0;
 
     pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
       channelId,
-      count
+      count,
+      mentionCount
     });
   });
 

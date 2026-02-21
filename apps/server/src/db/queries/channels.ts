@@ -2,6 +2,7 @@ import {
   ChannelPermission,
   type TChannel,
   type TChannelUserPermissionsMap,
+  type TMentionStateMap,
   type TReadStateMap
 } from '@pulse/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -397,7 +398,7 @@ const getAffectedUserIdsForChannel = async (
 const getChannelsReadStatesForUser = async (
   userId: number,
   channelId?: number
-): Promise<TReadStateMap> => {
+): Promise<{ readStates: TReadStateMap; mentionStates: TMentionStateMap }> => {
   const results = await db
     .select({
       channelId: messages.channelId,
@@ -408,7 +409,16 @@ const getChannelsReadStatesForUser = async (
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
         END)
-      `.as('unread_count')
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND (${channelReadStates.lastReadMessageId} IS NULL
+              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+            AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
+          THEN 1
+        END)
+      `.as('mention_count')
     })
     .from(messages)
     .leftJoin(
@@ -421,13 +431,18 @@ const getChannelsReadStatesForUser = async (
     .where(channelId ? eq(messages.channelId, channelId) : undefined)
     .groupBy(messages.channelId);
 
-  const readStateMap: TReadStateMap = {};
+  const readStates: TReadStateMap = {};
+  const mentionStates: TMentionStateMap = {};
 
   for (const result of results) {
-    readStateMap[result.channelId] = Number(result.unreadCount);
+    readStates[result.channelId] = Number(result.unreadCount);
+    const mc = Number(result.mentionCount);
+    if (mc > 0) {
+      mentionStates[result.channelId] = mc;
+    }
   }
 
-  return readStateMap;
+  return { readStates, mentionStates };
 };
 
 export {

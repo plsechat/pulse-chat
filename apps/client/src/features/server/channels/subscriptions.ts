@@ -4,6 +4,7 @@ import { store } from '../../store';
 import {
   addChannel,
   removeChannel,
+  setChannelMentionState,
   setChannelPermissions,
   setChannelReadState,
   updateChannel
@@ -40,7 +41,10 @@ const subscribeToChannels = () => {
 
   const onChannelReadStatesUpdateSub =
     trpc.channels.onReadStateUpdate.subscribe(undefined, {
-      onData: (data) => setChannelReadState(data.channelId, data.count),
+      onData: (data) => {
+        setChannelReadState(data.channelId, data.count);
+        setChannelMentionState(data.channelId, data.mentionCount);
+      },
       onError: (err) =>
         console.error('onChannelReadStatesUpdate subscription error:', err)
     });
