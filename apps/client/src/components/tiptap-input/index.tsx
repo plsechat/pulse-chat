@@ -23,6 +23,13 @@ import { SlashCommands } from './plugins/slash-commands-extension';
 import { EmojiSuggestion } from './suggestions';
 import type { TEmojiItem } from './types';
 
+type TMentionableUser = {
+  id: number;
+  name: string;
+  avatar?: { name: string } | null;
+  _identity?: string;
+};
+
 type TTiptapInputProps = {
   disabled?: boolean;
   value?: string;
@@ -32,6 +39,8 @@ type TTiptapInputProps = {
   onCancel?: () => void;
   onTyping?: () => void;
   commands?: TCommandInfo[];
+  /** When set, only these users appear in @mention (no roles, no @all) */
+  dmMembers?: TMentionableUser[];
 };
 
 const TiptapInput = memo(
@@ -43,20 +52,24 @@ const TiptapInput = memo(
     onCancel,
     onTyping,
     disabled,
-    commands
+    commands,
+    dmMembers
   }: TTiptapInputProps) => {
     const customEmojis = useCustomEmojis();
     const users = useUsers();
     const roles = useRoles();
+    const isDm = !!dmMembers;
 
     const mentionUsers = useMemo(
-      () => users.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity })),
-      [users]
+      () =>
+        dmMembers ??
+        users.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity })),
+      [dmMembers, users]
     );
 
     const mentionRoles = useMemo(
-      () => roles.map((r) => ({ id: r.id, name: r.name, color: r.color })),
-      [roles]
+      () => (isDm ? [] : roles.map((r) => ({ id: r.id, name: r.name, color: r.color }))),
+      [isDm, roles]
     );
 
     const extensions = useMemo(() => {
@@ -79,6 +92,7 @@ const TiptapInput = memo(
         MentionExtension.configure({
           users: mentionUsers,
           roles: mentionRoles,
+          isDm,
           suggestion: MentionSuggestion
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any
@@ -95,7 +109,7 @@ const TiptapInput = memo(
       }
 
       return exts;
-    }, [customEmojis, commands, mentionUsers, mentionRoles]);
+    }, [customEmojis, commands, mentionUsers, mentionRoles, isDm]);
 
     const editor = useEditor({
       extensions,
@@ -190,9 +204,10 @@ const TiptapInput = memo(
         if (storage[MENTION_STORAGE_KEY]) {
           storage[MENTION_STORAGE_KEY].users = mentionUsers;
           storage[MENTION_STORAGE_KEY].roles = mentionRoles;
+          storage[MENTION_STORAGE_KEY].isDm = isDm;
         }
       }
-    }, [editor, mentionUsers, mentionRoles]);
+    }, [editor, mentionUsers, mentionRoles, isDm]);
 
     useEffect(() => {
       if (editor && value !== undefined) {

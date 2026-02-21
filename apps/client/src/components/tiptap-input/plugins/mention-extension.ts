@@ -7,8 +7,9 @@ import type { TMentionItem } from './mention-suggestion';
 export const MentionPluginKey = new PluginKey('mention');
 
 export interface MentionOptions {
-  users: { id: number; name: string; avatar: { name: string } | null }[];
+  users: { id: number; name: string; avatar?: { name: string } | null }[];
   roles: { id: number; name: string; color: string }[];
+  isDm: boolean;
   suggestion: typeof MentionSuggestion;
 }
 
@@ -23,6 +24,7 @@ export const MentionExtension = Node.create<MentionOptions>({
     return {
       users: [],
       roles: [],
+      isDm: false,
       suggestion: MentionSuggestion
     };
   },
@@ -30,7 +32,8 @@ export const MentionExtension = Node.create<MentionOptions>({
   addStorage() {
     return {
       users: this.options.users,
-      roles: this.options.roles
+      roles: this.options.roles,
+      isDm: this.options.isDm
     };
   },
 

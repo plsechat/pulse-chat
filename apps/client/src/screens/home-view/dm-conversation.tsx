@@ -64,6 +64,11 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
+  const dmChannels = useDmChannels();
+  const dmMembers = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
+  }, [dmChannels, dmChannelId]);
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
@@ -318,6 +323,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             onSubmit={onSendMessage}
             onTyping={sendTypingSignal}
             disabled={uploading}
+            dmMembers={dmMembers}
           />
           {isGiphyEnabled() && (
             <GifPicker onSelect={onGifSelect}>
@@ -1002,6 +1008,11 @@ const DmMessageEdit = memo(
     onCancel: () => void;
   }) => {
     const [editContent, setEditContent] = useState(message.content ?? '');
+    const dmChannels = useDmChannels();
+    const editDmMembers = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === message.dmChannelId);
+      return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
+    }, [dmChannels, message.dmChannelId]);
 
     const handleSubmit = useCallback(() => {
       if (!editContent.trim()) return;
@@ -1015,6 +1026,7 @@ const DmMessageEdit = memo(
           onChange={setEditContent}
           onSubmit={handleSubmit}
           onCancel={onCancel}
+          dmMembers={editDmMembers}
         />
         <div className="flex gap-2 text-xs text-muted-foreground">
           <span>

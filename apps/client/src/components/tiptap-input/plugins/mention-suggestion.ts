@@ -32,8 +32,17 @@ export const MentionSuggestion = {
       storage?.users ?? [];
     const roles: { id: number; name: string; color: string }[] =
       storage?.roles ?? [];
+    const isDm: boolean = storage?.isDm ?? false;
 
     const q = query.toLowerCase();
+
+    // In DMs, only show participant users — no @all or roles
+    if (isDm) {
+      return users
+        .filter((u) => u.name.toLowerCase().includes(q))
+        .slice(0, 8)
+        .map((u) => ({ type: 'user' as const, id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity }));
+    }
 
     // @all mention — show when query matches "all" or "everyone"
     const allItem: TMentionItem[] =
