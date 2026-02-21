@@ -27,6 +27,7 @@ import { imageExtensions, TYPING_MS } from '@pulse/shared';
 import { ImageOverride } from '@/components/channel-view/text/overrides/image';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { preprocessMarkdown } from '@/components/channel-view/text/renderer/markdown-preprocessor';
+import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 import parse from 'html-react-parser';
@@ -104,7 +105,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   }, [fetching, hasMore, loadMore]);
 
   const onSendMessage = useCallback(async () => {
-    if (!newMessage.trim() && !files.length) return;
+    if (isHtmlEmpty(newMessage) && !files.length) return;
 
     sendTypingSignal.cancel();
 
@@ -270,7 +271,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             variant="ghost"
             className="h-8 w-8"
             onClick={onSendMessage}
-            disabled={uploading || (!newMessage.trim() && !files.length)}
+            disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
           >
             <Send className="h-4 w-4" />
           </Button>
