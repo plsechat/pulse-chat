@@ -904,6 +904,31 @@ const federationInstances = pgTable(
   ]
 );
 
+const userFederatedServers = pgTable(
+  'user_federated_servers',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    instanceId: integer('instance_id')
+      .notNull()
+      .references(() => federationInstances.id, { onDelete: 'cascade' }),
+    remoteServerId: integer('remote_server_id').notNull(),
+    remoteServerPublicId: text('remote_server_public_id').notNull(),
+    remoteServerName: text('remote_server_name'),
+    joinedAt: bigint('joined_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('ufs_user_instance_server_idx').on(
+      t.userId,
+      t.instanceId,
+      t.remoteServerId
+    ),
+    index('ufs_user_idx').on(t.userId)
+  ]
+);
+
 // E2EE tables
 
 const userIdentityKeys = pgTable('user_identity_keys', {
@@ -1002,6 +1027,7 @@ export {
   emojis,
   federationInstances,
   federationKeys,
+  userFederatedServers,
   files,
   forumPostTags,
   forumTags,

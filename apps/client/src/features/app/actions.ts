@@ -332,6 +332,19 @@ export const joinFederatedServer = async (
     store.dispatch(appSliceActions.addFederatedServer(entry));
     saveFederatedServers();
 
+    // Persist membership on home server (fire-and-forget)
+    const homeTrpc = getHomeTRPCClient();
+    homeTrpc.federation.confirmJoin
+      .mutate({
+        instanceDomain,
+        remoteServerId: server.id,
+        remoteServerPublicId,
+        remoteServerName: server.name
+      })
+      .catch((err) =>
+        console.error('Failed to persist federation membership:', err)
+      );
+
     toast.success(`Joined ${server.name} on ${instanceName}`);
 
     // Auto-switch to the newly joined server
@@ -363,6 +376,14 @@ export const leaveFederatedServer = async (
   );
   saveFederatedServers();
 
+  // Remove membership from home server (fire-and-forget)
+  const homeTrpc = getHomeTRPCClient();
+  homeTrpc.federation.leaveRemote
+    .mutate({ instanceDomain, remoteServerId: serverId })
+    .catch((err) =>
+      console.error('Failed to remove federation membership:', err)
+    );
+
   // Check if any servers remain on this instance
   const state = store.getState();
   const remaining = state.app.federatedServers.filter(
@@ -371,6 +392,9 @@ export const leaveFederatedServer = async (
 
   if (remaining.length === 0) {
     connectionManager.disconnectRemote(instanceDomain);
+    store.dispatch(
+      appSliceActions.clearFederatedConnectionStatus(instanceDomain)
+    );
   }
 
   setActiveView('home');
@@ -398,8 +422,24 @@ export const switchToFederatedServer = async (
 
   if (!entry) return;
 
-  // Ensure connection is active
-  if (!connectionManager.isConnected(instanceDomain)) {
+  // Save previous state for rollback on failure
+  const prevServerId = state.app.activeServerId;
+  const prevInstanceDomain = state.app.activeInstanceDomain;
+  const prevView = state.app.activeView;
+
+  // Ensure connection is active — reconnect if previously disconnected
+  const connStatus =
+    state.app.federatedConnectionStatuses[instanceDomain];
+  if (
+    connStatus === 'disconnected' ||
+    !connectionManager.getConnection(instanceDomain)
+  ) {
+    connectionManager.reconnectRemote(
+      instanceDomain,
+      entry.remoteUrl,
+      entry.federationToken
+    );
+  } else if (!connectionManager.isConnected(instanceDomain)) {
     connectionManager.connectRemote(
       instanceDomain,
       entry.remoteUrl,
@@ -431,6 +471,7 @@ export const switchToFederatedServer = async (
     }
   }
 
+  // Set active state optimistically
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   store.dispatch(appSliceActions.setActiveInstanceDomain(instanceDomain));
   setActiveView('server');
@@ -439,8 +480,7 @@ export const switchToFederatedServer = async (
   try {
     const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
     if (!remoteTrpc) {
-      toast.error('Failed to connect to remote instance');
-      return;
+      throw new Error('No remote tRPC client available');
     }
 
     const data = await remoteTrpc.others.joinServer.query({
@@ -459,7 +499,14 @@ export const switchToFederatedServer = async (
     );
   } catch (error) {
     console.error('Failed to load federated server data:', error);
-    toast.error('Failed to load federated server data');
+    toast.error('Failed to connect to federated server');
+
+    // Rollback to previous state
+    store.dispatch(appSliceActions.setActiveServerId(prevServerId));
+    store.dispatch(
+      appSliceActions.setActiveInstanceDomain(prevInstanceDomain)
+    );
+    setActiveView(prevView);
   }
 };
 
@@ -482,54 +529,80 @@ export const saveFederatedServers = () => {
 };
 
 export const loadFederatedServers = async () => {
-  const saved = getLocalStorageItemAsJSON<TFederatedServerEntry[]>(
-    LocalStorageKey.FEDERATED_SERVERS
-  );
-  if (!saved || saved.length === 0) return;
-
-  store.dispatch(appSliceActions.setFederatedServers(saved));
-
-  // Validate stored federated servers against the home server's instance list
-  try {
-    const trpc = getHomeTRPCClient();
-    const instances = await trpc.federation.listInstances.query();
-    const activeDomains = new Set(
-      instances.filter((i) => i.status === 'active').map((i) => i.domain)
+  // Register connection status handler (idempotent — last handler wins)
+  connectionManager.setStatusChangeHandler((domain, status) => {
+    store.dispatch(
+      appSliceActions.setFederatedConnectionStatus({
+        instanceDomain: domain,
+        status
+      })
     );
 
-    const staleDomains = new Set<string>();
-    for (const entry of saved) {
-      if (!activeDomains.has(entry.instanceDomain)) {
-        staleDomains.add(entry.instanceDomain);
+    // When a federated connection is permanently lost, fall back to home
+    if (status === 'disconnected') {
+      const s = store.getState();
+      if (s.app.activeInstanceDomain === domain) {
+        toast.error('Lost connection to federated server');
+        store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+        setActiveView('home');
       }
     }
+  });
 
-    if (staleDomains.size === 0) return;
+  try {
+    const trpc = getHomeTRPCClient();
+    const memberships = await trpc.federation.getJoined.query();
 
-    const state = store.getState();
-    const activeDomain = state.app.activeInstanceDomain;
+    if (memberships.length === 0) {
+      // No server-side memberships — clean up any stale localStorage entries
+      store.dispatch(appSliceActions.setFederatedServers([]));
+      saveFederatedServers();
+      return;
+    }
 
-    for (const domain of staleDomains) {
-      const entries = saved.filter((s) => s.instanceDomain === domain);
-      for (const entry of entries) {
-        store.dispatch(
-          appSliceActions.removeFederatedServer({
-            instanceDomain: entry.instanceDomain,
-            serverId: entry.server.id
-          })
+    const entries: TFederatedServerEntry[] = [];
+    for (const m of memberships) {
+      try {
+        const { token, expiresAt } = await trpc.federation.requestToken.mutate({
+          targetDomain: m.instanceDomain
+        });
+
+        const protocol = m.instanceDomain.includes('localhost')
+          ? 'http'
+          : 'https';
+
+        entries.push({
+          instanceDomain: m.instanceDomain,
+          instanceName: m.instanceName ?? m.instanceDomain,
+          remoteUrl: `${protocol}://${m.instanceDomain}`,
+          server: {
+            id: m.remoteServerId,
+            publicId: m.remoteServerPublicId,
+            name: m.remoteServerName ?? 'Unknown Server',
+            logo: null
+          },
+          federationToken: token,
+          tokenExpiresAt: expiresAt
+        });
+      } catch (err) {
+        console.error(
+          `Failed to get token for ${m.instanceDomain}:`,
+          err
         );
       }
-      connectionManager.disconnectRemote(domain);
     }
 
+    store.dispatch(appSliceActions.setFederatedServers(entries));
     saveFederatedServers();
-
-    // If user was viewing a removed federated server, reset to home
-    if (activeDomain && staleDomains.has(activeDomain)) {
-      store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-      setActiveView('home');
-    }
   } catch (error) {
-    console.error('Failed to validate federated servers:', error);
+    console.error('Failed to load federated servers from server:', error);
+
+    // Fall back to localStorage
+    const saved = getLocalStorageItemAsJSON<TFederatedServerEntry[]>(
+      LocalStorageKey.FEDERATED_SERVERS
+    );
+    if (saved && saved.length > 0) {
+      store.dispatch(appSliceActions.setFederatedServers(saved));
+    }
   }
 };

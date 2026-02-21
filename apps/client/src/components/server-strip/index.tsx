@@ -10,6 +10,7 @@ import {
   useActiveInstanceDomain,
   useActiveServerId,
   useActiveView,
+  useFederatedConnectionStatuses,
   useFederatedServers,
   useJoinedServers,
   useServerMentionCounts,
@@ -133,14 +134,24 @@ const FederatedServerIcon = memo(
   ({
     entry,
     isActive,
+    connectionStatus,
     onClick
   }: {
     entry: TFederatedServerEntry;
     isActive: boolean;
+    connectionStatus?: 'connecting' | 'connected' | 'disconnected';
     onClick: () => void;
   }) => {
     const firstLetter = entry.server.name.charAt(0).toUpperCase();
     const instanceInitial = entry.instanceDomain.charAt(0).toUpperCase();
+    const isOffline = connectionStatus === 'disconnected';
+    const isReconnecting = connectionStatus === 'connecting';
+
+    const statusSuffix = isOffline
+      ? ' - Disconnected'
+      : isReconnecting
+        ? ' - Reconnecting...'
+        : '';
 
     return (
       <div className="relative flex w-full items-center justify-center group">
@@ -156,9 +167,10 @@ const FederatedServerIcon = memo(
             'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden',
             isActive
               ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl',
+            isOffline && 'opacity-50'
           )}
-          title={`${entry.server.name} (${entry.instanceDomain})`}
+          title={`${entry.server.name} (${entry.instanceDomain})${statusSuffix}`}
         >
           {entry.server.logo ? (
             <img
@@ -170,8 +182,17 @@ const FederatedServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
-        {/* Federation badge — outside button to avoid overflow-hidden clipping */}
-        <div className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 border border-sidebar text-[8px] font-bold text-white pointer-events-none">
+        {/* Federation badge — color indicates connection status */}
+        <div
+          className={cn(
+            'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-sidebar text-[8px] font-bold text-white pointer-events-none',
+            isOffline
+              ? 'bg-destructive'
+              : isReconnecting
+                ? 'bg-yellow-600'
+                : 'bg-blue-600'
+          )}
+        >
           {instanceInitial}
         </div>
       </div>
@@ -224,6 +245,7 @@ const ServerStrip = memo(() => {
   const currentVoiceServerId = useCurrentVoiceServerId();
   const federatedServers = useFederatedServers();
   const activeInstanceDomain = useActiveInstanceDomain();
+  const federatedConnectionStatuses = useFederatedConnectionStatuses();
 
   const serverIds = useMemo(
     () => joinedServers.map((s) => s.id),
@@ -550,6 +572,9 @@ const ServerStrip = memo(() => {
                       activeView === 'server' &&
                       activeServerId === entry.server.id &&
                       activeInstanceDomain === entry.instanceDomain
+                    }
+                    connectionStatus={
+                      federatedConnectionStatuses[entry.instanceDomain]
                     }
                     onClick={() => handleFederatedServerClick(entry)}
                   />

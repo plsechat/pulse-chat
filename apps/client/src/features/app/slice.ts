@@ -25,6 +25,10 @@ export interface TAppState {
   activeInstanceDomain: string | null;
   serverUnreadCounts: Record<number, number>;
   serverMentionCounts: Record<number, number>;
+  federatedConnectionStatuses: Record<
+    string,
+    'connecting' | 'connected' | 'disconnected'
+  >;
 }
 
 const initialState: TAppState = {
@@ -38,7 +42,8 @@ const initialState: TAppState = {
   federatedServers: [],
   activeInstanceDomain: null,
   serverUnreadCounts: {},
-  serverMentionCounts: {}
+  serverMentionCounts: {},
+  federatedConnectionStatuses: {}
 };
 
 export const appSlice = createSlice({
@@ -183,6 +188,22 @@ export const appSlice = createSlice({
       action: PayloadAction<Record<number, number>>
     ) => {
       state.serverMentionCounts = action.payload;
+    },
+    setFederatedConnectionStatus: (
+      state,
+      action: PayloadAction<{
+        instanceDomain: string;
+        status: 'connecting' | 'connected' | 'disconnected';
+      }>
+    ) => {
+      state.federatedConnectionStatuses[action.payload.instanceDomain] =
+        action.payload.status;
+    },
+    clearFederatedConnectionStatus: (
+      state,
+      action: PayloadAction<string>
+    ) => {
+      delete state.federatedConnectionStatuses[action.payload];
     }
   }
 });
