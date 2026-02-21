@@ -5,7 +5,11 @@ import {
   Permission,
   ServerEvents,
   UserStatus,
-  type TConnectionParams
+  type TChannelUserPermissionsMap,
+  type TConnectionParams,
+  type TJoinedRole,
+  type TJoinedServer,
+  type TJoinedUser
 } from '@pulse/shared';
 import { TRPCError } from '@trpc/server';
 import {
@@ -14,9 +18,9 @@ import {
 } from '@trpc/server/adapters/ws';
 import { eq } from 'drizzle-orm';
 import http from 'http';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { db } from '../db';
-import { findOrCreateShadowUser } from '../db/mutations/federation';
+import { findOrCreateShadowUser, syncShadowUserProfile } from '../db/mutations/federation';
 import { getAllChannelUserPermissions } from '../db/queries/channels';
 import {
   getServerById,
@@ -38,6 +42,8 @@ import type { Context } from './trpc';
 
 let wss: WebSocketServer | undefined;
 const userStatusOverrides = new Map<number, UserStatus>();
+const wsMapByToken = new Map<string, WebSocket>();
+const wsMapByUserId = new Map<number, WebSocket>();
 
 const usersIpMap = new Map<number, string>();
 
@@ -83,6 +89,9 @@ const createContext = async ({
     );
     logger.info('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
 
+    // Sync profile (avatar, banner, bio) from home instance (fire-and-forget)
+    syncShadowUserProfile(decodedUser.id, fedResult.issuerDomain, fedResult.publicId);
+
     // Use the federation token itself for WS client matching
     accessToken = params.federationToken;
   } else {
@@ -100,21 +109,58 @@ const createContext = async ({
     message: 'User is banned'
   });
 
+  // Per-connection permission cache (lazy-loaded, invalidated on mutations)
+  let _cachedUser: TJoinedUser | undefined;
+  const _cachedServerMap = new Map<number, TJoinedServer | undefined>();
+  const _cachedRolesMap = new Map<string, TJoinedRole[]>();
+  let _cachedChannelPerms: TChannelUserPermissionsMap | undefined;
+
+  const getCachedUser = async () => {
+    if (!_cachedUser) _cachedUser = await getUserById(decodedUser.id);
+    return _cachedUser;
+  };
+
+  const getCachedServer = async (serverId: number) => {
+    if (!_cachedServerMap.has(serverId))
+      _cachedServerMap.set(serverId, await getServerById(serverId));
+    return _cachedServerMap.get(serverId);
+  };
+
+  const getCachedUserRoles = async (userId: number, serverId?: number) => {
+    const key = `${userId}:${serverId ?? 'all'}`;
+    if (!_cachedRolesMap.has(key))
+      _cachedRolesMap.set(key, await getUserRoles(userId, serverId));
+    return _cachedRolesMap.get(key)!;
+  };
+
+  const getCachedChannelPermissions = async () => {
+    if (!_cachedChannelPerms)
+      _cachedChannelPerms = await getAllChannelUserPermissions(decodedUser.id);
+    return _cachedChannelPerms;
+  };
+
+  const invalidatePermissionCache = () => {
+    _cachedUser = undefined;
+    _cachedServerMap.clear();
+    _cachedRolesMap.clear();
+    _cachedChannelPerms = undefined;
+  };
+
   const hasPermission = async (
     targetPermission: Permission | Permission[],
     serverId?: number
   ) => {
-    const user = await getUserById(decodedUser.id);
+    const user = await getCachedUser();
 
     if (!user) return false;
 
     // Check if user is the server owner (bypasses all permission checks)
     if (serverId) {
-      const server = await getServerById(serverId);
+      const server = await getCachedServer(serverId);
       if (server && server.ownerId === user.id) return true;
     }
 
-    const roles = await getUserRoles(user.id, serverId);
+    const roles = await getCachedUserRoles(user.id, serverId);
 
     const permissionsSet = new Set<Permission>();
 
@@ -148,17 +194,15 @@ const createContext = async ({
 
     if (!channelRecord.private) return true;
 
-    const user = await getUserById(decodedUser.id);
+    const user = await getCachedUser();
 
     if (!user) return false;
 
     // Check if user is server owner (bypasses channel permissions)
-    const server = await getServerById(channelRecord.serverId);
+    const server = await getCachedServer(channelRecord.serverId);
     if (server && server.ownerId === user.id) return true;
 
-    const userChannelPermissions = await getAllChannelUserPermissions(
-      decodedUser.id
-    );
+    const userChannelPermissions = await getCachedChannelPermissions();
 
     const channelInfo = userChannelPermissions[channelId];
 
@@ -168,22 +212,12 @@ const createContext = async ({
     return channelInfo.permissions[targetPermission] === true;
   };
 
-  const getOwnWs = () => {
-    if (!wss) return undefined;
-    return Array.from(wss.clients).find((client) => client.token === accessToken);
-  };
+  const getOwnWs = () => wsMapByToken.get(accessToken);
 
-  const getUserWs = (userId: number) => {
-    if (!wss) return undefined;
-    return Array.from(wss.clients).find((client) => client.userId === userId);
-  };
+  const getUserWs = (userId: number) => wsMapByUserId.get(userId);
 
   const getStatusById = (userId: number) => {
-    if (!wss) return UserStatus.OFFLINE;
-
-    const isConnected = Array.from(wss.clients).some(
-      (ws) => ws.userId === userId
-    );
+    const isConnected = wsMapByUserId.has(userId);
 
     if (!isConnected) return UserStatus.OFFLINE;
 
@@ -205,19 +239,16 @@ const createContext = async ({
   };
 
   const setWsUserId = (userId: number) => {
-    if (!wss) return;
-
-    const ws = Array.from(wss.clients).find((client) => client.token === accessToken);
+    const ws = wsMapByToken.get(accessToken);
 
     if (ws) {
       ws.userId = userId;
+      wsMapByUserId.set(userId, ws);
     }
   };
 
   const getConnectionInfo = () => {
-    if (!wss) return undefined;
-
-    const ws = Array.from(wss.clients).find((client) => client.token === accessToken);
+    const ws = wsMapByToken.get(accessToken);
 
     if (!ws) return undefined;
 
@@ -286,7 +317,8 @@ const createContext = async ({
     getUserWs,
     getConnectionInfo,
     throwValidationError,
-    saveUserIp
+    saveUserIp,
+    invalidatePermissionCache
   };
 };
 
@@ -310,12 +342,19 @@ const createWsServer = async (server: http.Server) => {
           } else {
             ws.token = params.accessToken;
           }
+
+          // Populate lookup Maps for O(1) access
+          if (ws.token) wsMapByToken.set(ws.token, ws);
         } catch {
           logger.error('Failed to parse initial WebSocket message');
         }
       });
 
       ws.on('close', async () => {
+        // Clean up lookup Maps immediately (before any async work)
+        if (ws.token) wsMapByToken.delete(ws.token);
+        if (ws.userId !== undefined) wsMapByUserId.delete(ws.userId);
+
         let user;
 
         // Handle federated user disconnect

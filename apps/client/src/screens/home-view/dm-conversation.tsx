@@ -27,6 +27,7 @@ import { imageExtensions, TYPING_MS } from '@pulse/shared';
 import { ImageOverride } from '@/components/channel-view/text/overrides/image';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { preprocessMarkdown } from '@/components/channel-view/text/renderer/markdown-preprocessor';
+import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 import parse from 'html-react-parser';
@@ -34,6 +35,11 @@ import { format, formatDistance, subDays } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import {
+  getLocalStorageItemAsJSON,
+  LocalStorageKey,
+  setLocalStorageItemAsJSON
+} from '@/helpers/storage';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -43,6 +49,7 @@ import { DmVoicePanel } from '@/components/dm-call/dm-voice-panel';
 import { useDmCall, useOwnDmCallChannelId } from '@/features/dms/hooks';
 import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
 import { useVoice } from '@/features/server/voice/hooks';
+import { SystemMessage } from '@/components/channel-view/text/system-message';
 import { DmSearchPopover } from './dm-search-popover';
 
 type TDmConversationProps = {
@@ -58,6 +65,11 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
+  const dmChannels = useDmChannels();
+  const dmMembers = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
+  }, [dmChannels, dmChannelId]);
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
@@ -87,23 +99,83 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
     [dmChannelId]
   );
 
-  // Auto-scroll to bottom on new messages
+  const hasInitialScroll = useRef(false);
+  const isNearBottom = useRef(true);
+
+  // Restore saved scroll position or scroll to bottom on initial load
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    if (!containerRef.current || loading || messages.length === 0) return;
+    if (hasInitialScroll.current) return;
+
+    const positions =
+      getLocalStorageItemAsJSON<Record<number, number>>(
+        LocalStorageKey.DM_SCROLL_POSITIONS
+      ) ?? {};
+    const saved = positions[dmChannelId];
+
+    const perform = () => {
+      const c = containerRef.current;
+      if (!c) return;
+      if (saved !== undefined) {
+        c.scrollTop = saved;
+        const atBottom =
+          c.scrollTop + c.clientHeight >= c.scrollHeight * 0.9;
+        isNearBottom.current = atBottom;
+      } else {
+        c.scrollTop = c.scrollHeight;
+        isNearBottom.current = true;
+      }
+      hasInitialScroll.current = true;
+    };
+
+    perform();
+    requestAnimationFrame(perform);
+    setTimeout(perform, 50);
+    setTimeout(perform, 200);
+  }, [loading, messages.length, dmChannelId]);
+
+  // Auto-scroll on new messages only when user is near bottom
+  useEffect(() => {
+    if (!containerRef.current || !hasInitialScroll.current || messages.length === 0) return;
+    if (isNearBottom.current) {
+      setTimeout(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      }, 10);
     }
   }, [messages.length]);
 
-  const onScroll = useCallback(() => {
-    if (!containerRef.current || fetching || !hasMore) return;
+  // Save scroll position on unmount
+  useEffect(() => {
+    return () => {
+      const c = containerRef.current;
+      if (c) {
+        const positions =
+          getLocalStorageItemAsJSON<Record<number, number>>(
+            LocalStorageKey.DM_SCROLL_POSITIONS
+          ) ?? {};
+        positions[dmChannelId] = c.scrollTop;
+        setLocalStorageItemAsJSON(LocalStorageKey.DM_SCROLL_POSITIONS, positions);
+      }
+    };
+  }, [dmChannelId]);
 
-    if (containerRef.current.scrollTop < 100) {
+  const onScroll = useCallback(() => {
+    if (!containerRef.current) return;
+
+    // Track whether user is near bottom
+    const c = containerRef.current;
+    isNearBottom.current =
+      c.scrollTop + c.clientHeight >= c.scrollHeight * 0.9;
+
+    if (!fetching && hasMore && c.scrollTop < 100) {
       loadMore();
     }
   }, [fetching, hasMore, loadMore]);
 
   const onSendMessage = useCallback(async () => {
-    if (!newMessage.trim() && !files.length) return;
+    if (isHtmlEmpty(newMessage) && !files.length) return;
 
     sendTypingSignal.cancel();
 
@@ -190,9 +262,12 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
         className="flex-1 overflow-y-auto overflow-x-hidden p-2"
       >
         <div className="space-y-4">
-          {groupedMessages.map((group, index) => (
-            <DmMessagesGroup key={index} group={group} onReply={handleReply} />
-          ))}
+          {groupedMessages.map((group, index) => {
+            if (group[0].type === 'system') {
+              return <SystemMessage key={index} message={group[0]} />;
+            }
+            return <DmMessagesGroup key={index} group={group} onReply={handleReply} />;
+          })}
         </div>
       </div>
 
@@ -249,6 +324,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             onSubmit={onSendMessage}
             onTyping={sendTypingSignal}
             disabled={uploading}
+            dmMembers={dmMembers}
           />
           {isGiphyEnabled() && (
             <GifPicker onSelect={onGifSelect}>
@@ -266,7 +342,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             variant="ghost"
             className="h-8 w-8"
             onClick={onSendMessage}
-            disabled={uploading || (!newMessage.trim() && !files.length)}
+            disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
           >
             <Send className="h-4 w-4" />
           </Button>
@@ -933,6 +1009,11 @@ const DmMessageEdit = memo(
     onCancel: () => void;
   }) => {
     const [editContent, setEditContent] = useState(message.content ?? '');
+    const dmChannels = useDmChannels();
+    const editDmMembers = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === message.dmChannelId);
+      return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
+    }, [dmChannels, message.dmChannelId]);
 
     const handleSubmit = useCallback(() => {
       if (!editContent.trim()) return;
@@ -946,6 +1027,7 @@ const DmMessageEdit = memo(
           onChange={setEditContent}
           onSubmit={handleSubmit}
           onCancel={onCancel}
+          dmMembers={editDmMembers}
         />
         <div className="flex gap-2 text-xs text-muted-foreground">
           <span>

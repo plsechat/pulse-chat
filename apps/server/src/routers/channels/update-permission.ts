@@ -81,6 +81,7 @@ const updatePermissionsRoute = protectedProcedure
       }
     });
 
+    ctx.invalidatePermissionCache();
     publishChannelPermissions(
       await getAffectedUserIdsForChannel(input.channelId)
     );

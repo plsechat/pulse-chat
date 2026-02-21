@@ -47,6 +47,7 @@ type Events = {
   [ServerEvents.CHANNEL_READ_STATES_UPDATE]: {
     channelId: number;
     count: number;
+    mentionCount: number;
   };
 
   [ServerEvents.USER_JOIN_VOICE]: {
@@ -167,6 +168,7 @@ type Events = {
   [ServerEvents.SERVER_UNREAD_COUNT_UPDATE]: {
     serverId: number;
     count: number;
+    mentionCount: number;
   };
 
   [ServerEvents.MESSAGE_PIN]: {

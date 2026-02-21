@@ -8,11 +8,13 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getSettings } from '../../db/queries/server';
 import { channels, messageFiles, messages } from '../../db/schema';
 import { getInvokerCtxFromTrpcCtx } from '../../helpers/get-invoker-ctx-from-trpc-ctx';
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
 import { parseCommandArgs } from '../../helpers/parse-command-args';
+import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
@@ -223,6 +225,16 @@ const sendMessageRoute = protectedProcedure
       }
     }
 
+    // Parse @user, @role, @all mentions from non-E2EE content
+    let mentionedUserIds: number[] | null = null;
+    let mentionsAll = false;
+    if (!isE2ee && targetContent) {
+      const memberIds = await getAffectedUserIdsForChannel(input.channelId);
+      const parsed = await parseMentionedUserIds(targetContent, memberIds);
+      mentionedUserIds = parsed.userIds.length > 0 ? parsed.userIds : null;
+      mentionsAll = parsed.mentionsAll;
+    }
+
     const [message] = await db
       .insert(messages)
       .values({
@@ -233,6 +245,8 @@ const sendMessageRoute = protectedProcedure
         e2ee: isE2ee,
         editable,
         replyToId: input.replyToId,
+        mentionedUserIds,
+        mentionsAll,
         createdAt: Date.now()
       })
       .returning();

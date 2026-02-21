@@ -11,6 +11,7 @@ import {
 } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, t } from '../../utils/trpc';
+import { insertIdentityResetMessages } from './identity-reset-messages';
 
 const registerKeysRoute = protectedProcedure
   .input(
@@ -105,8 +106,15 @@ const registerKeysRoute = protectedProcedure
       }
     });
 
-    // Broadcast identity reset after transaction commits
+    // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
+      try {
+        await insertIdentityResetMessages(ctx.userId);
+      } catch (err) {
+        // Non-fatal: don't block key registration if system messages fail
+        console.error('[E2EE] insertIdentityResetMessages failed:', err);
+      }
+
       pubsub.publish(ServerEvents.E2EE_IDENTITY_RESET, {
         userId: ctx.userId
       });
@@ -262,6 +270,43 @@ const distributeSenderKeyRoute = protectedProcedure
     );
   });
 
+const distributeSenderKeysBatchRoute = protectedProcedure
+  .input(
+    z.object({
+      channelId: z.number(),
+      distributions: z.array(
+        z.object({
+          toUserId: z.number(),
+          distributionMessage: z.string()
+        })
+      )
+    })
+  )
+  .mutation(async ({ ctx, input }) => {
+    if (input.distributions.length === 0) return;
+
+    await db.insert(e2eeSenderKeys).values(
+      input.distributions.map((d) => ({
+        channelId: input.channelId,
+        fromUserId: ctx.userId,
+        toUserId: d.toUserId,
+        distributionMessage: d.distributionMessage,
+        createdAt: Date.now()
+      }))
+    );
+
+    for (const d of input.distributions) {
+      pubsub.publishFor(
+        d.toUserId,
+        ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION,
+        {
+          channelId: input.channelId,
+          fromUserId: ctx.userId
+        }
+      );
+    }
+  });
+
 const getPendingSenderKeysRoute = protectedProcedure
   .input(z.object({ channelId: z.number().optional() }))
   .query(async ({ ctx, input }) => {
@@ -360,6 +405,7 @@ export const e2eeRouter = t.router({
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,
   distributeSenderKey: distributeSenderKeyRoute,
+  distributeSenderKeysBatch: distributeSenderKeysBatchRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
   acknowledgeSenderKeys: acknowledgeSenderKeysRoute,
   uploadKeyBackup: uploadKeyBackupRoute,

@@ -25,3 +25,12 @@ export const activeInstanceDomainSelector = (state: IRootState) =>
 
 export const serverUnreadCountsSelector = (state: IRootState) =>
   state.app.serverUnreadCounts;
+
+export const serverMentionCountsSelector = (state: IRootState) =>
+  state.app.serverMentionCounts;
+
+export const totalDmUnreadCountSelector = (state: IRootState) =>
+  state.dms.channels.reduce((sum, ch) => sum + (ch.unreadCount ?? 0), 0);
+
+export const federatedConnectionStatusesSelector = (state: IRootState) =>
+  state.app.federatedConnectionStatuses;

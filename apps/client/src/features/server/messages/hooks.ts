@@ -123,6 +123,11 @@ export const useMessages = (channelId: number) => {
 
       const lastMessage = last[last.length - 1];
 
+      // System messages are always standalone (never grouped)
+      if (message.type === 'system' || lastMessage.type === 'system') {
+        return [...acc, [message]];
+      }
+
       // Don't group webhook messages with regular messages (or different webhooks)
       const sameWebhook = lastMessage.webhookId === message.webhookId;
 

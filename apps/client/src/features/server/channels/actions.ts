@@ -119,3 +119,21 @@ export const setChannelReadState = (
     serverSliceActions.setChannelReadState({ channelId, count: actualCount })
   );
 };
+
+export const setChannelMentionState = (
+  channelId: number,
+  count: number | undefined
+) => {
+  const state = store.getState();
+  const selectedChannel = selectedChannelIdSelector(state);
+
+  let actualCount = count;
+
+  if (selectedChannel === channelId) {
+    actualCount = 0;
+  }
+
+  store.dispatch(
+    serverSliceActions.setChannelMentionState({ channelId, count: actualCount })
+  );
+};

@@ -13,6 +13,7 @@ import type {
   TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
+  TMentionStateMap,
   TPublicServerSettings,
   TReadStateMap,
   TServerInfo,
@@ -52,6 +53,9 @@ export interface IServerState {
   readStatesMap: {
     [channelId: number]: number | undefined;
   };
+  mentionStatesMap: {
+    [channelId: number]: number | undefined;
+  };
   pluginCommands: TCommandsMapByPlugin;
   activeThreadId: number | undefined;
   highlightedMessageId: number | undefined;
@@ -89,6 +93,7 @@ const initialState: IServerState = {
   pinnedCard: undefined,
   channelPermissions: {},
   readStatesMap: {},
+  mentionStatesMap: {},
   pluginCommands: {},
   activeThreadId: undefined,
   highlightedMessageId: undefined
@@ -150,6 +155,7 @@ export const serverSlice = createSlice({
         externalStreamsMap: TExternalStreamsMap;
         channelPermissions: TChannelUserPermissionsMap;
         readStates: TReadStateMap;
+        mentionStates?: TMentionStateMap;
       }>
     ) => {
       state.connected = true;
@@ -166,6 +172,7 @@ export const serverSlice = createSlice({
       state.serverId = action.payload.serverId;
       state.channelPermissions = action.payload.channelPermissions;
       state.readStatesMap = action.payload.readStates;
+      state.mentionStatesMap = action.payload.mentionStates ?? {};
       // Clear transient state from previous server
       state.messagesMap = {};
       state.typingMap = {};
@@ -398,6 +405,7 @@ export const serverSlice = createSlice({
         // reset unread count on select
         // for now this is good enough
         state.readStatesMap[action.payload] = 0;
+        state.mentionStatesMap[action.payload] = 0;
       }
     },
     setCurrentVoiceChannelId: (
@@ -425,6 +433,14 @@ export const serverSlice = createSlice({
       const { channelId, count } = action.payload;
 
       state.readStatesMap[channelId] = count;
+    },
+    setChannelMentionState: (
+      state,
+      action: PayloadAction<{ channelId: number; count: number | undefined }>
+    ) => {
+      const { channelId, count } = action.payload;
+
+      state.mentionStatesMap[channelId] = count;
     },
 
     // EMOJIS ------------------------------------------------------------

@@ -15,6 +15,34 @@
       "when": 1771470840273,
       "tag": "0001_bright_brother_voodoo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771626699018,
+      "tag": "0002_loose_natasha_romanoff",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1771642319086,
+      "tag": "0003_low_colossus",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771647000539,
+      "tag": "0004_fearless_colossus",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771649743974,
+      "tag": "0005_harsh_young_avengers",
+      "breakpoints": true
     }
   ]
 }

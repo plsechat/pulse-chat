@@ -44,6 +44,7 @@ This deployment runs four Docker containers: PostgreSQL, GoTrue (auth), Kong (AP
 - A server with Ubuntu 22.04+ and root/sudo access
 - A domain name with an A record pointing to your server's public IP (for HTTPS)
 - SSH access to your server
+- Git installed (`sudo apt install git` if not already present)
 
 ---
 
@@ -165,9 +166,17 @@ SITE_URL=https://your-domain.com
 | `JWT_EXPIRY` | No | `3600` | Token expiry in seconds |
 | `PUBLIC_IP` | No | auto | Public IP for WebRTC |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enable Google login |
+| `GOOGLE_OAUTH_CLIENT_ID` | No | — | Google OAuth client ID |
+| `GOOGLE_OAUTH_SECRET` | No | — | Google OAuth client secret |
 | `DISCORD_OAUTH_ENABLED` | No | `false` | Enable Discord login |
+| `DISCORD_OAUTH_CLIENT_ID` | No | — | Discord OAuth client ID |
+| `DISCORD_OAUTH_SECRET` | No | — | Discord OAuth client secret |
 | `FACEBOOK_OAUTH_ENABLED` | No | `false` | Enable Facebook login |
+| `FACEBOOK_OAUTH_CLIENT_ID` | No | — | Facebook OAuth client ID |
+| `FACEBOOK_OAUTH_SECRET` | No | — | Facebook OAuth client secret |
 | `TWITCH_OAUTH_ENABLED` | No | `false` | Enable Twitch login |
+| `TWITCH_OAUTH_CLIENT_ID` | No | — | Twitch OAuth client ID |
+| `TWITCH_OAUTH_SECRET` | No | — | Twitch OAuth client secret |
 | `ADDITIONAL_REDIRECT_URLS` | No | — | Extra OAuth callback URLs |
 | `GIPHY_API_KEY` | No | — | Giphy API key for GIF search |
 
@@ -232,7 +241,12 @@ Configure `/etc/caddy/Caddyfile`:
 
 ```
 your-domain.com {
-    reverse_proxy localhost:4991
+    handle /auth/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle {
+        reverse_proxy localhost:4991
+    }
 }
 ```
 
@@ -254,6 +268,15 @@ Create `/etc/nginx/sites-available/pulse`:
 ```nginx
 server {
     server_name your-domain.com;
+
+    location /auth/v1/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:4991;
@@ -298,6 +321,8 @@ sudo ufw enable
 | 4991 | TCP | Pulse (only if no reverse proxy) |
 | 40000-40020 | UDP + TCP | WebRTC media (voice/video/screen share) |
 
+> **Note:** Docker manipulates iptables directly and can bypass ufw rules. Ports mapped in `docker-compose-supabase.yml` may be publicly accessible even if ufw doesn't allow them. The compose file binds Kong (port 8000) to `127.0.0.1` so it is only accessible from the reverse proxy — do not change this to `0.0.0.0`.
+
 ---
 
 ## Claim Server Ownership
@@ -334,17 +359,17 @@ docker logs pulse 2>&1 | grep -i token
 
 ```bash
 cd /opt/pulse
-git pull
-docker compose -f docker-compose-supabase.yml up --build -d
+docker compose -f docker-compose-supabase.yml pull
+docker compose -f docker-compose-supabase.yml up -d
 ```
 
-Drizzle ORM handles database migrations automatically on startup.
+This pulls the latest published image and restarts the containers. Database migrations are handled automatically on startup.
 
 ---
 
 ## OAuth Setup (Optional)
 
-Pulse supports OAuth login via Google, Discord, Facebook, and Twitch through GoTrue.
+Pulse supports OAuth login via Google, Discord, Facebook, and Twitch through GoTrue. All OAuth configuration is done through your `.env` file — do not edit `docker-compose-supabase.yml` directly.
 
 ### Google OAuth
 
@@ -352,35 +377,31 @@ Pulse supports OAuth login via Google, Discord, Facebook, and Twitch through GoT
 2. Create a project and go to **APIs & Services > Credentials**
 3. Create an **OAuth 2.0 Client ID** (Web application)
 4. Set the authorized redirect URI to: `https://your-domain.com/auth/v1/callback`
-5. Add to your `.env`: `GOOGLE_OAUTH_ENABLED=true`
-6. Add to the `auth` service environment in `docker-compose-supabase.yml`:
+5. Add to your `.env`:
 
-```yaml
-GOTRUE_EXTERNAL_GOOGLE_ENABLED: "true"
-GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: "your-client-id"
-GOTRUE_EXTERNAL_GOOGLE_SECRET: "your-client-secret"
-GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: "https://your-domain.com/auth/v1/callback"
+```env
+GOOGLE_OAUTH_ENABLED=true
+GOOGLE_OAUTH_CLIENT_ID=your-client-id
+GOOGLE_OAUTH_SECRET=your-client-secret
 ```
 
-7. Restart: `docker compose -f docker-compose-supabase.yml up -d`
+6. Restart: `docker compose -f docker-compose-supabase.yml up -d`
 
 ### Discord OAuth
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Create an application, go to **OAuth2**, add redirect: `https://your-domain.com/auth/v1/callback`
-3. Add to `.env`: `DISCORD_OAUTH_ENABLED=true`
-4. Add to `docker-compose-supabase.yml` under the `auth` service:
+3. Add to your `.env`:
 
-```yaml
-GOTRUE_EXTERNAL_DISCORD_ENABLED: "true"
-GOTRUE_EXTERNAL_DISCORD_CLIENT_ID: "your-client-id"
-GOTRUE_EXTERNAL_DISCORD_SECRET: "your-client-secret"
-GOTRUE_EXTERNAL_DISCORD_REDIRECT_URI: "https://your-domain.com/auth/v1/callback"
+```env
+DISCORD_OAUTH_ENABLED=true
+DISCORD_OAUTH_CLIENT_ID=your-client-id
+DISCORD_OAUTH_SECRET=your-client-secret
 ```
 
-5. Restart: `docker compose -f docker-compose-supabase.yml up -d`
+4. Restart: `docker compose -f docker-compose-supabase.yml up -d`
 
-The same pattern applies for Facebook and Twitch — replace `DISCORD` with `FACEBOOK` or `TWITCH`.
+The same pattern applies for Facebook and Twitch — replace `DISCORD` with `FACEBOOK` or `TWITCH` in the variable names.
 
 ---
 

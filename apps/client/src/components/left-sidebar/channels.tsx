@@ -9,6 +9,7 @@ import {
 import {
   useCan,
   useChannelCan,
+  useMentionCount,
   useTypingUsersByChannelId,
   useUnreadMessagesCount,
   useVoiceUsersByChannelId
@@ -58,7 +59,9 @@ const Voice = memo(({ channel, isInVoice, ...props }: TVoiceProps) => {
   const users = useVoiceUsersByChannelId(channel.id);
   const externalStreams = useVoiceChannelExternalStreamsList(channel.id);
   const unreadCount = useUnreadMessagesCount(channel.id);
+  const mentionCount = useMentionCount(channel.id);
   const hasActiveSession = users.length > 0;
+  const hasMentions = mentionCount > 0;
 
   return (
     <>
@@ -67,7 +70,10 @@ const Voice = memo(({ channel, isInVoice, ...props }: TVoiceProps) => {
         <span className={cn('flex-1', isInVoice && 'text-white drop-shadow-[0_0_6px_rgba(74,222,128,0.6)]')}>{channel.name}</span>
         {hasActiveSession && <VoiceTimer channelId={channel.id} />}
         {!hasActiveSession && unreadCount > 0 && (
-          <div className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+          <div className={cn(
+            'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium',
+            hasMentions ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
+          )}>
             {unreadCount > 99 ? '99+' : unreadCount}
           </div>
         )}
@@ -99,7 +105,9 @@ type TTextProps = Omit<TItemWrapperProps, 'children'> & {
 const Text = memo(({ channel, ...props }: TTextProps) => {
   const typingUsers = useTypingUsersByChannelId(channel.id);
   const unreadCount = useUnreadMessagesCount(channel.id);
+  const mentionCount = useMentionCount(channel.id);
   const hasTypingUsers = typingUsers.length > 0;
+  const hasMentions = mentionCount > 0;
 
   return (
     <ItemWrapper {...props} hasUnread={unreadCount > 0}>
@@ -111,7 +119,10 @@ const Text = memo(({ channel, ...props }: TTextProps) => {
         </div>
       )}
       {!hasTypingUsers && unreadCount > 0 && (
-        <div className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+        <div className={cn(
+          'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium',
+          hasMentions ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
+        )}>
           {unreadCount > 99 ? '99+' : unreadCount}
         </div>
       )}

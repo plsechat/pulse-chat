@@ -4,7 +4,7 @@ import { useUserById } from '@/features/server/users/hooks';
 import { memo } from 'react';
 
 type TMentionOverrideProps = {
-  type: 'user' | 'role';
+  type: 'user' | 'role' | 'all';
   id: number;
   name: string;
 };
@@ -45,7 +45,19 @@ const RoleMention = memo(({ id, name }: { id: number; name: string }) => {
   );
 });
 
+const AllMention = memo(() => {
+  return (
+    <span className="mention" style={{ color: '#f59e0b', backgroundColor: '#f59e0b26' }}>
+      @all
+    </span>
+  );
+});
+
 const MentionOverride = memo(({ type, id, name }: TMentionOverrideProps) => {
+  if (type === 'all') {
+    return <AllMention />;
+  }
+
   if (type === 'user') {
     return <UserMention id={id} name={name} />;
   }

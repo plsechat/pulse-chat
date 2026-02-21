@@ -6,7 +6,7 @@ import { MentionList, type MentionListRef } from '../mention-list';
 export const MENTION_STORAGE_KEY = 'mention';
 
 export type TMentionItem = {
-  type: 'user' | 'role';
+  type: 'user' | 'role' | 'all';
   id: number;
   name: string;
   avatar?: { name: string } | null;
@@ -32,8 +32,24 @@ export const MentionSuggestion = {
       storage?.users ?? [];
     const roles: { id: number; name: string; color: string }[] =
       storage?.roles ?? [];
+    const isDm: boolean = storage?.isDm ?? false;
+    const ownUserId: number = storage?.ownUserId ?? 0;
 
     const q = query.toLowerCase();
+
+    // In DMs, only show participant users — no @all or roles
+    if (isDm) {
+      return users
+        .filter((u) => u.id !== ownUserId && u.name.toLowerCase().includes(q))
+        .slice(0, 8)
+        .map((u) => ({ type: 'user' as const, id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity }));
+    }
+
+    // @all mention — show when query matches "all" or "everyone"
+    const allItem: TMentionItem[] =
+      'all'.includes(q) || 'everyone'.includes(q)
+        ? [{ type: 'all', id: 0, name: 'all' }]
+        : [];
 
     const matchedRoles: TMentionItem[] = roles
       .filter((r) => r.name.toLowerCase().includes(q))
@@ -41,11 +57,11 @@ export const MentionSuggestion = {
       .map((r) => ({ type: 'role', id: r.id, name: r.name, color: r.color }));
 
     const matchedUsers: TMentionItem[] = users
-      .filter((u) => u.name.toLowerCase().includes(q))
+      .filter((u) => u.id !== ownUserId && u.name.toLowerCase().includes(q))
       .slice(0, 8)
       .map((u) => ({ type: 'user', id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity }));
 
-    return [...matchedRoles, ...matchedUsers];
+    return [...allItem, ...matchedRoles, ...matchedUsers];
   },
   render: () => {
     let component: ReactRenderer | null = null;

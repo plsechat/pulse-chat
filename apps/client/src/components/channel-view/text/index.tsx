@@ -2,7 +2,7 @@ import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
 import { useCan, useChannelCan } from '@/features/server/hooks';
-import { useOwnUserId, useUserById, useUsers } from '@/features/server/users/hooks';
+import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useMessages } from '@/features/server/messages/hooks';
 import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
@@ -24,10 +24,12 @@ import { throttle } from 'lodash-es';
 import { ArrowDown, Clock, Plus, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { preprocessMarkdown } from './renderer/markdown-preprocessor';
+import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
 import { FileCard } from './file-card';
 import { MessagesGroup } from './messages-group';
+import { SystemMessage } from './system-message';
 import { TextSkeleton } from './text-skeleton';
 import { useScrollController } from './use-scroll-controller';
 import { UsersTyping } from './users-typing';
@@ -73,7 +75,6 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const slowMode = selectedChannel?.slowMode ?? 0;
   const isE2ee = selectedChannel?.e2ee ?? false;
   const ownUserId = useOwnUserId();
-  const serverUsers = useUsers();
   const allPluginCommands = useFlatPluginCommands();
   const { containerRef, onScroll, scrollToBottom, isAtBottom } = useScrollController({
     channelId,
@@ -164,7 +165,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   );
 
   const onSendMessage = useCallback(async () => {
-    if ((!newMessage.trim() && !files.length) || !canSendMessages) return;
+    if ((isHtmlEmpty(newMessage) && !files.length) || !canSendMessages) return;
 
     sendTypingSignal.cancel();
 
@@ -175,8 +176,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
-        const memberIds = serverUsers.map((u) => u.id);
-        await ensureChannelSenderKey(channelId, ownUserId, memberIds);
+        await ensureChannelSenderKey(channelId, ownUserId);
 
         const encryptedContent = await encryptChannelMessage(
           channelId,
@@ -220,8 +220,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
     replyingTo,
     startSlowModeCooldown,
     isE2ee,
-    ownUserId,
-    serverUsers
+    ownUserId
   ]);
 
   const onFileInputChange = useCallback(
@@ -242,8 +241,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
 
       try {
         if (isE2ee && ownUserId) {
-          const memberIds = serverUsers.map((u) => u.id);
-          await ensureChannelSenderKey(channelId, ownUserId, memberIds);
+          await ensureChannelSenderKey(channelId, ownUserId);
 
           const encryptedContent = await encryptChannelMessage(
             channelId,
@@ -263,7 +261,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [channelId, isE2ee, ownUserId, serverUsers]
+    [channelId, isE2ee, ownUserId]
   );
 
   const onRemoveFileClick = useCallback(
@@ -303,9 +301,12 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         onScroll={onScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4 animate-in fade-in duration-500"
       >
-        {groupedMessages.map((group, index) => (
-          <MessagesGroup key={index} group={group} onReply={handleReply} />
-        ))}
+        {groupedMessages.map((group, index) => {
+          if (group[0].type === 'system') {
+            return <SystemMessage key={index} message={group[0]} />;
+          }
+          return <MessagesGroup key={index} group={group} onReply={handleReply} />;
+        })}
       </div>
 
       {!isAtBottom && (
@@ -409,7 +410,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
             variant="ghost"
             className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
             onClick={onSendMessage}
-            disabled={uploading || !newMessage.trim() || !canSendMessages || slowModeRemaining > 0}
+            disabled={uploading || isHtmlEmpty(newMessage) || !canSendMessages || slowModeRemaining > 0}
           >
             <Send className="h-4 w-4" />
           </Button>

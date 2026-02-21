@@ -86,7 +86,9 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
             type="button"
             onClick={() => onSelect(item)}
           >
-            {item.type === 'user' ? (
+            {item.type === 'all' ? (
+              <div className="h-4 w-4 rounded-full shrink-0 bg-amber-500 flex items-center justify-center text-[8px] font-bold text-white">@</div>
+            ) : item.type === 'user' ? (
               <UserAvatar
                 userId={item.id}
                 className="h-5 w-5"
@@ -99,10 +101,13 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
               />
             )}
             <span className="truncate">
-              {item.type === 'role' ? `@${item.name}` : item.name}
+              {item.type === 'role' || item.type === 'all' ? `@${item.name}` : item.name}
             </span>
             {item.type === 'user' && item._identity?.includes('@') && (
               <Globe className="h-3 w-3 text-blue-500 shrink-0 ml-auto" />
+            )}
+            {item.type === 'all' && (
+              <span className="text-xs text-muted-foreground ml-auto">Everyone</span>
             )}
             {item.type === 'role' && (
               <span className="text-xs text-muted-foreground ml-auto">Role</span>

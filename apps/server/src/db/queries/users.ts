@@ -3,7 +3,7 @@ import {
   type TJoinedUser,
   type TStorageData
 } from '@pulse/shared';
-import { count, eq, sum } from 'drizzle-orm';
+import { count, eq, inArray, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { supabaseAdmin } from '../../utils/supabase';
@@ -72,6 +72,97 @@ const getPublicUserById = async (
     _identity: identity,
     roleIds: roles.map((r) => r.roleId)
   };
+};
+
+const getPublicUsersByIds = async (
+  userIds: number[]
+): Promise<Map<number, TJoinedPublicUser>> => {
+  const result = new Map<number, TJoinedPublicUser>();
+  if (userIds.length === 0) return result;
+
+  const avatarFiles = alias(files, 'avatarFiles');
+  const bannerFiles = alias(files, 'bannerFiles');
+
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      publicId: users.publicId,
+      bannerColor: users.bannerColor,
+      bio: users.bio,
+      banned: users.banned,
+      avatarId: users.avatarId,
+      bannerId: users.bannerId,
+      avatar: avatarFiles,
+      banner: bannerFiles,
+      createdAt: users.createdAt,
+      isFederated: users.isFederated,
+      federatedInstanceId: users.federatedInstanceId
+    })
+    .from(users)
+    .leftJoin(avatarFiles, eq(users.avatarId, avatarFiles.id))
+    .leftJoin(bannerFiles, eq(users.bannerId, bannerFiles.id))
+    .where(inArray(users.id, userIds));
+
+  if (rows.length === 0) return result;
+
+  // Batch-fetch roles for all users
+  const roleRows = await db
+    .select({ userId: userRoles.userId, roleId: userRoles.roleId })
+    .from(userRoles)
+    .where(inArray(userRoles.userId, userIds));
+
+  const rolesMap: Record<number, number[]> = {};
+  for (const r of roleRows) {
+    if (!rolesMap[r.userId]) rolesMap[r.userId] = [];
+    rolesMap[r.userId]!.push(r.roleId);
+  }
+
+  // Batch-fetch federation instances if any federated users
+  const federatedInstanceIds = [
+    ...new Set(
+      rows
+        .filter((r) => r.isFederated && r.federatedInstanceId)
+        .map((r) => r.federatedInstanceId!)
+    )
+  ];
+
+  const instanceDomainMap: Record<number, string> = {};
+  if (federatedInstanceIds.length > 0) {
+    const instances = await db
+      .select({ id: federationInstances.id, domain: federationInstances.domain })
+      .from(federationInstances)
+      .where(inArray(federationInstances.id, federatedInstanceIds));
+    for (const inst of instances) {
+      instanceDomainMap[inst.id] = inst.domain;
+    }
+  }
+
+  for (const row of rows) {
+    let identity: string | undefined;
+    if (row.isFederated && row.federatedInstanceId) {
+      const domain = instanceDomainMap[row.federatedInstanceId];
+      if (domain) identity = `${row.name}@${domain}`;
+    }
+
+    result.set(row.id, {
+      id: row.id,
+      name: row.name,
+      publicId: row.publicId,
+      bannerColor: row.bannerColor,
+      bio: row.bio,
+      avatarId: row.avatarId,
+      bannerId: row.bannerId,
+      avatar: row.avatar,
+      banner: row.banner,
+      createdAt: row.createdAt,
+      banned: row.banned,
+      _identity: identity,
+      roleIds: rolesMap[row.id] || []
+    });
+  }
+
+  return result;
 };
 
 const getPublicUsers = async (
@@ -516,6 +607,7 @@ const isDisplayNameTaken = async (
 
 export {
   getPublicUserById,
+  getPublicUsersByIds,
   getPublicUsers,
   getPublicUsersForServer,
   getStorageUsageByUserId,

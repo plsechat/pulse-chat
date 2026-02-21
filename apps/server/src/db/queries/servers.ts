@@ -252,7 +252,7 @@ const getDiscoverableServers = async (
 
 const getServerUnreadCounts = async (
   userId: number
-): Promise<Record<number, number>> => {
+): Promise<{ unreadCounts: Record<number, number>; mentionCounts: Record<number, number> }> => {
   const results = await db
     .select({
       serverId: channels.serverId,
@@ -263,7 +263,17 @@ const getServerUnreadCounts = async (
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
         END)
-      `.as('unread_count')
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND (${channelReadStates.lastReadMessageId} IS NULL
+              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+            AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
+            AND (${messages.mentionsAll} IS NOT TRUE)
+          THEN 1
+        END)
+      `.as('mention_count')
     })
     .from(channels)
     .innerJoin(
@@ -283,22 +293,27 @@ const getServerUnreadCounts = async (
     )
     .groupBy(channels.serverId);
 
-  const map: Record<number, number> = {};
+  const unreadCounts: Record<number, number> = {};
+  const mentionCounts: Record<number, number> = {};
 
   for (const row of results) {
     const c = Number(row.unreadCount);
     if (c > 0) {
-      map[row.serverId] = c;
+      unreadCounts[row.serverId] = c;
+    }
+    const m = Number(row.mentionCount);
+    if (m > 0) {
+      mentionCounts[row.serverId] = m;
     }
   }
 
-  return map;
+  return { unreadCounts, mentionCounts };
 };
 
 const getServerUnreadCount = async (
   userId: number,
   serverId: number
-): Promise<number> => {
+): Promise<{ unreadCount: number; mentionCount: number }> => {
   const [result] = await db
     .select({
       unreadCount: sql<number>`
@@ -308,7 +323,17 @@ const getServerUnreadCount = async (
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
         END)
-      `.as('unread_count')
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND (${channelReadStates.lastReadMessageId} IS NULL
+              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+            AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
+            AND (${messages.mentionsAll} IS NOT TRUE)
+          THEN 1
+        END)
+      `.as('mention_count')
     })
     .from(channels)
     .innerJoin(messages, eq(messages.channelId, channels.id))
@@ -321,7 +346,10 @@ const getServerUnreadCount = async (
     )
     .where(eq(channels.serverId, serverId));
 
-  return Number(result?.unreadCount ?? 0);
+  return {
+    unreadCount: Number(result?.unreadCount ?? 0),
+    mentionCount: Number(result?.mentionCount ?? 0)
+  };
 };
 
 export {

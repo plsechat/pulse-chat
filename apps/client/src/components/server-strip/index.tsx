@@ -10,9 +10,12 @@ import {
   useActiveInstanceDomain,
   useActiveServerId,
   useActiveView,
+  useFederatedConnectionStatuses,
   useFederatedServers,
   useJoinedServers,
-  useServerUnreadCounts
+  useServerMentionCounts,
+  useServerUnreadCounts,
+  useTotalDmUnreadCount
 } from '@/features/app/hooks';
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { appSliceActions } from '@/features/app/slice';
@@ -75,12 +78,14 @@ const ServerIcon = memo(
     server,
     isActive,
     hasUnread,
+    hasMentions,
     hasVoiceActivity,
     onClick
   }: {
     server: TServerSummary;
     isActive: boolean;
     hasUnread: boolean;
+    hasMentions: boolean;
     hasVoiceActivity: boolean;
     onClick: () => void;
   }) => {
@@ -112,6 +117,9 @@ const ServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
+        {hasMentions && !hasVoiceActivity && (
+          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
+        )}
         {hasVoiceActivity && (
           <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 border-2 border-sidebar">
             <Volume2 className="h-3 w-3 text-white" />
@@ -126,14 +134,24 @@ const FederatedServerIcon = memo(
   ({
     entry,
     isActive,
+    connectionStatus,
     onClick
   }: {
     entry: TFederatedServerEntry;
     isActive: boolean;
+    connectionStatus?: 'connecting' | 'connected' | 'disconnected';
     onClick: () => void;
   }) => {
     const firstLetter = entry.server.name.charAt(0).toUpperCase();
     const instanceInitial = entry.instanceDomain.charAt(0).toUpperCase();
+    const isOffline = connectionStatus === 'disconnected';
+    const isReconnecting = connectionStatus === 'connecting';
+
+    const statusSuffix = isOffline
+      ? ' - Disconnected'
+      : isReconnecting
+        ? ' - Reconnecting...'
+        : '';
 
     return (
       <div className="relative flex w-full items-center justify-center group">
@@ -149,9 +167,10 @@ const FederatedServerIcon = memo(
             'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden',
             isActive
               ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl',
+            isOffline && 'opacity-50'
           )}
-          title={`${entry.server.name} (${entry.instanceDomain})`}
+          title={`${entry.server.name} (${entry.instanceDomain})${statusSuffix}`}
         >
           {entry.server.logo ? (
             <img
@@ -163,8 +182,17 @@ const FederatedServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
-        {/* Federation badge — outside button to avoid overflow-hidden clipping */}
-        <div className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 border border-sidebar text-[8px] font-bold text-white pointer-events-none">
+        {/* Federation badge — color indicates connection status */}
+        <div
+          className={cn(
+            'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-sidebar text-[8px] font-bold text-white pointer-events-none',
+            isOffline
+              ? 'bg-destructive'
+              : isReconnecting
+                ? 'bg-yellow-600'
+                : 'bg-blue-600'
+          )}
+        >
           {instanceInitial}
         </div>
       </div>
@@ -211,10 +239,13 @@ const ServerStrip = memo(() => {
   const activeServerId = useActiveServerId();
   const ownUserId = useOwnUserId();
   const serverUnreadCounts = useServerUnreadCounts();
+  const serverMentionCounts = useServerMentionCounts();
+  const totalDmUnreadCount = useTotalDmUnreadCount();
   const hasAnyVoiceUsers = useHasAnyVoiceUsers();
   const currentVoiceServerId = useCurrentVoiceServerId();
   const federatedServers = useFederatedServers();
   const activeInstanceDomain = useActiveInstanceDomain();
+  const federatedConnectionStatuses = useFederatedConnectionStatuses();
 
   const serverIds = useMemo(
     () => joinedServers.map((s) => s.id),
@@ -288,9 +319,9 @@ const ServerStrip = memo(() => {
       try {
         const trpc = getTRPCClient();
         await trpc.notifications.markServerAsRead.mutate({ serverId });
-        // Optimistically reset server-level unread count
+        // Optimistically reset server-level unread and mention counts
         store.dispatch(
-          appSliceActions.setServerUnreadCount({ serverId, count: 0 })
+          appSliceActions.setServerUnreadCount({ serverId, count: 0, mentionCount: 0 })
         );
         // Also clear active server's channel read states if applicable
         const state = store.getState();
@@ -408,9 +439,9 @@ const ServerStrip = memo(() => {
           title="Home"
         >
           <Home className="h-6 w-6" />
-          {pendingCount > 0 && (
+          {(pendingCount > 0 || totalDmUnreadCount > 0) && (
             <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-              {pendingCount}
+              {pendingCount + totalDmUnreadCount > 99 ? '99+' : pendingCount + totalDmUnreadCount}
             </span>
           )}
         </button>
@@ -448,6 +479,9 @@ const ServerStrip = memo(() => {
                         }
                         hasUnread={
                           (serverUnreadCounts[server.id] ?? 0) > 0
+                        }
+                        hasMentions={
+                          (serverMentionCounts[server.id] ?? 0) > 0
                         }
                         hasVoiceActivity={
                           server.id === currentVoiceServerId ||
@@ -538,6 +572,9 @@ const ServerStrip = memo(() => {
                       activeView === 'server' &&
                       activeServerId === entry.server.id &&
                       activeInstanceDomain === entry.instanceDomain
+                    }
+                    connectionStatus={
+                      federatedConnectionStatuses[entry.instanceDomain]
                     }
                     onClick={() => handleFederatedServerClick(entry)}
                   />

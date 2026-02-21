@@ -60,6 +60,11 @@ export const useDmMessages = (dmChannelId: number) => {
 
       const lastMessage = last[last.length - 1];
 
+      // System messages are always standalone (never grouped)
+      if (message.type === 'system' || lastMessage.type === 'system') {
+        return [...acc, [message]];
+      }
+
       if (lastMessage.userId === message.userId) {
         const timeDiff =
           Math.abs(message.createdAt - lastMessage.createdAt) / 1000 / 60;
