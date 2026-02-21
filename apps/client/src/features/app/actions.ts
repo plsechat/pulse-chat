@@ -82,6 +82,12 @@ export const switchServer = async (
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   setActiveView('server');
 
+  // If the server data is already loaded (e.g. returning from Home view),
+  // skip re-joining — subscriptions and state are already active
+  if (app.activeServerId === serverId && !app.activeInstanceDomain) {
+    return;
+  }
+
   // Re-join with the new serverId to load its data
   await joinServer(handshakeHash, undefined, serverId);
 };
