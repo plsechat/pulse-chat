@@ -17,8 +17,4 @@ if [ "$MISSING" -eq 1 ]; then
   exit 1
 fi
 
-# Clear Drizzle migration tracking so migrations re-run from scratch.
-# All migrations are patched to be idempotent, so this is always safe.
-psql "$DATABASE_URL" -c "DELETE FROM __drizzle_migrations;" 2>/dev/null || true
-
 exec /pulse
