@@ -82,14 +82,12 @@ const markAsReadRoute = protectedProcedure
       .limit(1);
 
     if (channel) {
-      const serverCount = await getServerUnreadCount(
-        ctx.userId,
-        channel.serverId
-      );
+      const { unreadCount: serverCount, mentionCount: serverMentionCount } =
+        await getServerUnreadCount(ctx.userId, channel.serverId);
       ctx.pubsub.publishFor(
         ctx.userId,
         ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-        { serverId: channel.serverId, count: serverCount }
+        { serverId: channel.serverId, count: serverCount, mentionCount: serverMentionCount }
       );
     }
   });

@@ -227,10 +227,12 @@ const sendMessageRoute = protectedProcedure
 
     // Parse @user, @role, @all mentions from non-E2EE content
     let mentionedUserIds: number[] | null = null;
+    let mentionsAll = false;
     if (!isE2ee && targetContent) {
       const memberIds = await getAffectedUserIdsForChannel(input.channelId);
-      mentionedUserIds = await parseMentionedUserIds(targetContent, memberIds);
-      if (mentionedUserIds.length === 0) mentionedUserIds = null;
+      const parsed = await parseMentionedUserIds(targetContent, memberIds);
+      mentionedUserIds = parsed.userIds.length > 0 ? parsed.userIds : null;
+      mentionsAll = parsed.mentionsAll;
     }
 
     const [message] = await db
@@ -244,6 +246,7 @@ const sendMessageRoute = protectedProcedure
         editable,
         replyToId: input.replyToId,
         mentionedUserIds,
+        mentionsAll,
         createdAt: Date.now()
       })
       .returning();

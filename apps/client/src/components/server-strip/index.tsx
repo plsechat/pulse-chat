@@ -12,7 +12,9 @@ import {
   useActiveView,
   useFederatedServers,
   useJoinedServers,
-  useServerUnreadCounts
+  useServerMentionCounts,
+  useServerUnreadCounts,
+  useTotalDmUnreadCount
 } from '@/features/app/hooks';
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { appSliceActions } from '@/features/app/slice';
@@ -75,12 +77,14 @@ const ServerIcon = memo(
     server,
     isActive,
     hasUnread,
+    hasMentions,
     hasVoiceActivity,
     onClick
   }: {
     server: TServerSummary;
     isActive: boolean;
     hasUnread: boolean;
+    hasMentions: boolean;
     hasVoiceActivity: boolean;
     onClick: () => void;
   }) => {
@@ -112,6 +116,9 @@ const ServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
+        {hasMentions && !hasVoiceActivity && (
+          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
+        )}
         {hasVoiceActivity && (
           <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 border-2 border-sidebar">
             <Volume2 className="h-3 w-3 text-white" />
@@ -211,6 +218,8 @@ const ServerStrip = memo(() => {
   const activeServerId = useActiveServerId();
   const ownUserId = useOwnUserId();
   const serverUnreadCounts = useServerUnreadCounts();
+  const serverMentionCounts = useServerMentionCounts();
+  const totalDmUnreadCount = useTotalDmUnreadCount();
   const hasAnyVoiceUsers = useHasAnyVoiceUsers();
   const currentVoiceServerId = useCurrentVoiceServerId();
   const federatedServers = useFederatedServers();
@@ -288,9 +297,9 @@ const ServerStrip = memo(() => {
       try {
         const trpc = getTRPCClient();
         await trpc.notifications.markServerAsRead.mutate({ serverId });
-        // Optimistically reset server-level unread count
+        // Optimistically reset server-level unread and mention counts
         store.dispatch(
-          appSliceActions.setServerUnreadCount({ serverId, count: 0 })
+          appSliceActions.setServerUnreadCount({ serverId, count: 0, mentionCount: 0 })
         );
         // Also clear active server's channel read states if applicable
         const state = store.getState();
@@ -408,9 +417,9 @@ const ServerStrip = memo(() => {
           title="Home"
         >
           <Home className="h-6 w-6" />
-          {pendingCount > 0 && (
+          {(pendingCount > 0 || totalDmUnreadCount > 0) && (
             <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-              {pendingCount}
+              {pendingCount + totalDmUnreadCount > 99 ? '99+' : pendingCount + totalDmUnreadCount}
             </span>
           )}
         </button>
@@ -448,6 +457,9 @@ const ServerStrip = memo(() => {
                         }
                         hasUnread={
                           (serverUnreadCounts[server.id] ?? 0) > 0
+                        }
+                        hasMentions={
+                          (serverMentionCounts[server.id] ?? 0) > 0
                         }
                         hasVoiceActivity={
                           server.id === currentVoiceServerId ||

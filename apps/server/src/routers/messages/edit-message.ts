@@ -65,8 +65,9 @@ const editMessageRoute = protectedProcedure
 
       // Re-parse mentions on edit
       const memberIds = await getAffectedUserIdsForChannel(message.channelId);
-      const mentionedIds = await parseMentionedUserIds(input.content, memberIds);
-      updateSet.mentionedUserIds = mentionedIds.length > 0 ? mentionedIds : null;
+      const parsed = await parseMentionedUserIds(input.content, memberIds);
+      updateSet.mentionedUserIds = parsed.userIds.length > 0 ? parsed.userIds : null;
+      updateSet.mentionsAll = parsed.mentionsAll;
     }
 
     await db

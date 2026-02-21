@@ -55,8 +55,9 @@ export const fetchJoinedServers = async () => {
 export const fetchServerUnreadCounts = async () => {
   try {
     const trpc = getHomeTRPCClient();
-    const counts = await trpc.servers.getUnreadCounts.query();
-    store.dispatch(appSliceActions.setServerUnreadCounts(counts));
+    const { unreadCounts, mentionCounts } = await trpc.servers.getUnreadCounts.query();
+    store.dispatch(appSliceActions.setServerUnreadCounts(unreadCounts));
+    store.dispatch(appSliceActions.setServerMentionCounts(mentionCounts));
   } catch (error) {
     console.error('Error fetching server unread counts:', error);
   }
@@ -269,6 +270,7 @@ export const resetApp = () => {
   store.dispatch(appSliceActions.setJoinedServers([]));
   store.dispatch(appSliceActions.setActiveServerId(undefined));
   store.dispatch(appSliceActions.setServerUnreadCounts({}));
+  store.dispatch(appSliceActions.setServerMentionCounts({}));
   store.dispatch(appSliceActions.setFederatedServers([]));
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
   connectionManager.disconnectAll();

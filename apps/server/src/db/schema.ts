@@ -325,6 +325,7 @@ const messages = pgTable(
     edited: boolean('edited').notNull().default(false),
     type: text('type').notNull().default('user'),
     mentionedUserIds: jsonb('mentioned_user_ids').$type<number[]>(),
+    mentionsAll: boolean('mentions_all').default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },

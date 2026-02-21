@@ -10,7 +10,9 @@ import {
   joinedServersSelector,
   modViewOpenSelector,
   modViewUserIdSelector,
-  serverUnreadCountsSelector
+  serverMentionCountsSelector,
+  serverUnreadCountsSelector,
+  totalDmUnreadCountSelector
 } from './selectors';
 
 export const useIsAppLoading = () => useSelector(appLoadingSelector);
@@ -38,3 +40,9 @@ export const useActiveInstanceDomain = () =>
 
 export const useServerUnreadCounts = () =>
   useSelector(serverUnreadCountsSelector);
+
+export const useServerMentionCounts = () =>
+  useSelector(serverMentionCountsSelector);
+
+export const useTotalDmUnreadCount = () =>
+  useSelector(totalDmUnreadCountSelector);

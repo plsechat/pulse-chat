@@ -79,11 +79,31 @@ const publishMessage = async (
       .limit(1);
 
     if (channelRow) {
-      pubsub.publishFor(
-        usersToNotify,
-        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-        { serverId: channelRow.serverId, count: -1 }
+      // Determine which users have direct mentions (not @all) for the red server badge
+      const directMentionedSet = new Set<number>(
+        message.mentionedUserIds && !message.mentionsAll
+          ? (message.mentionedUserIds as number[]).filter((id) => id !== message.userId)
+          : []
       );
+
+      const nonMentioned = usersToNotify.filter((id) => !directMentionedSet.has(id));
+      const mentioned = usersToNotify.filter((id) => directMentionedSet.has(id));
+
+      if (nonMentioned.length > 0) {
+        pubsub.publishFor(
+          nonMentioned,
+          ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+          { serverId: channelRow.serverId, count: -1, mentionCount: 0 }
+        );
+      }
+
+      if (mentioned.length > 0) {
+        pubsub.publishFor(
+          mentioned,
+          ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+          { serverId: channelRow.serverId, count: -1, mentionCount: -1 }
+        );
+      }
     }
   }
 };

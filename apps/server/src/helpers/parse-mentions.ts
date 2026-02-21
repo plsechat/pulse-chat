@@ -9,7 +9,8 @@ const ROLE_MENTION_RE =
 const ALL_MENTION_RE = /data-mention-type=["']all["']/;
 
 /**
- * Parse mention spans from message HTML and return the set of mentioned user IDs.
+ * Parse mention spans from message HTML and return the set of mentioned user IDs
+ * plus whether the message uses @all.
  *
  * @param html     The message HTML content
  * @param memberIds All user IDs who are members of the channel
@@ -17,12 +18,12 @@ const ALL_MENTION_RE = /data-mention-type=["']all["']/;
 export async function parseMentionedUserIds(
   html: string,
   memberIds: number[]
-): Promise<number[]> {
+): Promise<{ userIds: number[]; mentionsAll: boolean }> {
   const mentionedIds = new Set<number>();
 
   // @all → everyone in the channel
   if (ALL_MENTION_RE.test(html)) {
-    return memberIds;
+    return { userIds: memberIds, mentionsAll: true };
   }
 
   // @user mentions
@@ -53,5 +54,5 @@ export async function parseMentionedUserIds(
     }
   }
 
-  return Array.from(mentionedIds);
+  return { userIds: Array.from(mentionedIds), mentionsAll: false };
 }

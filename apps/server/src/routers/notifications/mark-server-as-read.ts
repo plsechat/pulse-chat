@@ -74,7 +74,7 @@ const markServerAsReadRoute = protectedProcedure
     ctx.pubsub.publishFor(
       ctx.userId,
       ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-      { serverId: input.serverId, count: 0 }
+      { serverId: input.serverId, count: 0, mentionCount: 0 }
     );
   });
 

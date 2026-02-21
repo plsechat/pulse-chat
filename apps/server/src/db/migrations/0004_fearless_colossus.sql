@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "mentions_all" boolean DEFAULT false;

@@ -168,6 +168,7 @@ type Events = {
   [ServerEvents.SERVER_UNREAD_COUNT_UPDATE]: {
     serverId: number;
     count: number;
+    mentionCount: number;
   };
 
   [ServerEvents.MESSAGE_PIN]: {

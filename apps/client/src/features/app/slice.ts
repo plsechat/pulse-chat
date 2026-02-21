@@ -24,6 +24,7 @@ export interface TAppState {
   federatedServers: TFederatedServerEntry[];
   activeInstanceDomain: string | null;
   serverUnreadCounts: Record<number, number>;
+  serverMentionCounts: Record<number, number>;
 }
 
 const initialState: TAppState = {
@@ -36,7 +37,8 @@ const initialState: TAppState = {
   activeServerId: undefined,
   federatedServers: [],
   activeInstanceDomain: null,
-  serverUnreadCounts: {}
+  serverUnreadCounts: {},
+  serverMentionCounts: {}
 };
 
 export const appSlice = createSlice({
@@ -155,11 +157,10 @@ export const appSlice = createSlice({
     },
     setServerUnreadCount: (
       state,
-      action: PayloadAction<{ serverId: number; count: number }>
+      action: PayloadAction<{ serverId: number; count: number; mentionCount: number }>
     ) => {
-      const { serverId, count } = action.payload;
+      const { serverId, count, mentionCount } = action.payload;
       if (count === -1) {
-        // Increment signal from new message (no exact count computed)
         state.serverUnreadCounts[serverId] =
           (state.serverUnreadCounts[serverId] ?? 0) + 1;
       } else if (count > 0) {
@@ -167,6 +168,21 @@ export const appSlice = createSlice({
       } else {
         delete state.serverUnreadCounts[serverId];
       }
+      // Handle mention count the same way (-1 = increment, 0 = clear)
+      if (mentionCount === -1) {
+        state.serverMentionCounts[serverId] =
+          (state.serverMentionCounts[serverId] ?? 0) + 1;
+      } else if (mentionCount > 0) {
+        state.serverMentionCounts[serverId] = mentionCount;
+      } else {
+        delete state.serverMentionCounts[serverId];
+      }
+    },
+    setServerMentionCounts: (
+      state,
+      action: PayloadAction<Record<number, number>>
+    ) => {
+      state.serverMentionCounts = action.payload;
     }
   }
 });
