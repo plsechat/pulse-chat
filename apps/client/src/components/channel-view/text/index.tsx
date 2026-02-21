@@ -24,6 +24,7 @@ import { throttle } from 'lodash-es';
 import { ArrowDown, Clock, Plus, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { preprocessMarkdown } from './renderer/markdown-preprocessor';
+import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
 import { FileCard } from './file-card';
@@ -164,7 +165,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   );
 
   const onSendMessage = useCallback(async () => {
-    if ((!newMessage.trim() && !files.length) || !canSendMessages) return;
+    if ((isHtmlEmpty(newMessage) && !files.length) || !canSendMessages) return;
 
     sendTypingSignal.cancel();
 
@@ -409,7 +410,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
             variant="ghost"
             className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
             onClick={onSendMessage}
-            disabled={uploading || !newMessage.trim() || !canSendMessages || slowModeRemaining > 0}
+            disabled={uploading || isHtmlEmpty(newMessage) || !canSendMessages || slowModeRemaining > 0}
           >
             <Send className="h-4 w-4" />
           </Button>

@@ -114,6 +114,24 @@ const TiptapInput = memo(
         attributes: {
           'data-placeholder': placeholder ?? 'Message...'
         },
+        handlePaste: (_view, event) => {
+          const text = event.clipboardData?.getData('text/plain');
+          if (!text) return false;
+
+          event.preventDefault();
+
+          // Detect code: clipboard came from a code block, or text contains HTML/XML tags
+          const html = event.clipboardData?.getData('text/html') ?? '';
+          const fromCodeBlock = /<pre[\s>]/i.test(html) || /<code[\s>]/i.test(html);
+          const hasMarkup = /<\/?[a-z][\w-]*(?:\s[^>]*)?\/?>/i.test(text);
+
+          if (fromCodeBlock || hasMarkup) {
+            editor?.chain().focus().setCodeBlock().insertContent(text).run();
+          } else {
+            editor?.commands.insertContent(text);
+          }
+          return true;
+        },
         handleKeyDown: (view, event) => {
           const suggestionElement = document.querySelector('.bg-popover');
           const hasSuggestions =
