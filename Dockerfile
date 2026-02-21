@@ -9,6 +9,8 @@ RUN cd apps/server && bun run build/build.ts --target linux-x64
 
 # Stage 2: Runtime
 FROM oven/bun:1.3.5
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/apps/server/build/out/pulse-linux-x64 /pulse
 COPY --from=builder /app/docker/pulse-entrypoint.sh /entrypoint.sh
 ENV RUNNING_IN_DOCKER=true
