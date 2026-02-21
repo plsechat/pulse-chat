@@ -1,3 +1,4 @@
+import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -24,6 +25,7 @@ type TMessageRendererProps = {
 
 const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
   const ownUserId = useOwnUserId();
+  const instanceDomain = useActiveInstanceDomain() ?? undefined;
   const isOwnMessage = useMemo(
     () => message.userId === ownUserId,
     [message.userId, ownUserId]
@@ -107,11 +109,11 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       .filter((file) => imageExtensions.includes(file.extension))
       .map((file) => ({
         type: 'image',
-        url: getFileUrl(file)
+        url: getFileUrl(file, instanceDomain)
       }));
 
     return [...foundMedia, ...mediaFromFiles];
-  }, [foundMedia, message.files]);
+  }, [foundMedia, message.files, instanceDomain]);
 
   const isDecryptionFailure =
     message.e2ee && message.content === '[Unable to decrypt]';
@@ -169,7 +171,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
                 onRemove={
                   isOwnMessage ? () => onRemoveFileClick(file.id) : undefined
                 }
-                href={getFileUrl(file)}
+                href={getFileUrl(file, instanceDomain)}
               />
             ))}
         </div>

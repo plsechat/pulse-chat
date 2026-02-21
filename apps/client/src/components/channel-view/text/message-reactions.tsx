@@ -1,4 +1,5 @@
 import { Tooltip } from '@/components/ui/tooltip';
+import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { useCan } from '@/features/server/hooks';
 import { useOwnUserId, useUsernames } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -38,6 +39,7 @@ type TAggregatedReaction = {
 const MessageReactions = memo(
   ({ messageId, reactions, onToggle }: TMessageReactionsProps) => {
     const ownUserId = useOwnUserId();
+    const instanceDomain = useActiveInstanceDomain() ?? undefined;
     const can = useCan();
     const usernames = useUsernames();
 
@@ -77,7 +79,7 @@ const MessageReactions = memo(
 
         return (
           <img
-            src={getFileUrl(file)}
+            src={getFileUrl(file, instanceDomain)}
             alt={`:${emojiName}:`}
             className="w-5 h-5 object-contain"
             onError={(e) => {
@@ -89,7 +91,7 @@ const MessageReactions = memo(
           />
         );
       },
-      []
+      [instanceDomain]
     );
 
     const aggregatedReactions = useMemo((): TAggregatedReaction[] => {

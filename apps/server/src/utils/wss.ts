@@ -20,7 +20,7 @@ import { eq } from 'drizzle-orm';
 import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { db } from '../db';
-import { findOrCreateShadowUser } from '../db/mutations/federation';
+import { findOrCreateShadowUser, syncShadowUserProfile } from '../db/mutations/federation';
 import { getAllChannelUserPermissions } from '../db/queries/channels';
 import {
   getServerById,
@@ -88,6 +88,9 @@ const createContext = async ({
       fedResult.publicId
     );
     logger.info('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
+
+    // Sync profile (avatar, banner, bio) from home instance (fire-and-forget)
+    syncShadowUserProfile(decodedUser.id, fedResult.issuerDomain, fedResult.publicId);
 
     // Use the federation token itself for WS client matching
     accessToken = params.federationToken;

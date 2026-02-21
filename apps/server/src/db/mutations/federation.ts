@@ -1,10 +1,11 @@
-import type { TUser } from '@pulse/shared';
+import type { TFile, TUser } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import path from 'path';
 import { db } from '..';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
+import { signChallenge } from '../../utils/federation';
 import { validateFederationUrl } from '../../utils/validate-url';
 import { files, users } from '../schema';
 
@@ -179,9 +180,170 @@ async function syncShadowUserAvatar(
   }
 }
 
+const PROFILE_SYNC_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
+
+async function downloadFederatedFile(
+  remoteUrl: string,
+  prefix: string,
+  userId: number,
+  remoteOriginalName: string
+): Promise<{ fileId: number; fileName: string } | null> {
+  await validateFederationUrl(remoteUrl);
+
+  const response = await fetch(remoteUrl, {
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) return null;
+
+  const buffer = await response.arrayBuffer();
+  const contentType = response.headers.get('content-type') || 'image/png';
+  const ext = contentType.includes('png')
+    ? '.png'
+    : contentType.includes('gif')
+      ? '.gif'
+      : contentType.includes('webp')
+        ? '.webp'
+        : '.jpg';
+
+  const fileName = `${prefix}-${randomUUIDv7()}${ext}`;
+  const filePath = path.join(PUBLIC_PATH, fileName);
+  await Bun.write(filePath, buffer);
+
+  const [fileRecord] = await db
+    .insert(files)
+    .values({
+      name: fileName,
+      originalName: remoteOriginalName,
+      md5: `federated-${randomUUIDv7()}`,
+      userId,
+      size: buffer.byteLength,
+      mimeType: contentType,
+      extension: ext,
+      createdAt: Date.now()
+    })
+    .returning();
+
+  if (!fileRecord) return null;
+  return { fileId: fileRecord.id, fileName };
+}
+
+async function syncShadowUserProfile(
+  shadowUserId: number,
+  issuerDomain: string,
+  publicId: string
+): Promise<void> {
+  try {
+    // Debounce: skip if recently synced
+    const [shadow] = await db
+      .select({
+        avatarId: users.avatarId,
+        bannerId: users.bannerId,
+        bio: users.bio,
+        bannerColor: users.bannerColor,
+        updatedAt: users.updatedAt
+      })
+      .from(users)
+      .where(eq(users.id, shadowUserId))
+      .limit(1);
+
+    if (!shadow) return;
+
+    if (shadow.updatedAt && Date.now() - shadow.updatedAt < PROFILE_SYNC_DEBOUNCE_MS) {
+      return;
+    }
+
+    // Fetch profile from home instance
+    const protocol = issuerDomain.includes('localhost') ? 'http' : 'https';
+    const signature = await signChallenge(JSON.stringify({ publicId }));
+
+    const infoResponse = await fetch(
+      `${protocol}://${issuerDomain}/federation/user-info`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicId, signature }),
+        signal: AbortSignal.timeout(10_000)
+      }
+    );
+
+    if (!infoResponse.ok) return;
+
+    const profile = (await infoResponse.json()) as {
+      name: string;
+      bio: string | null;
+      bannerColor: string | null;
+      avatar: TFile | null;
+      banner: TFile | null;
+      createdAt: number;
+    };
+
+    const updates: Record<string, unknown> = {};
+
+    // Sync avatar
+    if (profile.avatar?.name) {
+      // Check if current avatar is different
+      let currentAvatarName: string | null = null;
+      if (shadow.avatarId) {
+        const [currentFile] = await db
+          .select({ originalName: files.originalName })
+          .from(files)
+          .where(eq(files.id, shadow.avatarId))
+          .limit(1);
+        currentAvatarName = currentFile?.originalName ?? null;
+      }
+
+      // Download if no avatar or remote file changed
+      if (!shadow.avatarId || currentAvatarName !== profile.avatar.name) {
+        const avatarUrl = `${protocol}://${issuerDomain}/public/${profile.avatar.name}`;
+        const result = await downloadFederatedFile(avatarUrl, 'federated-avatar', shadowUserId, profile.avatar.name);
+        if (result) {
+          updates.avatarId = result.fileId;
+        }
+      }
+    }
+
+    // Sync banner
+    if (profile.banner?.name) {
+      let currentBannerName: string | null = null;
+      if (shadow.bannerId) {
+        const [currentFile] = await db
+          .select({ originalName: files.originalName })
+          .from(files)
+          .where(eq(files.id, shadow.bannerId))
+          .limit(1);
+        currentBannerName = currentFile?.originalName ?? null;
+      }
+
+      if (!shadow.bannerId || currentBannerName !== profile.banner.name) {
+        const bannerUrl = `${protocol}://${issuerDomain}/public/${profile.banner.name}`;
+        const result = await downloadFederatedFile(bannerUrl, 'federated-banner', shadowUserId, profile.banner.name);
+        if (result) {
+          updates.bannerId = result.fileId;
+        }
+      }
+    }
+
+    // Sync bio and bannerColor
+    if (profile.bio !== shadow.bio) {
+      updates.bio = profile.bio;
+    }
+    if (profile.bannerColor !== shadow.bannerColor) {
+      updates.bannerColor = profile.bannerColor;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = Date.now();
+      await db.update(users).set(updates).where(eq(users.id, shadowUserId));
+    }
+  } catch (err) {
+    logger.error('[syncShadowUserProfile] failed for user %d: %o', shadowUserId, err);
+  }
+}
+
 export {
   deleteShadowUsersByInstance,
   findOrCreateShadowUser,
   getShadowUsersByInstance,
-  syncShadowUserAvatar
+  syncShadowUserAvatar,
+  syncShadowUserProfile
 };
