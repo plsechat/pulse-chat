@@ -70,7 +70,8 @@ const markAsReadRoute = protectedProcedure
     // Notify the user that their read state is now clear
     ctx.pubsub.publishFor(ctx.userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
       channelId,
-      count: 0
+      count: 0,
+      mentionCount: 0
     });
 
     // Publish server-level unread count update
@@ -81,14 +82,12 @@ const markAsReadRoute = protectedProcedure
       .limit(1);
 
     if (channel) {
-      const serverCount = await getServerUnreadCount(
-        ctx.userId,
-        channel.serverId
-      );
+      const { unreadCount: serverCount, mentionCount: serverMentionCount } =
+        await getServerUnreadCount(ctx.userId, channel.serverId);
       ctx.pubsub.publishFor(
         ctx.userId,
         ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-        { serverId: channel.serverId, count: serverCount }
+        { serverId: channel.serverId, count: serverCount, mentionCount: serverMentionCount }
       );
     }
   });

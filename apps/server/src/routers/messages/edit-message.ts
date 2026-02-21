@@ -2,7 +2,9 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { messages } from '../../db/schema';
+import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
 import { invariant } from '../../utils/invariant';
@@ -60,6 +62,12 @@ const editMessageRoute = protectedProcedure
         message: 'Non-E2EE messages must be edited with content'
       });
       updateSet.content = input.content;
+
+      // Re-parse mentions on edit
+      const memberIds = await getAffectedUserIdsForChannel(message.channelId);
+      const parsed = await parseMentionedUserIds(input.content, memberIds);
+      updateSet.mentionedUserIds = parsed.userIds.length > 0 ? parsed.userIds : null;
+      updateSet.mentionsAll = parsed.mentionsAll;
     }
 
     await db

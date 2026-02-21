@@ -51,11 +51,12 @@ const subscribeToServer = () => {
 
   const onUnreadCountUpdateSub =
     trpc.servers.onUnreadCountUpdate.subscribe(undefined, {
-      onData: (data: { serverId: number; count: number }) => {
+      onData: (data: { serverId: number; count: number; mentionCount: number }) => {
         store.dispatch(
           appSliceActions.setServerUnreadCount({
             serverId: data.serverId,
-            count: data.count
+            count: data.count,
+            mentionCount: data.mentionCount
           })
         );
       },

@@ -424,10 +424,10 @@ describe('channels router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    const beforeMsgSendReadStates = await getChannelsReadStatesForUser(2, 2);
+    const beforeMsgSend = await getChannelsReadStatesForUser(2, 2);
 
     // before sending any messages, there should be no read state
-    expect(beforeMsgSendReadStates[2]).toBeUndefined();
+    expect(beforeMsgSend.readStates[2]).toBeUndefined();
 
     await caller1.messages.send({
       channelId: 2,
@@ -435,21 +435,21 @@ describe('channels router', () => {
       files: []
     });
 
-    const beforeReadStates = await getChannelsReadStatesForUser(2, 2);
+    const beforeRead = await getChannelsReadStatesForUser(2, 2);
 
     // message has been sent, there should be 1 unread message
-    expect(beforeReadStates[2]).toBeDefined();
-    expect(beforeReadStates[2]).toBe(1);
+    expect(beforeRead.readStates[2]).toBeDefined();
+    expect(beforeRead.readStates[2]).toBe(1);
 
     await caller2.channels.markAsRead({
       channelId: 2
     });
 
-    const afterReadStates = await getChannelsReadStatesForUser(2, 2);
+    const afterRead = await getChannelsReadStatesForUser(2, 2);
 
     // after marking as read, there should be 0 unread messages
-    expect(afterReadStates[2]).toBeDefined();
-    expect(afterReadStates[2]).toBe(0);
+    expect(afterRead.readStates[2]).toBeDefined();
+    expect(afterRead.readStates[2]).toBe(0);
   });
 
   test('should mark channel as read with no messages', async () => {
@@ -460,10 +460,10 @@ describe('channels router', () => {
       channelId: 2
     });
 
-    const readStates = await getChannelsReadStatesForUser(1, 2);
+    const result = await getChannelsReadStatesForUser(1, 2);
 
     // should not create a read state for empty channel
-    expect(readStates[2]).toBeUndefined();
+    expect(result.readStates[2]).toBeUndefined();
   });
 
   test('should update existing read state when marking as read again', async () => {
@@ -482,9 +482,9 @@ describe('channels router', () => {
       channelId: 2
     });
 
-    const firstReadStates = await getChannelsReadStatesForUser(2, 2);
+    const firstResult = await getChannelsReadStatesForUser(2, 2);
 
-    expect(firstReadStates[2]).toBe(0);
+    expect(firstResult.readStates[2]).toBe(0);
 
     // user 1 sends another message
     await caller1.messages.send({
@@ -495,7 +495,7 @@ describe('channels router', () => {
 
     const beforeSecondMark = await getChannelsReadStatesForUser(2, 2);
 
-    expect(beforeSecondMark[2]).toBe(1);
+    expect(beforeSecondMark.readStates[2]).toBe(1);
 
     // user 2 marks as read again
     await caller2.channels.markAsRead({
@@ -504,7 +504,7 @@ describe('channels router', () => {
 
     const afterSecondMark = await getChannelsReadStatesForUser(2, 2);
 
-    expect(afterSecondMark[2]).toBe(0);
+    expect(afterSecondMark.readStates[2]).toBe(0);
   });
 
   test('should track unread count correctly with multiple messages', async () => {
@@ -530,10 +530,10 @@ describe('channels router', () => {
       files: []
     });
 
-    const readStates = await getChannelsReadStatesForUser(2, 2);
+    const result = await getChannelsReadStatesForUser(2, 2);
 
     // user 2 should have 3 unread messages
-    expect(readStates[2]).toBe(3);
+    expect(result.readStates[2]).toBe(3);
 
     // user 2 marks as read
     await caller2.channels.markAsRead({
@@ -542,7 +542,7 @@ describe('channels router', () => {
 
     const afterMark = await getChannelsReadStatesForUser(2, 2);
 
-    expect(afterMark[2]).toBe(0);
+    expect(afterMark.readStates[2]).toBe(0);
   });
 
   test('should not count own messages as unread', async () => {
@@ -561,10 +561,10 @@ describe('channels router', () => {
       files: []
     });
 
-    const readStates = await getChannelsReadStatesForUser(1, 2);
+    const result = await getChannelsReadStatesForUser(1, 2);
 
     // should have 0 unread messages since user sent them themselves
-    expect(readStates[2]).toBe(0);
+    expect(result.readStates[2]).toBe(0);
   });
 
   test('should validate channel name length (too short)', async () => {

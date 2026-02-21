@@ -139,6 +139,8 @@ export type TChannelUserPermissionsMap = Record<
 
 export type TReadStateMap = Record<number, number>;
 
+export type TMentionStateMap = Record<number, number>;
+
 export type TThreadInfo = {
   id: number;
   name: string;

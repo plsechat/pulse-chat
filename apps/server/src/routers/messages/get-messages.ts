@@ -222,14 +222,15 @@ const getMessagesRoute = protectedProcedure
           }
         });
 
-      const updatedReadStates = await getChannelsReadStatesForUser(
+      const { readStates, mentionStates } = await getChannelsReadStatesForUser(
         ctx.userId,
         channelId
       );
 
       pubsub.publishFor(ctx.userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
         channelId,
-        count: updatedReadStates[channelId] ?? 0
+        count: readStates[channelId] ?? 0,
+        mentionCount: mentionStates[channelId] ?? 0
       });
     }
 

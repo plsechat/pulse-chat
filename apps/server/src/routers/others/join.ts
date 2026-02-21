@@ -9,6 +9,7 @@ import {
   type TJoinedEmoji,
   type TJoinedPublicUser,
   type TJoinedRole,
+  type TMentionStateMap,
   type TPublicServerSettings,
   type TReadStateMap,
   type TVoiceMap
@@ -122,6 +123,7 @@ const joinServerRoute = t.procedure
         publicSettings: undefined as TPublicServerSettings | undefined,
         channelPermissions: {} as TChannelUserPermissionsMap,
         readStates: {} as TReadStateMap,
+        mentionStates: {} as TMentionStateMap,
         commands: pluginManager.getCommands(),
         externalStreamsMap: {} as TExternalStreamsMap
       };
@@ -154,7 +156,7 @@ const joinServerRoute = t.procedure
       roles,
       emojis,
       channelPermissions,
-      readStates
+      readStatesResult
     ] = await Promise.all([
       db
         .select()
@@ -236,7 +238,8 @@ const joinServerRoute = t.procedure
       emojis,
       publicSettings,
       channelPermissions,
-      readStates,
+      readStates: readStatesResult.readStates,
+      mentionStates: readStatesResult.mentionStates,
       commands: pluginManager.getCommands(),
       externalStreamsMap
     };

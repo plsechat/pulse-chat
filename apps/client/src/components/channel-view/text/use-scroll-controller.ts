@@ -1,7 +1,36 @@
+import {
+  getLocalStorageItemAsJSON,
+  LocalStorageKey,
+  setLocalStorageItemAsJSON
+} from '@/helpers/storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Persists scroll positions across component remounts (cleared on page reload)
-const scrollPositions = new Map<number, number>();
+type TScrollPositionMap = Record<number, number>;
+
+// In-memory cache (fast reads), backed by localStorage (survives refresh)
+const scrollPositions: TScrollPositionMap = loadScrollPositions();
+
+function loadScrollPositions(): TScrollPositionMap {
+  return (
+    getLocalStorageItemAsJSON<TScrollPositionMap>(
+      LocalStorageKey.SCROLL_POSITIONS
+    ) ?? {}
+  );
+}
+
+function persistScrollPositions() {
+  setLocalStorageItemAsJSON(LocalStorageKey.SCROLL_POSITIONS, scrollPositions);
+}
+
+// Throttle localStorage writes to avoid thrashing on every scroll event
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePersist() {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistScrollPositions();
+  }, 300);
+}
 
 type TUseScrollControllerProps = {
   channelId: number;
@@ -43,7 +72,8 @@ const useScrollController = ({
     if (!container) return;
 
     container.scrollTop = container.scrollHeight;
-    scrollPositions.delete(channelId);
+    delete scrollPositions[channelId];
+    schedulePersist();
     setIsAtBottom(true);
   }, [channelId]);
 
@@ -54,7 +84,8 @@ const useScrollController = ({
     if (!container || fetching) return;
 
     // Save scroll position
-    scrollPositions.set(channelId, container.scrollTop);
+    scrollPositions[channelId] = container.scrollTop;
+    schedulePersist();
 
     // Update isAtBottom state
     setIsAtBottom(checkIsAtBottom());
@@ -75,7 +106,9 @@ const useScrollController = ({
     return () => {
       const container = containerRef.current;
       if (container) {
-        scrollPositions.set(channelId, container.scrollTop);
+        scrollPositions[channelId] = container.scrollTop;
+        // Flush immediately on unmount so it's saved before page unload
+        persistScrollPositions();
       }
     };
   }, [channelId]);
@@ -86,7 +119,7 @@ const useScrollController = ({
     if (fetching || messages.length === 0) return;
 
     if (!hasInitialScroll.current) {
-      const savedPosition = scrollPositions.get(channelId);
+      const savedPosition = scrollPositions[channelId];
 
       const performScroll = () => {
         const container = containerRef.current;

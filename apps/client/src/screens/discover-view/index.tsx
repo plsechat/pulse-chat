@@ -14,8 +14,8 @@ import type {
   TRemoteServerSummary,
   TServerSummary
 } from '@pulse/shared';
-import { Check, Compass, Globe, Loader2, Users } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { Check, Compass, Globe, Loader2, Search, Users } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 type TDiscoverServer = TServerSummary & { joined: boolean };
@@ -132,7 +132,7 @@ const FederatedServerCard = memo(
 
           <div className="flex items-center gap-1 text-xs text-blue-500">
             <Globe className="h-3 w-3" />
-            <span>{server.instanceName}</span>
+            <span>{server.instanceDomain}</span>
           </div>
 
           {server.description && (
@@ -193,6 +193,28 @@ const DiscoverView = memo(() => {
   const [joiningFedPublicId, setJoiningFedPublicId] = useState<string | null>(
     null
   );
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredServers = useMemo(() => {
+    if (!searchQuery.trim()) return servers;
+    const q = searchQuery.toLowerCase();
+    return servers.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.description?.toLowerCase().includes(q)
+    );
+  }, [servers, searchQuery]);
+
+  const filteredRemoteServers = useMemo(() => {
+    if (!searchQuery.trim()) return remoteServers;
+    const q = searchQuery.toLowerCase();
+    return remoteServers.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.description?.toLowerCase().includes(q) ||
+        s.instanceDomain.toLowerCase().includes(q)
+    );
+  }, [remoteServers, searchQuery]);
 
   useEffect(() => {
     const fetchServers = async () => {
@@ -329,7 +351,10 @@ const DiscoverView = memo(() => {
         <h2 className="font-semibold text-foreground">Discover Servers</h2>
         <div className="ml-4 flex gap-1">
           <button
-            onClick={() => setActiveTab('local')}
+            onClick={() => {
+              setActiveTab('local');
+              setSearchQuery('');
+            }}
             className={cn(
               'rounded-md px-3 py-1 text-sm font-medium transition-colors',
               activeTab === 'local'
@@ -340,7 +365,10 @@ const DiscoverView = memo(() => {
             Local
           </button>
           <button
-            onClick={() => setActiveTab('federated')}
+            onClick={() => {
+              setActiveTab('federated');
+              setSearchQuery('');
+            }}
             className={cn(
               'rounded-md px-3 py-1 text-sm font-medium transition-colors flex items-center gap-1',
               activeTab === 'federated'
@@ -351,6 +379,18 @@ const DiscoverView = memo(() => {
             <Globe className="h-3.5 w-3.5" />
             Federated
           </button>
+        </div>
+        <div className="ml-auto">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search servers..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-48 rounded-md border border-border bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
         </div>
       </div>
 
@@ -369,9 +409,16 @@ const DiscoverView = memo(() => {
                   Check back later or join a server with an invite link.
                 </p>
               </div>
+            ) : filteredServers.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                <Search className="h-12 w-12" />
+                <p className="text-lg font-medium">
+                  No servers matching &apos;{searchQuery}&apos;
+                </p>
+              </div>
             ) : (
               <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {servers.map((server) => (
+                {filteredServers.map((server) => (
                   <ServerCard
                     key={server.id}
                     server={server}
@@ -402,9 +449,16 @@ const DiscoverView = memo(() => {
                     : 'Connected instances have no federatable servers.'}
                 </p>
               </div>
+            ) : filteredRemoteServers.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                <Search className="h-12 w-12" />
+                <p className="text-lg font-medium">
+                  No servers matching &apos;{searchQuery}&apos;
+                </p>
+              </div>
             ) : (
               <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {remoteServers.map((server) => (
+                {filteredRemoteServers.map((server) => (
                   <FederatedServerCard
                     key={`${server.instanceDomain}:${server.publicId}`}
                     server={server}

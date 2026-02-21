@@ -19,7 +19,7 @@ describe('server unread counts', () => {
     });
 
     // User 2 should see unread messages (seed message + new message)
-    const counts = await caller2.servers.getUnreadCounts();
+    const { unreadCounts: counts } = await caller2.servers.getUnreadCounts();
     expect(counts[1]).toBeGreaterThan(0);
   });
 
@@ -33,7 +33,7 @@ describe('server unread counts', () => {
       files: []
     });
 
-    const counts = await caller.servers.getUnreadCounts();
+    const { unreadCounts: counts } = await caller.servers.getUnreadCounts();
     // User 1's own messages shouldn't be counted as unread
     expect(counts[1] ?? 0).toBe(0);
   });
@@ -50,14 +50,14 @@ describe('server unread counts', () => {
     });
 
     // Verify user 2 has unreads
-    let counts = await caller2.servers.getUnreadCounts();
+    let { unreadCounts: counts } = await caller2.servers.getUnreadCounts();
     expect(counts[1]).toBeGreaterThan(0);
 
     // User 2 marks channel as read
     await caller2.channels.markAsRead({ channelId: 1 });
 
     // Unread count should be 0 now
-    counts = await caller2.servers.getUnreadCounts();
+    ({ unreadCounts: counts } = await caller2.servers.getUnreadCounts());
     expect(counts[1] ?? 0).toBe(0);
   });
 
@@ -73,14 +73,14 @@ describe('server unread counts', () => {
     });
 
     // Verify user 2 has unreads
-    let counts = await caller2.servers.getUnreadCounts();
+    let { unreadCounts: counts } = await caller2.servers.getUnreadCounts();
     expect(counts[1]).toBeGreaterThan(0);
 
     // User 2 marks entire server as read
     await caller2.notifications.markServerAsRead({ serverId: 1 });
 
     // Server unread should be 0
-    counts = await caller2.servers.getUnreadCounts();
+    ({ unreadCounts: counts } = await caller2.servers.getUnreadCounts());
     expect(counts[1] ?? 0).toBe(0);
   });
 
@@ -89,11 +89,11 @@ describe('server unread counts', () => {
     const { ctx: ctx2 } = await initTest(2);
 
     // The seed message from user 1 should be unread for user 2
-    const count = await getServerUnreadCount(ctx2.userId, 1);
-    expect(count).toBeGreaterThan(0);
+    const { unreadCount } = await getServerUnreadCount(ctx2.userId, 1);
+    expect(unreadCount).toBeGreaterThan(0);
 
     // User 1 should have 0 unread (only their own messages)
-    const ownerCount = await getServerUnreadCount(ctx1.userId, 1);
+    const { unreadCount: ownerCount } = await getServerUnreadCount(ctx1.userId, 1);
     expect(ownerCount).toBe(0);
   });
 
@@ -104,7 +104,7 @@ describe('server unread counts', () => {
     // Mark the seed message as read just to be safe
     await caller.channels.markAsRead({ channelId: 1 });
 
-    const counts = await caller.servers.getUnreadCounts();
+    const { unreadCounts: counts } = await caller.servers.getUnreadCounts();
     expect(counts[1] ?? 0).toBe(0);
   });
 });

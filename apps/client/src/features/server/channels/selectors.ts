@@ -32,6 +32,11 @@ export const channelReadStateByIdSelector = (
   channelId: number
 ) => state.server.readStatesMap[channelId] ?? 0;
 
+export const channelMentionCountByIdSelector = (
+  state: IRootState,
+  channelId: number
+) => state.server.mentionStatesMap[channelId] ?? 0;
+
 export const hasAnyUnreadSelector = (state: IRootState) =>
   Object.values(state.server.readStatesMap).some((count) => (count ?? 0) > 0);
 
