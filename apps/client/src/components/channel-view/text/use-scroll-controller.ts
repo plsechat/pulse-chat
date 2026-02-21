@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 type TScrollPositionMap = Record<number, number>;
 
 // In-memory cache (fast reads), backed by localStorage (survives refresh)
-let scrollPositions: TScrollPositionMap = loadScrollPositions();
+const scrollPositions: TScrollPositionMap = loadScrollPositions();
 
 function loadScrollPositions(): TScrollPositionMap {
   return (

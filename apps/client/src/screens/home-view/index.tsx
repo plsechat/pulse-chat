@@ -12,7 +12,7 @@ import {
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSwipeGestures } from '@/hooks/use-swipe-gestures';
 import { cn } from '@/lib/utils';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { DmConversation } from './dm-conversation';
 import { HomeSidebar } from './home-sidebar';
 import { FriendsPanel } from './friends-panel';
@@ -39,6 +39,14 @@ const HomeView = memo(() => {
   const [showCreateGroupDm, setShowCreateGroupDm] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  // Sync saved DM channel to Redux on mount so incoming messages
+  // know the user is viewing this DM (prevents false unread badges)
+  useEffect(() => {
+    if (localSelectedDmChannelId) {
+      setSelectedDmChannelId(localSelectedDmChannelId);
+    }
+  }, []);
 
   const handleDmSelect = (dmChannelId: number) => {
     setLocalSelectedDmChannelId(dmChannelId);
