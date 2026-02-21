@@ -132,7 +132,7 @@ const FederatedServerCard = memo(
 
           <div className="flex items-center gap-1 text-xs text-blue-500">
             <Globe className="h-3 w-3" />
-            <span>{server.instanceName}</span>
+            <span>{server.instanceDomain}</span>
           </div>
 
           {server.description && (
