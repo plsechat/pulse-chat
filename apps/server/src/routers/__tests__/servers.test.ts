@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  getServerUnreadCount,
-  getServerUnreadCounts
-} from '../../db/queries/servers';
+import { getServerUnreadCount } from '../../db/queries/servers';
 import { initTest } from '../../__tests__/helpers';
 
 describe('server unread counts', () => {

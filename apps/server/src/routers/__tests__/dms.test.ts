@@ -7,7 +7,7 @@ import { dmChannels, dmMessages } from '../../db/schema';
 describe('DM delete channel', () => {
   test('deletes a DM channel and cascades messages', async () => {
     const { caller: caller1 } = await initTest(1);
-    const { caller: caller2 } = await initTest(2);
+    await initTest(2);
 
     // Create a DM channel between user 1 and 2
     const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });

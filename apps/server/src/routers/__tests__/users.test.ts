@@ -1,8 +1,7 @@
 import { type TTempFile } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { createMockContext } from '../../__tests__/context';
-import { getCaller, getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
-import { tdb } from '../../__tests__/setup';
+import { getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
 import { appRouter } from '../../routers';
 
 describe('users router', () => {
