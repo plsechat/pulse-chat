@@ -1,7 +1,7 @@
 import { setActiveView, setModViewOpen } from '@/features/app/actions';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { requestTextInput } from '@/features/dialogs/actions';
-import { getOrCreateDmChannel } from '@/features/dms/actions';
+import { getOrCreateDmChannel, sendDmMessage } from '@/features/dms/actions';
 import { useFriends } from '@/features/friends/hooks';
 import {
   removeFriendAction,
@@ -38,6 +38,8 @@ import {
   DropdownMenuTrigger
 } from '../ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { TiptapInput } from '../tiptap-input';
+import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { UserAvatar } from '../user-avatar';
 import { UserStatusBadge } from '../user-status';
 
@@ -62,6 +64,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
 
   const [notes, setNotes] = useState<TNote[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
+  const [popoverMessage, setPopoverMessage] = useState('');
 
   const isFriend = useMemo(
     () => friends.some((f) => f.id === userId),
@@ -153,17 +156,20 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     return result.localUserId;
   }, [activeInstanceDomain, userId, user]);
 
-  const handleSendMessage = useCallback(async () => {
+  const handleSendPopoverMessage = useCallback(async () => {
+    if (isHtmlEmpty(popoverMessage)) return;
     try {
       const localId = await resolveLocalUserId();
       const channel = await getOrCreateDmChannel(localId);
       if (channel) {
+        await sendDmMessage(channel.id, popoverMessage);
+        setPopoverMessage('');
         setActiveView('home');
       }
     } catch {
-      toast.error('Failed to open DM channel');
+      toast.error('Failed to send message');
     }
-  }, [resolveLocalUserId]);
+  }, [resolveLocalUserId, popoverMessage]);
 
   const handleAddFriend = useCallback(async () => {
     try {
@@ -430,16 +436,23 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
           </div>
         </div>
 
-        {/* === Zone 4: Message Bar === */}
+        {/* === Zone 4: Message Input === */}
         {!isOwnUser && (
           <div className="px-4 pb-4 pt-2 border-t border-border">
-            <button
-              type="button"
-              onClick={handleSendMessage}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer text-left"
+            <div className="flex items-center gap-2 rounded-md bg-muted/50 border border-border px-3 py-1.5 cursor-text"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('button')) return;
+                const pm = e.currentTarget.querySelector('.ProseMirror');
+                if (pm instanceof HTMLElement) pm.focus();
+              }}
             >
-              Message @{user.name}
-            </button>
+              <TiptapInput
+                value={popoverMessage}
+                placeholder={`Message @${user.name}`}
+                onChange={setPopoverMessage}
+                onSubmit={handleSendPopoverMessage}
+              />
+            </div>
           </div>
         )}
       </PopoverContent>
