@@ -6,7 +6,7 @@ import {
 import { syncPreference } from '@/lib/preferences-sync';
 import { createContext, useContext, useEffect, useState } from 'react';
 
-type Theme = 'dark' | 'light' | 'onyx' | 'system';
+type Theme = 'dark' | 'light' | 'onyx' | 'midnight' | 'sunset' | 'rose' | 'forest' | 'dracula' | 'nord' | 'sand' | 'system';
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -39,7 +39,7 @@ function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement;
 
-    root.classList.remove('light', 'dark', 'onyx');
+    root.classList.remove('light', 'dark', 'onyx', 'midnight', 'sunset', 'rose', 'forest', 'dracula', 'nord', 'sand');
 
     if (theme === 'system') {
       const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
@@ -89,4 +89,4 @@ const useTheme = () => {
 };
 
 // eslint-disable-next-line react-refresh/only-export-components
-export { ThemeProvider, useTheme };
+export { ThemeProvider, useTheme, type Theme };

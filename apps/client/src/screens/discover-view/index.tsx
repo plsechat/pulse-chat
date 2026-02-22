@@ -80,7 +80,7 @@ const ServerCard = memo(
                   'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
                   joining
                     ? 'cursor-not-allowed bg-muted text-muted-foreground'
-                    : 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
                 )}
               >
                 {joining ? (
