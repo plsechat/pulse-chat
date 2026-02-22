@@ -2,7 +2,7 @@ import { openDB } from 'idb';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORE_NAMES = [
   'identityKey',
