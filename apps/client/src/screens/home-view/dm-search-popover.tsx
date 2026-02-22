@@ -3,6 +3,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { useUserById } from '@/features/server/users/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
+import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import parse from 'html-react-parser';
 import { Loader2, Search, X } from 'lucide-react';
@@ -32,7 +33,7 @@ const DmSearchResult = memo(
             {user?.name ?? 'Unknown'}
           </span>
           <span className="text-xs text-muted-foreground">
-            {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
+            {format(new Date(message.createdAt), longDateTime())}
           </span>
         </div>
         <div className="pl-7 text-sm msg-content">

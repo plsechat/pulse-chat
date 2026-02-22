@@ -31,6 +31,7 @@ import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 import parse from 'html-react-parser';
+import { fullDateTime, longDateTime } from '@/helpers/time-format';
 import { format, formatDistance, subDays } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
@@ -644,7 +645,7 @@ const DmPinnedMessageItem = memo(
             {user?.name ?? 'Unknown'}
           </span>
           <span className="text-xs text-muted-foreground">
-            {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
+            {format(new Date(message.createdAt), longDateTime())}
           </span>
         </div>
         <div className="pl-7 text-sm msg-content">
@@ -682,7 +683,7 @@ const DmMessagesGroup = memo(
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline pl-1 select-none">
             <span className={cn(isOwnUser && 'font-bold')}>{user.name}</span>
-            <Tooltip content={format(date, 'PPpp')}>
+            <Tooltip content={format(date, fullDateTime())}>
               <span className="text-primary/60 text-xs">
                 {formatDistance(subDays(date, 0), new Date(), {
                   addSuffix: true

@@ -11,6 +11,7 @@ import { useUserRoles } from '@/features/server/hooks';
 import { useUserStatus } from '@/features/server/users/hooks';
 import { cn } from '@/lib/utils';
 import { UserStatus, type TJoinedUser } from '@pulse/shared';
+import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
 import { MoreVertical, UserCog } from 'lucide-react';
 import { memo, useCallback } from 'react';
@@ -63,7 +64,7 @@ const TableUser = memo(({ user }: TTableUserProps) => {
       </div>
 
       <div className="flex items-center text-muted-foreground">
-        <span className="text-xs" title={format(user.createdAt, 'PPP p')}>
+        <span className="text-xs" title={format(user.createdAt, datePlusTime())}>
           {formatDistanceToNow(user.createdAt, { addSuffix: true })}
         </span>
       </div>

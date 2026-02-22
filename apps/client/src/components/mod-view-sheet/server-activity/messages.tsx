@@ -1,6 +1,7 @@
 import { MessageRenderer } from '@/components/channel-view/text/renderer';
 import { PaginatedList } from '@/components/paginated-list';
 import type { TMessage } from '@pulse/shared';
+import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { memo, useCallback } from 'react';
 import { useModViewContext } from '../context';
@@ -12,7 +13,7 @@ const Messages = memo(() => {
     (message: TMessage) => (
       <div className="py-2 px-1 border-b border-border last:border-0 bg-secondary/50 rounded-md">
         <span className="text-xs text-muted-foreground">
-          {format(new Date(message.createdAt), 'PPpp')}
+          {format(new Date(message.createdAt), fullDateTime())}
         </span>
         <MessageRenderer
           message={{

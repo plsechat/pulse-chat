@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip } from '@/components/ui/tooltip';
+import { fullDateTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   Calendar,
@@ -110,7 +111,7 @@ const Details = memo(() => {
                 icon={<Gavel className="h-4 w-4 text-muted-foreground" />}
                 label="Banned At"
                 value={format(user.bannedAt ?? 0, 'PPP')}
-                details={format(user.bannedAt ?? 0, 'PPpp')}
+                details={format(user.bannedAt ?? 0, fullDateTime())}
               />
             </>
           )}

@@ -4,6 +4,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { useUserById } from '@/features/server/users/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
+import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { Pin, PinOff, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
@@ -31,7 +32,7 @@ const PinnedMessageItem = memo(
           <UserAvatar userId={message.userId} className="h-5 w-5" />
           <span className="text-sm font-medium">{user?.name ?? 'Unknown'}</span>
           <span className="text-xs text-muted-foreground">
-            {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
+            {format(new Date(message.createdAt), longDateTime())}
           </span>
         </div>
         <div className="pl-7 text-sm">

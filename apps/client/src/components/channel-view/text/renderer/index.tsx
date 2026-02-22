@@ -6,6 +6,7 @@ import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { imageExtensions, type TJoinedMessage } from '@pulse/shared';
 import { Lock } from 'lucide-react';
+import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
 import parse from 'html-react-parser';
@@ -129,7 +130,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       <div className={cn('max-w-full break-words msg-content', isEmojiOnly && 'emoji-only')}>
         {messageHtml}
         {message.edited && (
-          <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), 'PPpp')}` : 'Edited'}>
+          <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), fullDateTime())}` : 'Edited'}>
             <span className="text-[10px] text-muted-foreground/50 ml-1 cursor-default">
               (edited)
             </span>

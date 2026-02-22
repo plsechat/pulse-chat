@@ -13,6 +13,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { TInvite } from '@pulse/shared';
+import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Copy, MoreVertical, Trash2 } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
@@ -129,7 +130,7 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
             'text-destructive': isExpired
           })}
           title={
-            invite.expiresAt ? format(invite.expiresAt, 'PPP p') : undefined
+            invite.expiresAt ? format(invite.expiresAt, datePlusTime()) : undefined
           }
         >
           {expiresText}
@@ -137,7 +138,7 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
       </div>
 
       <div className="flex items-center text-muted-foreground">
-        <span className="text-xs" title={format(invite.createdAt, 'PPP p')}>
+        <span className="text-xs" title={format(invite.createdAt, datePlusTime())}>
           {formatDistanceToNow(invite.createdAt, { addSuffix: true })}
         </span>
       </div>
