@@ -8,6 +8,7 @@ import { VoiceChatSidebar } from '@/components/voice-chat-sidebar';
 import { useSelectedChannelId } from '@/features/server/channels/hooks';
 import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { syncPreference } from '@/lib/preferences-sync';
 import { useSwipeGestures } from '@/hooks/use-swipe-gestures';
 import { cn } from '@/lib/utils';
 import { Permission } from '@pulse/shared';
@@ -37,11 +38,13 @@ const ServerView = memo(() => {
   }, [selectedChannelId, isMobile]);
 
   const handleDesktopRightSidebarToggle = useCallback(() => {
-    setIsDesktopRightSidebarOpen((prev) => !prev);
+    const newState = !isDesktopRightSidebarOpen;
+    setIsDesktopRightSidebarOpen(newState);
     localStorage.setItem(
       LocalStorageKey.RIGHT_SIDEBAR_STATE,
-      !isDesktopRightSidebarOpen ? 'true' : 'false'
+      newState ? 'true' : 'false'
     );
+    syncPreference({ rightSidebarOpen: newState });
   }, [isDesktopRightSidebarOpen]);
 
   const handleVoiceChatSidebarToggle = useCallback(() => {

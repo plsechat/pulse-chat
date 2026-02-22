@@ -3,6 +3,7 @@ import {
   LocalStorageKey,
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
+import { syncPreference } from '@/lib/preferences-sync';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type MessageSpacing = 'tight' | 'normal' | 'relaxed';
@@ -52,6 +53,7 @@ const updateSettings = (partial: Partial<AppearanceSettings>) => {
     currentSettings
   );
   applySettingsToDOM(currentSettings);
+  syncPreference({ appearance: partial });
   for (const listener of listeners) {
     listener();
   }
@@ -77,6 +79,18 @@ const applySettingsToDOM = (settings: AppearanceSettings) => {
 
 // Apply on load
 applySettingsToDOM(getSettings());
+
+// Re-read from localStorage when server preferences are applied
+if (typeof window !== 'undefined') {
+  window.addEventListener('pulse-preferences-loaded', () => {
+    currentSettings = null;
+    const fresh = getSettings();
+    applySettingsToDOM(fresh);
+    for (const listener of listeners) {
+      listener();
+    }
+  });
+}
 
 export const useAppearanceSettings = () => {
   const settings = useSyncExternalStore(subscribe, getSettings);

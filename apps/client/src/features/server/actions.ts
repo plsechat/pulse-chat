@@ -11,6 +11,8 @@ import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
 import { fetchFriendRequests, fetchFriends } from '@/features/friends/actions';
 import { logDebug } from '@/helpers/browser-logger';
 import { getHostFromServer } from '@/helpers/get-file-url';
+import { applyServerPreferences } from '@/lib/preferences-apply';
+import { seedPreferencesFromLocalStorage } from '@/lib/preferences-seed';
 import { cleanup, connectToTRPC, getHomeTRPCClient } from '@/lib/trpc';
 import { type TPublicServerSettings, type TServerInfo } from '@pulse/shared';
 import { openDialog } from '../dialogs/actions';
@@ -113,7 +115,20 @@ export const joinServer = async (
   unsubscribeFromVoice?.();
   unsubscribeFromVoice = subscribeToVoice();
 
+  // Apply server preferences to localStorage BEFORE setInitialData
+  // so the server-channel-map is available when the reducer reads it
+  if (data.userPreferences) {
+    applyServerPreferences(data.userPreferences);
+  }
+
   store.dispatch(serverSliceActions.setInitialData(data));
+
+  // After state is initialized, handle preference sync
+  if (data.userPreferences) {
+    window.dispatchEvent(new Event('pulse-preferences-loaded'));
+  } else {
+    seedPreferencesFromLocalStorage();
+  }
 
   // Track the active server's DB id
   if (data.serverDbId) {
