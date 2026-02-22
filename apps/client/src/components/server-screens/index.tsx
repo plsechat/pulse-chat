@@ -88,6 +88,8 @@ const ServerScreensProvider = memo(() => {
 
   if (realIsOpen) {
     portalRoot.style.display = 'block';
+    portalRoot.style.position = 'relative';
+    portalRoot.style.zIndex = '50';
   } else {
     portalRoot.style.display = 'none';
   }
