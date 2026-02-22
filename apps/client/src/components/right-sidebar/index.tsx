@@ -2,6 +2,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useUserDisplayRole } from '@/features/server/hooks';
 import { usersGroupedByRoleSelector } from '@/features/server/users/selectors';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { TJoinedPublicUser } from '@pulse/shared';
@@ -86,7 +87,7 @@ const RoleGroupSection = memo(
           <User
             key={user.id}
             userId={user.id}
-            name={user.name}
+            name={getDisplayName(user)}
             banned={user.banned}
             status={user.status}
             _identity={user._identity}
