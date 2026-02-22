@@ -55,7 +55,10 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       const textOnly = sanitized.replace(/<[^>]*>/g, '').trim();
       const emojiRegex = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu;
       const emojiMatches = textOnly.match(emojiRegex);
-      const strippedOfEmoji = textOnly.replace(emojiRegex, '').trim();
+      const strippedOfEmoji = textOnly
+        .replace(emojiRegex, '')
+        .replace(/[\u200D\uFE0E\uFE0F]/g, '')
+        .trim();
 
       // Also count custom emoji img tags with data-emoji-name
       const customEmojiCount = (sanitized.match(/data-emoji-name/g) || []).length;
