@@ -35,7 +35,7 @@ export const ChannelMentionSuggestion = {
 
     return channels
       .filter(
-        (c) => c.type === 'text' && c.name.toLowerCase().includes(q)
+        (c) => c.type === 'TEXT' && c.name.toLowerCase().includes(q)
       )
       .slice(0, 8);
   },
