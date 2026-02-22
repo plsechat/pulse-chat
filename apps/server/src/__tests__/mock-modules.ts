@@ -9,6 +9,7 @@ import { mock } from 'bun:test';
  * Modules mocked here:
  * - config    — top-level await for getPublicIp/getPrivateIp + file I/O
  * - logger    — imports config, creates log files at module scope
+ * - env       — isRegistrationDisabled() via globalThis.__registrationDisabled
  * - supabase  — throws immediately if SUPABASE_URL env vars are missing
  */
 
@@ -57,6 +58,18 @@ mock.module('../http/rate-limit', () => ({
   federationRateLimit: { windowMs: 60000, maxRequests: Infinity }
 }));
 
+// ── Mock env (allows tests to toggle REGISTRATION_DISABLED dynamically) ──
+mock.module('../utils/env', () => ({
+  isRegistrationDisabled: () => globalThis.__registrationDisabled ?? false,
+  SERVER_VERSION: '0.0.0-dev',
+  BUILD_DATE: 'dev',
+  IS_PRODUCTION: false,
+  IS_DEVELOPMENT: true,
+  IS_TEST: true,
+  IS_DOCKER: false,
+  PULSE_MEDIASOUP_BIN_NAME: undefined
+}));
+
 // ── In-memory auth store for supabase mock ──
 // Shared via globalThis so seed.ts can pre-populate it.
 // Each entry: { supabaseId: string, password: string, email: string }
@@ -65,6 +78,8 @@ type AuthEntry = { supabaseId: string; password: string; email: string };
 declare global {
   // eslint-disable-next-line no-var
   var __supabaseAuthStore: Map<string, AuthEntry>;
+  // eslint-disable-next-line no-var
+  var __registrationDisabled: boolean;
 }
 
 globalThis.__supabaseAuthStore =

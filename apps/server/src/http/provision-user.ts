@@ -7,6 +7,7 @@ import { getUserBySupabaseId, isDisplayNameTaken } from '../db/queries/users';
 import { invites, users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
+import { isRegistrationDisabled } from '../utils/env';
 import { supabaseAdmin } from '../utils/supabase';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
@@ -84,7 +85,7 @@ const provisionRouteHandler = async (
   const settings = await getSettings();
   const connectionInfo = getWsInfo(undefined, req);
 
-  if (!settings.allowNewUsers) {
+  if (isRegistrationDisabled() || !settings.allowNewUsers) {
     const inviteError = await isInviteValid(body.invite);
 
     if (inviteError) {

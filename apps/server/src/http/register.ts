@@ -8,6 +8,7 @@ import { isDisplayNameTaken } from '../db/queries/users';
 import { invites } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { supabaseAdmin } from '../utils/supabase';
+import { isRegistrationDisabled } from '../utils/env';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -33,7 +34,7 @@ const registerRouteHandler = async (
   }
 
   // Check if registration is allowed
-  if (!settings.allowNewUsers) {
+  if (isRegistrationDisabled() || !settings.allowNewUsers) {
     if (!data.invite) {
       throw new HttpValidationError('email', 'Invalid invite code');
     }

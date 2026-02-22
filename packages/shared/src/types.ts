@@ -99,6 +99,7 @@ export type TServerInfo = Pick<
   id?: number;
   logo: TFile | null;
   version: string;
+  registrationDisabled?: boolean;
   enabledAuthProviders?: string[];
   supabaseUrl: string;
   supabaseAnonKey: string;

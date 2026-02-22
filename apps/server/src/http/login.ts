@@ -2,6 +2,7 @@ import http from 'http';
 import z from 'zod';
 import { getUserBySupabaseId } from '../db/queries/users';
 import { getWsInfo } from '../helpers/get-ws-info';
+import { isRegistrationDisabled } from '../utils/env';
 import { supabaseAdmin } from '../utils/supabase';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
@@ -38,6 +39,10 @@ const loginRouteHandler = async (
   let existingUser = await getUserBySupabaseId(signInData.user.id);
 
   if (!existingUser) {
+    if (isRegistrationDisabled()) {
+      throw new HttpValidationError('email', 'Registration is currently disabled');
+    }
+
     // Supabase user exists but no app user — create one
     // Use email prefix as display name since login doesn't have a name field
     const fallbackName = data.email.split('@')[0] || 'User';
