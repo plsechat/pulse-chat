@@ -25,6 +25,7 @@ import { getMessagesRoute } from './get-messages';
 import { getOrCreateChannelRoute } from './get-or-create-channel';
 import { getPinnedDmMessagesRoute } from './get-pinned-dm-messages';
 import { leaveGroupRoute } from './leave-group';
+import { markAllAsReadRoute } from './mark-all-as-read';
 import { pinDmMessageRoute } from './pin-dm-message';
 import { removeMemberRoute } from './remove-member';
 import { searchDmMessagesRoute } from './search-messages';
@@ -51,6 +52,7 @@ export const dmsRouter = t.router({
   removeMember: removeMemberRoute,
   updateGroup: updateGroupRoute,
   leaveGroup: leaveGroupRoute,
+  markAllAsRead: markAllAsReadRoute,
   voiceJoin: dmVoiceJoinRoute,
   voiceLeave: dmVoiceLeaveRoute,
   toggleReaction: toggleDmReactionRoute,

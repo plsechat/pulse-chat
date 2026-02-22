@@ -1,5 +1,6 @@
 import { setActiveView } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
+import { updateFriend } from '@/features/friends/actions';
 import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
@@ -51,6 +52,7 @@ const subscribeToUsers = () => {
   const onUserJoinSub = trpc.users.onJoin.subscribe(undefined, {
     onData: (user: TJoinedPublicUser) => {
       handleUserJoin(user);
+      updateFriend(user.id, { ...user, status: UserStatus.ONLINE });
 
       // Fire-and-forget: distribute sender keys to the newly online user
       distributeE2eeKeysToUser(user.id).catch((err) =>
@@ -70,6 +72,7 @@ const subscribeToUsers = () => {
   const onUserLeaveSub = trpc.users.onLeave.subscribe(undefined, {
     onData: (userId: number) => {
       updateUser(userId, { status: UserStatus.OFFLINE });
+      updateFriend(userId, { status: UserStatus.OFFLINE });
     },
     onError: (err) => console.error('onUserLeave subscription error:', err)
   });
@@ -77,6 +80,7 @@ const subscribeToUsers = () => {
   const onUserUpdateSub = trpc.users.onUpdate.subscribe(undefined, {
     onData: (user: TJoinedPublicUser) => {
       updateUser(user.id, user);
+      updateFriend(user.id, user);
     },
     onError: (err) => console.error('onUserUpdate subscription error:', err)
   });

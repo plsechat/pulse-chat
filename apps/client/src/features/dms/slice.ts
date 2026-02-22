@@ -195,6 +195,11 @@ export const dmsSlice = createSlice({
         channel.unreadCount = (channel.unreadCount ?? 0) + 1;
       }
     },
+    clearAllUnread: (state) => {
+      for (const channel of state.channels) {
+        channel.unreadCount = 0;
+      }
+    },
     addDmTypingUser: (
       state,
       action: PayloadAction<{ dmChannelId: number; userId: number }>

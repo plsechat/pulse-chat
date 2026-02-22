@@ -40,6 +40,20 @@ export const friendsSlice = createSlice({
     removeRequest: (state, action: PayloadAction<number>) => {
       state.requests = state.requests.filter((r) => r.id !== action.payload);
     },
+    updateFriend: (
+      state,
+      action: PayloadAction<{
+        userId: number;
+        data: Partial<TJoinedPublicUser>;
+      }>
+    ) => {
+      const friend = state.friends.find(
+        (f) => f.id === action.payload.userId
+      );
+      if (friend) {
+        Object.assign(friend, action.payload.data);
+      }
+    },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.loading = action.payload;
     }

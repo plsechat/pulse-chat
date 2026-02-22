@@ -6,11 +6,12 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
+import { UserStatusBadge } from '@/components/user-status';
 import { deleteDmChannel, enableDmEncryption } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useFriendRequests } from '@/features/friends/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
@@ -198,7 +199,7 @@ const DmChannelItem = memo(
                 ))}
               </div>
             ) : (
-              <DmMemberAvatar
+              <DmMemberAvatarWithStatus
                 member={otherMembers[0]}
                 className="h-8 w-8 flex-shrink-0"
               />
@@ -242,6 +243,27 @@ const DmChannelItem = memo(
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+    );
+  }
+);
+
+/** Avatar with status badge for 1-on-1 DM items in the sidebar. */
+const DmMemberAvatarWithStatus = memo(
+  ({ member, className }: { member: TJoinedPublicUser; className?: string }) => {
+    const status = useUserStatus(member.id);
+    return (
+      <div className="relative w-fit h-fit flex-shrink-0">
+        <Avatar className={cn('h-8 w-8', className)}>
+          <AvatarImage src={getFileUrl(member.avatar)} />
+          <AvatarFallback className="bg-muted text-xs">
+            {getInitialsFromName(member.name)}
+          </AvatarFallback>
+        </Avatar>
+        <UserStatusBadge
+          status={status}
+          className="absolute bottom-0 right-0"
+        />
+      </div>
     );
   }
 );
