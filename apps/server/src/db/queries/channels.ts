@@ -2,6 +2,7 @@ import {
   ChannelPermission,
   type TChannel,
   type TChannelUserPermissionsMap,
+  type TLastReadMessageIdMap,
   type TMentionStateMap,
   type TReadStateMap
 } from '@pulse/shared';
@@ -398,10 +399,11 @@ const getAffectedUserIdsForChannel = async (
 const getChannelsReadStatesForUser = async (
   userId: number,
   channelId?: number
-): Promise<{ readStates: TReadStateMap; mentionStates: TMentionStateMap }> => {
+): Promise<{ readStates: TReadStateMap; mentionStates: TMentionStateMap; lastReadMessageIds: TLastReadMessageIdMap }> => {
   const results = await db
     .select({
       channelId: messages.channelId,
+      lastReadMessageId: sql<number | null>`MAX(${channelReadStates.lastReadMessageId})`.as('last_read_message_id'),
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
@@ -433,16 +435,18 @@ const getChannelsReadStatesForUser = async (
 
   const readStates: TReadStateMap = {};
   const mentionStates: TMentionStateMap = {};
+  const lastReadMessageIds: TLastReadMessageIdMap = {};
 
   for (const result of results) {
     readStates[result.channelId] = Number(result.unreadCount);
+    lastReadMessageIds[result.channelId] = result.lastReadMessageId;
     const mc = Number(result.mentionCount);
     if (mc > 0) {
       mentionStates[result.channelId] = mc;
     }
   }
 
-  return { readStates, mentionStates };
+  return { readStates, mentionStates, lastReadMessageIds };
 };
 
 export {

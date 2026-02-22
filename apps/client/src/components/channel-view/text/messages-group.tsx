@@ -3,6 +3,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
 import { useUserDisplayRole } from '@/features/server/hooks';
 import { useUserById } from '@/features/server/users/hooks';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
 import { cn } from '@/lib/utils';
 import type { TJoinedMessage } from '@pulse/shared';
@@ -38,7 +39,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
     ? firstMessage.metadata?.find((m) => m.mediaType === 'webhook')
     : null;
   const isWebhook = !!webhookMeta;
-  const displayName = isWebhook && webhookMeta?.title ? webhookMeta.title : user.name;
+  const displayName = isWebhook && webhookMeta?.title ? webhookMeta.title : getDisplayName(user);
 
   const nameColor =
     !isWebhook && displayRole?.color && displayRole.color !== '#ffffff'

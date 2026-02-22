@@ -67,7 +67,8 @@ export const requestTextInput = async ({
   cancelLabel,
   type = 'text',
   allowEmpty = false,
-  autoClose = true
+  autoClose = true,
+  defaultValue
 }: {
   title?: string;
   message?: string;
@@ -76,6 +77,7 @@ export const requestTextInput = async ({
   cancelLabel?: string;
   allowEmpty?: boolean;
   autoClose?: boolean;
+  defaultValue?: string;
 }): Promise<string | undefined | null> => {
   return new Promise((resolve) => {
     openDialog(Dialog.TEXT_INPUT, {
@@ -85,6 +87,7 @@ export const requestTextInput = async ({
       cancelLabel,
       allowEmpty,
       type,
+      defaultValue,
       onConfirm: (text: string) => {
         if (autoClose) {
           closeDialogs();

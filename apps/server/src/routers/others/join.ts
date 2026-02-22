@@ -240,6 +240,7 @@ const joinServerRoute = t.procedure
       channelPermissions,
       readStates: readStatesResult.readStates,
       mentionStates: readStatesResult.mentionStates,
+      lastReadMessageIds: readStatesResult.lastReadMessageIds,
       commands: pluginManager.getCommands(),
       externalStreamsMap
     };

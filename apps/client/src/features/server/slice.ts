@@ -13,6 +13,7 @@ import type {
   TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
+  TLastReadMessageIdMap,
   TMentionStateMap,
   TPublicServerSettings,
   TReadStateMap,
@@ -56,6 +57,9 @@ export interface IServerState {
   mentionStatesMap: {
     [channelId: number]: number | undefined;
   };
+  lastReadMessageIdMap: {
+    [channelId: number]: number | null | undefined;
+  };
   pluginCommands: TCommandsMapByPlugin;
   activeThreadId: number | undefined;
   highlightedMessageId: number | undefined;
@@ -94,6 +98,7 @@ const initialState: IServerState = {
   channelPermissions: {},
   readStatesMap: {},
   mentionStatesMap: {},
+  lastReadMessageIdMap: {},
   pluginCommands: {},
   activeThreadId: undefined,
   highlightedMessageId: undefined
@@ -156,6 +161,7 @@ export const serverSlice = createSlice({
         channelPermissions: TChannelUserPermissionsMap;
         readStates: TReadStateMap;
         mentionStates?: TMentionStateMap;
+        lastReadMessageIds?: TLastReadMessageIdMap;
       }>
     ) => {
       state.connected = true;
@@ -173,6 +179,7 @@ export const serverSlice = createSlice({
       state.channelPermissions = action.payload.channelPermissions;
       state.readStatesMap = action.payload.readStates;
       state.mentionStatesMap = action.payload.mentionStates ?? {};
+      state.lastReadMessageIdMap = action.payload.lastReadMessageIds ?? {};
       // Clear transient state from previous server
       state.messagesMap = {};
       state.typingMap = {};

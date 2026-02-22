@@ -1,7 +1,10 @@
 import { UserPopover } from '@/components/user-popover';
+import { setSelectedChannelId } from '@/features/server/channels/actions';
+import { useChannelById } from '@/features/server/channels/hooks';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
-import { memo } from 'react';
+import { getDisplayName } from '@/helpers/get-display-name';
+import { memo, useCallback } from 'react';
 
 type TMentionOverrideProps = {
   type: 'user' | 'role' | 'all';
@@ -11,7 +14,7 @@ type TMentionOverrideProps = {
 
 const UserMention = memo(({ id, name }: { id: number; name: string }) => {
   const user = useUserById(id);
-  const displayName = user?.name ?? name;
+  const displayName = user ? getDisplayName(user) : name;
   const isFederated = user?._identity?.includes('@');
 
   return (
@@ -65,4 +68,27 @@ const MentionOverride = memo(({ type, id, name }: TMentionOverrideProps) => {
   return <RoleMention id={id} name={name} />;
 });
 
-export { MentionOverride };
+const ChannelMention = memo(({ id, name }: { id: number; name: string }) => {
+  const channel = useChannelById(id);
+  const displayName = channel?.name ?? name;
+
+  const handleClick = useCallback(() => {
+    setSelectedChannelId(id);
+  }, [id]);
+
+  return (
+    <span
+      className="mention"
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') handleClick();
+      }}
+    >
+      #{displayName}
+    </span>
+  );
+});
+
+export { MentionOverride, ChannelMention };

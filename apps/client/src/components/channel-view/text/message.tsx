@@ -1,12 +1,15 @@
 import { useCan } from '@/features/server/hooks';
+import { setHighlightedMessageId } from '@/features/server/channels/actions';
 import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { Pin, Reply } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { MessageActions } from './message-actions';
+import { MessageContextMenu } from './message-context-menu';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
 import { ThreadIndicator } from './thread-indicator';
@@ -17,18 +20,33 @@ type TMessageProps = {
 };
 
 const ReplyPreview = memo(
-  ({ replyTo }: { replyTo: { userId: number; content: string | null } }) => {
+  ({ replyTo }: { replyTo: { id: number; userId: number; content: string | null } }) => {
     const user = useUserById(replyTo.userId);
     const truncated = replyTo.content
       ? replyTo.content.replace(/<[^>]*>/g, '').slice(0, 100)
       : 'Message deleted';
 
+    const scrollToOriginal = useCallback(() => {
+      setHighlightedMessageId(replyTo.id);
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`msg-${replyTo.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+      setTimeout(() => setHighlightedMessageId(undefined), 2500);
+    }, [replyTo.id]);
+
     return (
-      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 pl-1">
-        <Reply className="h-3 w-3 rotate-180" />
-        <span className="font-semibold">{user?.name ?? 'Unknown'}</span>
+      <button
+        type="button"
+        onClick={scrollToOriginal}
+        className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 pl-1 hover:text-foreground transition-colors cursor-pointer"
+      >
+        <Reply className="h-3 w-3 rotate-180 shrink-0" />
+        <span className="font-semibold shrink-0">{getDisplayName(user)}</span>
         <span className="truncate max-w-[300px]">{truncated}</span>
-      </div>
+      </button>
     );
   }
 );
@@ -49,44 +67,57 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   );
 
   return (
-    <div
-      id={`msg-${message.id}`}
-      className={cn(
-        'min-w-0 flex-1 relative group leading-[1.375rem] hover:bg-foreground/[0.02] rounded',
-        isHighlighted && 'animate-msg-highlight rounded'
-      )}
+    <MessageContextMenu
+      messageId={message.id}
+      messageContent={message.content}
+      channelId={message.channelId}
+      onEdit={() => setIsEditing(true)}
+      onReply={onReply}
+      canEdit={canEdit}
+      canDelete={canDelete}
+      editable={message.editable ?? false}
+      pinned={message.pinned ?? false}
+      hasThread={!!message.threadId}
     >
-      {message.pinned && (
-        <div className="flex items-center gap-1 text-xs text-yellow-500 mb-0.5 pl-1">
-          <Pin className="w-3 h-3" />
-          <span>Pinned</span>
-        </div>
-      )}
-      {message.replyTo && <ReplyPreview replyTo={message.replyTo} />}
-      {!isEditing ? (
-        <>
-          <MessageRenderer message={message} />
-          {message.threadId && (
-            <ThreadIndicator threadId={message.threadId} />
-          )}
-          <MessageActions
-            onEdit={() => setIsEditing(true)}
-            onReply={onReply}
-            canEdit={canEdit}
-            canDelete={canDelete}
-            messageId={message.id}
-            editable={message.editable ?? false}
-            pinned={message.pinned ?? false}
-            hasThread={!!message.threadId}
+      <div
+        id={`msg-${message.id}`}
+        className={cn(
+          'min-w-0 flex-1 relative group leading-[1.375rem] hover:bg-foreground/[0.02] rounded',
+          isHighlighted && 'animate-msg-highlight rounded'
+        )}
+      >
+        {message.pinned && (
+          <div className="flex items-center gap-1 text-xs text-yellow-500 mb-0.5 pl-1">
+            <Pin className="w-3 h-3" />
+            <span>Pinned</span>
+          </div>
+        )}
+        {message.replyTo && <ReplyPreview replyTo={message.replyTo} />}
+        {!isEditing ? (
+          <>
+            <MessageRenderer message={message} />
+            {message.threadId && (
+              <ThreadIndicator threadId={message.threadId} />
+            )}
+            <MessageActions
+              onEdit={() => setIsEditing(true)}
+              onReply={onReply}
+              canEdit={canEdit}
+              canDelete={canDelete}
+              messageId={message.id}
+              editable={message.editable ?? false}
+              pinned={message.pinned ?? false}
+              hasThread={!!message.threadId}
+            />
+          </>
+        ) : (
+          <MessageEditInline
+            message={message}
+            onBlur={() => setIsEditing(false)}
           />
-        </>
-      ) : (
-        <MessageEditInline
-          message={message}
-          onBlur={() => setIsEditing(false)}
-        />
-      )}
-    </div>
+        )}
+      </div>
+    </MessageContextMenu>
   );
 });
 

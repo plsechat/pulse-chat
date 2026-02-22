@@ -650,15 +650,21 @@ body,
 
 @keyframes msg-highlight {
   0% {
-    background-color: oklch(from var(--primary) l c h / 0.25);
+    background-color: oklch(from var(--primary) l c h / 0.4);
+    border-left: 3px solid var(--primary);
+  }
+  70% {
+    background-color: oklch(from var(--primary) l c h / 0.15);
+    border-left: 3px solid oklch(from var(--primary) l c h / 0.5);
   }
   100% {
     background-color: transparent;
+    border-left: 3px solid transparent;
   }
 }
 
 .animate-msg-highlight {
-  animation: msg-highlight 2s ease-out forwards;
+  animation: msg-highlight 2.5s ease-out forwards;
 }
 
 /* mentions */

@@ -3,7 +3,7 @@ import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { Element, Text, type DOMNode } from 'html-react-parser';
 import { CodeBlockOverride } from '../overrides/code-block';
 import { CommandOverride } from '../overrides/command';
-import { MentionOverride } from '../overrides/mention';
+import { ChannelMention, MentionOverride } from '../overrides/mention';
 import { TwitterOverride } from '../overrides/twitter';
 import { YoutubeOverride } from '../overrides/youtube';
 import type { TFoundMedia } from './types';
@@ -110,6 +110,17 @@ const serializer = (
       extractText(domNode as DOMNode).replace(/^@/, '');
 
     return <MentionOverride type={type} id={id} name={name} />;
+  } else if (
+    domNode instanceof Element &&
+    domNode.name === 'span' &&
+    domNode.attribs['data-type'] === 'channel-mention'
+  ) {
+    const id = Number(domNode.attribs['data-channel-id']);
+    const name =
+      domNode.attribs['data-channel-name'] ||
+      extractText(domNode as DOMNode).replace(/^#/, '');
+
+    return <ChannelMention id={id} name={name} />;
   } else if (domNode instanceof Element && domNode.name === 'pre') {
     const codeChild = domNode.children.find(
       (child) => child instanceof Element && child.name === 'code'

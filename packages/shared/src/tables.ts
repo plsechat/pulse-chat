@@ -182,6 +182,7 @@ export type TJoinedPublicUser = TPublicUser & {
   avatar: TFile | null;
   banner: TFile | null;
   roleIds: number[];
+  nickname?: string | null;
 };
 
 export type TJoinedSettings = TSettings & {

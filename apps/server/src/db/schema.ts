@@ -119,7 +119,8 @@ const serverMembers = pgTable(
     joinedAt: bigint('joined_at', { mode: 'number' }).notNull(),
     muted: boolean('muted').notNull().default(false),
     notificationLevel: text('notification_level').notNull().default('default'),
-    position: integer('position').notNull().default(0)
+    position: integer('position').notNull().default(0),
+    nickname: text('nickname')
   },
   (t) => [
     primaryKey({ columns: [t.serverId, t.userId] }),
