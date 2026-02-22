@@ -2,7 +2,7 @@ import http from 'http';
 import z from 'zod';
 import { getUserBySupabaseId } from '../db/queries/users';
 import { getWsInfo } from '../helpers/get-ws-info';
-import { REGISTRATION_DISABLED } from '../utils/env';
+import { isRegistrationDisabled } from '../utils/env';
 import { supabaseAdmin } from '../utils/supabase';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
@@ -39,7 +39,7 @@ const loginRouteHandler = async (
   let existingUser = await getUserBySupabaseId(signInData.user.id);
 
   if (!existingUser) {
-    if (REGISTRATION_DISABLED) {
+    if (isRegistrationDisabled()) {
       throw new HttpValidationError('email', 'Registration is currently disabled');
     }
 

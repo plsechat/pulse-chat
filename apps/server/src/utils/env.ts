@@ -17,7 +17,7 @@ const IS_PRODUCTION = env === 'production';
 const IS_DEVELOPMENT = !IS_PRODUCTION;
 const IS_TEST = process.env.NODE_ENV === 'test';
 const IS_DOCKER = process.env.RUNNING_IN_DOCKER === 'true';
-const REGISTRATION_DISABLED = process.env.REGISTRATION_DISABLED === 'true';
+const isRegistrationDisabled = () => process.env.REGISTRATION_DISABLED === 'true';
 
 if (IS_PRODUCTION) {
   if (!PULSE_MEDIASOUP_BIN_NAME) {
@@ -31,7 +31,7 @@ export {
   IS_DOCKER,
   IS_PRODUCTION,
   IS_TEST,
-  REGISTRATION_DISABLED,
+  isRegistrationDisabled,
   SERVER_VERSION,
   PULSE_MEDIASOUP_BIN_NAME
 };

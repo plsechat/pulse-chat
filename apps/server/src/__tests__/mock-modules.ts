@@ -9,7 +9,7 @@ import { mock } from 'bun:test';
  * Modules mocked here:
  * - config    — top-level await for getPublicIp/getPrivateIp + file I/O
  * - logger    — imports config, creates log files at module scope
- * - env       — REGISTRATION_DISABLED via globalThis.__registrationDisabled
+ * - env       — isRegistrationDisabled() via globalThis.__registrationDisabled
  * - supabase  — throws immediately if SUPABASE_URL env vars are missing
  */
 
@@ -60,9 +60,7 @@ mock.module('../http/rate-limit', () => ({
 
 // ── Mock env (allows tests to toggle REGISTRATION_DISABLED dynamically) ──
 mock.module('../utils/env', () => ({
-  get REGISTRATION_DISABLED() {
-    return globalThis.__registrationDisabled ?? false;
-  },
+  isRegistrationDisabled: () => globalThis.__registrationDisabled ?? false,
   SERVER_VERSION: '0.0.0-dev',
   BUILD_DATE: 'dev',
   IS_PRODUCTION: false,

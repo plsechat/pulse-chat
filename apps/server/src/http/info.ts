@@ -1,7 +1,7 @@
 import type { TServerInfo } from '@pulse/shared';
 import http from 'http';
 import { getFirstServer } from '../db/queries/servers';
-import { REGISTRATION_DISABLED, SERVER_VERSION } from '../utils/env';
+import { isRegistrationDisabled, SERVER_VERSION } from '../utils/env';
 
 const OAUTH_PROVIDERS = [
   { env: 'GOOGLE_OAUTH_ENABLED', name: 'google' },
@@ -33,7 +33,7 @@ const infoRouteHandler = async (
     description: server.description,
     logo: server.logo,
     allowNewUsers: server.allowNewUsers,
-    registrationDisabled: REGISTRATION_DISABLED,
+    registrationDisabled: isRegistrationDisabled(),
     enabledAuthProviders,
     supabaseUrl: process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
