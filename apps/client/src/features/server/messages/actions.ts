@@ -36,8 +36,11 @@ export const addMessages = (
 
     if (!isFromOwnUser) {
       playSound(SoundType.MESSAGE_RECEIVED);
+      const sender = state.server.users.find(
+        (u) => u.id === targetMessage.userId
+      );
       sendDesktopNotification(
-        'New Message',
+        sender?.name || 'New Message',
         targetMessage.content?.slice(0, 100) || 'New message received'
       );
     }

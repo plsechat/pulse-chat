@@ -34,8 +34,15 @@ export const addDmMessages = (
     const ownUserId = ownUserIdSelector(state);
     if (messages[0].userId !== ownUserId) {
       playSound(SoundType.MESSAGE_RECEIVED);
+
+      const senderChannel = state.dms.channels.find((c) =>
+        c.members.some((m) => m.id === messages[0].userId)
+      );
+      const senderName =
+        senderChannel?.members.find((m) => m.id === messages[0].userId)?.name;
+
       sendDesktopNotification(
-        'New Direct Message',
+        senderName ? `${senderName}` : 'New Direct Message',
         messages[0].content?.slice(0, 100) || 'New message received'
       );
 

@@ -234,10 +234,12 @@ const SortableServerItem = memo(
 const ServerStrip = memo(() => {
   const activeView = useActiveView();
   const friendRequests = useFriendRequests();
-  const pendingCount = friendRequests.length;
+  const ownUserId = useOwnUserId();
+  const pendingCount = friendRequests.filter(
+    (r) => r.receiverId === ownUserId
+  ).length;
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
-  const ownUserId = useOwnUserId();
   const serverUnreadCounts = useServerUnreadCounts();
   const serverMentionCounts = useServerMentionCounts();
   const totalDmUnreadCount = useTotalDmUnreadCount();
