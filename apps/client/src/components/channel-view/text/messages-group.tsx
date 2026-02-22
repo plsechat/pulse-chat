@@ -7,6 +7,7 @@ import { getDisplayName } from '@/helpers/get-display-name';
 import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
 import { cn } from '@/lib/utils';
 import type { TJoinedMessage } from '@pulse/shared';
+import { dateTime, fullDateTime, timeOnly } from '@/helpers/time-format';
 import { format, isToday, isYesterday } from 'date-fns';
 import { memo } from 'react';
 import { Tooltip } from '../../ui/tooltip';
@@ -47,10 +48,10 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
       : undefined;
 
   const timeStr = isToday(date)
-    ? `Today at ${format(date, 'h:mm a')}`
+    ? `Today at ${format(date, timeOnly())}`
     : isYesterday(date)
-      ? `Yesterday at ${format(date, 'h:mm a')}`
-      : format(date, 'MM/dd/yyyy h:mm a');
+      ? `Yesterday at ${format(date, timeOnly())}`
+      : format(date, dateTime());
 
   if (compactMode) {
     return (
@@ -62,9 +63,9 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
         </UserContextMenu>
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline select-none leading-[1.375rem]">
-            <Tooltip content={format(date, 'PPpp')}>
+            <Tooltip content={format(date, fullDateTime())}>
               <span className="text-muted-foreground/50 text-[10px] shrink-0">
-                {format(date, 'h:mm a')}
+                {format(date, timeOnly())}
               </span>
             </Tooltip>
             <UserContextMenu userId={user.id}>
@@ -131,7 +132,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
               BOT
             </span>
           )}
-          <Tooltip content={format(date, 'PPpp')}>
+          <Tooltip content={format(date, fullDateTime())}>
             <span className="text-muted-foreground/50 text-xs">
               {timeStr}
             </span>

@@ -2,6 +2,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { useChannels } from '@/features/server/channels/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import type { TJoinedMessage } from '@pulse/shared';
+import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { ArrowRight, Hash } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
@@ -73,7 +74,7 @@ const SearchResult = memo(({ message, query, onJump }: TSearchResultProps) => {
         <UserAvatar userId={message.userId} className="h-5 w-5" />
         <span className="text-sm font-medium">{user?.name ?? 'Unknown'}</span>
         <span className="text-xs text-muted-foreground">
-          {format(new Date(message.createdAt), 'MMM d, yyyy h:mm a')}
+          {format(new Date(message.createdAt), longDateTime())}
         </span>
       </div>
       <div className="text-sm text-muted-foreground pl-7">

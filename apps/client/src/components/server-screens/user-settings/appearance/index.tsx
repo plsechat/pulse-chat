@@ -9,7 +9,8 @@ import {
 import { Slider } from '@/components/ui/slider';
 import {
   useAppearanceSettings,
-  type MessageSpacing
+  type MessageSpacing,
+  type TimeFormat
 } from '@/hooks/use-appearance-settings';
 import { useIsOwnUserOwner } from '@/features/server/hooks';
 import { Check, Circle, Monitor, Moon, Sun } from 'lucide-react';
@@ -63,7 +64,8 @@ const Appearance = memo(() => {
     setCompactMode,
     setMessageSpacing,
     setFontScale,
-    setZoomLevel
+    setZoomLevel,
+    setTimeFormat
   } = useAppearanceSettings();
   const isOwner = useIsOwnUserOwner();
 
@@ -188,6 +190,43 @@ const Appearance = memo(() => {
             <SelectItem value="relaxed">Relaxed</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Time Format */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Time Format</h3>
+          <p className="text-sm text-muted-foreground">
+            Choose how timestamps are displayed.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            { value: '12h' as TimeFormat, label: '12 Hour', example: '3:45 PM' },
+            { value: '24h' as TimeFormat, label: '24 Hour', example: '15:45' }
+          ]).map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setTimeFormat(option.value)}
+              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors hover:bg-accent/50 ${
+                settings.timeFormat === option.value
+                  ? 'border-primary bg-accent/30'
+                  : 'border-border'
+              }`}
+            >
+              {settings.timeFormat === option.value && (
+                <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+                  <Check className="h-3 w-3 text-primary-foreground" />
+                </div>
+              )}
+              <span className="text-lg font-mono text-muted-foreground">
+                {option.example}
+              </span>
+              <span className="text-sm font-medium">{option.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Font Scaling & Zoom — admin only (experimental) */}

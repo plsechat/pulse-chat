@@ -6,19 +6,22 @@ import {
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type MessageSpacing = 'tight' | 'normal' | 'relaxed';
+export type TimeFormat = '12h' | '24h';
 
 export type AppearanceSettings = {
   compactMode: boolean;
   messageSpacing: MessageSpacing;
   fontScale: number;
   zoomLevel: number;
+  timeFormat: TimeFormat;
 };
 
 const defaultSettings: AppearanceSettings = {
   compactMode: false,
   messageSpacing: 'normal',
   fontScale: 100,
-  zoomLevel: 100
+  zoomLevel: 100,
+  timeFormat: '12h'
 };
 
 let listeners: Array<() => void> = [];
@@ -98,11 +101,19 @@ export const useAppearanceSettings = () => {
     updateSettings({ zoomLevel: value });
   }, []);
 
+  const setTimeFormat = useCallback((value: TimeFormat) => {
+    updateSettings({ timeFormat: value });
+  }, []);
+
   return {
     settings,
     setCompactMode,
     setMessageSpacing,
     setFontScale,
-    setZoomLevel
+    setZoomLevel,
+    setTimeFormat
   };
 };
+
+/** Non-React getter for current time format preference */
+export const getTimeFormat = (): TimeFormat => getSettings().timeFormat;
