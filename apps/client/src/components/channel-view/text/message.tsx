@@ -56,7 +56,7 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const isFromOwnUser = useIsOwnUser(message.userId);
   const can = useCan();
-  const { selectionMode, selectedIds, toggleSelection } = useSelection();
+  const { selectionMode, selectedIds, handleSelect } = useSelection();
   const highlightedId = useSelector(
     (s: IRootState) => s.server.highlightedMessageId
   );
@@ -69,9 +69,16 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
     [can, isFromOwnUser]
   );
 
-  const onSelectionClick = useCallback(() => {
-    if (selectionMode) toggleSelection(message.id);
-  }, [selectionMode, toggleSelection, message.id]);
+  const onSelectionClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!selectionMode) return;
+      handleSelect(message.id, {
+        shift: e.shiftKey,
+        ctrl: e.ctrlKey || e.metaKey
+      });
+    },
+    [selectionMode, handleSelect, message.id]
+  );
 
   return (
     <MessageContextMenu
@@ -100,7 +107,7 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
           <input
             type="checkbox"
             checked={isSelected}
-            onChange={() => toggleSelection(message.id)}
+            onChange={() => handleSelect(message.id, {})}
             onClick={(e) => e.stopPropagation()}
             className="shrink-0 h-4 w-4 mt-1 ml-1 accent-primary cursor-pointer"
           />

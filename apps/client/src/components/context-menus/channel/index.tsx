@@ -58,7 +58,7 @@ const ChannelContextMenu = memo(
 
       const enteredName = await requestTextInput({
         title: 'Purge All Messages',
-        message: `This will permanently delete ALL messages in #${channel.name}. Type the channel name to confirm.`,
+        message: `This will permanently delete ALL messages in #${channel.name}. To confirm, type: ${channel.name}`,
         confirmLabel: 'Purge',
         cancelLabel: 'Cancel'
       });

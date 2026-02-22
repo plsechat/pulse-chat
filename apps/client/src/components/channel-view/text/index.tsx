@@ -130,7 +130,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   });
   const can = useCan();
   const channelCan = useChannelCan(channelId);
-  const { selectionMode, enterSelectionMode, exitSelectionMode } =
+  const { selectionMode, enterSelectionMode, exitSelectionMode, setMessageIds } =
     useSelection();
   const canSendMessages = useMemo(() => {
     return (
@@ -138,6 +138,10 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       channelCan(ChannelPermission.SEND_MESSAGES)
     );
   }, [can, channelCan]);
+
+  useEffect(() => {
+    setMessageIds(messages.map((m) => m.id));
+  }, [messages, setMessageIds]);
 
   const startSlowModeCooldown = useCallback(() => {
     if (slowMode <= 0) return;

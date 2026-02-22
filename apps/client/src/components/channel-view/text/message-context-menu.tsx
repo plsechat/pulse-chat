@@ -9,13 +9,10 @@ import {
 } from '@/components/ui/context-menu';
 import { useCan } from '@/features/server/hooks';
 import { setActiveThreadId } from '@/features/server/channels/actions';
-import { requestConfirmation, requestTextInput } from '@/features/dialogs/actions';
-import { useMessagesByChannelId } from '@/features/server/messages/hooks';
+import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import {
-  ArrowDown,
-  ArrowUp,
   ClipboardCopy,
   Copy,
   MessageSquare,
@@ -59,7 +56,6 @@ const MessageContextMenu = memo(
   }: TMessageContextMenuProps) => {
     const can = useCan();
     const [creatingThread, setCreatingThread] = useState(false);
-    const channelMessages = useMessagesByChannelId(channelId ?? -1);
 
     const onDeleteClick = useCallback(async () => {
       const choice = await requestConfirmation({
@@ -143,68 +139,6 @@ const MessageContextMenu = memo(
       toast.success('Copied to clipboard');
     }, [messageContent]);
 
-    const onBulkDelete = useCallback(
-      async (direction: 'above' | 'below') => {
-        const countStr = await requestTextInput({
-          title: `Delete Messages ${direction === 'above' ? 'Above' : 'Below'}`,
-          message: `How many messages ${direction} this one do you want to delete?`,
-          confirmLabel: 'Delete',
-          cancelLabel: 'Cancel'
-        });
-
-        if (!countStr) return;
-        const count = parseInt(countStr, 10);
-        if (isNaN(count) || count <= 0) {
-          toast.error('Please enter a valid positive number');
-          return;
-        }
-
-        const idx = channelMessages.findIndex((m) => m.id === messageId);
-        if (idx === -1) return;
-
-        let idsToDelete: number[];
-        if (direction === 'above') {
-          const start = Math.max(0, idx - count);
-          idsToDelete = channelMessages.slice(start, idx).map((m) => m.id);
-        } else {
-          idsToDelete = channelMessages
-            .slice(idx + 1, idx + 1 + count)
-            .map((m) => m.id);
-        }
-
-        if (idsToDelete.length === 0) {
-          toast.error(`No messages ${direction} to delete`);
-          return;
-        }
-
-        // Cap at 100 per server limit
-        if (idsToDelete.length > 100) {
-          idsToDelete = idsToDelete.slice(0, 100);
-        }
-
-        const choice = await requestConfirmation({
-          title: 'Confirm Bulk Delete',
-          message: `Are you sure you want to delete ${idsToDelete.length} message(s)? This cannot be undone.`,
-          confirmLabel: `Delete ${idsToDelete.length}`,
-          cancelLabel: 'Cancel'
-        });
-
-        if (!choice) return;
-
-        const trpc = getTRPCClient();
-
-        try {
-          const result = await trpc.messages.bulkDelete.mutate({
-            messageIds: idsToDelete
-          });
-          toast.success(`Deleted ${result.deletedCount} messages`);
-        } catch {
-          toast.error('Failed to delete messages');
-        }
-      },
-      [messageId, channelMessages]
-    );
-
     const onCopyMessageLink = useCallback(() => {
       const link = channelId
         ? `${channelId}/${messageId}`
@@ -274,25 +208,6 @@ const MessageContextMenu = memo(
             </>
           )}
 
-          {can(Permission.MANAGE_MESSAGES) && channelId && (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                onClick={() => onBulkDelete('above')}
-                variant="destructive"
-              >
-                <ArrowUp className="h-4 w-4" />
-                Delete Messages Above...
-              </ContextMenuItem>
-              <ContextMenuItem
-                onClick={() => onBulkDelete('below')}
-                variant="destructive"
-              >
-                <ArrowDown className="h-4 w-4" />
-                Delete Messages Below...
-              </ContextMenuItem>
-            </>
-          )}
         </ContextMenuContent>
       </ContextMenu>
     );
