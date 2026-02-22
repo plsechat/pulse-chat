@@ -485,7 +485,7 @@ const Connect = memo(() => {
                     </Button>
                     {OAuthSection}
 
-                    {!info?.allowNewUsers && !inviteCode && (
+                    {(info?.registrationDisabled || !info?.allowNewUsers) && !inviteCode && (
                       <p className="text-xs text-muted-foreground text-center mt-2">
                         Registration requires an invite link. Ask an existing member
                         to invite you.
