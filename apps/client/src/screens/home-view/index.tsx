@@ -130,7 +130,7 @@ const HomeView = memo(() => {
             <VoiceControl />
             <UserControl />
           </div>
-          <div className="hidden md:block h-14 shrink-0" />
+          <div className="hidden md:block h-[5.5rem] shrink-0" />
         </aside>
 
         <div className="flex flex-1 flex-col overflow-hidden">
