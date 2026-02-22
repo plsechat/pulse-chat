@@ -249,10 +249,12 @@ export const sendDmMessage = async (
   replyToId?: number
 ) => {
   const trpc = getHomeTRPCClient();
+  const state = store.getState();
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   const recipientUserId = getDmRecipientUserId(dmChannelId);
 
-  // For 1-on-1 DMs, encrypt the message
-  if (recipientUserId) {
+  // Only encrypt when E2EE is explicitly enabled on the channel
+  if (recipientUserId && channel?.e2ee) {
     try {
       const encryptedContent = await encryptDmMessage(recipientUserId, {
         content
