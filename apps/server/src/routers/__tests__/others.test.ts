@@ -63,7 +63,7 @@ describe('others router', () => {
 
     // Clean up
     await caller.others.updateSettings({ serverId: 1,
-      password: ''
+      password: null
     });
   });
 

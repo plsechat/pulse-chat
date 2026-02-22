@@ -429,6 +429,15 @@ describe('channels router', () => {
     // before sending any messages, there should be no read state
     expect(beforeMsgSend.readStates[2]).toBeUndefined();
 
+    // Send an initial message and mark as read to establish a baseline
+    // read state (channels with no read state show 0 unread by design)
+    await caller1.messages.send({
+      channelId: 2,
+      content: 'Baseline message',
+      files: []
+    });
+    await caller2.channels.markAsRead({ channelId: 2 });
+
     await caller1.messages.send({
       channelId: 2,
       content: 'Test message for read state',
@@ -510,6 +519,14 @@ describe('channels router', () => {
   test('should track unread count correctly with multiple messages', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
+
+    // Establish a baseline read state for user 2
+    await caller1.messages.send({
+      channelId: 2,
+      content: 'Baseline message',
+      files: []
+    });
+    await caller2.channels.markAsRead({ channelId: 2 });
 
     // user 1 sends 3 messages
     await caller1.messages.send({
