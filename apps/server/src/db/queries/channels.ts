@@ -407,16 +407,16 @@ const getChannelsReadStatesForUser = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
-            AND (${channelReadStates.lastReadMessageId} IS NULL
-              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+            AND ${channelReadStates.lastReadMessageId} IS NOT NULL
+            AND ${messages.id} > ${channelReadStates.lastReadMessageId}
           THEN 1
         END)
       `.as('unread_count'),
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
-            AND (${channelReadStates.lastReadMessageId} IS NULL
-              OR ${messages.id} > ${channelReadStates.lastReadMessageId})
+            AND ${channelReadStates.lastReadMessageId} IS NOT NULL
+            AND ${messages.id} > ${channelReadStates.lastReadMessageId}
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
           THEN 1
         END)

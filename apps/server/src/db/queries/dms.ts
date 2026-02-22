@@ -71,15 +71,12 @@ const getDmChannelsForUser = async (
 
   const readStateMap = new Map(readStates.map((rs) => [rs.dmChannelId, rs]));
 
-  // Query 7: Batch-fetch unread counts
-  // Split into two groups: channels with read state (count after lastRead) and without (count all)
+  // Query 7: Batch-fetch unread counts (only for channels with a read state)
+  // Channels without a read state are treated as fully read (0 unread)
   const unreadCountMap = new Map<number, number>();
 
   const withReadState = channelIds.filter(
     (id) => readStateMap.get(id)?.lastReadMessageId
-  );
-  const withoutReadState = channelIds.filter(
-    (id) => !readStateMap.get(id)?.lastReadMessageId
   );
 
   if (withReadState.length > 0) {
@@ -96,21 +93,6 @@ const getDmChannelsForUser = async (
       })
       .from(dmMessages)
       .where(or(...conditions))
-      .groupBy(dmMessages.dmChannelId);
-
-    for (const c of counts) {
-      unreadCountMap.set(c.dmChannelId, Number(c.count));
-    }
-  }
-
-  if (withoutReadState.length > 0) {
-    const counts = await db
-      .select({
-        dmChannelId: dmMessages.dmChannelId,
-        count: sql<number>`count(*)`
-      })
-      .from(dmMessages)
-      .where(inArray(dmMessages.dmChannelId, withoutReadState))
       .groupBy(dmMessages.dmChannelId);
 
     for (const c of counts) {
