@@ -81,10 +81,23 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
   const dmChannels = useDmChannels();
+  const ownUserId = useOwnUserId();
   const dmMembers = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
   }, [dmChannels, dmChannelId]);
+
+  const dmPlaceholder = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    if (!channel) return 'Message...';
+    const otherMembers = channel.members.filter((m) => m.id !== ownUserId);
+    if (channel.isGroup && channel.name) return `Message ${channel.name}`;
+    if (channel.isGroup) {
+      const names = otherMembers.map((m) => m.name).join(', ') || 'Group DM';
+      return `Message ${names}`;
+    }
+    return `Message @${otherMembers[0]?.name ?? 'Unknown'}`;
+  }, [dmChannels, dmChannelId, ownUserId]);
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
@@ -335,6 +348,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
           </Button>
           <TiptapInput
             value={newMessage}
+            placeholder={dmPlaceholder}
             onChange={setNewMessage}
             onSubmit={onSendMessage}
             onTyping={sendTypingSignal}

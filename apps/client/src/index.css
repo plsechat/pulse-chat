@@ -709,11 +709,10 @@ body,
   outline: none;
 }
 
-/* tiptap placeholder — handle both tiptap v2 (is-editor-empty) and v3 (is-empty) */
+/* tiptap placeholder — targets the empty <p> node decorated by @tiptap/extension-placeholder */
 
-.tiptap .ProseMirror.is-editor-empty::before,
-.tiptap .ProseMirror.is-empty::before,
-.tiptap > .ProseMirror[data-placeholder].is-editor-empty::before {
+.tiptap p.is-editor-empty:first-child::before,
+.tiptap p.is-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   color: var(--muted-foreground);
