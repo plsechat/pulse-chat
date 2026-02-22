@@ -1,4 +1,6 @@
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
+import { UserControl } from '@/components/left-sidebar';
+import { VoiceControl } from '@/components/left-sidebar/voice-control';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { ServerStrip } from '@/components/server-strip';
 import { useActiveView } from '@/features/app/hooks';
@@ -41,6 +43,12 @@ const MainViewInner = memo(() => {
           {renderView()}
           <MobileBottomNav />
         </div>
+        {activeView !== 'discover' && (
+          <div className="hidden md:block fixed bottom-0 left-0 z-20 w-[calc(72px+15rem)]">
+            <VoiceControl />
+            <UserControl />
+          </div>
+        )}
       </div>
       <KeyboardShortcutsDialog
         open={shortcutsDialogOpen}

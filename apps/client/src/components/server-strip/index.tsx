@@ -436,7 +436,7 @@ const ServerStrip = memo(() => {
   );
 
   return (
-    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
+    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3 md:pb-[4.25rem] overflow-y-auto">
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="relative flex w-full items-center justify-center group">
