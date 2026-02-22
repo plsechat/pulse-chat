@@ -1,13 +1,16 @@
 import { t } from '../../utils/trpc';
 import { addMemberRoute } from './add-member';
 import { createGroupRoute } from './create-group';
+import { deleteChannelRoute } from './delete-channel';
 import { deleteMessageRoute } from './delete-message';
 import { editMessageRoute } from './edit-message';
+import { enableEncryptionRoute } from './enable-encryption';
 import {
   onDmCallEndedRoute,
   onDmCallStartedRoute,
   onDmCallUserJoinedRoute,
   onDmCallUserLeftRoute,
+  onDmChannelDeleteRoute,
   onDmChannelUpdateRoute,
   onDmMemberAddRoute,
   onDmMemberRemoveRoute,
@@ -41,6 +44,8 @@ export const dmsRouter = t.router({
   sendMessage: sendMessageRoute,
   editMessage: editMessageRoute,
   deleteMessage: deleteMessageRoute,
+  deleteChannel: deleteChannelRoute,
+  enableEncryption: enableEncryptionRoute,
   createGroup: createGroupRoute,
   addMember: addMemberRoute,
   removeMember: removeMemberRoute,
@@ -63,6 +68,7 @@ export const dmsRouter = t.router({
   onCallUserJoined: onDmCallUserJoinedRoute,
   onCallUserLeft: onDmCallUserLeftRoute,
   onChannelUpdate: onDmChannelUpdateRoute,
+  onChannelDelete: onDmChannelDeleteRoute,
   onMemberAdd: onDmMemberAddRoute,
   onMemberRemove: onDmMemberRemoveRoute
 });

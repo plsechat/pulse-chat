@@ -59,6 +59,15 @@ const onDmChannelUpdateRoute = protectedProcedure.subscription(
   }
 );
 
+const onDmChannelDeleteRoute = protectedProcedure.subscription(
+  async ({ ctx }) => {
+    return ctx.pubsub.subscribeFor(
+      ctx.userId,
+      ServerEvents.DM_CHANNEL_DELETE
+    );
+  }
+);
+
 const onDmMemberAddRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
     return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.DM_MEMBER_ADD);
@@ -76,6 +85,7 @@ export {
   onDmCallStartedRoute,
   onDmCallUserJoinedRoute,
   onDmCallUserLeftRoute,
+  onDmChannelDeleteRoute,
   onDmChannelUpdateRoute,
   onDmMemberAddRoute,
   onDmMemberRemoveRoute,

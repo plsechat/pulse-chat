@@ -56,6 +56,14 @@ export const dmsSlice = createSlice({
         state.channels[idx] = action.payload;
       }
     },
+    removeChannel: (state, action: PayloadAction<number>) => {
+      state.channels = state.channels.filter((c) => c.id !== action.payload);
+      if (state.selectedChannelId === action.payload) {
+        state.selectedChannelId = undefined;
+      }
+      delete state.messagesMap[action.payload];
+      delete state.dmTypingMap[action.payload];
+    },
     setSelectedChannelId: (
       state,
       action: PayloadAction<number | undefined>

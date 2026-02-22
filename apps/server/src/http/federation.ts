@@ -305,7 +305,8 @@ const federationServersHandler = async (
       name: servers.name,
       description: servers.description,
       logo: logoFiles,
-      id: servers.id
+      id: servers.id,
+      password: servers.password
     })
     .from(servers)
     .leftJoin(logoFiles, eq(servers.logoId, logoFiles.id))
@@ -325,7 +326,8 @@ const federationServersHandler = async (
         description: s.description,
         logo: s.logo,
         memberCount: result?.memberCount || 0,
-        federatable: true as const
+        federatable: true as const,
+        hasPassword: !!s.password
       };
     })
   );

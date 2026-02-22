@@ -210,7 +210,8 @@ const getDiscoverableServers = async (
       publicId: servers.publicId,
       logoId: servers.logoId,
       ownerId: servers.ownerId,
-      description: servers.description
+      description: servers.description,
+      password: servers.password
     })
     .from(servers)
     .where(eq(servers.discoverable, true));
@@ -243,6 +244,7 @@ const getDiscoverableServers = async (
       memberCount,
       ownerId: row.ownerId,
       description: row.description,
+      hasPassword: !!row.password,
       joined: joinedIds.has(row.id)
     });
   }

@@ -50,6 +50,13 @@
       "when": 1771738812716,
       "tag": "0006_colorful_victor_mancha",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1771743965387,
+      "tag": "0007_spotty_annihilus",
+      "breakpoints": true
     }
   ]
 }

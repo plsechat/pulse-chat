@@ -646,7 +646,7 @@ const dmChannels = pgTable('dm_channels', {
     onDelete: 'set null'
   }),
   isGroup: boolean('is_group').notNull().default(false),
-  e2ee: boolean('e2ee').notNull().default(true),
+  e2ee: boolean('e2ee').notNull().default(false),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' })
 });

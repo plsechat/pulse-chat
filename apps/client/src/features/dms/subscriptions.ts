@@ -14,6 +14,7 @@ import {
   dmCallUserJoined,
   dmCallUserLeft,
   fetchDmChannels,
+  removeDmChannel,
   updateDmMessage
 } from './actions';
 
@@ -125,6 +126,15 @@ const subscribeToDms = () => {
       console.error('onDmChannelUpdate subscription error:', err)
   });
 
+  const onChannelDeleteSub = trpc.dms.onChannelDelete.subscribe(undefined, {
+    onData: (data) => {
+      const { dmChannelId } = data as { dmChannelId: number };
+      removeDmChannel(dmChannelId);
+    },
+    onError: (err) =>
+      console.error('onDmChannelDelete subscription error:', err)
+  });
+
   const onMemberAddSub = trpc.dms.onMemberAdd.subscribe(undefined, {
     onData: () => fetchDmChannels(),
     onError: (err) =>
@@ -147,6 +157,7 @@ const subscribeToDms = () => {
     onCallUserJoinedSub.unsubscribe();
     onCallUserLeftSub.unsubscribe();
     onChannelUpdateSub.unsubscribe();
+    onChannelDeleteSub.unsubscribe();
     onMemberAddSub.unsubscribe();
     onMemberRemoveSub.unsubscribe();
   };

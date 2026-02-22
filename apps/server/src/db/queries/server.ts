@@ -93,7 +93,16 @@ const getSecretToken = async (): Promise<string> => {
   return cachedToken;
 };
 
+const getFirstServerPassword = async (): Promise<string | null> => {
+  const [server] = await db
+    .select({ password: servers.password })
+    .from(servers)
+    .limit(1);
+  return server?.password ?? null;
+};
+
 export {
+  getFirstServerPassword,
   getPublicSettings,
   getSecretToken,
   getServerPublicSettings,

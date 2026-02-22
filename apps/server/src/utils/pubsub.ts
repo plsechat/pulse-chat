@@ -130,6 +130,9 @@ type Events = {
     name: string | null;
     iconFileId: number | null;
   };
+  [ServerEvents.DM_CHANNEL_DELETE]: {
+    dmChannelId: number;
+  };
   [ServerEvents.DM_MEMBER_ADD]: {
     dmChannelId: number;
     userId: number;

@@ -312,6 +312,20 @@ export const deleteDmMessageAction = async (messageId: number) => {
   await trpc.dms.deleteMessage.mutate({ messageId });
 };
 
+export const removeDmChannel = (dmChannelId: number) =>
+  store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
+
+export const deleteDmChannel = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  await trpc.dms.deleteChannel.mutate({ dmChannelId });
+  removeDmChannel(dmChannelId);
+};
+
+export const enableDmEncryption = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  await trpc.dms.enableEncryption.mutate({ dmChannelId });
+};
+
 export const joinDmVoiceCall = async (dmChannelId: number) => {
   const state = store.getState();
   const currentVoiceChannelId = state.server.currentVoiceChannelId;

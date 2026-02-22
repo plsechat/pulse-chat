@@ -226,6 +226,7 @@ export type TRemoteServerSummary = {
   memberCount: number;
   instanceDomain: string;
   instanceName: string;
+  hasPassword?: boolean;
 };
 
 export enum AutomodRuleType {

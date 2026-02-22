@@ -201,6 +201,7 @@ export type TServerSummary = {
   memberCount?: number;
   ownerId?: number | null;
   description?: string | null;
+  hasPassword?: boolean;
 };
 
 export type TJoinedInvite = TInvite & {
