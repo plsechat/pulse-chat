@@ -4,6 +4,7 @@ import {
   LocalStorageKey,
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
+import { syncPreference } from '@/lib/preferences-sync';
 import { useCallback, useSyncExternalStore } from 'react';
 
 // ---------------------------------------------------------------------------
@@ -115,10 +116,22 @@ const updateSettings = (partial: Partial<SoundNotificationSettings>) => {
     LocalStorageKey.SOUND_NOTIFICATION_SETTINGS,
     currentSettings
   );
+  syncPreference({ soundNotification: partial });
   for (const listener of listeners) {
     listener();
   }
 };
+
+// Re-read from localStorage when server preferences are applied
+if (typeof window !== 'undefined') {
+  window.addEventListener('pulse-preferences-loaded', () => {
+    currentSettings = null;
+    getSettings();
+    for (const listener of listeners) {
+      listener();
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Non-React exports (for playSound / desktop-notification)

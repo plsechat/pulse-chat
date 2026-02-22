@@ -11,6 +11,7 @@ import {
   type TMentionStateMap,
   type TPublicServerSettings,
   type TReadStateMap,
+  type TUserPreferences,
   type TVoiceMap
 } from '@pulse/shared';
 import { timingSafeEqual } from 'crypto';
@@ -34,7 +35,7 @@ import {
   isServerMember
 } from '../../db/queries/servers';
 import { getPublicUsersForServer } from '../../db/queries/users';
-import { categories, channels, users } from '../../db/schema';
+import { categories, channels, userPreferences, users } from '../../db/schema';
 import { logger } from '../../logger';
 import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
@@ -131,6 +132,11 @@ const joinServerRoute = t.procedure
 
       enqueueLogin(ctx.user.id, connectionInfo);
 
+      const [prefsRow] = await db
+        .select()
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, ctx.user.id));
+
       return {
         categories: [] as TCategory[],
         channels: [] as TChannel[],
@@ -147,7 +153,8 @@ const joinServerRoute = t.procedure
         readStates: {} as TReadStateMap,
         mentionStates: {} as TMentionStateMap,
         commands: pluginManager.getCommands(),
-        externalStreamsMap: {} as TExternalStreamsMap
+        externalStreamsMap: {} as TExternalStreamsMap,
+        userPreferences: (prefsRow?.data as TUserPreferences) ?? undefined
       };
     }
 
@@ -178,7 +185,8 @@ const joinServerRoute = t.procedure
       roles,
       emojis,
       channelPermissions,
-      readStatesResult
+      readStatesResult,
+      userPrefsRows
     ] = await Promise.all([
       db
         .select()
@@ -192,7 +200,11 @@ const joinServerRoute = t.procedure
       getRolesForServer(targetServer.id),
       getEmojis(targetServer.id),
       getAllChannelUserPermissions(ctx.user.id),
-      getChannelsReadStatesForUser(ctx.user.id)
+      getChannelsReadStatesForUser(ctx.user.id),
+      db
+        .select()
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, ctx.user.id))
     ]);
 
     const processedPublicUsers = publicUsers.map((u) => ({
@@ -261,7 +273,9 @@ const joinServerRoute = t.procedure
       mentionStates: readStatesResult.mentionStates,
       lastReadMessageIds: readStatesResult.lastReadMessageIds,
       commands: pluginManager.getCommands(),
-      externalStreamsMap
+      externalStreamsMap,
+      userPreferences:
+        (userPrefsRows[0]?.data as TUserPreferences) ?? undefined
     };
   });
 

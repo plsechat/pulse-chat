@@ -38,6 +38,7 @@ import {
   userIdentityKeys,
   userSignedPreKeys,
   userOneTimePreKeys,
+  userPreferences,
   e2eeSenderKeys,
 } from "../../../apps/server/src/db/schema";
 import type { UserStatus } from "./types";
@@ -116,6 +117,8 @@ export type TFederationInstance = InferSelectModel<typeof federationInstances>;
 export type TUserIdentityKey = InferSelectModel<typeof userIdentityKeys>;
 export type TUserSignedPreKey = InferSelectModel<typeof userSignedPreKeys>;
 export type TUserOneTimePreKey = InferSelectModel<typeof userOneTimePreKeys>;
+export type TUserPreference = InferSelectModel<typeof userPreferences>;
+export type TIUserPreference = InferInsertModel<typeof userPreferences>;
 export type TE2eeSenderKey = InferSelectModel<typeof e2eeSenderKeys>;
 
 export type TStorageSettings = Pick<

@@ -3,6 +3,7 @@ import {
   LocalStorageKey,
   setLocalStorageItem
 } from '@/helpers/storage';
+import { syncPreference } from '@/lib/preferences-sync';
 import { createContext, useContext, useEffect, useState } from 'react';
 
 type Theme = 'dark' | 'light' | 'onyx' | 'system';
@@ -53,11 +54,21 @@ function ThemeProvider({
     root.classList.add(theme);
   }, [theme]);
 
+  useEffect(() => {
+    const handler = () => {
+      const stored = getLocalStorageItem(storageKey) as Theme;
+      if (stored) setTheme(stored);
+    };
+    window.addEventListener('pulse-preferences-loaded', handler);
+    return () => window.removeEventListener('pulse-preferences-loaded', handler);
+  }, [storageKey]);
+
   const value = {
     theme,
     setTheme: (theme: Theme) => {
       setLocalStorageItem(storageKey, theme);
       setTheme(theme);
+      syncPreference({ theme });
     }
   };
 

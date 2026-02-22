@@ -57,6 +57,13 @@
       "when": 1771743965387,
       "tag": "0007_spotty_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1771786598966,
+      "tag": "0008_white_felicia_hardy",
+      "breakpoints": true
     }
   ]
 }
