@@ -72,6 +72,8 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
         className="w-auto p-0 border-none shadow-none bg-transparent"
         align="start"
         sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
         onFocusOutside={(e) => e.preventDefault()}
       >
