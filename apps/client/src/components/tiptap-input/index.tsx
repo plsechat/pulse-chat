@@ -182,7 +182,7 @@ const TiptapInput = memo(
           return true;
         },
         handleKeyDown: (view, event) => {
-          const suggestionElement = document.querySelector('.bg-popover');
+          const suggestionElement = document.querySelector('[data-tiptap-suggestion]');
           const hasSuggestions =
             suggestionElement && document.body.contains(suggestionElement);
 

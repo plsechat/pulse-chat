@@ -77,7 +77,7 @@ const ChannelMentionList = forwardRef<
   }
 
   return (
-    <div className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[14rem] max-w-[20rem] p-1 z-50">
+    <div data-tiptap-suggestion className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[14rem] max-w-[20rem] p-1 z-50">
       {items.map((item, index) => (
         <button
           key={item.id}
