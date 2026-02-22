@@ -242,11 +242,16 @@ const useVoiceControls = ({
     stopScreenShareStream
   ]);
 
+  const updateSavedMicTrack = useCallback((track: MediaStreamTrack | null) => {
+    realMicTrackRef.current = track;
+  }, []);
+
   return {
     toggleMic,
     toggleSound,
     toggleWebcam,
     toggleScreenShare,
+    updateSavedMicTrack,
     ownVoiceState
   };
 };
