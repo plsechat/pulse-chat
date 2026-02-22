@@ -229,7 +229,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
             <div
               className="h-24 w-full rounded-t-md bg-cover bg-center bg-no-repeat"
               style={{
-                backgroundImage: `url(${getFileUrl(user.banner)})`
+                backgroundImage: `url(${getFileUrl(user.banner, activeInstanceDomain || (user._identity?.includes('@') ? user._identity.split('@').slice(1).join('@') : undefined))})`
               }}
             />
           ) : (
