@@ -5,11 +5,14 @@ type Handler<E extends ServerEvent> = (
   payload: EventPayloads[E]
 ) => void | Promise<void>;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous handler map requires type erasure
+type AnyHandler = Handler<any>;
+
 class EventBus {
-  private listeners = new Map<ServerEvent, Set<Handler<any>>>();
+  private listeners = new Map<ServerEvent, Set<AnyHandler>>();
   private pluginHandlers = new Map<
     string,
-    Map<ServerEvent, Set<Handler<any>>>
+    Map<ServerEvent, Set<AnyHandler>>
   >();
 
   public register = <E extends ServerEvent>(

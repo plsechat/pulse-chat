@@ -139,5 +139,6 @@ const useVolumeControl = () => {
   return context;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { useVolumeControl, VolumeControlContext, VolumeControlProvider };
 export type { TVolumeControlContext, TVolumeKey };

@@ -119,4 +119,5 @@ const SelectionProvider = memo(
 
 const useSelection = () => useContext(SelectionContext);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { SelectionProvider, useSelection };

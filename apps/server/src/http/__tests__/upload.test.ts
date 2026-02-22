@@ -67,7 +67,7 @@ describe('/upload', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors[UploadHeaders.TOKEN]).toBeDefined();
@@ -80,7 +80,7 @@ describe('/upload', () => {
 
     expect(response.status).toBe(401);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as Record<string, unknown>;
 
     expect(data).toHaveProperty('error', 'Unauthorized');
   });
@@ -93,7 +93,7 @@ describe('/upload', () => {
 
     expect(response.status).toBe(403);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as Record<string, unknown>;
 
     expect(data).toHaveProperty(
       'error',
@@ -112,7 +112,7 @@ describe('/upload', () => {
 
     expect(response.status).toBe(413);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as Record<string, unknown>;
 
     expect(data).toHaveProperty(
       'error',

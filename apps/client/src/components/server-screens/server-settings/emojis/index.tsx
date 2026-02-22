@@ -49,7 +49,7 @@ const Emojis = memo(() => {
     } finally {
       setIsUploading(false);
     }
-  }, [openFilePicker, refetch]);
+  }, [openFilePicker, refetch, activeServerId]);
 
   const selectedEmoji = useMemo(
     () => emojis.find((e) => e.id === selectedEmojiId),

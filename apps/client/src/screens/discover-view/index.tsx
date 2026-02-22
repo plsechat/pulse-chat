@@ -307,12 +307,13 @@ const DiscoverView = memo(() => {
       }
 
       toast.success(`Joined ${summary.name}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to join server:', error);
-      const msg = error?.message?.includes('Invalid password')
+      const errMsg = error instanceof Error ? error.message : '';
+      const msg = errMsg.includes('Invalid password')
         ? 'Invalid password'
-        : error?.message?.includes('Too many failed')
-          ? error.message
+        : errMsg.includes('Too many failed')
+          ? errMsg
           : 'Failed to join server';
       toast.error(msg);
     } finally {

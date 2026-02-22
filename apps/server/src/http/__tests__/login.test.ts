@@ -26,7 +26,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors).toHaveProperty('email');
@@ -52,7 +52,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors).toHaveProperty('email');
@@ -116,7 +116,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors).toHaveProperty('email');
@@ -144,7 +144,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors).toHaveProperty('email');
@@ -162,7 +162,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors).toHaveProperty('email');
@@ -197,7 +197,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(400);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { errors: Record<string, string> };
 
     expect(data).toHaveProperty('errors');
     expect(data.errors).toHaveProperty('email');
@@ -229,7 +229,7 @@ describe('/login', () => {
 
     expect(response.status).toBe(200);
 
-    const data: any = await response.json();
+    const data = (await response.json()) as { accessToken: string; refreshToken: string };
 
     expect(data).toHaveProperty('accessToken');
     expect(data).toHaveProperty('refreshToken');

@@ -135,7 +135,7 @@ const RightSidebar = memo(
       return () => {
         cancelled = true;
       };
-    }, [selectedChannel?.id, selectedChannel?.private]);
+    }, [selectedChannel]);
 
     const filteredGroups = useMemo(() => {
       if (!visibleUserIds) return groups;

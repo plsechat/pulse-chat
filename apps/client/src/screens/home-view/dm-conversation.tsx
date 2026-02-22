@@ -162,8 +162,8 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
 
   // Save scroll position on unmount
   useEffect(() => {
+    const c = containerRef.current;
     return () => {
-      const c = containerRef.current;
       if (c) {
         const positions =
           getLocalStorageItemAsJSON<Record<number, number>>(

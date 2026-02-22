@@ -260,7 +260,7 @@ const TiptapInput = memo(
           storage[MENTION_STORAGE_KEY].ownUserId = ownUserId ?? 0;
         }
       }
-    }, [editor, mentionUsers, mentionRoles, isDm]);
+    }, [editor, mentionUsers, mentionRoles, isDm, ownUserId]);
 
     // keep channel mention storage in sync with channels from the store
     useEffect(() => {

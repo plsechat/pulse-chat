@@ -1,11 +1,17 @@
 import type http from 'http';
+import type { WebSocket } from 'ws';
 import { UAParser } from 'ua-parser-js';
 import type { TConnectionInfo } from '../types';
+
+type WsWithInternals = WebSocket & {
+  _socket?: { remoteAddress?: string };
+  socket?: { remoteAddress?: string };
+};
 
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 
 const getWsIp = (
-  ws: any | undefined,
+  ws: WsWithInternals | undefined,
   req: http.IncomingMessage
 ): string | undefined => {
   const headers = req?.headers || {};
@@ -57,7 +63,7 @@ const getWsIp = (
 };
 
 const getWsInfo = (
-  ws: any | undefined,
+  ws: WsWithInternals | undefined,
   req: http.IncomingMessage
 ): TConnectionInfo | undefined => {
   const ip = getWsIp(ws, req);

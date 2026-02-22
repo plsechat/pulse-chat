@@ -46,9 +46,11 @@ const HomeView = memo(() => {
     if (localSelectedDmChannelId) {
       setSelectedDmChannelId(localSelectedDmChannelId);
     }
+    // Intentionally mount-only: sync initial saved state to Redux once
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleDmSelect = (dmChannelId: number) => {
+  const handleDmSelect = useCallback((dmChannelId: number) => {
     setLocalSelectedDmChannelId(dmChannelId);
     setSelectedDmChannelId(dmChannelId);
     setActiveTab('dm');
@@ -57,7 +59,7 @@ const HomeView = memo(() => {
     if (isMobile) {
       setIsMobileMenuOpen(false);
     }
-  };
+  }, [isMobile]);
 
   const handleFriendsClick = () => {
     setActiveTab('friends');
@@ -73,7 +75,7 @@ const HomeView = memo(() => {
   const handleGroupDmCreated = useCallback((dmChannelId: number) => {
     setShowCreateGroupDm(false);
     handleDmSelect(dmChannelId);
-  }, [isMobile]);
+  }, [handleDmSelect]);
 
   const handleSwipeRight = useCallback(() => {
     if (!isMobileMenuOpen) {

@@ -4,6 +4,7 @@ declare module 'ws' {
   interface WebSocket {
     userId?: number;
     token: string;
+    federationToken?: string;
   }
 }
 
