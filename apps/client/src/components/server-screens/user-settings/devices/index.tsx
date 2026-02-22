@@ -1,5 +1,4 @@
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { LoadingCard } from '@/components/ui/loading-card';
@@ -16,7 +15,7 @@ import { closeServerScreens } from '@/features/server-screens/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import { useForm } from '@/hooks/use-form';
 import { Resolution } from '@/types';
-import { Info, Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useAvailableDevices } from './hooks/use-available-devices';
@@ -45,15 +44,6 @@ const Devices = memo(() => {
 
   return (
     <div className="space-y-4">
-        {currentVoiceChannelId && (
-          <Alert variant="default">
-            <Info />
-            <AlertDescription>
-              You are in a voice channel, changes will only take effect after
-              you leave and rejoin the channel.
-            </AlertDescription>
-          </Alert>
-        )}
         <Group label="Microphone">
           <Select
             onValueChange={(value) => onChange('microphoneId', value)}
@@ -138,7 +128,7 @@ const Devices = memo(() => {
           />
         </Group>
 
-        <Group label="Screen Sharing">
+        <Group label="Screen Sharing" description={currentVoiceChannelId ? 'Screen sharing settings take effect on your next share.' : undefined}>
           <ResolutionFpsControl
             framerate={values.screenFramerate}
             resolution={values.screenResolution}

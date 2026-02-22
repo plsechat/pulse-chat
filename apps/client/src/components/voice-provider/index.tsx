@@ -17,6 +17,7 @@ import {
   useState
 } from 'react';
 import { useDevices } from '../devices-provider/hooks/use-devices';
+import type { TDeviceSettings } from '@/types';
 import { FloatingPinnedCard } from './floating-pinned-card';
 import { useLocalStreams } from './hooks/use-local-streams';
 import { useRemoteStreams } from './hooks/use-remote-streams';
@@ -97,6 +98,7 @@ const VoiceProviderContext = createContext<TVoiceProvider>({
   toggleSound: () => Promise.resolve(),
   toggleWebcam: () => Promise.resolve(),
   toggleScreenShare: () => Promise.resolve(),
+  updateSavedMicTrack: () => {},
   ownVoiceState: {
     micMuted: false,
     soundMuted: false,
@@ -662,6 +664,93 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     devices.microphoneId
   ]);
 
+  // Hot-swap microphone track on the existing producer when device settings change
+  const reapplyMicSettings = useCallback(async (micMuted: boolean, savedMicTrackUpdater: (track: MediaStreamTrack | null) => void) => {
+    if (!localAudioProducer.current || localAudioProducer.current.closed) return;
+
+    try {
+      logVoice('Reapplying mic settings mid-call');
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: devices.microphoneId
+            ? { exact: devices.microphoneId }
+            : undefined,
+          autoGainControl: devices.autoGainControl,
+          echoCancellation: devices.echoCancellation,
+          noiseSuppression: devices.noiseSuppression,
+          sampleRate: 48000,
+          channelCount: 2
+        },
+        video: false
+      });
+
+      const newTrack = newStream.getAudioTracks()[0];
+      if (!newTrack) return;
+
+      // Stop old tracks
+      localAudioStream?.getAudioTracks().forEach((t) => t.stop());
+
+      if (micMuted) {
+        // Mic is muted — update the saved track so unmute uses the new device
+        savedMicTrackUpdater(newTrack);
+      } else {
+        await localAudioProducer.current!.replaceTrack({ track: newTrack });
+      }
+
+      setLocalAudioStream(newStream);
+      logVoice('Mic settings reapplied successfully');
+    } catch (error) {
+      logVoice('Error reapplying mic settings', { error });
+    }
+  }, [
+    localAudioProducer,
+    localAudioStream,
+    setLocalAudioStream,
+    devices.microphoneId,
+    devices.autoGainControl,
+    devices.echoCancellation,
+    devices.noiseSuppression
+  ]);
+
+  // Hot-swap webcam track on the existing producer when device settings change
+  const reapplyWebcamSettings = useCallback(async (webcamEnabled: boolean) => {
+    if (!webcamEnabled) return;
+    if (!localVideoProducer.current || localVideoProducer.current.closed) return;
+
+    try {
+      logVoice('Reapplying webcam settings mid-call');
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          deviceId: { ideal: devices.webcamId },
+          frameRate: devices.webcamFramerate,
+          ...getResWidthHeight(devices.webcamResolution)
+        }
+      });
+
+      const newTrack = newStream.getVideoTracks()[0];
+      if (!newTrack) return;
+
+      // Stop old tracks
+      localVideoStream?.getVideoTracks().forEach((t) => t.stop());
+
+      await localVideoProducer.current!.replaceTrack({ track: newTrack });
+      setLocalVideoStream(newStream);
+      logVoice('Webcam settings reapplied successfully');
+    } catch (error) {
+      logVoice('Error reapplying webcam settings', { error });
+    }
+  }, [
+    localVideoProducer,
+    localVideoStream,
+    setLocalVideoStream,
+    devices.webcamId,
+    devices.webcamFramerate,
+    devices.webcamResolution
+  ]);
+
   const cleanup = useCallback(() => {
     logVoice('Running voice provider cleanup');
 
@@ -741,6 +830,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     toggleSound,
     toggleWebcam,
     toggleScreenShare,
+    updateSavedMicTrack,
     ownVoiceState
   } = useVoiceControls({
     startMicStream,
@@ -781,6 +871,43 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     prevChannelIdRef.current = currentVoiceChannelId;
   }, [currentVoiceChannelId, cleanup]);
 
+  // Live-apply device setting changes while in a call
+  const prevDevicesRef = useRef<TDeviceSettings | null>(null);
+
+  useEffect(() => {
+    if (connectionStatus !== ConnectionStatus.CONNECTED) {
+      prevDevicesRef.current = null;
+      return;
+    }
+
+    // Skip first run after connecting — devices were already used during init
+    if (!prevDevicesRef.current) {
+      prevDevicesRef.current = devices;
+      return;
+    }
+
+    const prev = prevDevicesRef.current;
+    prevDevicesRef.current = devices;
+
+    const micChanged =
+      prev.microphoneId !== devices.microphoneId ||
+      prev.echoCancellation !== devices.echoCancellation ||
+      prev.noiseSuppression !== devices.noiseSuppression ||
+      prev.autoGainControl !== devices.autoGainControl;
+
+    const webcamChanged =
+      prev.webcamId !== devices.webcamId ||
+      prev.webcamFramerate !== devices.webcamFramerate ||
+      prev.webcamResolution !== devices.webcamResolution;
+
+    if (micChanged) {
+      reapplyMicSettings(ownVoiceState.micMuted, updateSavedMicTrack);
+    }
+    if (webcamChanged) {
+      reapplyWebcamSettings(ownVoiceState.webcamEnabled);
+    }
+  }, [devices, connectionStatus, reapplyMicSettings, reapplyWebcamSettings, ownVoiceState.micMuted, ownVoiceState.webcamEnabled, updateSavedMicTrack]);
+
   const contextValue = useMemo<TVoiceProvider>(
     () => ({
       loading,
@@ -796,6 +923,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       toggleSound,
       toggleWebcam,
       toggleScreenShare,
+      updateSavedMicTrack,
       ownVoiceState,
 
       localAudioStream,
@@ -818,6 +946,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       toggleSound,
       toggleWebcam,
       toggleScreenShare,
+      updateSavedMicTrack,
       ownVoiceState,
 
       localAudioStream,
