@@ -23,9 +23,16 @@ import { useUploadFiles } from '@/hooks/use-upload-files';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmMessage } from '@pulse/shared';
-import { imageExtensions, TYPING_MS } from '@pulse/shared';
+import {
+  audioExtensions,
+  imageExtensions,
+  TYPING_MS,
+  videoExtensions
+} from '@pulse/shared';
+import { AudioPlayer } from '@/components/channel-view/text/overrides/audio-player';
 import { ImageOverride } from '@/components/channel-view/text/overrides/image';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
+import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
 import { preprocessMarkdown } from '@/components/channel-view/text/renderer/markdown-preprocessor';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
@@ -922,18 +929,30 @@ const DmMessageContent = memo(
     }, [message.content]);
 
     const allMedia = useMemo(() => {
-      const mediaFromFiles: TFoundMedia[] = message.files
-        .filter((file) => imageExtensions.includes(file.extension))
-        .map((file) => ({
-          type: 'image' as const,
-          url: getFileUrl(file)
-        }));
+      const mediaFromFiles: TFoundMedia[] = [];
+
+      for (const file of message.files) {
+        const url = getFileUrl(file);
+        if (imageExtensions.includes(file.extension)) {
+          mediaFromFiles.push({ type: 'image', url });
+        } else if (videoExtensions.includes(file.extension)) {
+          mediaFromFiles.push({ type: 'video', url, name: file.originalName });
+        } else if (audioExtensions.includes(file.extension)) {
+          mediaFromFiles.push({ type: 'audio', url, name: file.originalName });
+        }
+      }
+
       return [...foundMedia, ...mediaFromFiles];
     }, [foundMedia, message.files]);
 
     const otherFiles = useMemo(
       () =>
-        message.files.filter((f) => !imageExtensions.includes(f.extension)),
+        message.files.filter(
+          (f) =>
+            !imageExtensions.includes(f.extension) &&
+            !videoExtensions.includes(f.extension) &&
+            !audioExtensions.includes(f.extension)
+        ),
       [message.files]
     );
 
@@ -959,11 +978,18 @@ const DmMessageContent = memo(
           <span className="text-[10px] text-muted-foreground">(edited)</span>
         )}
 
-        {allMedia.map((media, index) =>
-          media.type === 'image' ? (
-            <ImageOverride src={media.url} key={`media-image-${index}`} />
-          ) : null
-        )}
+        {allMedia.map((media, index) => {
+          if (media.type === 'image') {
+            return <ImageOverride src={media.url} key={`media-${index}`} />;
+          }
+          if (media.type === 'video') {
+            return <VideoPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+          }
+          if (media.type === 'audio') {
+            return <AudioPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+          }
+          return null;
+        })}
 
         {message.metadata && message.metadata.length > 0 && (
           <div className="flex flex-col gap-1.5">
