@@ -15,8 +15,8 @@ import { Permission, UserStatus } from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   Copy,
+  Ellipsis,
   Globe,
-  MessageSquare,
   Pencil,
   Plus,
   ShieldCheck,
@@ -30,7 +30,13 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Protect } from '../protect';
 import { RoleBadge } from '../role-badge';
-import { IconButton } from '../ui/icon-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '../ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { UserAvatar } from '../user-avatar';
 import { UserStatusBadge } from '../user-status';
@@ -211,13 +217,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     <Popover onOpenChange={handlePopoverOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="start" side="right">
+        {/* === Zone 1: Banner + Avatar + Action Buttons === */}
         <div className="relative">
-          {user.banned && (
-            <div className="absolute right-2 top-2 bg-red-500 text-white text-xs px-2 py-1 rounded-md flex items-center gap-1">
-              <ShieldCheck className="h-3 w-3" />
-              Banned
-            </div>
-          )}
           {user.banner ? (
             <div
               className="h-24 w-full rounded-t-md bg-cover bg-center bg-no-repeat"
@@ -240,72 +241,131 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               showStatusBadge={false}
             />
           </div>
-        </div>
 
-        <div className="px-4 pt-12 pb-4">
-          <div className="mb-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-lg font-semibold text-foreground truncate">
-                {user.nickname || user.name}
-              </span>
-              {isOwnUser ? (
+          {/* Action buttons on banner */}
+          <div className="absolute right-2 top-2 flex items-center gap-1.5">
+            {!isOwnUser && (
+              <button
+                type="button"
+                className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                onClick={isFriend ? handleRemoveFriend : handleAddFriend}
+                title={isFriend ? 'Remove Friend' : 'Add Friend'}
+              >
+                {isFriend ? (
+                  <UserMinus className="h-4 w-4" />
+                ) : (
+                  <UserPlus className="h-4 w-4" />
+                )}
+              </button>
+            )}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                  onClick={handleEditNickname}
-                  title="Edit nickname"
+                  className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
                 >
-                  <Pencil className="h-3 w-3" />
+                  <Ellipsis className="h-4 w-4" />
                 </button>
-              ) : (
-                <Protect permission={Permission.MANAGE_USERS}>
-                  <button
-                    type="button"
-                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                    onClick={handleEditNickname}
-                    title="Edit nickname"
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {isOwnUser ? (
+                  <DropdownMenuItem onClick={handleEditNickname}>
+                    <Pencil className="h-4 w-4" />
+                    Edit Nickname
+                  </DropdownMenuItem>
+                ) : (
+                  <Protect permission={Permission.MANAGE_USERS}>
+                    <DropdownMenuItem onClick={handleEditNickname}>
+                      <Pencil className="h-4 w-4" />
+                      Edit Nickname
+                    </DropdownMenuItem>
+                  </Protect>
+                )}
+                <DropdownMenuItem onClick={handleAddNote}>
+                  <StickyNote className="h-4 w-4" />
+                  Add Note
+                </DropdownMenuItem>
+                {user.publicId && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      navigator.clipboard.writeText(user.publicId!);
+                      toast.success('User ID copied');
+                    }}
                   >
-                    <Pencil className="h-3 w-3" />
-                  </button>
+                    <Copy className="h-4 w-4" />
+                    Copy User ID
+                  </DropdownMenuItem>
+                )}
+                <Protect permission={Permission.MANAGE_USERS}>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setModViewOpen(true, user.id)}
+                  >
+                    <UserCog className="h-4 w-4" />
+                    Moderation View
+                  </DropdownMenuItem>
                 </Protect>
-              )}
-            </div>
-            {user.nickname && (
-              <span className="text-xs text-muted-foreground">
-                {user.name}
-              </span>
-            )}
-            {user._identity && user._identity.includes('@') && (
-              <div className="flex items-center gap-1 mt-0.5">
-                <Globe className="h-3 w-3 text-blue-500" />
-                <span className="text-xs text-blue-500">
-                  Federated from {user._identity.split('@').slice(1).join('@')}
-                </span>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <UserStatusBadge
-                  status={user.status || UserStatus.OFFLINE}
-                  className="h-3 w-3"
-                />
-                <span className="text-xs text-muted-foreground capitalize">
-                  {user.status || UserStatus.OFFLINE}
-                </span>
-              </div>
-            </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
+        </div>
+
+        {/* === Zone 2: Identity === */}
+        <div className="px-4 pt-12 pb-2">
+          <h3 className="text-lg font-bold text-foreground truncate">
+            {user.nickname || user.name}
+          </h3>
+          {user.nickname && (
+            <p className="text-sm text-muted-foreground">{user.name}</p>
+          )}
+          {user._identity && user._identity.includes('@') && (
+            <div className="flex items-center gap-1 mt-0.5">
+              <Globe className="h-3 w-3 text-blue-500" />
+              <span className="text-xs text-blue-500">
+                Federated from{' '}
+                {user._identity.split('@').slice(1).join('@')}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <UserStatusBadge
+              status={user.status || UserStatus.OFFLINE}
+              className="h-3 w-3"
+            />
+            <span className="text-xs text-muted-foreground capitalize">
+              {user.status || UserStatus.OFFLINE}
+            </span>
+          </div>
+        </div>
+
+        {/* === Zone 3: Details === */}
+        <div className="px-4 py-3 space-y-3 border-t border-border max-h-48 overflow-y-auto">
+          {user.banned && (
+            <div className="flex items-center gap-1.5 text-red-500 bg-red-500/10 rounded-md px-2 py-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              <span className="text-xs font-medium">This user is banned</span>
+            </div>
+          )}
 
           {roles.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {roles.map((role) => (
-                <RoleBadge key={role.id} role={role} />
-              ))}
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Roles
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {roles.map((role) => (
+                  <RoleBadge key={role.id} role={role} />
+                ))}
+              </div>
             </div>
           )}
 
           {user.bio && (
-            <div className="mt-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                About Me
+              </p>
               <p className="text-sm text-foreground leading-relaxed">
                 {user.bio}
               </p>
@@ -313,12 +373,11 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
           )}
 
           {notesLoaded && (
-            <div className="mt-3 pt-3 border-t border-border">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">
-                  <StickyNote className="h-3 w-3" />
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Notes
-                </div>
+                </p>
                 <button
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   onClick={handleAddNote}
@@ -361,63 +420,28 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
             </div>
           )}
 
-          {!isOwnUser && (
-            <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border">
-              <IconButton
-                icon={MessageSquare}
-                variant="secondary"
-                size="sm"
-                title="Send Message"
-                onClick={handleSendMessage}
-              />
-              {isFriend ? (
-                <IconButton
-                  icon={UserMinus}
-                  variant="secondary"
-                  size="sm"
-                  title="Remove Friend"
-                  onClick={handleRemoveFriend}
-                />
-              ) : (
-                <IconButton
-                  icon={UserPlus}
-                  variant="secondary"
-                  size="sm"
-                  title="Add Friend"
-                  onClick={handleAddFriend}
-                />
-              )}
-              {user.publicId && (
-                <IconButton
-                  icon={Copy}
-                  variant="secondary"
-                  size="sm"
-                  title="Copy User ID"
-                  onClick={() => {
-                    navigator.clipboard.writeText(user.publicId!);
-                    toast.success('User ID copied');
-                  }}
-                />
-              )}
-            </div>
-          )}
-
-          <div className="flex justify-between items-center mt-4 pt-3 border-t border-border">
-            <p className="text-xs text-muted-foreground">
-              Member since {format(new Date(user.createdAt), 'PP')}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+              Member Since
             </p>
-
-            <Protect permission={Permission.MANAGE_USERS}>
-              <IconButton
-                icon={UserCog}
-                variant="ghost"
-                size="sm"
-                title="Moderation View"
-                onClick={() => setModViewOpen(true, user.id)}
-              />
-            </Protect>
+            <p className="text-xs text-muted-foreground">
+              {format(new Date(user.createdAt), 'PP')}
+            </p>
           </div>
         </div>
+
+        {/* === Zone 4: Message Bar === */}
+        {!isOwnUser && (
+          <div className="px-4 pb-4 pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={handleSendMessage}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer text-left"
+            >
+              Message @{user.name}
+            </button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
