@@ -2,7 +2,6 @@ import { Permission, ServerEvents } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getServerMemberIds } from '../../db/queries/servers';
 import { getPublicUserById } from '../../db/queries/users';
 import { serverMembers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
@@ -38,8 +37,7 @@ const setNicknameRoute = protectedProcedure
     const user = await getPublicUserById(ctx.userId);
     if (user) {
       user.nickname = input.nickname;
-      const memberIds = await getServerMemberIds(ctx.activeServerId);
-      ctx.pubsub.publishFor(memberIds, ServerEvents.USER_UPDATE, user);
+      ctx.pubsub.publish(ServerEvents.USER_UPDATE, user);
     }
   });
 
@@ -76,8 +74,7 @@ const setUserNicknameRoute = protectedProcedure
     const user = await getPublicUserById(input.userId);
     if (user) {
       user.nickname = input.nickname;
-      const memberIds = await getServerMemberIds(ctx.activeServerId);
-      ctx.pubsub.publishFor(memberIds, ServerEvents.USER_UPDATE, user);
+      ctx.pubsub.publish(ServerEvents.USER_UPDATE, user);
     }
   });
 
