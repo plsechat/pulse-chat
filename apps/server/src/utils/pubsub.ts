@@ -29,6 +29,11 @@ type Events = {
     messageId: number;
     channelId: number;
   };
+  [ServerEvents.MESSAGE_BULK_DELETE]: {
+    messageIds: number[];
+    channelId: number;
+    purged?: boolean;
+  };
   [ServerEvents.MESSAGE_TYPING]: {
     channelId: number;
     userId: number;
@@ -124,6 +129,9 @@ type Events = {
     dmChannelId: number;
     name: string | null;
     iconFileId: number | null;
+  };
+  [ServerEvents.DM_CHANNEL_DELETE]: {
+    dmChannelId: number;
   };
   [ServerEvents.DM_MEMBER_ADD]: {
     dmChannelId: number;

@@ -1,4 +1,4 @@
-import type { TJoinedEmoji } from '@pulse/shared';
+import type { TEmoji, TFile, TJoinedEmoji } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '..';
 import { emojis, files, users } from '../schema';
@@ -18,11 +18,25 @@ const emojiSelectFields = {
   }
 };
 
-// TODO: check this any
-const parseEmoji = (row: any): TJoinedEmoji => ({
+interface EmojiRow {
+  emoji: TEmoji;
+  file: TFile;
+  user: {
+    id: number;
+    name: string;
+    bannerColor: string | null;
+    bio: string | null;
+    createdAt: number;
+    banned: boolean;
+    avatarId: number | null;
+    bannerId: number | null;
+  };
+}
+
+const parseEmoji = (row: EmojiRow): TJoinedEmoji => ({
   ...row.emoji,
   file: row.file,
-  user: row.user
+  user: row.user as TJoinedEmoji['user']
 });
 
 const getEmojiById = async (id: number): Promise<TJoinedEmoji | undefined> => {

@@ -1,5 +1,6 @@
 import { setActiveView } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
+import { updateFriend } from '@/features/friends/actions';
 import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
@@ -21,9 +22,12 @@ async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
   const e2eeChannels = state.server.channels.filter((c) => c.e2ee);
   if (e2eeChannels.length === 0) return;
 
-  const { ensureChannelSenderKey, clearDistributedMember } = await import(
-    '@/lib/e2ee'
-  );
+  const { ensureChannelSenderKey, clearDistributedMember, hasKeys } =
+    await import('@/lib/e2ee');
+
+  // Don't prompt the user to set up keys — this is a background operation.
+  // If they haven't generated keys yet, silently skip.
+  if (!(await hasKeys())) return;
 
   // Clear the user from distributedMembers so we don't skip them.
   // If their identity changed (key reset), ensureSession with
@@ -48,6 +52,7 @@ const subscribeToUsers = () => {
   const onUserJoinSub = trpc.users.onJoin.subscribe(undefined, {
     onData: (user: TJoinedPublicUser) => {
       handleUserJoin(user);
+      updateFriend(user.id, user);
 
       // Fire-and-forget: distribute sender keys to the newly online user
       distributeE2eeKeysToUser(user.id).catch((err) =>
@@ -67,6 +72,7 @@ const subscribeToUsers = () => {
   const onUserLeaveSub = trpc.users.onLeave.subscribe(undefined, {
     onData: (userId: number) => {
       updateUser(userId, { status: UserStatus.OFFLINE });
+      updateFriend(userId, { status: UserStatus.OFFLINE });
     },
     onError: (err) => console.error('onUserLeave subscription error:', err)
   });
@@ -74,6 +80,7 @@ const subscribeToUsers = () => {
   const onUserUpdateSub = trpc.users.onUpdate.subscribe(undefined, {
     onData: (user: TJoinedPublicUser) => {
       updateUser(user.id, user);
+      updateFriend(user.id, user);
     },
     onError: (err) => console.error('onUserUpdate subscription error:', err)
   });

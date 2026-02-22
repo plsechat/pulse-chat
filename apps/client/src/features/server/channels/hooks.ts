@@ -10,6 +10,7 @@ import {
   currentVoiceChannelIdSelector,
   currentVoiceServerIdSelector,
   isCurrentVoiceChannelSelectedSelector,
+  lastReadMessageIdSelector,
   selectedChannelIdSelector,
   selectedChannelSelector,
   selectedChannelTypeSelector,
@@ -58,4 +59,9 @@ export const useActiveThread = () =>
 export const useThreadsByParentChannelId = (parentChannelId: number) =>
   useSelector((state: IRootState) =>
     threadsByParentChannelIdSelector(state, parentChannelId)
+  );
+
+export const useLastReadMessageId = (channelId: number) =>
+  useSelector((state: IRootState) =>
+    lastReadMessageIdSelector(state, channelId)
   );

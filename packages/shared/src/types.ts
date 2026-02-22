@@ -139,6 +139,8 @@ export type TChannelUserPermissionsMap = Record<
 
 export type TReadStateMap = Record<number, number>;
 
+export type TLastReadMessageIdMap = Record<number, number | null>;
+
 export type TMentionStateMap = Record<number, number>;
 
 export type TThreadInfo = {
@@ -224,6 +226,7 @@ export type TRemoteServerSummary = {
   memberCount: number;
   instanceDomain: string;
   instanceName: string;
+  hasPassword?: boolean;
 };
 
 export enum AutomodRuleType {

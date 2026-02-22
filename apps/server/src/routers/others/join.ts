@@ -1,7 +1,6 @@
 import {
   ActivityLogType,
   ServerEvents,
-  UserStatus,
   type TCategory,
   type TChannel,
   type TChannelUserPermissionsMap,
@@ -24,7 +23,10 @@ import {
 } from '../../db/queries/channels';
 import { getEmojis } from '../../db/queries/emojis';
 import { getRolesForServer } from '../../db/queries/roles';
-import { getServerPublicSettings, getSettings } from '../../db/queries/server';
+import {
+  getFirstServerPassword,
+  getServerPublicSettings
+} from '../../db/queries/server';
 import {
   getServerById,
   getServerMemberIds,
@@ -40,6 +42,11 @@ import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueLogin } from '../../queues/logins';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
+import {
+  checkPasswordRateLimit,
+  recordPasswordFailure,
+  recordPasswordSuccess
+} from '../../utils/password-rate-limit';
 import { t } from '../../utils/trpc';
 
 const joinServerRoute = t.procedure
@@ -51,8 +58,8 @@ const joinServerRoute = t.procedure
     })
   )
   .query(async ({ input, ctx }) => {
-    const settings = await getSettings();
-    const hasPassword = !!settings?.password;
+    const serverPassword = await getFirstServerPassword();
+    const hasPassword = !!serverPassword;
 
     invariant(ctx.user, {
       code: 'UNAUTHORIZED',
@@ -72,20 +79,35 @@ const joinServerRoute = t.procedure
         }
       );
 
+      if (hasPassword) {
+        const rateCheck = checkPasswordRateLimit(ctx.user.id, 'handshake');
+        invariant(rateCheck.allowed, {
+          code: 'TOO_MANY_REQUESTS',
+          message: `Too many failed attempts. Try again in ${Math.ceil(rateCheck.retryAfterMs! / 60000)} minutes.`
+        });
+      }
+
       const passwordValid = hasPassword
         ? (() => {
-            if (!input.password || !settings?.password) return false;
+            if (!input.password || !serverPassword) return false;
             const a = Buffer.from(input.password);
-            const b = Buffer.from(settings.password);
+            const b = Buffer.from(serverPassword);
             if (a.length !== b.length) return false;
             return timingSafeEqual(a, b);
           })()
         : true;
 
-      invariant(passwordValid, {
-        code: 'FORBIDDEN',
-        message: 'Invalid password'
-      });
+      if (!passwordValid) {
+        recordPasswordFailure(ctx.user.id, 'handshake');
+        invariant(false, {
+          code: 'FORBIDDEN',
+          message: 'Invalid password'
+        });
+      }
+
+      if (hasPassword) {
+        recordPasswordSuccess(ctx.user.id, 'handshake');
+      }
     }
 
     ctx.authenticated = true;
@@ -194,10 +216,7 @@ const joinServerRoute = t.procedure
 
     // Publish USER_JOIN to members of this server
     const memberIds = await getServerMemberIds(targetServer.id);
-    ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, {
-      ...foundPublicUser,
-      status: UserStatus.ONLINE
-    });
+    ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, foundPublicUser);
 
     const connectionInfo = ctx.getConnectionInfo();
 
@@ -240,6 +259,7 @@ const joinServerRoute = t.procedure
       channelPermissions,
       readStates: readStatesResult.readStates,
       mentionStates: readStatesResult.mentionStates,
+      lastReadMessageIds: readStatesResult.lastReadMessageIds,
       commands: pluginManager.getCommands(),
       externalStreamsMap
     };

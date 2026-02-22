@@ -21,11 +21,25 @@ import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useUploadFiles } from '@/hooks/use-upload-files';
 import { getTRPCClient } from '@/lib/trpc';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmMessage } from '@pulse/shared';
-import { imageExtensions, TYPING_MS } from '@pulse/shared';
+import {
+  audioExtensions,
+  imageExtensions,
+  TYPING_MS,
+  videoExtensions
+} from '@pulse/shared';
+import { AudioPlayer } from '@/components/channel-view/text/overrides/audio-player';
 import { ImageOverride } from '@/components/channel-view/text/overrides/image';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
+import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
 import { preprocessMarkdown } from '@/components/channel-view/text/renderer/markdown-preprocessor';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
@@ -34,7 +48,7 @@ import parse from 'html-react-parser';
 import { format, formatDistance, subDays } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Copy, Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -148,8 +162,8 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
 
   // Save scroll position on unmount
   useEffect(() => {
+    const c = containerRef.current;
     return () => {
-      const c = containerRef.current;
       if (c) {
         const positions =
           getLocalStorageItemAsJSON<Record<number, number>>(
@@ -702,18 +716,31 @@ const DmMessagesGroup = memo(
 );
 
 const DmReplyPreview = memo(
-  ({ replyTo }: { replyTo: { userId: number; content: string | null } }) => {
+  ({ replyTo }: { replyTo: { id: number; userId: number; content: string | null } }) => {
     const user = useUserById(replyTo.userId);
     const truncated = replyTo.content
       ? replyTo.content.replace(/<[^>]*>/g, '').slice(0, 100)
       : 'Message deleted';
 
+    const scrollToOriginal = useCallback(() => {
+      const el = document.getElementById(`dm-msg-${replyTo.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('animate-msg-highlight');
+        setTimeout(() => el.classList.remove('animate-msg-highlight'), 2500);
+      }
+    }, [replyTo.id]);
+
     return (
-      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 pl-1">
-        <Reply className="h-3 w-3 rotate-180" />
-        <span className="font-semibold">{user?.name ?? 'Unknown'}</span>
+      <button
+        type="button"
+        onClick={scrollToOriginal}
+        className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 pl-1 hover:text-foreground transition-colors cursor-pointer"
+      >
+        <Reply className="h-3 w-3 rotate-180 shrink-0" />
+        <span className="font-semibold shrink-0">{user?.name ?? 'Unknown'}</span>
         <span className="truncate max-w-[300px]">{truncated}</span>
-      </div>
+      </button>
     );
   }
 );
@@ -727,15 +754,37 @@ const DmReplyBar = memo(
     onDismiss: () => void;
   }) => {
     const user = useUserById(message.userId);
+    const contentPreview = useMemo(() => {
+      if (!message.content) return 'Message deleted';
+      return message.content.replace(/<[^>]*>/g, '').slice(0, 80) || 'Attachment';
+    }, [message.content]);
+
+    const scrollToMessage = useCallback(() => {
+      const el = document.getElementById(`dm-msg-${message.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('animate-msg-highlight');
+        setTimeout(() => el.classList.remove('animate-msg-highlight'), 2500);
+      }
+    }, [message.id]);
 
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border border-border/50 rounded-t-lg text-sm">
-        <span className="text-muted-foreground">Replying to</span>
-        <span className="font-semibold">{user?.name ?? 'Unknown'}</span>
+      <div className="flex items-center gap-2 rounded-t-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
+        <button
+          type="button"
+          onClick={scrollToMessage}
+          className="flex items-center gap-2 flex-1 min-w-0 px-3 py-1.5 hover:bg-primary/10 transition-colors cursor-pointer"
+        >
+          <Reply className="h-3.5 w-3.5 shrink-0 text-primary rotate-180" />
+          <span className="font-semibold text-primary shrink-0">
+            {user?.name ?? 'Unknown'}
+          </span>
+          <span className="truncate text-muted-foreground">{contentPreview}</span>
+        </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="ml-auto text-muted-foreground hover:text-foreground"
+          className="shrink-0 mr-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           <X className="h-4 w-4" />
         </button>
@@ -829,8 +878,17 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
     [message.id]
   );
 
+  const onCopyText = useCallback(() => {
+    if (!message.content) return;
+    const plainText = message.content.replace(/<[^>]*>/g, '');
+    navigator.clipboard.writeText(plainText);
+    toast.success('Copied to clipboard');
+  }, [message.content]);
+
   return (
-    <div className="min-w-0 flex-1 ml-1 relative hover:bg-secondary/50 rounded-md px-1 py-0.5 group">
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+    <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 ml-1 relative hover:bg-secondary/50 rounded-md px-1 py-0.5 group">
       {message.replyTo && <DmReplyPreview replyTo={message.replyTo} />}
       {!isEditing ? (
         <>
@@ -907,6 +965,44 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
         />
       )}
     </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onClick={onReply}>
+          <Reply className="h-4 w-4" />
+          Reply
+        </ContextMenuItem>
+        {isOwnMessage && (
+          <ContextMenuItem onClick={() => setIsEditing(true)}>
+            <Pencil className="h-4 w-4" />
+            Edit Message
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem onClick={handlePinToggle}>
+          {message.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+          {message.pinned ? 'Unpin' : 'Pin'}
+        </ContextMenuItem>
+        <EmojiPicker onEmojiSelect={onEmojiSelect}>
+          <ContextMenuItem onSelect={(e) => e.preventDefault()}>
+            <Smile className="h-4 w-4" />
+            Add Reaction
+          </ContextMenuItem>
+        </EmojiPicker>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onCopyText} disabled={!message.content}>
+          <Copy className="h-4 w-4" />
+          Copy Text
+        </ContextMenuItem>
+        {isOwnMessage && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={handleDelete} variant="destructive">
+              <Trash className="h-4 w-4" />
+              Delete Message
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 
@@ -922,18 +1018,30 @@ const DmMessageContent = memo(
     }, [message.content]);
 
     const allMedia = useMemo(() => {
-      const mediaFromFiles: TFoundMedia[] = message.files
-        .filter((file) => imageExtensions.includes(file.extension))
-        .map((file) => ({
-          type: 'image' as const,
-          url: getFileUrl(file)
-        }));
+      const mediaFromFiles: TFoundMedia[] = [];
+
+      for (const file of message.files) {
+        const url = getFileUrl(file);
+        if (imageExtensions.includes(file.extension)) {
+          mediaFromFiles.push({ type: 'image', url });
+        } else if (videoExtensions.includes(file.extension)) {
+          mediaFromFiles.push({ type: 'video', url, name: file.originalName });
+        } else if (audioExtensions.includes(file.extension)) {
+          mediaFromFiles.push({ type: 'audio', url, name: file.originalName });
+        }
+      }
+
       return [...foundMedia, ...mediaFromFiles];
     }, [foundMedia, message.files]);
 
     const otherFiles = useMemo(
       () =>
-        message.files.filter((f) => !imageExtensions.includes(f.extension)),
+        message.files.filter(
+          (f) =>
+            !imageExtensions.includes(f.extension) &&
+            !videoExtensions.includes(f.extension) &&
+            !audioExtensions.includes(f.extension)
+        ),
       [message.files]
     );
 
@@ -959,11 +1067,18 @@ const DmMessageContent = memo(
           <span className="text-[10px] text-muted-foreground">(edited)</span>
         )}
 
-        {allMedia.map((media, index) =>
-          media.type === 'image' ? (
-            <ImageOverride src={media.url} key={`media-image-${index}`} />
-          ) : null
-        )}
+        {allMedia.map((media, index) => {
+          if (media.type === 'image') {
+            return <ImageOverride src={media.url} key={`media-${index}`} />;
+          }
+          if (media.type === 'video') {
+            return <VideoPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+          }
+          if (media.type === 'audio') {
+            return <AudioPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+          }
+          return null;
+        })}
 
         {message.metadata && message.metadata.length > 0 && (
           <div className="flex flex-col gap-1.5">

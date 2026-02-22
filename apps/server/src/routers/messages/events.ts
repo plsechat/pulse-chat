@@ -7,6 +7,12 @@ const onMessageDeleteRoute = protectedProcedure.subscription(
   }
 );
 
+const onMessageBulkDeleteRoute = protectedProcedure.subscription(
+  async ({ ctx }) => {
+    return ctx.pubsub.subscribe(ServerEvents.MESSAGE_BULK_DELETE);
+  }
+);
+
 const onMessageUpdateRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
     return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_UPDATE);
@@ -36,6 +42,7 @@ const onMessageUnpinRoute = protectedProcedure.subscription(
 );
 
 export {
+  onMessageBulkDeleteRoute,
   onMessageDeleteRoute,
   onMessagePinRoute,
   onMessageRoute,

@@ -173,7 +173,7 @@ describe('e2ee messages', () => {
 
   test('should send an E2EE DM message', async () => {
     const { caller: caller1 } = await initTest(1);
-    const { caller: caller2 } = await initTest(2);
+    await initTest(2);
 
     // Create a DM channel between user 1 and user 2
     const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
@@ -197,7 +197,7 @@ describe('e2ee messages', () => {
 
   test('should send a plaintext DM message', async () => {
     const { caller: caller1 } = await initTest(1);
-    const { caller: caller2 } = await initTest(2);
+    await initTest(2);
 
     const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
 

@@ -12,6 +12,11 @@ export const addFriend = (friend: TJoinedPublicUser) =>
 export const removeFriend = (userId: number) =>
   store.dispatch(friendsSliceActions.removeFriend(userId));
 
+export const updateFriend = (
+  userId: number,
+  data: Partial<TJoinedPublicUser>
+) => store.dispatch(friendsSliceActions.updateFriend({ userId, data }));
+
 export const setRequests = (requests: TJoinedFriendRequest[]) =>
   store.dispatch(friendsSliceActions.setRequests(requests));
 

@@ -34,8 +34,15 @@ export const addDmMessages = (
     const ownUserId = ownUserIdSelector(state);
     if (messages[0].userId !== ownUserId) {
       playSound(SoundType.MESSAGE_RECEIVED);
+
+      const senderChannel = state.dms.channels.find((c) =>
+        c.members.some((m) => m.id === messages[0].userId)
+      );
+      const senderName =
+        senderChannel?.members.find((m) => m.id === messages[0].userId)?.name;
+
       sendDesktopNotification(
-        'New Direct Message',
+        senderName ? `${senderName}` : 'New Direct Message',
         messages[0].content?.slice(0, 100) || 'New message received'
       );
 
@@ -310,6 +317,20 @@ export const editDmMessage = async (messageId: number, content: string) => {
 export const deleteDmMessageAction = async (messageId: number) => {
   const trpc = getHomeTRPCClient();
   await trpc.dms.deleteMessage.mutate({ messageId });
+};
+
+export const removeDmChannel = (dmChannelId: number) =>
+  store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
+
+export const deleteDmChannel = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  await trpc.dms.deleteChannel.mutate({ dmChannelId });
+  removeDmChannel(dmChannelId);
+};
+
+export const enableDmEncryption = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  await trpc.dms.enableEncryption.mutate({ dmChannelId });
 };
 
 export const joinDmVoiceCall = async (dmChannelId: number) => {

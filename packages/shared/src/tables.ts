@@ -182,6 +182,7 @@ export type TJoinedPublicUser = TPublicUser & {
   avatar: TFile | null;
   banner: TFile | null;
   roleIds: number[];
+  nickname?: string | null;
 };
 
 export type TJoinedSettings = TSettings & {
@@ -200,6 +201,7 @@ export type TServerSummary = {
   memberCount?: number;
   ownerId?: number | null;
   description?: string | null;
+  hasPassword?: boolean;
 };
 
 export type TJoinedInvite = TInvite & {

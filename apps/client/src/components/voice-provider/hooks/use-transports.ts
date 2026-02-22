@@ -78,11 +78,24 @@ const useTransports = ({
         }
       );
 
-      producerTransport.current.on('connectionstatechange', (state) => {
+      producerTransport.current.on('connectionstatechange', async (state) => {
         logVoice('Producer transport connection state changed', { state });
 
-        if (state === 'failed' || state === 'disconnected') {
-          logVoice(`Producer transport ${state}`);
+        if (state === 'disconnected') {
+          logVoice('Producer transport disconnected, attempting ICE restart');
+          try {
+            const trpc = getTRPCClient();
+            const result = await trpc.voice.restartIce.mutate({ type: 'producer' });
+            if (result?.iceParameters && producerTransport.current && !producerTransport.current.closed) {
+              await producerTransport.current.restartIce({ iceParameters: result.iceParameters });
+              logVoice('Producer transport ICE restart succeeded');
+            }
+          } catch (error) {
+            logVoice('Producer transport ICE restart failed, closing', { error });
+            producerTransport.current?.close();
+          }
+        } else if (state === 'failed') {
+          logVoice('Producer transport failed');
           producerTransport.current?.close();
         } else if (state === 'closed') {
           logVoice('Producer transport closed');
@@ -165,11 +178,31 @@ const useTransports = ({
         }
       );
 
-      consumerTransport.current.on('connectionstatechange', (state) => {
+      consumerTransport.current.on('connectionstatechange', async (state) => {
         logVoice('Consumer transport connection state changed', { state });
 
-        if (state === 'failed' || state === 'disconnected') {
-          logVoice(`Consumer transport ${state}, attempting cleanup`);
+        if (state === 'disconnected') {
+          logVoice('Consumer transport disconnected, attempting ICE restart');
+          try {
+            const trpc = getTRPCClient();
+            const result = await trpc.voice.restartIce.mutate({ type: 'consumer' });
+            if (result?.iceParameters && consumerTransport.current && !consumerTransport.current.closed) {
+              await consumerTransport.current.restartIce({ iceParameters: result.iceParameters });
+              logVoice('Consumer transport ICE restart succeeded');
+            }
+          } catch (error) {
+            logVoice('Consumer transport ICE restart failed, closing', { error });
+            Object.values(consumers.current).forEach((userConsumers) => {
+              Object.values(userConsumers).forEach((consumer) => {
+                consumer.close();
+              });
+            });
+            consumers.current = {};
+            consumerTransport.current?.close();
+            consumerTransport.current = undefined;
+          }
+        } else if (state === 'failed') {
+          logVoice('Consumer transport failed, cleaning up');
 
           Object.values(consumers.current).forEach((userConsumers) => {
             Object.values(userConsumers).forEach((consumer) => {
@@ -344,32 +377,36 @@ const useTransports = ({
           remoteExternalStreamIds
         });
 
-        remoteAudioIds.forEach((remoteId) => {
-          consume(remoteId, StreamKind.AUDIO, routerRtpCapabilities);
-        });
+        const consumePromises: Promise<void>[] = [];
 
-        remoteVideoIds.forEach((remoteId) => {
-          consume(remoteId, StreamKind.VIDEO, routerRtpCapabilities);
-        });
+        for (const remoteId of remoteAudioIds) {
+          consumePromises.push(consume(remoteId, StreamKind.AUDIO, routerRtpCapabilities));
+        }
 
-        remoteScreenIds.forEach((remoteId) => {
-          consume(remoteId, StreamKind.SCREEN, routerRtpCapabilities);
-        });
+        for (const remoteId of remoteVideoIds) {
+          consumePromises.push(consume(remoteId, StreamKind.VIDEO, routerRtpCapabilities));
+        }
 
-        remoteScreenAudioIds.forEach((remoteId) => {
-          consume(remoteId, StreamKind.SCREEN_AUDIO, routerRtpCapabilities);
-        });
+        for (const remoteId of remoteScreenIds) {
+          consumePromises.push(consume(remoteId, StreamKind.SCREEN, routerRtpCapabilities));
+        }
 
-        remoteExternalStreamIds.forEach((streamId: number) => {
+        for (const remoteId of remoteScreenAudioIds) {
+          consumePromises.push(consume(remoteId, StreamKind.SCREEN_AUDIO, routerRtpCapabilities));
+        }
+
+        for (const streamId of remoteExternalStreamIds) {
           const tracks = externalStreamTracks?.[streamId];
 
           if (tracks?.audio !== false) {
-            consume(streamId, StreamKind.EXTERNAL_AUDIO, routerRtpCapabilities);
+            consumePromises.push(consume(streamId, StreamKind.EXTERNAL_AUDIO, routerRtpCapabilities));
           }
           if (tracks?.video !== false) {
-            consume(streamId, StreamKind.EXTERNAL_VIDEO, routerRtpCapabilities);
+            consumePromises.push(consume(streamId, StreamKind.EXTERNAL_VIDEO, routerRtpCapabilities));
           }
-        });
+        }
+
+        await Promise.allSettled(consumePromises);
       } catch (error) {
         logVoice('Error consuming existing producers', { error });
       }

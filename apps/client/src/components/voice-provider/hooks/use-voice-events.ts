@@ -226,9 +226,6 @@ const useVoiceEvents = ({
       onVoiceUserLeaveSub.unsubscribe();
       onVoiceRemoveExternalStreamSub.unsubscribe();
     };
-    // Only currentVoiceChannelId drives subscribe/unsubscribe lifecycle.
-    // All other values accessed via refs inside callbacks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentVoiceChannelId]);
 };
 

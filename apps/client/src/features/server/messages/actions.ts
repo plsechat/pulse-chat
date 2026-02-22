@@ -36,8 +36,11 @@ export const addMessages = (
 
     if (!isFromOwnUser) {
       playSound(SoundType.MESSAGE_RECEIVED);
+      const sender = state.server.users.find(
+        (u) => u.id === targetMessage.userId
+      );
       sendDesktopNotification(
-        'New Message',
+        sender?.name || 'New Message',
         targetMessage.content?.slice(0, 100) || 'New message received'
       );
     }
@@ -61,6 +64,19 @@ export const updateMessage = (channelId: number, message: TJoinedMessage) => {
 
 export const deleteMessage = (channelId: number, messageId: number) => {
   store.dispatch(serverSliceActions.deleteMessage({ channelId, messageId }));
+};
+
+export const bulkDeleteMessages = (
+  channelId: number,
+  messageIds: number[]
+) => {
+  store.dispatch(
+    serverSliceActions.bulkDeleteMessages({ channelId, messageIds })
+  );
+};
+
+export const purgeChannelMessages = (channelId: number) => {
+  store.dispatch(serverSliceActions.purgeChannelMessages({ channelId }));
 };
 
 export const addTypingUser = (channelId: number, userId: number) => {

@@ -1,5 +1,6 @@
 import { TypingDots } from '@/components/typing-dots';
 import { useTypingUsersByChannelId } from '@/features/server/hooks';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { memo } from 'react';
 
 type TUsersTypingProps = {
@@ -19,10 +20,10 @@ const UsersTyping = memo(({ channelId }: TUsersTypingProps) => {
         <TypingDots className="[&>div]:w-0.5 [&>div]:h-0.5" />
         <span>
           {typingUsers.length === 1
-            ? `${typingUsers[0].name} is typing...`
+            ? `${getDisplayName(typingUsers[0])} is typing...`
             : typingUsers.length === 2
-              ? `${typingUsers[0].name} and ${typingUsers[1].name} are typing...`
-              : `${typingUsers[0].name} and ${typingUsers.length - 1} others are typing...`}
+              ? `${getDisplayName(typingUsers[0])} and ${getDisplayName(typingUsers[1])} are typing...`
+              : `${getDisplayName(typingUsers[0])} and ${typingUsers.length - 1} others are typing...`}
         </span>
       </div>
     </div>

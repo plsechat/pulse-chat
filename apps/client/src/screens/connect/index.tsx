@@ -71,6 +71,8 @@ const Connect = memo(() => {
         removeLocalStorageItem(LocalStorageKey.REMEMBER_CREDENTIALS);
       }
     },
+    // loginForm.onChange is a stable sub-property
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [loginForm.onChange]
   );
 
@@ -129,6 +131,7 @@ const Connect = memo(() => {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loginForm.values, loginForm.setErrors, inviteCode]);
 
   const onRegisterClick = useCallback(async () => {
@@ -184,6 +187,7 @@ const Connect = memo(() => {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerForm.values, registerForm.setErrors, inviteCode]);
 
   const onOAuthClick = useCallback(
@@ -204,8 +208,6 @@ const Connect = memo(() => {
     [inviteCode]
   );
 
-  const enabledProviders = info?.enabledAuthProviders ?? [];
-
   const logoSrc = useMemo(() => {
     if (info?.logo) {
       return getFileUrl(info.logo);
@@ -214,9 +216,9 @@ const Connect = memo(() => {
     return '/logo.png';
   }, [info]);
 
-  const OAuthSection = useMemo(
-    () =>
-      enabledProviders.length > 0 ? (
+  const OAuthSection = useMemo(() => {
+      const providers = info?.enabledAuthProviders ?? [];
+      return providers.length > 0 ? (
         <>
           <div className="flex items-center gap-3 my-1">
             <Separator className="flex-1" />
@@ -226,7 +228,7 @@ const Connect = memo(() => {
             <Separator className="flex-1" />
           </div>
           <div className="flex gap-2">
-            {enabledProviders.map((provider) => (
+            {providers.map((provider) => (
               <Button
                 key={provider}
                 className="flex-1"
@@ -239,8 +241,9 @@ const Connect = memo(() => {
             ))}
           </div>
         </>
-      ) : null,
-    [enabledProviders, loading, onOAuthClick]
+      ) : null;
+    },
+    [info?.enabledAuthProviders, loading, onOAuthClick]
   );
 
   return (

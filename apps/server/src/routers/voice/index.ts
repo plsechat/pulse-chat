@@ -19,6 +19,7 @@ import { getProducersRoute } from './get-producers';
 import { joinVoiceRoute } from './join';
 import { leaveVoiceRoute } from './leave';
 import { produceRoute } from './produce';
+import { restartIceRoute } from './restart-ice';
 import { updateVoiceStateRoute } from './update-state';
 
 export const voiceRouter = t.router({
@@ -33,6 +34,7 @@ export const voiceRouter = t.router({
   produce: produceRoute,
   consume: consumeRoute,
   getProducers: getProducersRoute,
+  restartIce: restartIceRoute,
   onJoin: onUserJoinVoiceRoute,
   onLeave: onUserLeaveVoiceRoute,
   onUpdateState: onUserUpdateVoiceStateRoute,

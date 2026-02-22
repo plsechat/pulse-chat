@@ -40,6 +40,11 @@ export const channelMentionCountByIdSelector = (
 export const hasAnyUnreadSelector = (state: IRootState) =>
   Object.values(state.server.readStatesMap).some((count) => (count ?? 0) > 0);
 
+export const lastReadMessageIdSelector = (
+  state: IRootState,
+  channelId: number
+) => state.server.lastReadMessageIdMap[channelId];
+
 export const channelByIdSelector = createCachedSelector(
   [channelsSelector, (_: IRootState, channelId: number) => channelId],
   (channels, channelId) => channels.find((channel) => channel.id === channelId)

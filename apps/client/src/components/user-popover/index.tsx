@@ -14,8 +14,10 @@ import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { Permission, UserStatus } from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
+  Copy,
   Globe,
   MessageSquare,
+  Pencil,
   Plus,
   ShieldCheck,
   StickyNote,
@@ -177,6 +179,32 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     }
   }, [resolveLocalUserId]);
 
+  const handleEditNickname = useCallback(async () => {
+    const text = await requestTextInput({
+      title: 'Set Nickname',
+      message: 'Nickname for this server (leave empty to clear)',
+      confirmLabel: 'Save',
+      cancelLabel: 'Cancel',
+      defaultValue: user?.nickname ?? '',
+      allowEmpty: true
+    });
+
+    if (text !== null && text !== undefined) {
+      try {
+        const trpc = getTRPCClient();
+        const nickname = text.trim() || null;
+        if (isOwnUser) {
+          await trpc.users.setNickname.mutate({ nickname });
+        } else {
+          await trpc.users.setUserNickname.mutate({ userId, nickname });
+        }
+        toast.success(nickname ? 'Nickname updated' : 'Nickname cleared');
+      } catch {
+        toast.error('Failed to update nickname');
+      }
+    }
+  }, [userId, user, isOwnUser]);
+
   if (!user) return <>{children}</>;
 
   return (
@@ -216,9 +244,37 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
 
         <div className="px-4 pt-12 pb-4">
           <div className="mb-3">
-            <span className="text-lg font-semibold text-foreground truncate mb-1">
-              {user.name}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-lg font-semibold text-foreground truncate">
+                {user.nickname || user.name}
+              </span>
+              {isOwnUser ? (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  onClick={handleEditNickname}
+                  title="Edit nickname"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              ) : (
+                <Protect permission={Permission.MANAGE_USERS}>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    onClick={handleEditNickname}
+                    title="Edit nickname"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                </Protect>
+              )}
+            </div>
+            {user.nickname && (
+              <span className="text-xs text-muted-foreground">
+                {user.name}
+              </span>
+            )}
             {user._identity && user._identity.includes('@') && (
               <div className="flex items-center gap-1 mt-0.5">
                 <Globe className="h-3 w-3 text-blue-500" />
@@ -306,7 +362,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
           )}
 
           {!isOwnUser && (
-            <div className="flex gap-2 mt-3">
+            <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border">
               <IconButton
                 icon={MessageSquare}
                 variant="secondary"
@@ -329,6 +385,18 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
                   size="sm"
                   title="Add Friend"
                   onClick={handleAddFriend}
+                />
+              )}
+              {user.publicId && (
+                <IconButton
+                  icon={Copy}
+                  variant="secondary"
+                  size="sm"
+                  title="Copy User ID"
+                  onClick={() => {
+                    navigator.clipboard.writeText(user.publicId!);
+                    toast.success('User ID copied');
+                  }}
                 />
               )}
             </div>

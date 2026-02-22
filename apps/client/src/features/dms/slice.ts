@@ -56,6 +56,14 @@ export const dmsSlice = createSlice({
         state.channels[idx] = action.payload;
       }
     },
+    removeChannel: (state, action: PayloadAction<number>) => {
+      state.channels = state.channels.filter((c) => c.id !== action.payload);
+      if (state.selectedChannelId === action.payload) {
+        state.selectedChannelId = undefined;
+      }
+      delete state.messagesMap[action.payload];
+      delete state.dmTypingMap[action.payload];
+    },
     setSelectedChannelId: (
       state,
       action: PayloadAction<number | undefined>
@@ -185,6 +193,11 @@ export const dmsSlice = createSlice({
       const channel = state.channels.find((c) => c.id === action.payload);
       if (channel) {
         channel.unreadCount = (channel.unreadCount ?? 0) + 1;
+      }
+    },
+    clearAllUnread: (state) => {
+      for (const channel of state.channels) {
+        channel.unreadCount = 0;
       }
     },
     addDmTypingUser: (

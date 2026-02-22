@@ -103,8 +103,8 @@ const useScrollController = ({
 
   // Save scroll position on unmount
   useEffect(() => {
+    const container = containerRef.current;
     return () => {
-      const container = containerRef.current;
       if (container) {
         scrollPositions[channelId] = container.scrollTop;
         // Flush immediately on unmount so it's saved before page unload

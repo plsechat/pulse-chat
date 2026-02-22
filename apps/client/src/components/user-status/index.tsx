@@ -73,4 +73,5 @@ const getStatusLabel = (status: UserStatus): string => {
   return statusConfig[status]?.label || 'Offline';
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { getStatusLabel, statusConfig, UserStatusBadge };

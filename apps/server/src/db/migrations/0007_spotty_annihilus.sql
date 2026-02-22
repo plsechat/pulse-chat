@@ -1,0 +1,1 @@
+ALTER TABLE "dm_channels" ALTER COLUMN "e2ee" SET DEFAULT false;

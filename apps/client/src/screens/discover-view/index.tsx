@@ -14,7 +14,8 @@ import type {
   TRemoteServerSummary,
   TServerSummary
 } from '@pulse/shared';
-import { Check, Compass, Globe, Loader2, Search, Users } from 'lucide-react';
+import { requestTextInput } from '@/features/dialogs/actions';
+import { Check, Compass, Globe, Loader2, Lock, Search, Users } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -49,8 +50,9 @@ const ServerCard = memo(
         </div>
 
         <div className="flex flex-1 flex-col gap-2 p-4">
-          <h3 className="truncate text-lg font-semibold text-foreground">
+          <h3 className="truncate text-lg font-semibold text-foreground flex items-center gap-1.5">
             {server.name}
+            {server.hasPassword && <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
           </h3>
 
           {server.description && (
@@ -126,8 +128,9 @@ const FederatedServerCard = memo(
         </div>
 
         <div className="flex flex-1 flex-col gap-2 p-4">
-          <h3 className="truncate text-lg font-semibold text-foreground">
+          <h3 className="truncate text-lg font-semibold text-foreground flex items-center gap-1.5">
             {server.name}
+            {server.hasPassword && <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
           </h3>
 
           <div className="flex items-center gap-1 text-xs text-blue-500">
@@ -268,11 +271,26 @@ const DiscoverView = memo(() => {
   }, [activeTab]);
 
   const handleJoin = useCallback(async (serverId: number) => {
+    const server = servers.find((s) => s.id === serverId);
+    if (!server) return;
+
+    let password: string | undefined;
+    if (server.hasPassword) {
+      const result = await requestTextInput({
+        title: 'Server Password',
+        message: `"${server.name}" requires a password to join.`,
+        type: 'password',
+        confirmLabel: 'Join'
+      });
+      if (!result) return;
+      password = result;
+    }
+
     setJoiningId(serverId);
 
     try {
       const trpc = getTRPCClient();
-      const summary = await trpc.servers.joinDiscover.mutate({ serverId });
+      const summary = await trpc.servers.joinDiscover.mutate({ serverId, password });
 
       // Add to Redux state
       store.dispatch(appSliceActions.addJoinedServer(summary));
@@ -289,13 +307,19 @@ const DiscoverView = memo(() => {
       }
 
       toast.success(`Joined ${summary.name}`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to join server:', error);
-      toast.error('Failed to join server');
+      const errMsg = error instanceof Error ? error.message : '';
+      const msg = errMsg.includes('Invalid password')
+        ? 'Invalid password'
+        : errMsg.includes('Too many failed')
+          ? errMsg
+          : 'Failed to join server';
+      toast.error(msg);
     } finally {
       setJoiningId(null);
     }
-  }, []);
+  }, [servers]);
 
   const handleJoinFederated = useCallback(
     async (server: TRemoteServerSummary) => {

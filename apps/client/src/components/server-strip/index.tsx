@@ -50,10 +50,11 @@ import {
 import { useCurrentVoiceServerId } from '@/features/server/channels/hooks';
 import { useHasAnyVoiceUsers } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { store } from '@/features/store';
 import { serverSliceActions } from '@/features/server/slice';
+import { dmsSliceActions } from '@/features/dms/slice';
 import {
   DndContext,
   type DragEndEvent,
@@ -234,10 +235,12 @@ const SortableServerItem = memo(
 const ServerStrip = memo(() => {
   const activeView = useActiveView();
   const friendRequests = useFriendRequests();
-  const pendingCount = friendRequests.length;
+  const ownUserId = useOwnUserId();
+  const pendingCount = friendRequests.filter(
+    (r) => r.receiverId === ownUserId
+  ).length;
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
-  const ownUserId = useOwnUserId();
   const serverUnreadCounts = useServerUnreadCounts();
   const serverMentionCounts = useServerMentionCounts();
   const totalDmUnreadCount = useTotalDmUnreadCount();
@@ -343,6 +346,17 @@ const ServerStrip = memo(() => {
     []
   );
 
+  const handleMarkAllDmsAsRead = useCallback(async () => {
+    try {
+      store.dispatch(dmsSliceActions.clearAllUnread());
+      const trpc = getHomeTRPCClient();
+      await trpc.dms.markAllAsRead.mutate();
+      toast.success('Marked as read');
+    } catch {
+      toast.error('Failed to mark as read');
+    }
+  }, []);
+
   const handleToggleMute = useCallback(
     async (serverId: number, muted: boolean) => {
       try {
@@ -423,29 +437,40 @@ const ServerStrip = memo(() => {
 
   return (
     <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
-      <div className="relative flex w-full items-center justify-center group">
-        <div className={cn(
-          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
-          activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
-        )} />
-        <button
-          onClick={handleHomeClick}
-          className={cn(
-            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
-            activeView === 'home'
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="relative flex w-full items-center justify-center group">
+            <div className={cn(
+              'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
+              activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
+            )} />
+            <button
+              onClick={handleHomeClick}
+              className={cn(
+                'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
+                activeView === 'home'
+                  ? 'bg-primary text-primary-foreground rounded-xl'
+                  : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              )}
+              title="Home"
+            >
+              <Home className="h-6 w-6" />
+              {(pendingCount > 0 || totalDmUnreadCount > 0) && (
+                <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  {pendingCount + totalDmUnreadCount > 99 ? '99+' : pendingCount + totalDmUnreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {totalDmUnreadCount > 0 && (
+            <ContextMenuItem onClick={handleMarkAllDmsAsRead}>
+              Mark as Read
+            </ContextMenuItem>
           )}
-          title="Home"
-        >
-          <Home className="h-6 w-6" />
-          {(pendingCount > 0 || totalDmUnreadCount > 0) && (
-            <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-              {pendingCount + totalDmUnreadCount > 99 ? '99+' : pendingCount + totalDmUnreadCount}
-            </span>
-          )}
-        </button>
-      </div>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <div className="mx-2 h-0.5 w-8 bg-border" />
 

@@ -4,7 +4,12 @@ import { useOwnUserId } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import { imageExtensions, type TJoinedMessage } from '@pulse/shared';
+import {
+  audioExtensions,
+  imageExtensions,
+  videoExtensions,
+  type TJoinedMessage
+} from '@pulse/shared';
 import { Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
@@ -14,8 +19,10 @@ import { toast } from 'sonner';
 import { Tooltip } from '../../../ui/tooltip';
 import { FileCard } from '../file-card';
 import { MessageReactions } from '../message-reactions';
+import { AudioPlayer } from '../overrides/audio-player';
 import { ImageOverride } from '../overrides/image';
 import { LinkPreview } from '../overrides/link-preview';
+import { VideoPlayer } from '../overrides/video-player';
 import { serializer } from './serializer';
 import type { TFoundMedia } from './types';
 
@@ -55,7 +62,10 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       const textOnly = sanitized.replace(/<[^>]*>/g, '').trim();
       const emojiRegex = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu;
       const emojiMatches = textOnly.match(emojiRegex);
-      const strippedOfEmoji = textOnly.replace(emojiRegex, '').trim();
+      const strippedOfEmoji = textOnly
+        .replace(emojiRegex, '')
+        .replace(/\u200D|\uFE0E|\uFE0F/g, '')
+        .trim();
 
       // Also count custom emoji img tags with data-emoji-name
       const customEmojiCount = (sanitized.match(/data-emoji-name/g) || []).length;
@@ -105,12 +115,18 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
   }, []);
 
   const allMedia = useMemo(() => {
-    const mediaFromFiles: TFoundMedia[] = message.files
-      .filter((file) => imageExtensions.includes(file.extension))
-      .map((file) => ({
-        type: 'image',
-        url: getFileUrl(file, instanceDomain)
-      }));
+    const mediaFromFiles: TFoundMedia[] = [];
+
+    for (const file of message.files) {
+      const url = getFileUrl(file, instanceDomain);
+      if (imageExtensions.includes(file.extension)) {
+        mediaFromFiles.push({ type: 'image', url });
+      } else if (videoExtensions.includes(file.extension)) {
+        mediaFromFiles.push({ type: 'video', url, name: file.originalName });
+      } else if (audioExtensions.includes(file.extension)) {
+        mediaFromFiles.push({ type: 'audio', url, name: file.originalName });
+      }
+    }
 
     return [...foundMedia, ...mediaFromFiles];
   }, [foundMedia, message.files, instanceDomain]);
@@ -140,9 +156,14 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
 
       {allMedia.map((media, index) => {
         if (media.type === 'image') {
-          return <ImageOverride src={media.url} key={`media-image-${index}`} />;
+          return <ImageOverride src={media.url} key={`media-${index}`} />;
         }
-
+        if (media.type === 'video') {
+          return <VideoPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+        }
+        if (media.type === 'audio') {
+          return <AudioPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+        }
         return null;
       })}
 
@@ -161,7 +182,12 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       {message.files.length > 0 && (
         <div className="flex gap-1 flex-wrap">
           {message.files
-            .filter((file) => !imageExtensions.includes(file.extension))
+            .filter(
+              (file) =>
+                !imageExtensions.includes(file.extension) &&
+                !videoExtensions.includes(file.extension) &&
+                !audioExtensions.includes(file.extension)
+            )
             .map((file) => (
               <FileCard
                 key={file.id}

@@ -1,5 +1,8 @@
 import { getSoundNotificationSettings } from '@/hooks/use-sound-notification-settings';
 
+const stripHtml = (html: string): string =>
+  html.replace(/<[^>]+>/g, '').trim();
+
 export const sendDesktopNotification = (title: string, body: string) => {
   const settings = getSoundNotificationSettings();
   if (!settings.desktopNotificationsEnabled) return;
@@ -7,7 +10,7 @@ export const sendDesktopNotification = (title: string, body: string) => {
   if (document.hasFocus()) return;
 
   const n = new Notification(title, {
-    body,
+    body: stripHtml(body),
     icon: '/favicon.ico',
     tag: 'pulse-message'
   });

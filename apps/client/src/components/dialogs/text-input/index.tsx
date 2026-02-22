@@ -23,6 +23,7 @@ type TTextInputDialogProps = TDialogBaseProps & {
   allowEmpty?: boolean;
   isModalOpen: boolean;
   type?: 'text' | 'password';
+  defaultValue?: string;
 };
 
 const TextInputDialog = memo(
@@ -36,9 +37,10 @@ const TextInputDialog = memo(
     confirmLabel,
     cancelLabel,
     allowEmpty,
-    type
+    type,
+    defaultValue
   }: TTextInputDialogProps) => {
-    const [value, setValue] = useState<string | undefined>();
+    const [value, setValue] = useState<string | undefined>(defaultValue);
 
     const onSubmit = useCallback(() => {
       onConfirm?.(value);

@@ -47,8 +47,7 @@ describe('others router', () => {
     }
   });
 
-  test.skip('should ask for password if server has one set', async () => {
-    // TODO: handshake reads from `settings` table but updateSettings writes to `servers` table
+  test('should ask for password if server has one set', async () => {
     const { caller } = await initTest(1);
     const { hasPassword } = await caller.others.handshake();
 
@@ -61,6 +60,11 @@ describe('others router', () => {
     const { hasPassword: hasPasswordAfter } = await caller.others.handshake();
 
     expect(hasPasswordAfter).toBe(true);
+
+    // Clean up
+    await caller.others.updateSettings({ serverId: 1,
+      password: null
+    });
   });
 
   test('should update server settings', async () => {

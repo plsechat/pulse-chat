@@ -1,5 +1,6 @@
 import { EmojiPicker } from '@/components/emoji-picker';
 import { Button } from '@/components/ui/button';
+import { useChannels } from '@/features/server/channels/hooks';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
@@ -10,6 +11,11 @@ import StarterKit from '@tiptap/starter-kit';
 import { Smile } from 'lucide-react';
 import { MENTION_USER_EVENT } from '@/lib/events';
 import { memo, useEffect, useMemo } from 'react';
+import { ChannelMentionExtension } from './plugins/channel-mention-extension';
+import {
+  CHANNEL_MENTION_STORAGE_KEY,
+  ChannelMentionSuggestion
+} from './plugins/channel-mention-suggestion';
 import {
   COMMANDS_STORAGE_KEY,
   CommandSuggestion
@@ -58,6 +64,7 @@ const TiptapInput = memo(
     const customEmojis = useCustomEmojis();
     const users = useUsers();
     const roles = useRoles();
+    const channels = useChannels();
     const ownUserId = useOwnUserId();
     const isDm = !!dmMembers;
 
@@ -71,6 +78,11 @@ const TiptapInput = memo(
     const mentionRoles = useMemo(
       () => (isDm ? [] : roles.map((r) => ({ id: r.id, name: r.name, color: r.color }))),
       [isDm, roles]
+    );
+
+    const mentionChannels = useMemo(
+      () => (isDm ? [] : channels.map((c) => ({ id: c.id, name: c.name, type: c.type }))),
+      [isDm, channels]
     );
 
     const extensions = useMemo(() => {
@@ -100,6 +112,16 @@ const TiptapInput = memo(
         }) as any
       ];
 
+      if (!isDm) {
+        exts.push(
+          ChannelMentionExtension.configure({
+            channels: mentionChannels,
+            suggestion: ChannelMentionSuggestion
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          }) as any
+        );
+      }
+
       if (commands) {
         exts.push(
           SlashCommands.configure({
@@ -111,7 +133,7 @@ const TiptapInput = memo(
       }
 
       return exts;
-    }, [customEmojis, commands, mentionUsers, mentionRoles, isDm, ownUserId]);
+    }, [customEmojis, commands, mentionUsers, mentionRoles, mentionChannels, isDm, ownUserId]);
 
     const editor = useEditor({
       extensions,
@@ -238,7 +260,18 @@ const TiptapInput = memo(
           storage[MENTION_STORAGE_KEY].ownUserId = ownUserId ?? 0;
         }
       }
-    }, [editor, mentionUsers, mentionRoles, isDm]);
+    }, [editor, mentionUsers, mentionRoles, isDm, ownUserId]);
+
+    // keep channel mention storage in sync with channels from the store
+    useEffect(() => {
+      if (editor && !isDm) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const storage = editor.storage as any;
+        if (storage[CHANNEL_MENTION_STORAGE_KEY]) {
+          storage[CHANNEL_MENTION_STORAGE_KEY].channels = mentionChannels;
+        }
+      }
+    }, [editor, mentionChannels, isDm]);
 
     useEffect(() => {
       if (editor && value !== undefined) {

@@ -43,6 +43,7 @@ const discoverRemoteRoute = protectedProcedure
           description: string | null;
           logo: unknown;
           memberCount: number;
+          hasPassword?: boolean;
         }>;
       };
 
@@ -53,7 +54,8 @@ const discoverRemoteRoute = protectedProcedure
         logo: s.logo as TRemoteServerSummary['logo'],
         memberCount: s.memberCount,
         instanceDomain: instance!.domain,
-        instanceName: instance!.name || instance!.domain
+        instanceName: instance!.name || instance!.domain,
+        hasPassword: s.hasPassword ?? false
       }));
 
       return { servers };

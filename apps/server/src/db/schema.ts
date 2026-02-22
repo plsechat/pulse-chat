@@ -119,7 +119,8 @@ const serverMembers = pgTable(
     joinedAt: bigint('joined_at', { mode: 'number' }).notNull(),
     muted: boolean('muted').notNull().default(false),
     notificationLevel: text('notification_level').notNull().default('default'),
-    position: integer('position').notNull().default(0)
+    position: integer('position').notNull().default(0),
+    nickname: text('nickname')
   },
   (t) => [
     primaryKey({ columns: [t.serverId, t.userId] }),
@@ -645,7 +646,7 @@ const dmChannels = pgTable('dm_channels', {
     onDelete: 'set null'
   }),
   isGroup: boolean('is_group').notNull().default(false),
-  e2ee: boolean('e2ee').notNull().default(true),
+  e2ee: boolean('e2ee').notNull().default(false),
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt: bigint('updated_at', { mode: 'number' })
 });

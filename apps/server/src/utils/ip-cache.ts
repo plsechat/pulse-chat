@@ -1,7 +1,9 @@
+import type { TIpInfo } from '@pulse/shared';
+
 const IP_CACHE_TTL = 1000 * 60 * 60; // 1 hour
 
 class IpInfoCache {
-  private cache: Record<string, any>;
+  private cache: Record<string, TIpInfo>;
 
   constructor() {
     this.cache = {};
@@ -11,7 +13,7 @@ class IpInfoCache {
     return this.cache[ip];
   }
 
-  set(ip: string, data: any) {
+  set(ip: string, data: TIpInfo) {
     this.cache[ip] = data;
 
     setTimeout(() => {

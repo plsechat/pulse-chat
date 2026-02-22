@@ -3,11 +3,12 @@ import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
 import { useCan, useChannelCan } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
-import { useSelectedChannel } from '@/features/server/channels/hooks';
+import { useLastReadMessageId, useSelectedChannel } from '@/features/server/channels/hooks';
 import { useMessages } from '@/features/server/messages/hooks';
 import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
 import { playSound } from '@/features/server/sounds/actions';
 import { SoundType } from '@/features/server/types';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useUploadFiles } from '@/hooks/use-upload-files';
@@ -21,7 +22,8 @@ import {
 } from '@pulse/shared';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { ArrowDown, Clock, Plus, Send, X } from 'lucide-react';
+import { setHighlightedMessageId } from '@/features/server/channels/actions';
+import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { preprocessMarkdown } from './renderer/markdown-preprocessor';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
@@ -31,8 +33,20 @@ import { FileCard } from './file-card';
 import { MessagesGroup } from './messages-group';
 import { SystemMessage } from './system-message';
 import { TextSkeleton } from './text-skeleton';
+import { SelectionActionBar } from './selection-action-bar';
+import { SelectionProvider, useSelection } from './selection-context';
 import { useScrollController } from './use-scroll-controller';
 import { UsersTyping } from './users-typing';
+
+const NewMessagesDivider = memo(() => (
+  <div className="flex items-center gap-2 px-4 py-1" id="new-messages-divider">
+    <div className="flex-1 h-px bg-destructive/50" />
+    <span className="text-xs font-semibold text-destructive/80 shrink-0 uppercase">
+      New messages
+    </span>
+    <div className="flex-1 h-px bg-destructive/50" />
+  </div>
+));
 
 type TChannelProps = {
   channelId: number;
@@ -47,15 +61,39 @@ const ReplyBar = memo(
     onDismiss: () => void;
   }) => {
     const user = useUserById(message.userId);
+    const contentPreview = useMemo(() => {
+      if (!message.content) return 'Message deleted';
+      return message.content.replace(/<[^>]*>/g, '').slice(0, 80) || 'Attachment';
+    }, [message.content]);
+
+    const scrollToMessage = useCallback(() => {
+      setHighlightedMessageId(message.id);
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`msg-${message.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+      setTimeout(() => setHighlightedMessageId(undefined), 2500);
+    }, [message.id]);
 
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-t-lg text-sm">
-        <span className="text-muted-foreground">Replying to</span>
-        <span className="font-semibold">{user?.name ?? 'Unknown'}</span>
+      <div className="flex items-center gap-2 rounded-t-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
+        <button
+          type="button"
+          onClick={scrollToMessage}
+          className="flex items-center gap-2 flex-1 min-w-0 px-3 py-1.5 hover:bg-primary/10 transition-colors cursor-pointer"
+        >
+          <Reply className="h-3.5 w-3.5 shrink-0 text-primary rotate-180" />
+          <span className="font-semibold text-primary shrink-0">
+            {getDisplayName(user)}
+          </span>
+          <span className="truncate text-muted-foreground">{contentPreview}</span>
+        </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="ml-auto text-muted-foreground hover:text-foreground"
+          className="shrink-0 mr-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           <X className="h-4 w-4" />
         </button>
@@ -64,7 +102,13 @@ const ReplyBar = memo(
   }
 );
 
-const TextChannel = memo(({ channelId }: TChannelProps) => {
+const TextChannel = memo(({ channelId }: TChannelProps) => (
+  <SelectionProvider>
+    <TextChannelInner channelId={channelId} />
+  </SelectionProvider>
+));
+
+const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const { messages, hasMore, loadMore, loading, fetching, groupedMessages } =
     useMessages(channelId);
   const [newMessage, setNewMessage] = useState('');
@@ -75,6 +119,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   const slowMode = selectedChannel?.slowMode ?? 0;
   const isE2ee = selectedChannel?.e2ee ?? false;
   const ownUserId = useOwnUserId();
+  const lastReadMessageId = useLastReadMessageId(channelId);
   const allPluginCommands = useFlatPluginCommands();
   const { containerRef, onScroll, scrollToBottom, isAtBottom } = useScrollController({
     channelId,
@@ -85,12 +130,17 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   });
   const can = useCan();
   const channelCan = useChannelCan(channelId);
+  const { selectionMode, setMessageIds } = useSelection();
   const canSendMessages = useMemo(() => {
     return (
       can(Permission.SEND_MESSAGES) &&
       channelCan(ChannelPermission.SEND_MESSAGES)
     );
   }, [can, channelCan]);
+
+  useEffect(() => {
+    setMessageIds(messages.map((m) => m.id));
+  }, [messages, setMessageIds]);
 
   const startSlowModeCooldown = useCallback(() => {
     if (slowMode <= 0) return;
@@ -302,10 +352,24 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4 animate-in fade-in duration-500"
       >
         {groupedMessages.map((group, index) => {
-          if (group[0].type === 'system') {
-            return <SystemMessage key={index} message={group[0]} />;
-          }
-          return <MessagesGroup key={index} group={group} onReply={handleReply} />;
+          const showDivider =
+            lastReadMessageId != null &&
+            group.some((msg) => msg.id > lastReadMessageId) &&
+            (index === 0 ||
+              !groupedMessages[index - 1].some(
+                (msg) => msg.id > lastReadMessageId
+              ));
+
+          return (
+            <div key={index}>
+              {showDivider && <NewMessagesDivider />}
+              {group[0].type === 'system' ? (
+                <SystemMessage message={group[0]} />
+              ) : (
+                <MessagesGroup group={group} onReply={handleReply} />
+              )}
+            </div>
+          );
         })}
       </div>
 
@@ -321,6 +385,8 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
           </button>
         </div>
       )}
+
+      {selectionMode && <SelectionActionBar />}
 
       <div className="flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
         {replyingTo && (

@@ -337,7 +337,7 @@ const createWsServer = async (server: http.Server) => {
 
           // Store federation token if present and use it as the matching token
           if (params.federationToken) {
-            (ws as any).federationToken = params.federationToken;
+            ws.federationToken = params.federationToken;
             ws.token = params.federationToken;
           } else {
             ws.token = params.accessToken;
@@ -358,7 +358,7 @@ const createWsServer = async (server: http.Server) => {
         let user;
 
         // Handle federated user disconnect
-        const fedToken = (ws as any).federationToken;
+        const fedToken = ws.federationToken;
         if (fedToken) {
           const fedResult = await verifyFederationToken(fedToken).catch(
             () => null

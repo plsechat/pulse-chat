@@ -2,6 +2,7 @@ export enum ServerEvents {
   NEW_MESSAGE = "newMessage",
   MESSAGE_UPDATE = "messageUpdate",
   MESSAGE_DELETE = "messageDelete",
+  MESSAGE_BULK_DELETE = "messageBulkDelete",
   MESSAGE_TYPING = "messageTyping",
 
   USER_JOIN = "userJoin",
@@ -53,6 +54,7 @@ export enum ServerEvents {
   DM_MESSAGE_UPDATE = "dmMessageUpdate",
   DM_MESSAGE_DELETE = "dmMessageDelete",
   DM_CHANNEL_UPDATE = "dmChannelUpdate",
+  DM_CHANNEL_DELETE = "dmChannelDelete",
   DM_MEMBER_ADD = "dmMemberAdd",
   DM_MEMBER_REMOVE = "dmMemberRemove",
   DM_CALL_STARTED = "dmCallStarted",

@@ -554,6 +554,146 @@ describe('messages router', () => {
     expect(sentMessage!.files.length).toBe(0);
   });
 
+  // ---- Bulk Delete Tests ----
+
+  test('should bulk delete multiple messages', async () => {
+    const { caller } = await initTest();
+
+    // Get baseline count (seed data includes a message in channel 1)
+    const baseline = await caller.messages.get({
+      channelId: 1,
+      cursor: null,
+      limit: 50
+    });
+    const baselineCount = baseline.messages.length;
+
+    for (let i = 0; i < 5; i++) {
+      await caller.messages.send({
+        channelId: 1,
+        content: `Bulk msg ${i}`,
+        files: []
+      });
+    }
+
+    const before = await caller.messages.get({
+      channelId: 1,
+      cursor: null,
+      limit: 50
+    });
+
+    expect(before.messages.length).toBe(baselineCount + 5);
+
+    const idsToDelete = before.messages.slice(0, 3).map((m) => m.id);
+
+    const result = await caller.messages.bulkDelete({
+      messageIds: idsToDelete
+    });
+
+    expect(result.deletedCount).toBe(3);
+
+    const after = await caller.messages.get({
+      channelId: 1,
+      cursor: null,
+      limit: 50
+    });
+
+    expect(after.messages.length).toBe(baselineCount + 2);
+
+    for (const id of idsToDelete) {
+      expect(after.messages.find((m) => m.id === id)).toBeUndefined();
+    }
+  });
+
+  test('should reject bulk delete without MANAGE_MESSAGES permission', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.messages.send({
+      channelId: 1,
+      content: 'msg',
+      files: []
+    });
+
+    const msgs = await caller1.messages.get({
+      channelId: 1,
+      cursor: null,
+      limit: 50
+    });
+
+    const messageId = msgs.messages[0]!.id;
+
+    await expect(
+      caller2.messages.bulkDelete({ messageIds: [messageId] })
+    ).rejects.toThrow('Insufficient permissions');
+  });
+
+  test('should reject bulk delete with more than 100 messages', async () => {
+    const { caller } = await initTest();
+
+    const fakeIds = Array.from({ length: 101 }, (_, i) => i + 1);
+
+    await expect(
+      caller.messages.bulkDelete({ messageIds: fakeIds })
+    ).rejects.toThrow();
+  });
+
+  // ---- Purge Channel Tests ----
+
+  test('should purge all messages in a channel', async () => {
+    const { caller } = await initTest();
+
+    for (let i = 0; i < 5; i++) {
+      await caller.messages.send({
+        channelId: 1,
+        content: `msg ${i}`,
+        files: []
+      });
+    }
+
+    const before = await caller.messages.get({
+      channelId: 1,
+      cursor: null,
+      limit: 50
+    });
+
+    expect(before.messages.length).toBeGreaterThanOrEqual(5);
+
+    await caller.messages.purge({
+      channelId: 1,
+      confirmChannelName: 'General'
+    });
+
+    const after = await caller.messages.get({
+      channelId: 1,
+      cursor: null,
+      limit: 50
+    });
+
+    expect(after.messages.length).toBe(0);
+  });
+
+  test('should reject purge with wrong channel name', async () => {
+    const { caller } = await initTest();
+
+    await expect(
+      caller.messages.purge({
+        channelId: 1,
+        confirmChannelName: 'wrong-name'
+      })
+    ).rejects.toThrow('Channel name does not match');
+  });
+
+  test('should reject purge without MANAGE_MESSAGES permission', async () => {
+    const { caller: caller2 } = await initTest(2);
+
+    await expect(
+      caller2.messages.purge({
+        channelId: 1,
+        confirmChannelName: 'General'
+      })
+    ).rejects.toThrow('Insufficient permissions');
+  });
+
   test('should update message updatedAt timestamp on edit', async () => {
     const { caller } = await initTest();
 

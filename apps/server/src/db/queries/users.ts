@@ -517,7 +517,8 @@ const getPublicUsersForServer = async (
       createdAt: users.createdAt,
       _identity: users.supabaseId,
       isFederated: users.isFederated,
-      federatedInstanceId: users.federatedInstanceId
+      federatedInstanceId: users.federatedInstanceId,
+      nickname: serverMembers.nickname
     })
     .from(users)
     .innerJoin(serverMembers, eq(users.id, serverMembers.userId))
@@ -584,7 +585,8 @@ const getPublicUsersForServer = async (
       banner: result.banner,
       createdAt: result.createdAt,
       _identity: identity,
-      roleIds: rolesMap[result.id] || []
+      roleIds: rolesMap[result.id] || [],
+      nickname: result.nickname
     };
   });
 };

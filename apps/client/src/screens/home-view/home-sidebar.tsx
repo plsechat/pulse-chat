@@ -1,14 +1,25 @@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu';
+import { UserStatusBadge } from '@/components/user-status';
+import { deleteDmChannel, enableDmEncryption } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
+import { requestConfirmation } from '@/features/dialogs/actions';
 import { useFriendRequests } from '@/features/friends/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
 import { AvatarImage } from '@radix-ui/react-avatar';
-import { MessageSquare, Plus, Users } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { Lock, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
+import { memo, useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import type { THomeTab } from '.';
 
 type THomeSidebarProps = {
@@ -126,56 +137,133 @@ const DmChannelItem = memo(
       return otherMembers[0]?.name ?? 'Unknown';
     }, [channel.isGroup, channel.name, otherMembers]);
 
+    const handleDelete = useCallback(async () => {
+      const confirmed = await requestConfirmation({
+        title: 'Delete Conversation',
+        message:
+          'This will permanently delete all messages for both sides. This cannot be undone.',
+        confirmLabel: 'Delete',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      try {
+        await deleteDmChannel(channel.id);
+        toast.success('Conversation deleted');
+      } catch {
+        toast.error('Failed to delete conversation');
+      }
+    }, [channel.id]);
+
+    const handleEnableEncryption = useCallback(async () => {
+      const confirmed = await requestConfirmation({
+        title: 'Enable Encryption',
+        message:
+          'This will enable end-to-end encryption for this conversation. This cannot be reversed.',
+        confirmLabel: 'Enable',
+        variant: 'info'
+      });
+      if (!confirmed) return;
+      try {
+        await enableDmEncryption(channel.id);
+        toast.success('Encryption enabled');
+      } catch {
+        toast.error('Failed to enable encryption');
+      }
+    }, [channel.id]);
+
     if (otherMembers.length === 0) return null;
 
     return (
-      <button
-        onClick={onSelect}
-        className={cn(
-          'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-          isSelected
-            ? 'bg-muted text-foreground'
-            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-        )}
-      >
-        {channel.isGroup ? (
-          <div className="relative h-8 w-8 flex-shrink-0">
-            {otherMembers.slice(0, 2).map((m, i) => (
-              <DmMemberAvatar
-                key={m.id}
-                member={m}
-                className={cn(
-                  'h-6 w-6 absolute border-2 border-background',
-                  i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
-                )}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <button
+            onClick={onSelect}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+              isSelected
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            )}
+          >
+            {channel.isGroup ? (
+              <div className="relative h-8 w-8 flex-shrink-0">
+                {otherMembers.slice(0, 2).map((m, i) => (
+                  <DmMemberAvatar
+                    key={m.id}
+                    member={m}
+                    className={cn(
+                      'h-6 w-6 absolute border-2 border-background',
+                      i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
+                    )}
+                  />
+                ))}
+              </div>
+            ) : (
+              <DmMemberAvatarWithStatus
+                member={otherMembers[0]}
+                className="h-8 w-8 flex-shrink-0"
               />
-            ))}
-          </div>
-        ) : (
-          <DmMemberAvatar
-            member={otherMembers[0]}
-            className="h-8 w-8 flex-shrink-0"
-          />
-        )}
-        <div className="flex min-w-0 flex-1 flex-col items-start">
-          <span className="truncate font-medium">{displayName}</span>
-          {channel.isGroup && (
-            <span className="text-[10px] text-muted-foreground">
-              {channel.members.length} members
-            </span>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col items-start">
+              <span className="truncate font-medium">{displayName}</span>
+              {channel.isGroup && (
+                <span className="text-[10px] text-muted-foreground">
+                  {channel.members.length} members
+                </span>
+              )}
+              {!channel.isGroup && channel.lastMessage?.content && (
+                <span className="truncate text-xs text-muted-foreground w-full text-left">
+                  {channel.lastMessage.content.replace(/<[^>]*>/g, '').slice(0, 40)}
+                </span>
+              )}
+            </div>
+            {channel.unreadCount > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
+                {channel.unreadCount}
+              </span>
+            )}
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {!channel.e2ee && (
+            <>
+              <ContextMenuItem onClick={handleEnableEncryption}>
+                <Lock className="mr-2 h-4 w-4" />
+                Enable Encryption
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
           )}
-          {!channel.isGroup && channel.lastMessage?.content && (
-            <span className="truncate text-xs text-muted-foreground w-full text-left">
-              {channel.lastMessage.content.replace(/<[^>]*>/g, '').slice(0, 40)}
-            </span>
-          )}
-        </div>
-        {channel.unreadCount > 0 && (
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
-            {channel.unreadCount}
-          </span>
-        )}
-      </button>
+          <ContextMenuItem
+            onClick={handleDelete}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete Conversation
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  }
+);
+
+/** Avatar with status badge for 1-on-1 DM items in the sidebar. */
+const DmMemberAvatarWithStatus = memo(
+  ({ member, className }: { member: TJoinedPublicUser; className?: string }) => {
+    const status = useUserStatus(member.id);
+    return (
+      <div className="relative w-fit h-fit flex-shrink-0">
+        <Avatar className={cn('h-8 w-8', className)}>
+          <AvatarImage src={getFileUrl(member.avatar)} />
+          <AvatarFallback className="bg-muted text-xs">
+            {getInitialsFromName(member.name)}
+          </AvatarFallback>
+        </Avatar>
+        <UserStatusBadge
+          status={status}
+          className="absolute bottom-0 right-0"
+        />
+      </div>
     );
   }
 );
