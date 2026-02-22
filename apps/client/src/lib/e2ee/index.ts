@@ -126,7 +126,9 @@ export async function ensureE2EEKeys(): Promise<void> {
  * on the remote server.
  */
 export async function initE2EEForInstance(domain: string): Promise<void> {
-  await ensureE2EEKeys();
+  // Don't prompt for key setup — this is a background init.
+  // If the user hasn't generated keys, silently skip.
+  if (!(await hasKeys())) return;
 
   const store = getStoreForInstance(domain);
   const keysExist = await hasKeys(store);
@@ -345,7 +347,10 @@ export async function ensureChannelSenderKey(
   channelId: number,
   ownUserId: number
 ): Promise<void> {
-  await ensureE2EEKeys();
+  // Don't prompt for key setup here — callers that need the modal
+  // (e.g. encryptChannelMessage) call ensureE2EEKeys() themselves.
+  // Background callers (user join distribution) check hasKeys() first.
+  if (!(await hasKeys())) return;
   const store = getActiveStore();
   const hasKey = await hasSenderKey(channelId, ownUserId, store);
 

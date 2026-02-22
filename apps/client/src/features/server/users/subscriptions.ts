@@ -21,9 +21,12 @@ async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
   const e2eeChannels = state.server.channels.filter((c) => c.e2ee);
   if (e2eeChannels.length === 0) return;
 
-  const { ensureChannelSenderKey, clearDistributedMember } = await import(
-    '@/lib/e2ee'
-  );
+  const { ensureChannelSenderKey, clearDistributedMember, hasKeys } =
+    await import('@/lib/e2ee');
+
+  // Don't prompt the user to set up keys — this is a background operation.
+  // If they haven't generated keys yet, silently skip.
+  if (!(await hasKeys())) return;
 
   // Clear the user from distributedMembers so we don't skip them.
   // If their identity changed (key reset), ensureSession with
