@@ -75,7 +75,7 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="flex h-full flex-col bg-background text-foreground">
       {/* Mobile top nav */}
       <div className="flex h-14 items-center gap-4 border-b border-border px-4 md:hidden">
         <Button variant="ghost" size="icon" onClick={close}>
