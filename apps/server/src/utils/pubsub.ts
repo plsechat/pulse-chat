@@ -29,6 +29,11 @@ type Events = {
     messageId: number;
     channelId: number;
   };
+  [ServerEvents.MESSAGE_BULK_DELETE]: {
+    messageIds: number[];
+    channelId: number;
+    purged?: boolean;
+  };
   [ServerEvents.MESSAGE_TYPING]: {
     channelId: number;
     userId: number;

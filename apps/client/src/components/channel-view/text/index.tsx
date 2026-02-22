@@ -23,7 +23,7 @@ import {
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { setHighlightedMessageId } from '@/features/server/channels/actions';
-import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
+import { ArrowDown, CheckSquare, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { preprocessMarkdown } from './renderer/markdown-preprocessor';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
@@ -33,6 +33,8 @@ import { FileCard } from './file-card';
 import { MessagesGroup } from './messages-group';
 import { SystemMessage } from './system-message';
 import { TextSkeleton } from './text-skeleton';
+import { SelectionActionBar } from './selection-action-bar';
+import { SelectionProvider, useSelection } from './selection-context';
 import { useScrollController } from './use-scroll-controller';
 import { UsersTyping } from './users-typing';
 
@@ -100,7 +102,13 @@ const ReplyBar = memo(
   }
 );
 
-const TextChannel = memo(({ channelId }: TChannelProps) => {
+const TextChannel = memo(({ channelId }: TChannelProps) => (
+  <SelectionProvider>
+    <TextChannelInner channelId={channelId} />
+  </SelectionProvider>
+));
+
+const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const { messages, hasMore, loadMore, loading, fetching, groupedMessages } =
     useMessages(channelId);
   const [newMessage, setNewMessage] = useState('');
@@ -122,6 +130,8 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
   });
   const can = useCan();
   const channelCan = useChannelCan(channelId);
+  const { selectionMode, enterSelectionMode, exitSelectionMode } =
+    useSelection();
   const canSendMessages = useMemo(() => {
     return (
       can(Permission.SEND_MESSAGES) &&
@@ -373,6 +383,8 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
         </div>
       )}
 
+      {selectionMode && <SelectionActionBar />}
+
       <div className="flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
         {replyingTo && (
           <ReplyBar
@@ -433,6 +445,23 @@ const TextChannel = memo(({ channelId }: TChannelProps) => {
               disabled={uploading || !canSendMessages}
             >
               <Plus className="h-5 w-5" />
+            </Button>
+          )}
+          {can(Permission.MANAGE_MESSAGES) && (
+            <Button
+              size="icon"
+              variant={selectionMode ? 'default' : 'ghost'}
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+              onClick={() =>
+                selectionMode ? exitSelectionMode() : enterSelectionMode()
+              }
+              title={
+                selectionMode
+                  ? 'Exit selection mode'
+                  : 'Select messages to delete'
+              }
+            >
+              <CheckSquare className="h-4 w-4" />
             </Button>
           )}
           <TiptapInput

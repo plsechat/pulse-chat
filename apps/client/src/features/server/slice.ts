@@ -261,6 +261,25 @@ export const serverSlice = createSlice({
         (m) => m.id !== action.payload.messageId
       );
     },
+    bulkDeleteMessages: (
+      state,
+      action: PayloadAction<{ channelId: number; messageIds: number[] }>
+    ) => {
+      const messages = state.messagesMap[action.payload.channelId];
+
+      if (!messages) return;
+
+      const idsToDelete = new Set(action.payload.messageIds);
+      state.messagesMap[action.payload.channelId] = messages.filter(
+        (m) => !idsToDelete.has(m.id)
+      );
+    },
+    purgeChannelMessages: (
+      state,
+      action: PayloadAction<{ channelId: number }>
+    ) => {
+      state.messagesMap[action.payload.channelId] = [];
+    },
     clearTypingUsers: (state, action: PayloadAction<number>) => {
       delete state.typingMap[action.payload];
     },

@@ -63,6 +63,19 @@ export const deleteMessage = (channelId: number, messageId: number) => {
   store.dispatch(serverSliceActions.deleteMessage({ channelId, messageId }));
 };
 
+export const bulkDeleteMessages = (
+  channelId: number,
+  messageIds: number[]
+) => {
+  store.dispatch(
+    serverSliceActions.bulkDeleteMessages({ channelId, messageIds })
+  );
+};
+
+export const purgeChannelMessages = (channelId: number) => {
+  store.dispatch(serverSliceActions.purgeChannelMessages({ channelId }));
+};
+
 export const addTypingUser = (channelId: number, userId: number) => {
   store.dispatch(serverSliceActions.addTypingUser({ channelId, userId }));
 

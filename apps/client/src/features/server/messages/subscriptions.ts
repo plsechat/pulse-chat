@@ -8,7 +8,9 @@ import type { TJoinedMessage, TThreadInfo } from '@pulse/shared';
 import {
   addMessages,
   addTypingUser,
+  bulkDeleteMessages,
   deleteMessage,
+  purgeChannelMessages,
   updateMessage
 } from './actions';
 
@@ -53,6 +55,29 @@ const subscribeToMessages = () => {
     onData: ({ messageId, channelId }) => deleteMessage(channelId, messageId),
     onError: (err) => console.error('onMessageDelete subscription error:', err)
   });
+
+  const onMessageBulkDeleteSub = trpc.messages.onBulkDelete.subscribe(
+    undefined,
+    {
+      onData: ({
+        messageIds,
+        channelId,
+        purged
+      }: {
+        messageIds: number[];
+        channelId: number;
+        purged?: boolean;
+      }) => {
+        if (purged) {
+          purgeChannelMessages(channelId);
+        } else {
+          bulkDeleteMessages(channelId, messageIds);
+        }
+      },
+      onError: (err) =>
+        console.error('onMessageBulkDelete subscription error:', err)
+    }
+  );
 
   const onMessageTypingSub = trpc.messages.onTyping.subscribe(undefined, {
     onData: ({ userId, channelId }) => {
@@ -225,6 +250,7 @@ const subscribeToMessages = () => {
     onMessageSub.unsubscribe();
     onMessageUpdateSub.unsubscribe();
     onMessageDeleteSub.unsubscribe();
+    onMessageBulkDeleteSub.unsubscribe();
     onMessageTypingSub.unsubscribe();
     onMessagePinSub.unsubscribe();
     onMessageUnpinSub.unsubscribe();

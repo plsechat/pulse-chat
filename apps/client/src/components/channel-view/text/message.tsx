@@ -12,6 +12,7 @@ import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
+import { useSelection } from './selection-context';
 import { ThreadIndicator } from './thread-indicator';
 
 type TMessageProps = {
@@ -55,16 +56,22 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const isFromOwnUser = useIsOwnUser(message.userId);
   const can = useCan();
+  const { selectionMode, selectedIds, toggleSelection } = useSelection();
   const highlightedId = useSelector(
     (s: IRootState) => s.server.highlightedMessageId
   );
   const isHighlighted = highlightedId === message.id;
+  const isSelected = selectedIds.has(message.id);
 
   const canEdit = isFromOwnUser;
   const canDelete = useMemo(
     () => can(Permission.MANAGE_MESSAGES) || isFromOwnUser,
     [can, isFromOwnUser]
   );
+
+  const onSelectionClick = useCallback(() => {
+    if (selectionMode) toggleSelection(message.id);
+  }, [selectionMode, toggleSelection, message.id]);
 
   return (
     <MessageContextMenu
@@ -83,9 +90,21 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
         id={`msg-${message.id}`}
         className={cn(
           'min-w-0 flex-1 relative group leading-[1.375rem] hover:bg-foreground/[0.02] rounded',
-          isHighlighted && 'animate-msg-highlight rounded'
+          isHighlighted && 'animate-msg-highlight rounded',
+          selectionMode && 'flex items-start gap-2 cursor-pointer',
+          isSelected && 'bg-primary/10'
         )}
+        onClick={selectionMode ? onSelectionClick : undefined}
       >
+        {selectionMode && (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => toggleSelection(message.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 h-4 w-4 mt-1 ml-1 accent-primary cursor-pointer"
+          />
+        )}
         {message.pinned && (
           <div className="flex items-center gap-1 text-xs text-yellow-500 mb-0.5 pl-1">
             <Pin className="w-3 h-3" />
