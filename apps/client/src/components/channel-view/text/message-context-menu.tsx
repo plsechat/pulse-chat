@@ -13,6 +13,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import {
+  CheckSquare,
   ClipboardCopy,
   Copy,
   MessageSquare,
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
+import { useSelection } from './selection-context';
 
 type TMessageContextMenuProps = {
   children: React.ReactNode;
@@ -55,6 +57,7 @@ const MessageContextMenu = memo(
     hasThread
   }: TMessageContextMenuProps) => {
     const can = useCan();
+    const { selectionMode, enterSelectionMode } = useSelection();
     const [creatingThread, setCreatingThread] = useState(false);
 
     const onDeleteClick = useCallback(async () => {
@@ -197,6 +200,16 @@ const MessageContextMenu = memo(
             <ClipboardCopy className="h-4 w-4" />
             Copy Message ID
           </ContextMenuItem>
+
+          {!selectionMode && can(Permission.MANAGE_MESSAGES) && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={enterSelectionMode}>
+                <CheckSquare className="h-4 w-4" />
+                Select Messages
+              </ContextMenuItem>
+            </>
+          )}
 
           {canDelete && (
             <>
