@@ -1074,6 +1074,11 @@ const DmMessageContent = memo(
           </div>
         ) : message.content ? (
           <div className="max-w-full break-words msg-content">
+            {message.e2ee && (
+              <Tooltip content="End-to-end encrypted">
+                <Lock className="h-3 w-3 text-emerald-500 inline-block align-middle mr-1 cursor-default" />
+              </Tooltip>
+            )}
             {messageHtml}
           </div>
         ) : null}

@@ -144,6 +144,11 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
         </div>
       ) : (
       <div className={cn('max-w-full break-words msg-content', isEmojiOnly && 'emoji-only')}>
+        {message.e2ee && (
+          <Tooltip content="End-to-end encrypted">
+            <Lock className="h-3 w-3 text-emerald-500 inline-block align-middle mr-1 cursor-default" />
+          </Tooltip>
+        )}
         {messageHtml}
         {message.edited && (
           <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), fullDateTime())}` : 'Edited'}>
