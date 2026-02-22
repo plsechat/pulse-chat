@@ -9,6 +9,7 @@ import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { ChannelPermission, UserStatus } from '@pulse/shared';
@@ -65,7 +66,7 @@ const UserControl = memo(() => {
         </UserPopover>
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-sm font-medium text-foreground truncate">
-            {ownPublicUser.name}
+            {getDisplayName(ownPublicUser)}
           </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

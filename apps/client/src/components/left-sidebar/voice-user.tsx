@@ -4,6 +4,7 @@ import { useAudioLevel } from '@/components/channel-view/voice/hooks/use-audio-l
 import { useVoice } from '@/features/server/voice/hooks';
 import type { TVoiceUser } from '@/features/server/types';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { StreamKind } from '@pulse/shared';
 import {
   HeadphoneOff,
@@ -47,7 +48,7 @@ const VoiceUser = memo(({ user }: TVoiceUserProps) => {
           className="flex-1 truncate text-xs transition-colors duration-150"
           style={isActivelySpeaking ? { color: 'rgb(34, 197, 94)' } : undefined}
         >
-          {user.name}
+          {getDisplayName(user)}
         </span>
 
         <div className="flex items-center gap-1 opacity-60">

@@ -4,6 +4,7 @@ import { UserPopover } from '@/components/user-popover';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
 import type { TVoiceUser } from '@/features/server/types';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { HeadphoneOff, MicOff, Monitor, Video } from 'lucide-react';
 import { memo, useCallback } from 'react';
@@ -97,7 +98,7 @@ const VoiceUserCard = memo(
             <div className="absolute bottom-0 left-0 right-0 p-2.5">
               <div className="flex items-center justify-between gap-1.5">
                 <span className="text-white font-medium text-xs truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
-                  {voiceUser.name}
+                  {getDisplayName(voiceUser)}
                 </span>
 
                 <div className="flex items-center gap-1">
