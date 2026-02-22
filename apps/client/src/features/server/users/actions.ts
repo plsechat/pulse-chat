@@ -1,5 +1,5 @@
 import { store } from '@/features/store';
-import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
 import { userByIdSelector } from './selectors';
 
@@ -27,7 +27,7 @@ export const handleUserJoin = (user: TJoinedPublicUser) => {
   const foundUser = userByIdSelector(state, user.id);
 
   if (foundUser) {
-    updateUser(user.id, { ...user, status: UserStatus.ONLINE });
+    updateUser(user.id, user);
   } else {
     addUser(user);
   }

@@ -1,7 +1,6 @@
 import {
   ActivityLogType,
   ServerEvents,
-  UserStatus,
   type TCategory,
   type TChannel,
   type TChannelUserPermissionsMap,
@@ -217,10 +216,7 @@ const joinServerRoute = t.procedure
 
     // Publish USER_JOIN to members of this server
     const memberIds = await getServerMemberIds(targetServer.id);
-    ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, {
-      ...foundPublicUser,
-      status: UserStatus.ONLINE
-    });
+    ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, foundPublicUser);
 
     const connectionInfo = ctx.getConnectionInfo();
 

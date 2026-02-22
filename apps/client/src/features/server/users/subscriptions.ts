@@ -52,7 +52,7 @@ const subscribeToUsers = () => {
   const onUserJoinSub = trpc.users.onJoin.subscribe(undefined, {
     onData: (user: TJoinedPublicUser) => {
       handleUserJoin(user);
-      updateFriend(user.id, { ...user, status: UserStatus.ONLINE });
+      updateFriend(user.id, user);
 
       // Fire-and-forget: distribute sender keys to the newly online user
       distributeE2eeKeysToUser(user.id).catch((err) =>
