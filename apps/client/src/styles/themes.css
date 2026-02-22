@@ -6,7 +6,7 @@
    ============================================================ */
 
 /* ── Midnight ── deep navy, cool blue accents ───────────────── */
-.midnight {
+html.midnight {
   --background: #0b1221;
   --foreground: #e2e8f0;
   --card: #0f1729;
@@ -58,7 +58,7 @@
 }
 
 /* ── Sunset ── warm charcoal, amber glow ────────────────────── */
-.sunset {
+html.sunset {
   --background: #1a1210;
   --foreground: #f5e6d3;
   --card: #211815;
@@ -110,7 +110,7 @@
 }
 
 /* ── Rose ── warm dark, pink/rose accents ───────────────────── */
-.rose {
+html.rose {
   --background: #1a0f14;
   --foreground: #f5e0e8;
   --card: #21131a;
@@ -162,7 +162,7 @@
 }
 
 /* ── Forest ── dark earthy greens ───────────────────────────── */
-.forest {
+html.forest {
   --background: #0a1410;
   --foreground: #d5ede3;
   --card: #0f1b16;
@@ -214,7 +214,7 @@
 }
 
 /* ── Dracula ── purple-tinted, lavender primary ─────────────── */
-.dracula {
+html.dracula {
   --background: #14111e;
   --foreground: #e4dff0;
   --card: #1a1628;
@@ -266,7 +266,7 @@
 }
 
 /* ── Nord ── cool blue-gray Scandinavian light ──────────────── */
-.nord {
+html.nord {
   --background: #eceff4;
   --foreground: #2e3440;
   --card: #e5e9f0;
@@ -318,7 +318,7 @@
 }
 
 /* ── Sand ── warm cream, earthy brown ───────────────────────── */
-.sand {
+html.sand {
   --background: #faf6f1;
   --foreground: #1c1410;
   --card: #f5ede4;
