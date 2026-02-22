@@ -48,7 +48,7 @@ const UserControl = memo(() => {
   const currentStatus = ownPublicUser.status || UserStatus.OFFLINE;
 
   return (
-    <div className="flex items-center justify-between h-14 px-2 bg-muted border-t border-border">
+    <div className="flex items-center justify-between h-14 px-2 bg-muted/50">
       <div className="flex items-center space-x-2 min-w-0 flex-1">
         <UserPopover userId={ownPublicUser.id}>
           <div className="cursor-pointer">

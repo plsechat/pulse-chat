@@ -44,7 +44,7 @@ const MainViewInner = memo(() => {
           <MobileBottomNav />
         </div>
         {activeView !== 'discover' && (
-          <div className="hidden md:block fixed bottom-0 left-0 z-20 w-[calc(72px+15rem)]">
+          <div className="hidden md:block fixed bottom-2 left-2 z-20 w-[calc(72px+15rem-0.5rem)] rounded-xl bg-card border border-border overflow-hidden shadow-lg">
             <VoiceControl />
             <UserControl />
           </div>
