@@ -16,6 +16,7 @@ import { useAvailableDevices } from './hooks/use-available-devices';
 
 const DEFAULT_DEVICE_SETTINGS: TDeviceSettings = {
   microphoneId: undefined,
+  playbackId: undefined,
   webcamId: undefined,
   webcamResolution: Resolution['720p'],
   webcamFramerate: 30,
