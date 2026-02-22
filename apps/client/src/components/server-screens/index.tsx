@@ -54,7 +54,7 @@ const ComponentWrapper = ({ children }: TComponentWrapperProps) => {
         onClick={closeServerScreens}
       />
       {/* Floating card */}
-      <div className="fixed inset-4 md:inset-8 lg:inset-12 z-50 rounded-xl bg-background overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-150">
+      <div className="fixed inset-6 md:inset-14 lg:inset-20 z-50 rounded-xl bg-background overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-150">
         <button
           type="button"
           onClick={closeServerScreens}
