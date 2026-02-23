@@ -25,7 +25,7 @@ jobs:
             platform: linux
             arch: x64
             make_targets: --platform=linux --arch=x64
-          - os: windows-latest
+          - os: windows-2022
             platform: win32
             arch: x64
             make_targets: --platform=win32 --arch=x64
@@ -77,35 +77,6 @@ jobs:
 
       - name: Install dependencies
         run: bun install
-
-      # Windows: bun's node_modules/.bun/ layout can break electron-winstaller's
-      # vendored binaries (7z, Squirrel.exe). Install in an isolated temp dir
-      # with npm and copy the vendor directory into bun's package location.
-      - name: Fix Squirrel vendor paths (Windows)
-        if: matrix.platform == 'win32'
-        shell: pwsh
-        run: |
-          # Find electron-winstaller in bun's .bun/ layout
-          $ewiDir = Get-ChildItem -Path "node_modules\.bun" -Directory -Filter "electron-winstaller@*" |
-            Select-Object -First 1
-          if (-not $ewiDir) {
-            Write-Host "::error::Could not find electron-winstaller in node_modules/.bun/"
-            exit 1
-          }
-          $pkgDir = Join-Path $ewiDir.FullName "node_modules\electron-winstaller"
-          $vendorDir = Join-Path $pkgDir "vendor"
-          Write-Host "electron-winstaller at: $pkgDir"
-          if (-not (Test-Path (Join-Path $vendorDir "Squirrel.exe"))) {
-            Write-Host "Vendor binaries missing — installing standalone copy"
-            $tmp = "$env:RUNNER_TEMP\ewi"
-            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-            '{}' | Set-Content "$tmp\package.json"
-            npm install electron-winstaller --prefix $tmp
-            Copy-Item "$tmp\node_modules\electron-winstaller\vendor" $vendorDir -Recurse -Force
-            Write-Host "Copied vendor directory to $vendorDir"
-          } else {
-            Write-Host "Vendor binaries already present at $vendorDir"
-          }
 
       # macOS: build native CoreAudio modules
       - name: Build native modules (macOS)
