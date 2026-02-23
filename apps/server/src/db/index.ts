@@ -20,13 +20,16 @@ const loadDb = async () => {
 
   db = drizzle({ client });
 
-  // Clear Drizzle migration tracking so migrations re-run from scratch.
-  // All migration SQL is patched to be idempotent (IF NOT EXISTS, etc.)
-  // so re-applying is always safe and prevents hash mismatch errors.
-  await client`DELETE FROM drizzle.__drizzle_migrations`.catch(() => {});
+  const MIGRATION_LOCK_ID = 827394827;
 
-  await migrate(db, { migrationsFolder: DRIZZLE_PATH });
-  await seedDatabase();
+  await client`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID})`;
+  try {
+    await client`DELETE FROM drizzle.__drizzle_migrations`.catch(() => { });
+    await migrate(db, { migrationsFolder: DRIZZLE_PATH });
+    await seedDatabase();
+  } finally {
+    await client`SELECT pg_advisory_unlock(${MIGRATION_LOCK_ID})`;
+  }
 
   // Backfill publicId for existing users that don't have one
   const usersWithoutPublicId = await db
