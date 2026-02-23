@@ -3,6 +3,7 @@ import {
   decryptChannelMessage,
   fetchAndProcessPendingSenderKeys
 } from '@/lib/e2ee';
+import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,6 +36,7 @@ async function decryptE2eeMessages(
           msg.userId,
           msg.encryptedContent
         );
+        setFileKeys(msg.id, payload.fileKeys);
         return { ...msg, content: payload.content };
       } catch (err) {
         console.error('[E2EE] Failed to decrypt channel message:', err);
