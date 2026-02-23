@@ -280,6 +280,9 @@ export const serverSlice = createSlice({
     ) => {
       state.messagesMap[action.payload.channelId] = [];
     },
+    clearAllMessages: (state) => {
+      state.messagesMap = {};
+    },
     clearTypingUsers: (state, action: PayloadAction<number>) => {
       delete state.typingMap[action.payload];
     },
