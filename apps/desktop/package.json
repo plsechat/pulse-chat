@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "author": "Pulse",
+  "license": "AGPL-3.0-only",
   "description": "Pulse Desktop — native Electron wrapper",
   "main": "dist/main.js",
   "scripts": {
