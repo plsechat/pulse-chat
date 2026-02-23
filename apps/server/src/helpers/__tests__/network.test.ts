@@ -1,84 +1,16 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import os from 'os';
+import { getPrivateIp, getPublicIp } from '../network';
 
 /**
- * Standalone network helper tests.
+ * Network helper tests.
  *
- * These replicate the logic from helpers/network.ts inline to avoid
- * triggering the project's bunfig.toml preload chain (which requires
- * a running test database). The tests validate the timeout, env override,
- * and concurrent resolution behaviors.
+ * These exercise the real implementations from helpers/network.ts
+ * to validate the timeout, env override, and concurrent resolution
+ * behaviors.
+ *
+ * NOTE: Run from /tmp to bypass bunfig.toml preloads that require DATABASE_URL:
+ *   cd /tmp && bun test /path/to/network.test.ts
  */
-
-const FETCH_TIMEOUT_MS = 5000;
-
-const getPrivateIp = async () => {
-    const interfaces = os.networkInterfaces();
-    const addresses = Object.values(interfaces)
-        .flat()
-        .filter((iface) => iface?.family === 'IPv4' && !iface.internal)
-        .map((iface) => iface?.address);
-    return addresses[0];
-};
-
-const getPublicIpFromIpify = async (): Promise<string | undefined> => {
-    try {
-        const response = await fetch('https://api.ipify.org?format=json', {
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-        });
-        const data = (await response.json()) as { ip: string };
-        return data.ip;
-    } catch {
-        return undefined;
-    }
-};
-
-const getPublicIpFromIfconfig = async (): Promise<string | undefined> => {
-    try {
-        const response = await fetch('https://ifconfig.me/ip', {
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-        });
-        return (await response.text()).trim();
-    } catch {
-        return undefined;
-    }
-};
-
-const getPublicIpFromIcanhazip = async (): Promise<string | undefined> => {
-    try {
-        const response = await fetch('https://ipv4.icanhazip.com', {
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-        });
-        return (await response.text()).trim();
-    } catch {
-        return undefined;
-    }
-};
-
-const getPublicIp = async () => {
-    if (process.env.PUBLIC_IP) {
-        return process.env.PUBLIC_IP;
-    }
-
-    const requireDefined = (p: Promise<string | undefined>) =>
-        p.then((v) => {
-            if (!v) throw new Error('no ip');
-            return v;
-        });
-
-    try {
-        const ip = await Promise.any([
-            requireDefined(getPublicIpFromIcanhazip()),
-            requireDefined(getPublicIpFromIpify()),
-            requireDefined(getPublicIpFromIfconfig())
-        ]);
-        return ip;
-    } catch {
-        return undefined;
-    }
-};
-
-// ── Tests ──
 
 describe('getPrivateIp', () => {
     test('returns a valid IPv4 string or undefined', async () => {
@@ -118,11 +50,11 @@ describe('getPublicIp', () => {
     test('returns undefined within 6 seconds when all providers fail', async () => {
         delete process.env.PUBLIC_IP;
 
-        const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(() => {
+        const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() => {
             const err = new Error('The operation was aborted due to timeout');
             err.name = 'TimeoutError';
             return Promise.reject(err);
-        });
+        }) as any);
 
         const start = Date.now();
         const result = await getPublicIp();
@@ -137,7 +69,7 @@ describe('getPublicIp', () => {
     test('returns the IP from the first provider that succeeds', async () => {
         delete process.env.PUBLIC_IP;
 
-        const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((url: string | URL | Request) => {
+        const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(((url: string | URL | Request) => {
             const urlStr = typeof url === 'string' ? url : url.toString();
 
             if (urlStr.includes('icanhazip')) {
@@ -146,7 +78,7 @@ describe('getPublicIp', () => {
             const err = new Error('timeout');
             err.name = 'TimeoutError';
             return Promise.reject(err);
-        });
+        }) as any);
 
         const result = await getPublicIp();
 
