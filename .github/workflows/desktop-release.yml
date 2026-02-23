@@ -25,7 +25,7 @@ jobs:
             platform: linux
             arch: x64
             make_targets: --platform=linux --arch=x64
-          - os: windows-2022
+          - os: windows-latest
             platform: win32
             arch: x64
             make_targets: --platform=win32 --arch=x64
@@ -67,14 +67,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           rm "$CERT_FILE"
 
-      # Windows: Squirrel.Windows vendor tools (7z, etc.) need standard
-      # node_modules layout — bun's .bun/ structure breaks path resolution.
-      - name: Setup Node.js (Windows)
-        if: matrix.platform == 'win32'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Install dependencies
         run: bun install
 
@@ -110,8 +102,6 @@ jobs:
           path: |
             apps/desktop/out/make/**/*.dmg
             apps/desktop/out/make/**/*.zip
-            apps/desktop/out/make/**/*.exe
-            apps/desktop/out/make/**/*.nupkg
             apps/desktop/out/make/**/*.deb
             apps/desktop/out/make/**/*.rpm
           if-no-files-found: error
@@ -153,7 +143,6 @@ jobs:
           files: |
             artifacts/**/*.dmg
             artifacts/**/*.zip
-            artifacts/**/*.exe
             artifacts/**/*.deb
             artifacts/**/*.rpm
           body: |
@@ -163,7 +152,7 @@ jobs:
             | Platform | File |
             |----------|------|
             | macOS (Apple Silicon) | `.dmg` or `.zip` |
-            | Windows | `.exe` |
+            | Windows | `.zip` |
             | Linux (Debian/Ubuntu) | `.deb` |
             | Linux (Fedora/RHEL) | `.rpm` |
 
