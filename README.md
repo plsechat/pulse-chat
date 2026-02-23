@@ -5,6 +5,8 @@
   <p>[Pulse Home Page](https://plse.chat)</p>
   
 
+  [Pulse Home Page](https://plse.chat)
+
   [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
   [![Last Commit](https://img.shields.io/github/last-commit/plsechat/pulse-chat)](https://github.com/plsechat/pulse-chat/commits)
 
