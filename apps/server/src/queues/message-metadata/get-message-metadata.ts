@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getLinkPreview } from 'link-preview-js';
 import { db } from '../../db';
 import { messages } from '../../db/schema';
+import { validateFederationUrl } from '../../utils/validate-url';
 
 const metadataCache = new Map<string, TGenericObject>();
 
@@ -19,12 +20,26 @@ export const urlMetadataParser = async (
       .match(/(https?:\/\/[^\s]+)/g)
       ?.filter(Boolean)
       .filter((v, i, a) => a.indexOf(v) === i)
-      .filter((url) => !url.includes('giphy.com'));
+      .filter((url) => {
+        try {
+          const hostname = new URL(url).hostname;
+          return !hostname.endsWith('giphy.com');
+        } catch {
+          return false;
+        }
+      });
 
     if (!urls) return [];
 
     const promises = urls.map(async (url) => {
       if (metadataCache.has(url)) return metadataCache.get(url);
+
+      // Validate URL is not targeting internal/private resources
+      try {
+        await validateFederationUrl(url);
+      } catch {
+        return;
+      }
 
       const metadata = await getLinkPreview(url);
 
