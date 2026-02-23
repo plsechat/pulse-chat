@@ -14,7 +14,7 @@ import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { ChannelType } from '@pulse/shared';
-import { Hash, Mic } from 'lucide-react';
+import { Hash, LayoutList, Mic } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import type { TDialogBaseProps } from '../types';
 
@@ -121,6 +121,14 @@ const CreateChannelDialog = memo(
               icon={<Mic className="h-6 w-6" />}
               isActive={channelType === ChannelType.VOICE}
               onClick={() => setChannelType(ChannelType.VOICE)}
+            />
+
+            <ChannelTypeItem
+              title="Forum Channel"
+              description="Organized discussions with threaded posts"
+              icon={<LayoutList className="h-6 w-6" />}
+              isActive={channelType === ChannelType.FORUM}
+              onClick={() => setChannelType(ChannelType.FORUM)}
             />
           </Group>
 
