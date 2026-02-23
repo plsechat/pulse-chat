@@ -1,4 +1,6 @@
 import { encryptDmMessage, decryptDmMessage } from '@/lib/e2ee';
+import type { E2EEPlaintext } from '@/lib/e2ee/types';
+import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { TYPING_MS, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
@@ -182,7 +184,7 @@ function getDmRecipientUserId(dmChannelId: number): number | null {
  * subscription echo arrives (own messages are encrypted for the recipient,
  * not for ourselves, so we cannot decrypt them via Signal Protocol).
  */
-const ownSentPlaintextCache = new Map<string, string>();
+const ownSentPlaintextCache = new Map<string, E2EEPlaintext>();
 
 /**
  * Decrypt an E2EE DM message in-place, replacing encryptedContent with decrypted content.
@@ -198,7 +200,8 @@ export async function decryptDmMessageInPlace(
   // Check persistent cache first (works for both own and others' messages)
   const persisted = await getCachedPlaintext(message.id);
   if (persisted !== undefined) {
-    return { ...message, content: persisted };
+    setFileKeys(message.id, persisted.fileKeys);
+    return { ...message, content: persisted.content };
   }
 
   const ownUserId = ownUserIdSelector(store.getState());
@@ -210,7 +213,8 @@ export async function decryptDmMessageInPlace(
     if (cached !== undefined) {
       // Persist so it survives page refresh
       setCachedPlaintext(message.id, cached).catch(() => {});
-      return { ...message, content: cached };
+      setFileKeys(message.id, cached.fileKeys);
+      return { ...message, content: cached.content };
     }
     return { ...message, content: '[Encrypted message]' };
   }
@@ -218,7 +222,8 @@ export async function decryptDmMessageInPlace(
   try {
     const payload = await decryptDmMessage(message.userId, message.encryptedContent);
     // Persist the decrypted plaintext — the ratchet key is now consumed
-    setCachedPlaintext(message.id, payload.content).catch(() => {});
+    setCachedPlaintext(message.id, payload).catch(() => {});
+    setFileKeys(message.id, payload.fileKeys);
     return { ...message, content: payload.content };
   } catch (err) {
     console.error('[E2EE] Failed to decrypt DM message:', err);
@@ -246,7 +251,8 @@ export const sendDmMessage = async (
   dmChannelId: number,
   content: string,
   files?: string[],
-  replyToId?: number
+  replyToId?: number,
+  fileKeys?: E2EEPlaintext['fileKeys']
 ) => {
   const trpc = getHomeTRPCClient();
   const state = store.getState();
@@ -256,12 +262,11 @@ export const sendDmMessage = async (
   // Only encrypt when E2EE is explicitly enabled on the channel
   if (recipientUserId && channel?.e2ee) {
     try {
-      const encryptedContent = await encryptDmMessage(recipientUserId, {
-        content
-      });
+      const plaintext: E2EEPlaintext = { content, fileKeys };
+      const encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
       // Cache plaintext so we can display our own message when the
       // subscription echo arrives (own messages can't be self-decrypted).
-      ownSentPlaintextCache.set(encryptedContent, content);
+      ownSentPlaintextCache.set(encryptedContent, plaintext);
       await trpc.dms.sendMessage.mutate({
         dmChannelId,
         encryptedContent,
@@ -305,7 +310,7 @@ export const editDmMessage = async (messageId: number, content: string) => {
       });
       // Cache plaintext so we can display our own edited message when the
       // subscription echo arrives (same as sendDmMessage).
-      ownSentPlaintextCache.set(encryptedContent, content);
+      ownSentPlaintextCache.set(encryptedContent, { content });
       await trpc.dms.editMessage.mutate({ messageId, encryptedContent });
       return;
     } catch (err) {

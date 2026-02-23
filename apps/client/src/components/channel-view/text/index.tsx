@@ -185,8 +185,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     [can, allPluginCommands]
   );
 
-  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles } =
-    useUploadFiles(!canSendMessages);
+  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
+    useUploadFiles(!canSendMessages, isE2ee);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
@@ -228,10 +228,20 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         // Ensure we have a sender key and distribute to members
         await ensureChannelSenderKey(channelId, ownUserId);
 
+        // Build fileKeys from encrypted upload key material
+        const fileKeys = files.length > 0
+          ? files.map((f) => {
+            const keyInfo = fileKeyMapRef.current.get(f.id);
+            return keyInfo
+              ? { fileId: f.id, key: keyInfo.key, nonce: keyInfo.nonce, mimeType: keyInfo.mimeType }
+              : null;
+          }).filter((k): k is NonNullable<typeof k> => k !== null)
+          : undefined;
+
         const encryptedContent = await encryptChannelMessage(
           channelId,
           ownUserId,
-          { content }
+          { content, fileKeys }
         );
 
         await trpc.messages.send.mutate({

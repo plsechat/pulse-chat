@@ -3,6 +3,7 @@ import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
 import { connectionManager } from '@/lib/connection-manager';
 import { decryptChannelMessage } from '@/lib/e2ee';
+import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import type { TJoinedMessage, TThreadInfo } from '@pulse/shared';
 import {
@@ -25,6 +26,7 @@ async function decryptE2eeMessage(
       message.userId,
       message.encryptedContent
     );
+    setFileKeys(message.id, payload.fileKeys);
     return { ...message, content: payload.content };
   } catch (err) {
     console.error('[E2EE] Failed to decrypt channel message:', err);
