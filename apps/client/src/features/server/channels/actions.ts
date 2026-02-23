@@ -4,6 +4,7 @@ import {
   LocalStorageKey,
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
+import { syncPreference } from '@/lib/preferences-sync';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TChannel, TChannelUserPermissionsMap } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
@@ -29,6 +30,7 @@ const persistChannelForServer = (channelId: number) => {
   const map = getServerChannelMap();
   map[serverId] = channelId;
   setLocalStorageItemAsJSON(LocalStorageKey.SERVER_CHANNEL_MAP, map);
+  syncPreference({ serverChannelMap: { [serverId]: channelId } });
 };
 
 export const setSelectedChannelId = (channelId: number | undefined) => {

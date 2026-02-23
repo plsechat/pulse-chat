@@ -60,7 +60,7 @@ const VoiceControl = memo(() => {
   }
 
   return (
-    <div className="bg-secondary/30 border-t border-border">
+    <div className="bg-secondary/30">
       <StatsPopover>
         <div className="flex items-center px-2 py-1.5 gap-2 bg-secondary/50 cursor-pointer hover:bg-secondary/60 transition-colors">
           {connectionInfo.icon}

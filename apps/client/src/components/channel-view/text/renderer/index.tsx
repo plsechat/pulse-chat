@@ -1,16 +1,17 @@
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
-import { getFileUrl } from '@/helpers/get-file-url';
+import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import {
   audioExtensions,
   imageExtensions,
   videoExtensions,
+  type TFile,
   type TJoinedMessage
 } from '@pulse/shared';
-import { Lock } from 'lucide-react';
+import { Lock, Loader2 } from 'lucide-react';
 import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
@@ -30,6 +31,62 @@ import type { TFoundMedia } from './types';
 type TMessageRendererProps = {
   message: TJoinedMessage;
 };
+
+/** Renders a single file attachment as media (image/video/audio), decrypting if E2EE. */
+const MediaFile = memo(({
+  file, fileIndex, messageId, isE2ee, instanceDomain
+}: {
+  file: TFile;
+  fileIndex: number;
+  messageId: number;
+  isE2ee: boolean;
+  instanceDomain?: string;
+}) => {
+  const { url, loading } = useDecryptedFileUrl(file, messageId, isE2ee, fileIndex, instanceDomain);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center bg-muted rounded h-48 w-64 animate-pulse">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (imageExtensions.includes(file.extension)) {
+    return <ImageOverride src={url} />;
+  }
+  if (videoExtensions.includes(file.extension)) {
+    return <VideoPlayer src={url} name={file.originalName} />;
+  }
+  if (audioExtensions.includes(file.extension)) {
+    return <AudioPlayer src={url} name={file.originalName} />;
+  }
+  return null;
+});
+
+/** Renders a non-media file card, decrypting the download URL if E2EE. */
+const NonMediaFile = memo(({
+  file, fileIndex, messageId, isE2ee, instanceDomain, onRemove
+}: {
+  file: TFile;
+  fileIndex: number;
+  messageId: number;
+  isE2ee: boolean;
+  instanceDomain?: string;
+  onRemove?: () => void;
+}) => {
+  const { url, loading } = useDecryptedFileUrl(file, messageId, isE2ee, fileIndex, instanceDomain);
+
+  return (
+    <FileCard
+      name={file.originalName}
+      extension={file.extension}
+      size={file.size}
+      onRemove={onRemove}
+      href={loading ? undefined : url}
+    />
+  );
+});
 
 const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
   const ownUserId = useOwnUserId();
@@ -115,22 +172,25 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     }
   }, []);
 
-  const allMedia = useMemo(() => {
-    const mediaFromFiles: TFoundMedia[] = [];
+  // Categorize message files into media vs non-media, preserving original index
+  const { mediaFiles, nonMediaFiles } = useMemo(() => {
+    const mediaFiles: { file: TFile; index: number }[] = [];
+    const nonMediaFiles: { file: TFile; index: number }[] = [];
 
-    for (const file of message.files) {
-      const url = getFileUrl(file, instanceDomain);
-      if (imageExtensions.includes(file.extension)) {
-        mediaFromFiles.push({ type: 'image', url });
-      } else if (videoExtensions.includes(file.extension)) {
-        mediaFromFiles.push({ type: 'video', url, name: file.originalName });
-      } else if (audioExtensions.includes(file.extension)) {
-        mediaFromFiles.push({ type: 'audio', url, name: file.originalName });
+    message.files.forEach((file, index) => {
+      if (
+        imageExtensions.includes(file.extension) ||
+        videoExtensions.includes(file.extension) ||
+        audioExtensions.includes(file.extension)
+      ) {
+        mediaFiles.push({ file, index });
+      } else {
+        nonMediaFiles.push({ file, index });
       }
-    }
+    });
 
-    return [...foundMedia, ...mediaFromFiles];
-  }, [foundMedia, message.files, instanceDomain]);
+    return { mediaFiles, nonMediaFiles };
+  }, [message.files]);
 
   const isDecryptionFailure =
     message.e2ee && message.content === '[Unable to decrypt]';
@@ -143,7 +203,13 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
           <span>Unable to decrypt this message</span>
         </div>
       ) : (
-      <div className={cn('max-w-full break-words msg-content', isEmojiOnly && 'emoji-only')}>
+      <div className="flex items-start gap-1.5">
+        {message.e2ee && (
+          <Tooltip content="End-to-end encrypted">
+            <Lock className="h-3 w-3 text-emerald-500 shrink-0 mt-[0.3rem] cursor-default" />
+          </Tooltip>
+        )}
+      <div className={cn('max-w-full break-words msg-content min-w-0', isEmojiOnly && 'emoji-only')}>
         {messageHtml}
         {message.edited && (
           <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), fullDateTime())}` : 'Edited'}>
@@ -153,20 +219,34 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
           </Tooltip>
         )}
       </div>
+      </div>
       )}
 
-      {allMedia.map((media, index) => {
+      {/* Inline media from message HTML (links, embeds) */}
+      {foundMedia.map((media, index) => {
         if (media.type === 'image') {
-          return <ImageOverride src={media.url} key={`media-${index}`} />;
+          return <ImageOverride src={media.url} key={`inline-${index}`} />;
         }
         if (media.type === 'video') {
-          return <VideoPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+          return <VideoPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
         }
         if (media.type === 'audio') {
-          return <AudioPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+          return <AudioPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
         }
         return null;
       })}
+
+      {/* Media file attachments (images, videos, audio) — each component handles E2EE decryption */}
+      {mediaFiles.map(({ file, index }) => (
+        <MediaFile
+          key={file.id}
+          file={file}
+          fileIndex={index}
+          messageId={message.id}
+          isE2ee={message.e2ee}
+          instanceDomain={instanceDomain}
+        />
+      ))}
 
       {message.metadata && message.metadata.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -180,27 +260,21 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
 
       <MessageReactions reactions={message.reactions} messageId={message.id} />
 
-      {message.files.length > 0 && (
+      {nonMediaFiles.length > 0 && (
         <div className="flex gap-1 flex-wrap">
-          {message.files
-            .filter(
-              (file) =>
-                !imageExtensions.includes(file.extension) &&
-                !videoExtensions.includes(file.extension) &&
-                !audioExtensions.includes(file.extension)
-            )
-            .map((file) => (
-              <FileCard
-                key={file.id}
-                name={file.originalName}
-                extension={file.extension}
-                size={file.size}
-                onRemove={
-                  isOwnMessage ? () => onRemoveFileClick(file.id) : undefined
-                }
-                href={getFileUrl(file, instanceDomain)}
-              />
-            ))}
+          {nonMediaFiles.map(({ file, index }) => (
+            <NonMediaFile
+              key={file.id}
+              file={file}
+              fileIndex={index}
+              messageId={message.id}
+              isE2ee={message.e2ee}
+              instanceDomain={instanceDomain}
+              onRemove={
+                isOwnMessage ? () => onRemoveFileClick(file.id) : undefined
+              }
+            />
+          ))}
         </div>
       )}
     </div>

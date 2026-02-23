@@ -11,6 +11,7 @@ import {
   onUserLeaveRoute,
   onUserUpdateRoute
 } from './events';
+import { getPreferencesRoute } from './get-preferences';
 import { getUserInfoRoute } from './get-user-info';
 import { getUsersRoute } from './get-users';
 import { kickRoute } from './kick';
@@ -19,6 +20,7 @@ import { setNicknameRoute, setUserNicknameRoute } from './set-nickname';
 import { setStatusRoute } from './set-status';
 import { unbanRoute } from './unban';
 import { updatePasswordRoute } from './update-password';
+import { updatePreferencesRoute } from './update-preferences';
 import { updateUserRoute } from './update-user';
 
 export const usersRouter = t.router({
@@ -41,5 +43,7 @@ export const usersRouter = t.router({
   onUpdate: onUserUpdateRoute,
   onCreate: onUserCreateRoute,
   onDelete: onUserDeleteRoute,
+  getPreferences: getPreferencesRoute,
+  updatePreferences: updatePreferencesRoute,
   onKicked: onUserKickedRoute
 });

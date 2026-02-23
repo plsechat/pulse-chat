@@ -1,4 +1,4 @@
-import { useTheme } from '@/components/theme-provider';
+import { useTheme, type Theme } from '@/components/theme-provider';
 import {
   Select,
   SelectContent,
@@ -13,45 +13,91 @@ import {
   type TimeFormat
 } from '@/hooks/use-appearance-settings';
 import { useIsOwnUserOwner } from '@/features/server/hooks';
-import { Check, Circle, Monitor, Moon, Sun } from 'lucide-react';
+import { Check, Monitor } from 'lucide-react';
 import { memo } from 'react';
 
 type ThemeOption = {
-  value: 'dark' | 'light' | 'onyx' | 'system';
+  value: Theme;
   label: string;
-  icon: React.ReactNode;
   swatch: React.ReactNode;
 };
+
+const ThemeSwatch = ({ bg, accent }: { bg: string; accent: string }) => (
+  <div className="h-full w-full rounded relative overflow-hidden" style={{ background: bg }}>
+    <div className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b" style={{ background: accent }} />
+  </div>
+);
 
 const themeOptions: ThemeOption[] = [
   {
     value: 'dark',
     label: 'Dark',
-    icon: <Moon className="h-4 w-4" />,
-    swatch: <div className="h-full w-full rounded bg-[#313338]" />
+    swatch: <ThemeSwatch bg="#09090b" accent="#14b8a6" />
   },
   {
     value: 'light',
     label: 'Light',
-    icon: <Sun className="h-4 w-4" />,
     swatch: (
-      <div className="h-full w-full rounded border border-border bg-white" />
+      <div className="h-full w-full rounded relative overflow-hidden border border-border bg-white">
+        <div className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b" style={{ background: '#0d9488' }} />
+      </div>
     )
   },
   {
     value: 'onyx',
     label: 'Onyx',
-    icon: <Circle className="h-4 w-4" />,
-    swatch: <div className="h-full w-full rounded bg-[#0F0F0F]" />
+    swatch: <ThemeSwatch bg="#000000" accent="#2dd4bf" />
+  },
+  {
+    value: 'midnight',
+    label: 'Midnight',
+    swatch: <ThemeSwatch bg="#0b1221" accent="#60a5fa" />
+  },
+  {
+    value: 'sunset',
+    label: 'Sunset',
+    swatch: <ThemeSwatch bg="#1a1210" accent="#f59e0b" />
+  },
+  {
+    value: 'rose',
+    label: 'Rose',
+    swatch: <ThemeSwatch bg="#1a0f14" accent="#fb7185" />
+  },
+  {
+    value: 'forest',
+    label: 'Forest',
+    swatch: <ThemeSwatch bg="#0a1410" accent="#34d399" />
+  },
+  {
+    value: 'dracula',
+    label: 'Dracula',
+    swatch: <ThemeSwatch bg="#14111e" accent="#c4b5fd" />
+  },
+  {
+    value: 'nord',
+    label: 'Nord',
+    swatch: (
+      <div className="h-full w-full rounded relative overflow-hidden border border-border" style={{ background: '#eceff4' }}>
+        <div className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b" style={{ background: '#5e81ac' }} />
+      </div>
+    )
+  },
+  {
+    value: 'sand',
+    label: 'Sand',
+    swatch: (
+      <div className="h-full w-full rounded relative overflow-hidden border border-border" style={{ background: '#faf6f1' }}>
+        <div className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b" style={{ background: '#b45309' }} />
+      </div>
+    )
   },
   {
     value: 'system',
     label: 'System',
-    icon: <Monitor className="h-4 w-4" />,
     swatch: (
       <div className="flex h-full w-full overflow-hidden rounded">
-        <div className="w-1/2 bg-white" />
-        <div className="w-1/2 bg-[#313338]" />
+        <div className="w-1/2 bg-white border-l border-t border-b border-border rounded-l" />
+        <div className="w-1/2 bg-[#09090b] rounded-r" />
       </div>
     )
   }
@@ -80,27 +126,27 @@ const Appearance = memo(() => {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {themeOptions.map((option) => (
             <button
               key={option.value}
               onClick={() => setTheme(option.value)}
-              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors hover:bg-accent/50 ${
+              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-colors hover:bg-accent/50 ${
                 theme === option.value
                   ? 'border-primary bg-accent/30'
                   : 'border-border'
               }`}
             >
               {theme === option.value && (
-                <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary">
-                  <Check className="h-3 w-3 text-primary-foreground" />
+                <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                  <Check className="h-2.5 w-2.5 text-primary-foreground" />
                 </div>
               )}
-              <div className="h-16 w-full">{option.swatch}</div>
-              <div className="flex items-center gap-1.5 text-sm font-medium">
-                {option.icon}
+              <div className="h-12 w-full">{option.swatch}</div>
+              <span className="text-xs font-medium">
+                {option.value === 'system' && <Monitor className="inline h-3 w-3 mr-1 -mt-0.5" />}
                 {option.label}
-              </div>
+              </span>
             </button>
           ))}
         </div>

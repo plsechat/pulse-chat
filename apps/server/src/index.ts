@@ -22,12 +22,53 @@ import { logger } from './logger';
 import { printDebug } from './utils/print-debug';
 import './utils/updater';
 
-await loadDb();
-await pluginManager.loadPlugins();
-await createServers();
-await loadMediasoup();
-await initVoiceRuntimes();
-await loadCrons();
+console.log('[pulse] Connecting to database...');
+try {
+  await loadDb();
+} catch (e) {
+  console.error('[pulse] FATAL: Database connection failed:', e);
+  process.exit(1);
+}
+
+console.log('[pulse] Loading plugins...');
+try {
+  await pluginManager.loadPlugins();
+} catch (e) {
+  console.error('[pulse] FATAL: Plugin loading failed:', e);
+  process.exit(1);
+}
+
+console.log('[pulse] Starting HTTP and WebSocket servers...');
+try {
+  await createServers();
+} catch (e) {
+  console.error('[pulse] FATAL: Server creation failed:', e);
+  process.exit(1);
+}
+
+console.log('[pulse] Initializing mediasoup workers...');
+try {
+  await loadMediasoup();
+} catch (e) {
+  console.error('[pulse] FATAL: Mediasoup initialization failed:', e);
+  process.exit(1);
+}
+
+console.log('[pulse] Initializing voice runtimes...');
+try {
+  await initVoiceRuntimes();
+} catch (e) {
+  console.error('[pulse] FATAL: Voice runtime initialization failed:', e);
+  process.exit(1);
+}
+
+console.log('[pulse] Starting cron jobs...');
+try {
+  await loadCrons();
+} catch (e) {
+  console.error('[pulse] FATAL: Cron job initialization failed:', e);
+  process.exit(1);
+}
 
 const host = IS_PRODUCTION ? SERVER_PRIVATE_IP : 'localhost';
 const url = `http://${host}:${config.server.port}/`;

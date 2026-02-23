@@ -1,16 +1,17 @@
 import { useCan, usePublicServerSettings } from '@/features/server/hooks';
-import { uploadFiles } from '@/helpers/upload-file';
+import { uploadFiles, uploadEncryptedFiles } from '@/helpers/upload-file';
 import { Permission, type TTempFile } from '@pulse/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-// TODO: check if it works in all browsers
+export type TFileKeyInfo = { key: string; nonce: string; mimeType: string };
 
-const useUploadFiles = (disabled: boolean = false) => {
+const useUploadFiles = (disabled: boolean = false, isE2ee: boolean = false) => {
   const [files, setFiles] = useState<TTempFile[]>([]);
   const filesRef = useRef<TTempFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadingSize, setUploadingSize] = useState(0);
+  const fileKeyMapRef = useRef<Map<string, TFileKeyInfo>>(new Map());
   const settings = usePublicServerSettings();
   const can = useCan();
 
@@ -23,30 +24,57 @@ const useUploadFiles = (disabled: boolean = false) => {
 
   const removeFile = useCallback((id: string) => {
     setFiles((prevFiles) => prevFiles.filter((file) => file.id !== id));
+    fileKeyMapRef.current.delete(id);
   }, []);
 
   const clearFiles = useCallback(() => {
     setFiles([]);
+    fileKeyMapRef.current.clear();
   }, []);
+
+  const doUpload = useCallback(
+    async (filesToUpload: File[]) => {
+      if (!filesToUpload.length) return;
+
+      setUploading(true);
+      const total = filesToUpload.reduce((acc, file) => acc + file.size, 0);
+      setUploadingSize((size) => size + total);
+
+      try {
+        if (isE2ee) {
+          const results = await uploadEncryptedFiles(filesToUpload);
+          const tempFiles: TTempFile[] = [];
+          for (const r of results) {
+            tempFiles.push(r.tempFile);
+            fileKeyMapRef.current.set(r.tempFile.id, {
+              key: r.key,
+              nonce: r.nonce,
+              mimeType: r.mimeType
+            });
+          }
+          addFiles(tempFiles);
+        } else {
+          const uploaded = await uploadFiles(filesToUpload);
+          addFiles(uploaded);
+        }
+      } finally {
+        setUploading(false);
+        setUploadingSize((size) => size - total);
+      }
+    },
+    [isE2ee, addFiles]
+  );
 
   useEffect(() => {
     if (!settings?.storageUploadEnabled || disabled) return;
 
     const canUpload = can(Permission.UPLOAD_FILES);
-    const uploadEnabled = true;
 
     const handlePaste = async (event: ClipboardEvent) => {
-      if (disabled) {
-        return;
-      }
+      if (disabled) return;
 
       if (!canUpload) {
         toast.error('You do not have permission to upload files.');
-        return;
-      }
-
-      if (!uploadEnabled) {
-        toast.error('File uploads are disabled on this server.');
         return;
       }
 
@@ -63,19 +91,7 @@ const useUploadFiles = (disabled: boolean = false) => {
         filesToUpload.push(pastedFile);
       }
 
-      if (!filesToUpload.length) return;
-
-      setUploading(true);
-
-      const total = filesToUpload.reduce((acc, file) => acc + file.size, 0);
-
-      setUploadingSize((size) => size + total);
-
-      const files = await uploadFiles(filesToUpload);
-
-      addFiles(files);
-      setUploading(false);
-      setUploadingSize((size) => size - total);
+      await doUpload(filesToUpload);
     };
 
     const handleDrop = async (event: DragEvent) => {
@@ -86,11 +102,6 @@ const useUploadFiles = (disabled: boolean = false) => {
 
       if (!canUpload) {
         toast.error('You do not have permission to upload files.');
-        return;
-      }
-
-      if (!uploadEnabled) {
-        toast.error('File uploads are disabled on this server.');
         return;
       }
 
@@ -112,19 +123,7 @@ const useUploadFiles = (disabled: boolean = false) => {
         }
       }
 
-      if (!filesToUpload.length) return;
-
-      setUploading(true);
-
-      const total = filesToUpload.reduce((acc, file) => acc + file.size, 0);
-
-      setUploadingSize((size) => size + total);
-
-      const files = await uploadFiles(filesToUpload);
-
-      addFiles(files);
-      setUploading(false);
-      setUploadingSize((size) => size - total);
+      await doUpload(filesToUpload);
     };
 
     const handleDragOver = (event: DragEvent) => {
@@ -140,7 +139,7 @@ const useUploadFiles = (disabled: boolean = false) => {
       document.removeEventListener('dragover', handleDragOver);
       document.removeEventListener('drop', handleDrop);
     };
-  }, [addFiles, can, settings, disabled]);
+  }, [addFiles, can, settings, disabled, doUpload]);
 
   const handleUploadFiles = useCallback(
     async (filesToUpload: File[]) => {
@@ -156,21 +155,9 @@ const useUploadFiles = (disabled: boolean = false) => {
         return;
       }
 
-      if (!filesToUpload.length) return;
-
-      setUploading(true);
-
-      const total = filesToUpload.reduce((acc, file) => acc + file.size, 0);
-
-      setUploadingSize((size) => size + total);
-
-      const uploaded = await uploadFiles(filesToUpload);
-
-      addFiles(uploaded);
-      setUploading(false);
-      setUploadingSize((size) => size - total);
+      await doUpload(filesToUpload);
     },
-    [disabled, can, settings, addFiles]
+    [disabled, can, settings, doUpload]
   );
 
   return {
@@ -180,7 +167,8 @@ const useUploadFiles = (disabled: boolean = false) => {
     clearFiles,
     uploading,
     uploadingSize,
-    handleUploadFiles
+    handleUploadFiles,
+    fileKeyMapRef
   };
 };
 

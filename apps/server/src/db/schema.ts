@@ -1,6 +1,7 @@
 import {
   type TActivityLogDetailsMap,
-  type TMessageMetadata
+  type TMessageMetadata,
+  type TUserPreferences
 } from '@pulse/shared';
 import {
   bigint,
@@ -985,6 +986,14 @@ const userKeyBackups = pgTable('user_key_backups', {
   updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
 });
 
+const userPreferences = pgTable('user_preferences', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  data: jsonb('data').$type<TUserPreferences>().notNull(),
+  updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+});
+
 const e2eeSenderKeys = pgTable(
   'e2ee_sender_keys',
   {
@@ -1049,6 +1058,7 @@ export {
   userKeyBackups,
   userNotes,
   userOneTimePreKeys,
+  userPreferences,
   userRoles,
   userSignedPreKeys,
   users,

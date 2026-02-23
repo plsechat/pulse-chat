@@ -1,5 +1,5 @@
 import { UserPopover } from '@/components/user-popover';
-import { setSelectedChannelId } from '@/features/server/channels/actions';
+import { setActiveThreadId, setSelectedChannelId } from '@/features/server/channels/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
@@ -71,10 +71,16 @@ const MentionOverride = memo(({ type, id, name }: TMentionOverrideProps) => {
 const ChannelMention = memo(({ id, name }: { id: number; name: string }) => {
   const channel = useChannelById(id);
   const displayName = channel?.name ?? name;
+  const isForumPost = channel?.type === 'THREAD' && channel.parentChannelId;
 
   const handleClick = useCallback(() => {
-    setSelectedChannelId(id);
-  }, [id]);
+    if (isForumPost) {
+      setSelectedChannelId(channel!.parentChannelId!);
+      setActiveThreadId(id);
+    } else {
+      setSelectedChannelId(id);
+    }
+  }, [id, isForumPost, channel]);
 
   return (
     <span

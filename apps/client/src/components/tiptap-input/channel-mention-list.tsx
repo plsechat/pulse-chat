@@ -1,4 +1,4 @@
-import { Hash } from 'lucide-react';
+import { Hash, MessageSquareText } from 'lucide-react';
 import {
   forwardRef,
   useCallback,
@@ -77,7 +77,7 @@ const ChannelMentionList = forwardRef<
   }
 
   return (
-    <div className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[14rem] max-w-[20rem] p-1 z-50">
+    <div data-tiptap-suggestion className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[14rem] max-w-[20rem] p-1 z-50">
       {items.map((item, index) => (
         <button
           key={item.id}
@@ -87,8 +87,19 @@ const ChannelMentionList = forwardRef<
           type="button"
           onClick={() => onSelect(item)}
         >
-          <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="truncate">{item.name}</span>
+          {item.parentName ? (
+            <MessageSquareText className="h-4 w-4 text-muted-foreground shrink-0" />
+          ) : (
+            <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
+          )}
+          <div className="min-w-0 flex-1">
+            <span className="truncate block">{item.name}</span>
+            {item.parentName && (
+              <span className="text-xs text-muted-foreground truncate block">
+                in {item.parentName}
+              </span>
+            )}
+          </div>
         </button>
       ))}
     </div>

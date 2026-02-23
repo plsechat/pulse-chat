@@ -12,6 +12,7 @@ export type TChannelMentionItem = {
   id: number;
   name: string;
   type: string;
+  parentName?: string;
 };
 
 interface SuggestionProps {
@@ -28,16 +29,19 @@ export const ChannelMentionSuggestion = {
   items: ({ editor, query }: { editor: Editor; query: string }) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const storage = (editor.storage as any)[CHANNEL_MENTION_STORAGE_KEY];
-    const channels: { id: number; name: string; type: string }[] =
+    const channels: TChannelMentionItem[] =
       storage?.channels ?? [];
 
     const q = query.toLowerCase();
 
-    return channels
-      .filter(
-        (c) => c.type === 'TEXT' && c.name.toLowerCase().includes(q)
-      )
-      .slice(0, 8);
+    const textChannels = channels.filter(
+      (c) => c.type === 'TEXT' && c.name.toLowerCase().includes(q)
+    );
+    const forumPosts = channels.filter(
+      (c) => c.type === 'THREAD' && c.parentName && c.name.toLowerCase().includes(q)
+    );
+
+    return [...textChannels, ...forumPosts].slice(0, 8);
   },
   render: () => {
     let component: ReactRenderer | null = null;

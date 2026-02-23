@@ -10,3 +10,4 @@ export * from "./extensions";
 export * from "./logs";
 export * from "./voice";
 export * from "./plugins";
+export * from "./preferences";

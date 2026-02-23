@@ -1,6 +1,7 @@
 import { UserContextMenu } from '@/components/context-menus/user';
 import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
+import { useForumThreadCreator } from '@/components/channel-view/forum/forum-thread-context';
 import { useUserDisplayRole } from '@/features/server/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
@@ -32,6 +33,8 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   const displayRole = useUserDisplayRole(firstMessage.userId);
   const { settings } = useAppearanceSettings();
   const { compactMode, messageSpacing } = settings;
+  const forumThreadCreatorId = useForumThreadCreator();
+  const isOP = forumThreadCreatorId !== null && firstMessage.userId === forumThreadCreatorId;
 
   if (!user) return null;
 
@@ -90,6 +93,11 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
                 BOT
               </span>
             )}
+            {isOP && (
+              <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-500">
+                OP
+              </span>
+            )}
           </div>
           {group.map((message) => (
             <MessageErrorBoundary key={message.id} messageId={message.id}>
@@ -130,6 +138,11 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
           {isWebhook && (
             <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
               BOT
+            </span>
+          )}
+          {isOP && (
+            <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-500">
+              OP
             </span>
           )}
           <Tooltip content={format(date, fullDateTime())}>

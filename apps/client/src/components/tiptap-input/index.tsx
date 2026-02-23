@@ -6,6 +6,7 @@ import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import type { TCommandInfo } from '@pulse/shared';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
+import Placeholder from '@tiptap/extension-placeholder';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Smile } from 'lucide-react';
@@ -80,10 +81,25 @@ const TiptapInput = memo(
       [isDm, roles]
     );
 
-    const mentionChannels = useMemo(
-      () => (isDm ? [] : channels.map((c) => ({ id: c.id, name: c.name, type: c.type }))),
-      [isDm, channels]
-    );
+    const mentionChannels = useMemo(() => {
+      if (isDm) return [];
+
+      const forumIds = new Set(
+        channels.filter((c) => c.type === 'FORUM').map((c) => c.id)
+      );
+      const forumNameMap = new Map(
+        channels.filter((c) => c.type === 'FORUM').map((c) => [c.id, c.name])
+      );
+
+      return channels
+        .filter((c) => c.type === 'TEXT' || (c.type === 'THREAD' && forumIds.has(c.parentChannelId!)))
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          type: c.type,
+          parentName: c.type === 'THREAD' ? forumNameMap.get(c.parentChannelId!) : undefined
+        }));
+    }, [isDm, channels]);
 
     const extensions = useMemo(() => {
       const exts = [
@@ -93,6 +109,9 @@ const TiptapInput = memo(
               class: 'hard-break'
             }
           }
+        }),
+        Placeholder.configure({
+          placeholder: placeholder ?? 'Message...'
         }),
         Emoji.configure({
           emojis: [...gitHubEmojis, ...customEmojis],
@@ -133,7 +152,7 @@ const TiptapInput = memo(
       }
 
       return exts;
-    }, [customEmojis, commands, mentionUsers, mentionRoles, mentionChannels, isDm, ownUserId]);
+    }, [customEmojis, commands, mentionUsers, mentionRoles, mentionChannels, isDm, ownUserId, placeholder]);
 
     const editor = useEditor({
       extensions,
@@ -149,9 +168,6 @@ const TiptapInput = memo(
         }
       },
       editorProps: {
-        attributes: {
-          'data-placeholder': placeholder ?? 'Message...'
-        },
         handlePaste: (_view, event) => {
           const text = event.clipboardData?.getData('text/plain');
           if (!text) return false;
@@ -181,7 +197,7 @@ const TiptapInput = memo(
           return true;
         },
         handleKeyDown: (view, event) => {
-          const suggestionElement = document.querySelector('.bg-popover');
+          const suggestionElement = document.querySelector('[data-tiptap-suggestion]');
           const hasSuggestions =
             suggestionElement && document.body.contains(suggestionElement);
 

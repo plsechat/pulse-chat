@@ -1,14 +1,19 @@
 import { Button } from '@/components/ui/button';
 import Spinner from '@/components/ui/spinner';
-import { setActiveThreadId } from '@/features/server/channels/actions';
+import {
+  setActiveThreadId
+} from '@/features/server/channels/actions';
+import { useActiveThreadId } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
+import { useMessagesByChannelId } from '@/features/server/messages/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission } from '@pulse/shared';
-import { ArrowDownUp, Plus } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowDownUp, MessageSquareText, Search, Tags } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
 import { ForumPostCard } from './forum-post-card';
+import { ManageTagsDialog } from './manage-tags-dialog';
 
 type TForumChannelProps = {
   channelId: number;
@@ -23,7 +28,12 @@ type TForumThread = {
   parentChannelId: number;
   createdAt: number;
   creatorId?: number;
+  creatorName?: string;
+  creatorAvatarId?: number | null;
+  contentPreview?: string;
+  firstImage?: string;
   tags?: { id: number; name: string; color: string }[];
+  reactions?: { emoji: string; count: number }[];
 };
 
 type TForumTag = {
@@ -40,6 +50,10 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   const [sortBy, setSortBy] = useState<'latest' | 'creation'>('latest');
   const [activeTagFilter, setActiveTagFilter] = useState<number | null>(null);
   const [showArchived, _setShowArchived] = useState(false);
+  const [showManageTags, setShowManageTags] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const activeThreadId = useActiveThreadId();
   const can = useCan();
 
   const fetchData = useCallback(async () => {
@@ -54,7 +68,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         trpc.threads.getForumTags.query({ channelId })
       ]);
 
-      setThreads(threadsResult);
+      setThreads(threadsResult as TForumThread[]);
       setTags(tagsResult);
     } catch {
       // ignore
@@ -67,10 +81,45 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
     fetchData();
   }, [fetchData]);
 
+  // Sync live reaction data from Redux for the active thread
+  const activeMessages = useMessagesByChannelId(activeThreadId ?? 0);
+
+  useEffect(() => {
+    if (!activeThreadId || activeMessages.length === 0) return;
+
+    const firstMsg = activeMessages[0];
+    const reactionMap = new Map<string, number>();
+
+    for (const r of firstMsg.reactions) {
+      reactionMap.set(r.emoji, (reactionMap.get(r.emoji) ?? 0) + 1);
+    }
+
+    const liveReactions = [...reactionMap.entries()].map(([emoji, count]) => ({
+      emoji,
+      count
+    }));
+
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === activeThreadId ? { ...t, reactions: liveReactions } : t
+      )
+    );
+  }, [activeThreadId, activeMessages]);
+
   const sortedThreads = useMemo(() => {
-    const filtered = activeTagFilter
+    let filtered = activeTagFilter
       ? threads.filter((t) => t.tags?.some((tag) => tag.id === activeTagFilter))
       : threads;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (t) =>
+          t.name.toLowerCase().includes(q) ||
+          t.contentPreview?.toLowerCase().includes(q) ||
+          t.creatorName?.toLowerCase().includes(q)
+      );
+    }
 
     return [...filtered].sort((a, b) => {
       if (sortBy === 'latest') {
@@ -81,7 +130,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
       return b.createdAt - a.createdAt;
     });
-  }, [threads, sortBy, activeTagFilter]);
+  }, [threads, sortBy, activeTagFilter, searchQuery]);
 
   const onPostClick = useCallback((threadId: number) => {
     setActiveThreadId(threadId);
@@ -89,6 +138,11 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   const onPostCreated = useCallback(() => {
     setShowCreateDialog(false);
+    fetchData();
+  }, [fetchData]);
+
+  const onManageTagsClose = useCallback(() => {
+    setShowManageTags(false);
     fetchData();
   }, [fetchData]);
 
@@ -102,93 +156,125 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   return (
     <>
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border/30">
+      <div
+        className={cn(
+          'flex flex-col overflow-hidden border-r border-border/30',
+          activeThreadId ? 'w-[420px] flex-shrink-0' : 'flex-1'
+        )}
+      >
+        {/* Search bar + New Post */}
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30">
+          <div className="flex-1 relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search posts..."
+              className="w-full pl-8 pr-3 py-1.5 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
           {can(Permission.SEND_MESSAGES) && (
             <Button
               size="sm"
               onClick={() => setShowCreateDialog(true)}
-              className="gap-1"
+              className="gap-1 flex-shrink-0"
             >
-              <Plus className="w-4 h-4" />
+              <MessageSquareText className="w-4 h-4" />
               New Post
             </Button>
           )}
+        </div>
 
-          <div className="flex items-center gap-1 ml-auto">
-            {tags.length > 0 && (
-              <div className="flex items-center gap-1 mr-2">
+        {/* Sort & Tag filter bar */}
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border/30">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 gap-1 text-xs"
+            onClick={() =>
+              setSortBy(sortBy === 'latest' ? 'creation' : 'latest')
+            }
+          >
+            <ArrowDownUp className="w-3 h-3" />
+            {sortBy === 'latest' ? 'Latest Activity' : 'Creation Date'}
+          </Button>
+
+          {tags.length > 0 && (
+            <div className="flex items-center gap-1 ml-auto">
+              <button
+                type="button"
+                onClick={() => setActiveTagFilter(null)}
+                className={cn(
+                  'px-2 py-0.5 rounded text-xs transition-colors',
+                  !activeTagFilter
+                    ? 'bg-primary/20 text-primary'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                All
+              </button>
+              {tags.map((tag) => (
                 <button
+                  key={tag.id}
                   type="button"
-                  onClick={() => setActiveTagFilter(null)}
-                  className={cn(
-                    'px-2 py-1 rounded text-xs transition-colors',
-                    !activeTagFilter
-                      ? 'bg-primary/20 text-primary'
-                      : 'text-muted-foreground hover:text-foreground'
-                  )}
+                  onClick={() =>
+                    setActiveTagFilter(
+                      activeTagFilter === tag.id ? null : tag.id
+                    )
+                  }
+                  className="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                  style={{
+                    backgroundColor:
+                      activeTagFilter === tag.id
+                        ? `${tag.color}30`
+                        : 'transparent',
+                    color:
+                      activeTagFilter === tag.id
+                        ? tag.color
+                        : 'var(--muted-foreground)'
+                  }}
                 >
-                  All
+                  {tag.name}
                 </button>
-                {tags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() =>
-                      setActiveTagFilter(
-                        activeTagFilter === tag.id ? null : tag.id
-                      )
-                    }
-                    className="px-2 py-1 rounded text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor:
-                        activeTagFilter === tag.id
-                          ? `${tag.color}30`
-                          : 'transparent',
-                      color:
-                        activeTagFilter === tag.id
-                          ? tag.color
-                          : 'var(--muted-foreground)'
-                    }}
-                  >
-                    {tag.name}
-                  </button>
-                ))}
-              </div>
-            )}
+              ))}
+            </div>
+          )}
 
+          {can(Permission.MANAGE_CHANNELS) && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 gap-1 text-xs"
-              onClick={() =>
-                setSortBy(sortBy === 'latest' ? 'creation' : 'latest')
-              }
+              className={cn('h-7 px-2 gap-1 text-xs', !tags.length && 'ml-auto')}
+              onClick={() => setShowManageTags(true)}
             >
-              <ArrowDownUp className="w-3 h-3" />
-              {sortBy === 'latest' ? 'Latest Activity' : 'Creation Date'}
+              <Tags className="w-3 h-3" />
+              Tags
             </Button>
-          </div>
+          )}
         </div>
 
         {/* Post list */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto">
           {sortedThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <p className="text-sm">No posts yet</p>
-              {can(Permission.SEND_MESSAGES) && (
+              <p className="text-sm">
+                {searchQuery.trim() ? 'No matching posts' : 'No posts yet'}
+              </p>
+              {!searchQuery.trim() && can(Permission.SEND_MESSAGES) && (
                 <p className="text-xs mt-1">
                   Be the first to start a discussion
                 </p>
               )}
             </div>
           ) : (
-            <div className="space-y-2 max-w-2xl mx-auto">
+            <div className="flex flex-col">
               {sortedThreads.map((thread) => (
                 <ForumPostCard
                   key={thread.id}
                   thread={thread}
+                  isActive={activeThreadId === thread.id}
                   onClick={onPostClick}
                 />
               ))}
@@ -201,6 +287,13 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         <CreateForumPostDialog
           channelId={channelId}
           onClose={onPostCreated}
+        />
+      )}
+
+      {showManageTags && (
+        <ManageTagsDialog
+          channelId={channelId}
+          onClose={onManageTagsClose}
         />
       )}
     </>

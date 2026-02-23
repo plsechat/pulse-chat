@@ -4,6 +4,7 @@ export type E2EEPlaintext = {
     fileId: string;
     key: string;
     nonce: string;
+    mimeType: string;
   }[];
 };
 
