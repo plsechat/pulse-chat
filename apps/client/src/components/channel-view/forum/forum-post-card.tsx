@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { MessageSquare } from 'lucide-react';
 import { memo, useMemo } from 'react';
 
@@ -16,9 +17,17 @@ type TForumPostCardProps = {
     contentPreview?: string;
     firstImage?: string;
     tags?: { id: number; name: string; color: string }[];
+    reactions?: { emoji: string; count: number }[];
   };
   isActive?: boolean;
   onClick: (threadId: number) => void;
+};
+
+const resolveEmoji = (name: string): string => {
+  const found = gitHubEmojis.find(
+    (e) => e.name === name || e.shortcodes.includes(name)
+  );
+  return found?.emoji ?? `:${name}:`;
 };
 
 const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) => {
@@ -40,6 +49,8 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
 
   // Subtract 1 for the original post message
   const replyCount = Math.max(0, thread.messageCount - 1);
+
+  const hasReactions = thread.reactions && thread.reactions.length > 0;
 
   return (
     <button
@@ -71,6 +82,21 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
             </span>
           )}
         </p>
+      )}
+
+      {/* Reactions */}
+      {hasReactions && (
+        <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+          {thread.reactions!.map((r) => (
+            <span
+              key={r.emoji}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-muted/40 text-xs"
+            >
+              <span className="text-sm">{resolveEmoji(r.emoji)}</span>
+              <span className="text-muted-foreground">{r.count}</span>
+            </span>
+          ))}
+        </div>
       )}
 
       {/* Footer: reply count + time */}

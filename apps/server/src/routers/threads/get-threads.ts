@@ -9,6 +9,7 @@ import {
   forumPostTags,
   forumTags,
   messageFiles,
+  messageReactions,
   messages,
   users
 } from '../../db/schema';
@@ -159,6 +160,31 @@ const getThreadsRoute = protectedProcedure
       tagsByThread.set(tag.threadId, existing);
     }
 
+    // Get reactions on each thread's first message
+    const reactionRows =
+      firstMessageIds.length > 0
+        ? await db
+            .select({
+              messageId: messageReactions.messageId,
+              emoji: messageReactions.emoji,
+              reactionCount: count(messageReactions.userId)
+            })
+            .from(messageReactions)
+            .where(inArray(messageReactions.messageId, firstMessageIds))
+            .groupBy(messageReactions.messageId, messageReactions.emoji)
+        : [];
+
+    // Build a map: messageId -> [{ emoji, count }]
+    const reactionsByMessage = new Map<
+      number,
+      { emoji: string; count: number }[]
+    >();
+    for (const row of reactionRows) {
+      const existing = reactionsByMessage.get(row.messageId) ?? [];
+      existing.push({ emoji: row.emoji, count: row.reactionCount });
+      reactionsByMessage.set(row.messageId, existing);
+    }
+
     return threads.map((t) => {
       const firstMsg = firstMessageByThread.get(t.id);
       const creator = firstMsg ? creatorMap.get(firstMsg.userId) : undefined;
@@ -170,6 +196,10 @@ const getThreadsRoute = protectedProcedure
       const contentPreview = firstMsg?.content
         ? firstMsg.content.replace(/<[^>]*>/g, '').slice(0, 200)
         : undefined;
+
+      const reactions = firstMsg
+        ? reactionsByMessage.get(firstMsg.id) ?? []
+        : [];
 
       return {
         id: t.id,
@@ -185,7 +215,8 @@ const getThreadsRoute = protectedProcedure
         creatorAvatarId: creator?.avatarId,
         contentPreview,
         firstImage,
-        tags: tagsByThread.get(t.id) ?? []
+        tags: tagsByThread.get(t.id) ?? [],
+        reactions
       };
     });
   });

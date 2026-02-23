@@ -32,6 +32,7 @@ type TForumThread = {
   contentPreview?: string;
   firstImage?: string;
   tags?: { id: number; name: string; color: string }[];
+  reactions?: { emoji: string; count: number }[];
 };
 
 type TForumTag = {
