@@ -32,9 +32,9 @@ export const addMessages = (
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);
     const targetMessage = messages[0];
-    const isFromOwnUser = ownUserId === targetMessage.userId;
+    const isFromOwnUser = ownUserId != null && ownUserId === targetMessage.userId;
 
-    if (!isFromOwnUser) {
+    if (!isFromOwnUser && ownUserId != null) {
       playSound(SoundType.MESSAGE_RECEIVED);
       const sender = state.server.users.find(
         (u) => u.id === targetMessage.userId

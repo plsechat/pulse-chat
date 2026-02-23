@@ -34,7 +34,7 @@ export const addDmMessages = (
   if (isSubscription && messages.length > 0) {
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);
-    if (messages[0].userId !== ownUserId) {
+    if (ownUserId != null && messages[0].userId !== ownUserId) {
       playSound(SoundType.MESSAGE_RECEIVED);
 
       const senderChannel = state.dms.channels.find((c) =>
