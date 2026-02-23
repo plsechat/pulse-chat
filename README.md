@@ -1,36 +1,54 @@
-<div align="center">
-  <h1>Pulse Chat</h1>
-  <p><strong>A lightweight, self-hosted real-time communication platform</strong></p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/plsechat/pulse-chat/main/apps/client/public/logo.png" alt="Pulse Chat" width="100" />
+</p>
 
-  [![Last Commit](https://img.shields.io/github/last-commit/plsechat/pulse-chat)](https://github.com/plsechat/pulse-chat/commits)
+<h1 align="center">Pulse Chat</h1>
 
-  [![Bun](https://img.shields.io/badge/Bun-v1.3.5-green.svg)](https://bun.sh)
-  [![Mediasoup](https://img.shields.io/badge/Mediasoup-v3.19.11-green.svg)](https://mediasoup.org)
-</div>
+<p align="center">
+  A self-hosted chat platform built for privacy, voice, and connecting communities.
+  <br />
+  <a href="https://plse.chat"><strong>plse.chat</strong></a> &middot;
+  <a href="README-SELFHOSTED-SUPABASE.md">Self-Hosting Guide</a> &middot;
+  <a href="https://github.com/plsechat/pulse-chat/releases">Releases</a>
+</p>
 
-## What is Pulse Chat?
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License" /></a>
+  <a href="https://github.com/plsechat/pulse-chat/commits"><img src="https://img.shields.io/github/last-commit/plsechat/pulse-chat" alt="Last Commit" /></a>
+</p>
+
+<!-- <p align="center"><img src="docs/screenshot.png" alt="Screenshot" width="720" /></p> -->
+
+---
 
 > [!NOTE]
-> This requires a supabase deployed as currently that is what is handling the Database and Authentication routes. You can self host this or cloud. (I'd recommend self hosting it as the cloud is a slug.
-> This project is in alpha stage. Bugs, incomplete features and breaking changes are to be expected.
+> Pulse Chat is in alpha (v0.1.3). Expect bugs and breaking changes between updates.
 
-Pulse Chat is a self-hosted communication platform that brings real-time voice channels, text chat, and file sharing to your own infrastructure—no third-party dependencies, complete data ownership, and full control over your group's communication.
+## Why Pulse?
 
-## Getting Started
+Pulse is a self-hosted alternative to Discord and Slack that puts you in control. Every message can be end-to-end encrypted, voice and video stay on your infrastructure, and federation lets separate instances talk to each other — no central service required.
 
-Pulse Chat is distributed as a standalone binary that bundles both server and client components. Get started by downloading the latest release for your platform from the [Releases](https://github.com/plsechat/pulse-chat/releases) page. We ship binaries for Windows, macOS, and Linux.
+## What's included
 
-#### Linux x64
+| | |
+|---|---|
+| **Encrypted messaging** | Signal Protocol (X3DH + Double Ratchet) for DMs and channels |
+| **Voice & video** | WebRTC-powered calls with screen sharing via Mediasoup |
+| **Federation** | Link multiple Pulse instances so users can discover and join across servers |
+| **Forum channels** | Threaded discussions with tags for long-form topics |
+| **Channels & DMs** | Real-time text with file uploads, reactions, threads, and mentions |
+| **Roles & permissions** | Granular access control at the server, channel, and user level |
+| **Custom emojis** | Upload and manage emojis per server |
+| **Automod** | Keyword filters, regex rules, mention limits, and link blocking |
+| **Webhooks** | Push events to external services |
+| **OAuth login** | Google, Discord, Facebook, Twitch — toggle each on or off |
+| **Invite-only mode** | Lock down registration so only invited users can join |
 
-```bash
-curl -L https://github.com/plsechat/pulse-chat/releases/latest/download/pulse-linux-x64 -o pulse
-chmod +x pulse
-./pulse
-```
+## Getting started
 
-#### Docker
+Pulse needs a Supabase backend (auth + database). You can use [Supabase Cloud](https://supabase.com) or self-host everything together — see the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup with PostgreSQL, GoTrue, and Kong.
 
-Pulse Chat can also be run using Docker. Here's how to run it:
+### Docker
 
 ```bash
 docker run \
@@ -39,69 +57,54 @@ docker run \
   -p 40000-40020:40000-40020/udp \
   -v ./data:/root/.config/pulse \
   --name pulse \
-  pulse:latest
+  ghcr.io/plsechat/pulse-chat:latest
 ```
 
-#### Windows
+For production with Supabase bundled, use [docker-compose-supabase.yml](docker-compose-supabase.yml) from the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
 
-1. Download the latest `pulse-windows-x64.exe` from the [Releases](https://github.com/plsechat/pulse-chat/releases/latest) page.
-2. Open Command Prompt and navigate to the directory where you downloaded the executable.
-3. Run the server with the command: `.\pulse-windows-x64.exe`
+### Linux binary
 
-Make sure you download Microsoft Visual C++ 2015 - 2022 Redistributable (x64) from [here](https://aka.ms/vs/17/release/vc_redist.x64.exe) and install it before running on Windows.
+```bash
+curl -L https://github.com/plsechat/pulse-chat/releases/latest/download/pulse-linux-x64 -o pulse
+chmod +x pulse
+./pulse
+```
 
-### Open The Client
+### After first launch
 
-Once the server is running, open your web browser and navigate to [http://localhost:4991](http://localhost:4991) to access the client interface. If you're running the server on a different machine, replace `localhost` with the server's IP address or domain name.
-
-> [!NOTE]
-> Upon first launch, a secure token will be created and printed to the console. This token allows ANYONE to gain owner access to your server, so make sure to store it securely and do not lose it!
-
-### Gain Owner Permissions
-
-1. Login into your server
-2. Open Dev Tools (`CTRL + Shift + I` or `Right Click > Inspect`)
-3. Open the console
-4. Type useToken('your_token_here')
-5. Press enter
-6. Your account will now have the owner role
-
-The way of using this token will be more user friendly in the future.
+1. Open `http://localhost:4991`
+2. A **security token** prints to the server console on first run — save it
+3. Register and log in
+4. Claim ownership: open the browser console and run `useToken('your_token_here')`
 
 ## Configuration
 
-Upon first run, a default configuration file will be generated at `~/.config/pulse/config.ini`. You can modify this file to customize your server settings.
+A config file is generated at `~/.config/pulse/config.ini` on first run.
 
-### Options
-
-| Field         | Default | Description                                                                                 |
-| ------------- | ------- | ------------------------------------------------------------------------------------------- |
-| `port`        | `4991`  | The port number on which the server will listen for HTTP and WebSocket connections          |
-| `debug`       | `false` | Enable debug logging for detailed server logs and diagnostics                               |
-| `maxFiles`    | `40`    | Maximum number of files that can be uploaded in a single request                            |
-| `maxFileSize` | `100`   | Maximum file size in megabytes (MB) allowed per uploaded file                               |
-| `rtcMinPort`  | `40000` | Minimum UDP port for WebRTC media traffic (voice/video)                                     |
-| `rtcMaxPort`  | `40020` | Maximum UDP port for WebRTC media traffic (voice/video)                                     |
-| `autoupdate`  | `false` | When enabled, it will automatically check for and install updates with no user intervention |
-| `initialAvailableOutgoingBitrate` | `6000000` | Configure the Available bandwidth for Voice/Video RTC                 |
+| Section | Key | Default | What it does |
+|---|---|---|---|
+| server | `port` | `4991` | HTTP / WebSocket port |
+| server | `debug` | `false` | Verbose logging |
+| server | `autoupdate` | `false` | Auto-check for updates |
+| http | `maxFiles` | `40` | Max files per upload |
+| http | `maxFileSize` | `100` | Max file size (MB) |
+| mediasoup | `worker.rtcMinPort` | `40000` | WebRTC port range start |
+| mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC port range end |
+| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Bandwidth per stream (bps) |
+| federation | `enabled` | `false` | Turn on federation |
+| federation | `domain` | — | Your public domain (required for federation) |
 
 > [!IMPORTANT]
-> `rtcMinPort` and `rtcMaxPort` will define how many concurrent voice/video connections your server can handle. Each active voice/video connection uses one UDP port. Make sure to adjust the range according to your expected load. These ports must be open in your firewall settings, both TCP and UDP. If you're running in Docker, remember to map this port range from the host to the container.
+> The port range `rtcMinPort`–`rtcMaxPort` controls how many concurrent voice/video connections are possible. Each connection uses one UDP port. Open these ports (TCP + UDP) in your firewall, and map the range in Docker if applicable.
 
-## HTTPS Setup
+## HTTPS
 
-At the moment, there is no built-in support for HTTPS. To secure your server with HTTPS, we recommend using a reverse proxy like Nginx or Caddy. This setup allows you to manage SSL/TLS certificates and handle secure connections.
+Pulse doesn't terminate TLS. Put a reverse proxy in front — Caddy, Nginx, or Traefik all work. The [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md#set-up-https) has example configs for Caddy and Nginx.
 
-## Acknowledgments
+## Built with
 
-Built with amazing open-source technologies:
+[Bun](https://bun.sh) · [React](https://react.dev) · [tRPC](https://trpc.io) · [Drizzle ORM](https://orm.drizzle.team) · [Mediasoup](https://mediasoup.org) · [Tailwind CSS](https://tailwindcss.com) · [Supabase](https://supabase.com) · [Signal Protocol](https://signal.org/docs/)
 
-- [Bun](https://bun.sh)
-- [tRPC](https://trpc.io)
-- [Mediasoup](https://mediasoup.org)
-- [Drizzle ORM](https://orm.drizzle.team)
-- [React](https://react.dev)
-- [Radix UI](https://www.radix-ui.com)
-- [ShadCN UI](https://ui.shadcn.com/)
-- [Tailwind CSS](https://tailwindcss.com)
-- [Supabase](https://supabase.com)
+## License
+
+[AGPL-3.0](LICENSE)
