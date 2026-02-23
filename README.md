@@ -1,36 +1,39 @@
 <div align="center">
+  <img src="https://raw.githubusercontent.com/plsechat/pulse-chat/main/apps/client/public/logo.png" alt="Pulse Chat" width="80" />
   <h1>Pulse Chat</h1>
-  <p><strong>A lightweight, self-hosted real-time communication platform</strong></p>
+  <p>Self-hosted communication platform with E2EE, voice/video, and federation.</p>
 
+  [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
   [![Last Commit](https://img.shields.io/github/last-commit/plsechat/pulse-chat)](https://github.com/plsechat/pulse-chat/commits)
 
-  [![Bun](https://img.shields.io/badge/Bun-v1.3.5-green.svg)](https://bun.sh)
-  [![Mediasoup](https://img.shields.io/badge/Mediasoup-v3.19.11-green.svg)](https://mediasoup.org)
+  <!-- TODO: Add a screenshot here -->
+  <!-- <img src="docs/screenshot.png" alt="Screenshot" width="700" /> -->
 </div>
 
-## What is Pulse Chat?
+---
+
+## Features
+
+- **End-to-end encryption** — Signal Protocol (X3DH + Double Ratchet) for DMs and channels
+- **Voice, video & screen sharing** — WebRTC via Mediasoup
+- **Federation** — Connect multiple Pulse instances together
+- **Forum channels** — Threaded discussions with tags
+- **Text channels & DMs** — Real-time messaging with file sharing, reactions, and threads
+- **Custom roles & permissions** — Granular access control at server, channel, and user level
+- **Custom emojis** — Upload and manage server emojis
+- **Automod** — Keyword, regex, mention limit, and link filtering rules
+- **Webhooks** — Integrate with external services
+- **OAuth** — Google, Discord, Facebook, Twitch (configurable)
+- **Invite-only mode** — Disable open registration per instance
 
 > [!NOTE]
-> This requires a supabase deployed as currently that is what is handling the Database and Authentication routes. You can self host this or cloud. (I'd recommend self hosting it as the cloud is a slug.
-> This project is in alpha stage. Bugs, incomplete features and breaking changes are to be expected.
+> Pulse Chat is in alpha (v0.1.3). Expect bugs and breaking changes between updates.
 
-Pulse Chat is a self-hosted communication platform that brings real-time voice channels, text chat, and file sharing to your own infrastructure—no third-party dependencies, complete data ownership, and full control over your group's communication.
+## Quick Start
 
-## Getting Started
+Pulse requires a Supabase instance for authentication and database. You can use [Supabase Cloud](https://supabase.com) or self-host it. See the [Self-Hosted Supabase Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup including PostgreSQL, GoTrue, and Kong.
 
-Pulse Chat is distributed as a standalone binary that bundles both server and client components. Get started by downloading the latest release for your platform from the [Releases](https://github.com/plsechat/pulse-chat/releases) page. We ship binaries for Windows, macOS, and Linux.
-
-#### Linux x64
-
-```bash
-curl -L https://github.com/plsechat/pulse-chat/releases/latest/download/pulse-linux-x64 -o pulse
-chmod +x pulse
-./pulse
-```
-
-#### Docker
-
-Pulse Chat can also be run using Docker. Here's how to run it:
+### Docker (Recommended)
 
 ```bash
 docker run \
@@ -39,69 +42,56 @@ docker run \
   -p 40000-40020:40000-40020/udp \
   -v ./data:/root/.config/pulse \
   --name pulse \
-  pulse:latest
+  ghcr.io/plsechat/pulse-chat:latest
 ```
 
-#### Windows
+For production deployments with Supabase included, use the [docker-compose-supabase.yml](docker-compose-supabase.yml) setup described in the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
 
-1. Download the latest `pulse-windows-x64.exe` from the [Releases](https://github.com/plsechat/pulse-chat/releases/latest) page.
-2. Open Command Prompt and navigate to the directory where you downloaded the executable.
-3. Run the server with the command: `.\pulse-windows-x64.exe`
+### Linux Binary
 
-Make sure you download Microsoft Visual C++ 2015 - 2022 Redistributable (x64) from [here](https://aka.ms/vs/17/release/vc_redist.x64.exe) and install it before running on Windows.
+Download the latest Linux x64 binary from [Releases](https://github.com/plsechat/pulse-chat/releases).
 
-### Open The Client
+```bash
+curl -L https://github.com/plsechat/pulse-chat/releases/latest/download/pulse-linux-x64 -o pulse
+chmod +x pulse
+./pulse
+```
 
-Once the server is running, open your web browser and navigate to [http://localhost:4991](http://localhost:4991) to access the client interface. If you're running the server on a different machine, replace `localhost` with the server's IP address or domain name.
+### First Launch
 
-> [!NOTE]
-> Upon first launch, a secure token will be created and printed to the console. This token allows ANYONE to gain owner access to your server, so make sure to store it securely and do not lose it!
-
-### Gain Owner Permissions
-
-1. Login into your server
-2. Open Dev Tools (`CTRL + Shift + I` or `Right Click > Inspect`)
-3. Open the console
-4. Type useToken('your_token_here')
-5. Press enter
-6. Your account will now have the owner role
-
-The way of using this token will be more user friendly in the future.
+1. Open `http://localhost:4991` in your browser
+2. A **security token** will be printed to the server console on first run — save it securely
+3. Create an account and log in
+4. To claim owner permissions: open browser DevTools console and run `useToken('your_token_here')`
 
 ## Configuration
 
-Upon first run, a default configuration file will be generated at `~/.config/pulse/config.ini`. You can modify this file to customize your server settings.
+A default config is generated at `~/.config/pulse/config.ini` on first run.
 
-### Options
-
-| Field         | Default | Description                                                                                 |
-| ------------- | ------- | ------------------------------------------------------------------------------------------- |
-| `port`        | `4991`  | The port number on which the server will listen for HTTP and WebSocket connections          |
-| `debug`       | `false` | Enable debug logging for detailed server logs and diagnostics                               |
-| `maxFiles`    | `40`    | Maximum number of files that can be uploaded in a single request                            |
-| `maxFileSize` | `100`   | Maximum file size in megabytes (MB) allowed per uploaded file                               |
-| `rtcMinPort`  | `40000` | Minimum UDP port for WebRTC media traffic (voice/video)                                     |
-| `rtcMaxPort`  | `40020` | Maximum UDP port for WebRTC media traffic (voice/video)                                     |
-| `autoupdate`  | `false` | When enabled, it will automatically check for and install updates with no user intervention |
-| `initialAvailableOutgoingBitrate` | `6000000` | Configure the Available bandwidth for Voice/Video RTC                 |
+| Section | Field | Default | Description |
+|---------|-------|---------|-------------|
+| server | `port` | `4991` | HTTP and WebSocket port |
+| server | `debug` | `false` | Enable debug logging |
+| server | `autoupdate` | `false` | Auto-check and install updates |
+| http | `maxFiles` | `40` | Max files per upload request |
+| http | `maxFileSize` | `100` | Max file size in MB |
+| mediasoup | `worker.rtcMinPort` | `40000` | WebRTC UDP min port |
+| mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC UDP max port |
+| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Voice/video bandwidth (bps) |
+| federation | `enabled` | `false` | Enable federation |
+| federation | `domain` | | Your instance's public domain (required when federation is enabled) |
 
 > [!IMPORTANT]
-> `rtcMinPort` and `rtcMaxPort` will define how many concurrent voice/video connections your server can handle. Each active voice/video connection uses one UDP port. Make sure to adjust the range according to your expected load. These ports must be open in your firewall settings, both TCP and UDP. If you're running in Docker, remember to map this port range from the host to the container.
+> The `rtcMinPort`–`rtcMaxPort` range determines how many concurrent voice/video connections your server can handle. Each connection uses one UDP port. These ports must be open in your firewall (TCP and UDP). If using Docker, map this range from host to container.
 
-## HTTPS Setup
+## HTTPS
 
-At the moment, there is no built-in support for HTTPS. To secure your server with HTTPS, we recommend using a reverse proxy like Nginx or Caddy. This setup allows you to manage SSL/TLS certificates and handle secure connections.
+Pulse does not handle TLS directly. Use a reverse proxy (Nginx, Caddy, or Traefik) to terminate HTTPS. See the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md) for example configurations.
 
-## Acknowledgments
+## Tech Stack
 
-Built with amazing open-source technologies:
+[Bun](https://bun.sh) · [tRPC](https://trpc.io) · [Mediasoup](https://mediasoup.org) · [Drizzle ORM](https://orm.drizzle.team) · [React](https://react.dev) · [Tailwind CSS](https://tailwindcss.com) · [Supabase](https://supabase.com) · [Signal Protocol](https://signal.org/docs/)
 
-- [Bun](https://bun.sh)
-- [tRPC](https://trpc.io)
-- [Mediasoup](https://mediasoup.org)
-- [Drizzle ORM](https://orm.drizzle.team)
-- [React](https://react.dev)
-- [Radix UI](https://www.radix-ui.com)
-- [ShadCN UI](https://ui.shadcn.com/)
-- [Tailwind CSS](https://tailwindcss.com)
-- [Supabase](https://supabase.com)
+## License
+
+[AGPL-3.0](LICENSE)
