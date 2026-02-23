@@ -10,6 +10,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { setupE2EEKeys } from '@/lib/e2ee';
+import { store } from '@/features/store';
+import { serverSliceActions } from '@/features/server/slice';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { AlertTriangle, KeyRound, Loader2 } from 'lucide-react';
@@ -67,6 +69,7 @@ const E2EESetupModal = memo(() => {
     setError('');
     try {
       await setupE2EEKeys('restore', passphrase);
+      store.dispatch(serverSliceActions.clearAllMessages());
       setOpen(false);
       toast.success('Encryption keys restored from server backup');
       resolveRef.current?.();
@@ -81,6 +84,7 @@ const E2EESetupModal = memo(() => {
     setError('');
     try {
       await setupE2EEKeys('generate');
+      store.dispatch(serverSliceActions.clearAllMessages());
       setOpen(false);
       toast.success(
         'Encryption keys generated. Back up your keys in Settings > Encryption.'

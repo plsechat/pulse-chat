@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { joinServerByInvite, switchServer } from '@/features/app/actions';
+import { joinServerByInvite, loadFederatedServers, switchServer } from '@/features/app/actions';
 import { connect, getHandshakeHash } from '@/features/server/actions';
+import { initE2EE } from '@/lib/e2ee';
 import { useInfo } from '@/features/server/hooks';
 import { getFileUrl, getUrlFromServer } from '@/helpers/get-file-url';
 import {
@@ -112,6 +113,10 @@ const Connect = memo(() => {
 
       await connect();
 
+      // Initialize E2EE and load federated servers (mirrors loadApp() flow)
+      initE2EE().catch((err) => console.error('E2EE initialization failed:', err));
+      await loadFederatedServers();
+
       // If there's an invite code, join that server and switch to it
       if (inviteCode) {
         try {
@@ -167,6 +172,10 @@ const Connect = memo(() => {
       });
 
       await connect();
+
+      // Initialize E2EE and load federated servers (mirrors loadApp() flow)
+      initE2EE().catch((err) => console.error('E2EE initialization failed:', err));
+      await loadFederatedServers();
 
       // If there's an invite code, join that server and switch to it
       if (inviteCode) {
