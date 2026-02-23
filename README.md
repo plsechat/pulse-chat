@@ -2,6 +2,8 @@
   <img src="https://raw.githubusercontent.com/plsechat/pulse-chat/main/apps/client/public/logo.png" alt="Pulse Chat" width="80" />
   <h1>Pulse Chat</h1>
   <p>Self-hosted communication platform with E2EE, voice/video, and federation.</p>
+  <p>[Pulse Home Page](https://plse.chat)</p>
+  
 
   [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
   [![Last Commit](https://img.shields.io/github/last-commit/plsechat/pulse-chat)](https://github.com/plsechat/pulse-chat/commits)
@@ -31,7 +33,7 @@
 
 ## Quick Start
 
-Pulse requires a Supabase instance for authentication and database. You can use [Supabase Cloud](https://supabase.com) or self-host it. See the [Self-Hosted Supabase Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup including PostgreSQL, GoTrue, and Kong.
+Pulse requires a Supabase instance for authentication and database. You can use [Supabase Cloud](https://supabase.com) or self-host it (either integrated in the deployment or separate). See the [Self-Hosted Supabase Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup including PostgreSQL, GoTrue, and Kong.
 
 ### Docker (Recommended)
 
