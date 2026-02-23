@@ -85,10 +85,18 @@ jobs:
         if: matrix.platform == 'win32'
         shell: pwsh
         run: |
-          $pkgDir = node -e "console.log(require('path').dirname(require.resolve('electron-winstaller/package.json')))"
+          # Find electron-winstaller in bun's .bun/ layout
+          $ewiDir = Get-ChildItem -Path "node_modules\.bun" -Directory -Filter "electron-winstaller@*" |
+            Select-Object -First 1
+          if (-not $ewiDir) {
+            Write-Host "::error::Could not find electron-winstaller in node_modules/.bun/"
+            exit 1
+          }
+          $pkgDir = Join-Path $ewiDir.FullName "node_modules\electron-winstaller"
           $vendorDir = Join-Path $pkgDir "vendor"
+          Write-Host "electron-winstaller at: $pkgDir"
           if (-not (Test-Path (Join-Path $vendorDir "Squirrel.exe"))) {
-            Write-Host "Vendor binaries missing at $vendorDir — installing standalone copy"
+            Write-Host "Vendor binaries missing — installing standalone copy"
             $tmp = "$env:RUNNER_TEMP\ewi"
             New-Item -ItemType Directory -Force -Path $tmp | Out-Null
             '{}' | Set-Content "$tmp\package.json"
