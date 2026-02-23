@@ -4,7 +4,6 @@ import { VoiceChannel } from '@/components/channel-view/voice';
 import { ForumThreadView } from '@/components/thread-panel/forum-thread-view';
 import { ThreadPanel } from '@/components/thread-panel';
 import {
-  useActiveThread,
   useActiveThreadId,
   useSelectedChannelId,
   useSelectedChannelType
@@ -18,17 +17,12 @@ const ContentWrapper = memo(() => {
   const selectedChannelType = useSelectedChannelType();
   const serverName = useServerName();
   const activeThreadId = useActiveThreadId();
-  const activeThread = useActiveThread();
 
-  // Forum threads replace the main content instead of a side panel
-  const isForumThread =
-    activeThread && selectedChannelType === ChannelType.FORUM;
+  const isForum = selectedChannelType === ChannelType.FORUM;
 
   let content;
 
-  if (isForumThread) {
-    content = <ForumThreadView key={activeThreadId} />;
-  } else if (selectedChannelId) {
+  if (selectedChannelId) {
     if (selectedChannelType === ChannelType.TEXT) {
       content = (
         <TextChannel key={selectedChannelId} channelId={selectedChannelId} />
@@ -37,7 +31,7 @@ const ContentWrapper = memo(() => {
       content = (
         <VoiceChannel key={selectedChannelId} channelId={selectedChannelId} />
       );
-    } else if (selectedChannelType === ChannelType.FORUM) {
+    } else if (isForum) {
       content = (
         <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
       );
@@ -60,7 +54,12 @@ const ContentWrapper = memo(() => {
       <div className="flex flex-1 flex-col overflow-hidden">
         {content}
       </div>
-      {activeThreadId && !isForumThread && (
+      {/* Forum: thread view as right panel */}
+      {activeThreadId && isForum && (
+        <ForumThreadView key={activeThreadId} />
+      )}
+      {/* Non-forum: standard thread side panel */}
+      {activeThreadId && !isForum && (
         <ThreadPanel key={activeThreadId} />
       )}
     </main>
