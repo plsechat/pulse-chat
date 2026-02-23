@@ -178,6 +178,7 @@ SITE_URL=https://your-domain.com
 | `TWITCH_OAUTH_CLIENT_ID` | No | — | Twitch OAuth client ID |
 | `TWITCH_OAUTH_SECRET` | No | — | Twitch OAuth client secret |
 | `ADDITIONAL_REDIRECT_URLS` | No | — | Extra OAuth callback URLs |
+| `REGISTRATION_DISABLED` | No | `false` | Block new registrations (existing users can still log in; valid invite codes bypass) |
 | `GIPHY_API_KEY` | No | — | Giphy API key for GIF search |
 
 ---
@@ -186,10 +187,10 @@ SITE_URL=https://your-domain.com
 
 ```bash
 cd /opt/pulse
-docker compose -f docker-compose-supabase.yml up --build -d
+docker compose -f docker-compose-supabase.yml up -d
 ```
 
-The first build takes a few minutes (downloading images, installing dependencies, compiling the binary).
+The first launch takes a few minutes while Docker downloads the required images.
 
 ### Verify containers are running
 
@@ -219,7 +220,7 @@ docker logs pulse
 curl http://localhost:4991/healthz
 ```
 
-Should return `OK`.
+Should return `{"status":"ok","timestamp":...}`.
 
 ---
 
@@ -488,7 +489,7 @@ SELECT pg_size_pretty(pg_database_size('postgres'));
 cd /opt/pulse
 docker compose -f docker-compose-supabase.yml down -v
 rm -rf data/
-docker compose -f docker-compose-supabase.yml up --build -d
+docker compose -f docker-compose-supabase.yml up -d
 ```
 
 ### View real-time logs
