@@ -1,0 +1,163 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.1.0). Leave empty to use package.json version."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+            make_targets: --platform=darwin --arch=arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            make_targets: --platform=linux --arch=x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+            make_targets: --platform=win32 --arch=x64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Linux: install RPM tooling for MakerRpm
+      - name: Install Linux packaging deps
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      # macOS: install CMake for native audio modules
+      - name: Install CMake (macOS)
+        if: matrix.platform == 'darwin'
+        run: brew install cmake
+
+      # macOS: import code signing certificate (optional)
+      - name: Import code signing certificate
+        if: matrix.platform == 'darwin' && env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_FILE=$(mktemp /tmp/cert.XXXXXX.p12)
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERT_FILE"
+          KEYCHAIN=build.keychain
+          security create-keychain -p "" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          security import "$CERT_FILE" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          rm "$CERT_FILE"
+
+      - name: Install dependencies
+        run: bun install
+
+      # macOS: build native CoreAudio modules
+      - name: Build native modules (macOS)
+        if: matrix.platform == 'darwin'
+        working-directory: apps/desktop
+        run: bun run build:native
+
+      - name: Build desktop app
+        working-directory: apps/desktop
+        run: bun run build
+
+      - name: Package with Electron Forge
+        working-directory: apps/desktop
+        env:
+          APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bun run forge -- make ${{ matrix.make_targets }}
+
+      # macOS: patch Info.plist for media permissions
+      - name: Patch macOS bundle
+        if: matrix.platform == 'darwin'
+        working-directory: apps/desktop
+        run: bash scripts/patch-macos.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            apps/desktop/out/make/**/*.dmg
+            apps/desktop/out/make/**/*.zip
+            apps/desktop/out/make/**/*.exe
+            apps/desktop/out/make/**/*.nupkg
+            apps/desktop/out/make/**/*.deb
+            apps/desktop/out/make/**/*.rpm
+          if-no-files-found: error
+
+  release:
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "name=Desktop v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(jq -r .version apps/desktop/package.json)
+            echo "tag=desktop-v${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "name=Desktop v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: List artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.name }}
+          draft: true
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+          body: |
+            ## Desktop Client
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon) | `.dmg` or `.zip` |
+            | Windows | `.exe` |
+            | Linux (Debian/Ubuntu) | `.deb` |
+            | Linux (Fedora/RHEL) | `.rpm` |
+
+            ### Notes
+            (TODO)
