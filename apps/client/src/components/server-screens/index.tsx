@@ -1,6 +1,7 @@
 import { useModViewOpen } from '@/features/app/hooks';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useServerScreenInfo } from '@/features/server-screens/hooks';
+import { X } from 'lucide-react';
 import { createElement, memo, useCallback, useEffect, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { CategorySettings } from './category-settings';
@@ -45,7 +46,26 @@ const ComponentWrapper = ({ children }: TComponentWrapperProps) => {
     };
   }, [handleKeyDown]);
 
-  return children;
+  return (
+    <>
+      {/* Darkened backdrop */}
+      <div
+        className="fixed inset-0 z-50 bg-black/60 animate-in fade-in duration-150"
+        onClick={closeServerScreens}
+      />
+      {/* Floating card */}
+      <div className="fixed inset-6 md:inset-14 lg:inset-20 z-50 rounded-xl bg-background overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-150">
+        <button
+          type="button"
+          onClick={closeServerScreens}
+          className="absolute top-3 right-3 z-10 h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        {children}
+      </div>
+    </>
+  );
 };
 
 const ServerScreensProvider = memo(() => {
@@ -68,6 +88,8 @@ const ServerScreensProvider = memo(() => {
 
   if (realIsOpen) {
     portalRoot.style.display = 'block';
+    portalRoot.style.position = 'relative';
+    portalRoot.style.zIndex = '50';
   } else {
     portalRoot.style.display = 'none';
   }

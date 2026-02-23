@@ -95,7 +95,7 @@ const ServerIcon = memo(
     return (
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
           isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
         )} />
         <button
@@ -158,7 +158,7 @@ const FederatedServerIcon = memo(
       <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
-            'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
+            'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
             isActive ? 'h-10' : 'h-0 group-hover:h-5'
           )}
         />
@@ -436,12 +436,12 @@ const ServerStrip = memo(() => {
   );
 
   return (
-    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3">
+    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3 md:pb-[5.5rem] overflow-y-auto">
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="relative flex w-full items-center justify-center group">
             <div className={cn(
-              'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
+              'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
               activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
             )} />
             <button
@@ -625,7 +625,7 @@ const ServerStrip = memo(() => {
 
       <button
         onClick={handleCreateServer}
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-green-500 transition-all duration-200 hover:bg-green-600 hover:text-white hover:rounded-xl"
+        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:rounded-xl"
         title="Create Server"
       >
         <Plus className="h-6 w-6" />
@@ -633,7 +633,7 @@ const ServerStrip = memo(() => {
 
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute -left-0.5 w-1.5 rounded-full bg-foreground transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'
         )} />
         <button
@@ -641,8 +641,8 @@ const ServerStrip = memo(() => {
           className={cn(
             'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
             activeView === 'discover'
-              ? 'bg-green-600 text-white rounded-xl'
-              : 'bg-secondary text-green-500 hover:bg-green-600 hover:text-white hover:rounded-xl'
+              ? 'bg-primary text-primary-foreground rounded-xl'
+              : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
           )}
           title="Discover Servers"
         >

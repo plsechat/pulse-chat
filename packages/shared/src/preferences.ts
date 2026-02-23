@@ -13,7 +13,7 @@ export type TUserPreferences = {
     actionSoundsEnabled: boolean;
     desktopNotificationsEnabled: boolean;
   };
-  theme: 'dark' | 'light' | 'onyx' | 'system';
+  theme: 'dark' | 'light' | 'onyx' | 'midnight' | 'sunset' | 'rose' | 'forest' | 'dracula' | 'nord' | 'sand' | 'system';
   serverChannelMap: Record<string, number>;
   rightSidebarOpen: boolean;
 };

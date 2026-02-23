@@ -27,6 +27,13 @@ const THEME_MAP: Record<string, 'light' | 'dark' | 'auto'> = {
   light: 'light',
   dark: 'dark',
   onyx: 'dark',
+  midnight: 'dark',
+  sunset: 'dark',
+  rose: 'dark',
+  forest: 'dark',
+  dracula: 'dark',
+  nord: 'light',
+  sand: 'light',
   system: 'auto'
 };
 

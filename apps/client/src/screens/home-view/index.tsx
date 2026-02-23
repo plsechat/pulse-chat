@@ -126,8 +126,11 @@ const HomeView = memo(() => {
             onFriendsClick={handleFriendsClick}
             onCreateGroupDm={() => setShowCreateGroupDm(true)}
           />
-          <VoiceControl />
-          <UserControl />
+          <div className="md:hidden">
+            <VoiceControl />
+            <UserControl />
+          </div>
+          <div className="hidden md:block h-[5.5rem] shrink-0" />
         </aside>
 
         <div className="flex flex-1 flex-col overflow-hidden">

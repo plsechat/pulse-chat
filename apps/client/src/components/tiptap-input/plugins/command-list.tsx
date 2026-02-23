@@ -74,7 +74,7 @@ const CommandList = forwardRef<CommandListRef, CommandListProps>(
     }
 
     return (
-      <div className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[16rem] max-w-[22rem] p-1 z-50">
+      <div data-tiptap-suggestion className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[16rem] max-w-[22rem] p-1 z-50">
         {items.map((item, index) => (
           <button
             key={`${item.pluginId}:${item.name}`}

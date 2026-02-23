@@ -26,7 +26,7 @@ const preferencesSchema = z.object({
     })
     .partial()
     .optional(),
-  theme: z.enum(['dark', 'light', 'onyx', 'system']).optional(),
+  theme: z.enum(['dark', 'light', 'onyx', 'midnight', 'sunset', 'rose', 'forest', 'dracula', 'nord', 'sand', 'system']).optional(),
   serverChannelMap: z.record(z.string(), z.number()).optional(),
   rightSidebarOpen: z.boolean().optional()
 });

@@ -81,10 +81,23 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
   const dmChannels = useDmChannels();
+  const ownUserId = useOwnUserId();
   const dmMembers = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
   }, [dmChannels, dmChannelId]);
+
+  const dmPlaceholder = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    if (!channel) return 'Message...';
+    const otherMembers = channel.members.filter((m) => m.id !== ownUserId);
+    if (channel.isGroup && channel.name) return `Message ${channel.name}`;
+    if (channel.isGroup) {
+      const names = otherMembers.map((m) => m.name).join(', ') || 'Group DM';
+      return `Message ${names}`;
+    }
+    return `Message @${otherMembers[0]?.name ?? 'Unknown'}`;
+  }, [dmChannels, dmChannelId, ownUserId]);
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
@@ -335,6 +348,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
           </Button>
           <TiptapInput
             value={newMessage}
+            placeholder={dmPlaceholder}
             onChange={setNewMessage}
             onSubmit={onSendMessage}
             onTyping={sendTypingSignal}
@@ -480,7 +494,7 @@ const DmHeader = memo(({ dmChannelId }: { dmChannelId: number }) => {
       )}
       <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
         {displayName}
-        {channel && !channel.isGroup && (
+        {channel && !channel.isGroup && channel.e2ee && (
           <Tooltip content="End-to-end encrypted">
             <Lock className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
           </Tooltip>
@@ -1059,8 +1073,15 @@ const DmMessageContent = memo(
             <span>Unable to decrypt this message</span>
           </div>
         ) : message.content ? (
-          <div className="max-w-full break-words msg-content">
-            {messageHtml}
+          <div className="flex items-start gap-1.5">
+            {message.e2ee && (
+              <Tooltip content="End-to-end encrypted">
+                <Lock className="h-3 w-3 text-emerald-500 shrink-0 mt-[0.3rem] cursor-default" />
+              </Tooltip>
+            )}
+            <div className="max-w-full break-words msg-content min-w-0">
+              {messageHtml}
+            </div>
           </div>
         ) : null}
 

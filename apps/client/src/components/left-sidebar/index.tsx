@@ -163,8 +163,11 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
       <div className="flex-1 overflow-y-auto">
         <Categories />
       </div>
-      <VoiceControl />
-      <UserControl />
+      <div className="md:hidden">
+        <VoiceControl />
+        <UserControl />
+      </div>
+      <div className="hidden md:block h-[5.5rem] shrink-0" />
     </aside>
   );
 });

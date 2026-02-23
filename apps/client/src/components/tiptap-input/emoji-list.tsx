@@ -74,7 +74,7 @@ const EmojiList = forwardRef<EmojiListRef, EmojiListProps>(
       return null;
     }
     return (
-      <div className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[12rem] max-w-[16rem] p-1 z-50">
+      <div data-tiptap-suggestion className="bg-popover text-popover-foreground border rounded-md shadow-md min-w-[12rem] max-w-[16rem] p-1 z-50">
         {items.map((item, index) => (
           <button
             key={item.shortcodes[0]}

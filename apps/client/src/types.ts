@@ -35,6 +35,7 @@ export enum Resolution {
 
 export type TDeviceSettings = {
   microphoneId: string | undefined;
+  playbackId: string | undefined;
   webcamId: string | undefined;
   webcamResolution: Resolution;
   webcamFramerate: number;
