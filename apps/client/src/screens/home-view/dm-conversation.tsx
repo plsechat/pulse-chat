@@ -16,9 +16,9 @@ import { useDmChannels, useDmTypingUsers } from '@/features/dms/hooks';
 import { useDmMessages } from '@/features/dms/use-dm-messages';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
-import { getFileUrl } from '@/helpers/get-file-url';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import { useUploadFiles } from '@/hooks/use-upload-files';
 import { getTRPCClient } from '@/lib/trpc';
 import {
@@ -29,7 +29,7 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TFile, TJoinedDmMessage } from '@pulse/shared';
 import {
   audioExtensions,
   imageExtensions,
@@ -49,7 +49,7 @@ import { fullDateTime, longDateTime } from '@/helpers/time-format';
 import { format, formatDistance, subDays } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Copy, Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Copy, Loader2, Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -87,6 +87,11 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
     return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
   }, [dmChannels, dmChannelId]);
 
+  const isE2ee = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    return channel?.e2ee ?? false;
+  }, [dmChannels, dmChannelId]);
+
   const dmPlaceholder = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     if (!channel) return 'Message...';
@@ -101,8 +106,8 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
-  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles } =
-    useUploadFiles(false);
+  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
+    useUploadFiles(false, isE2ee);
 
   const handleReply = useCallback((message: TJoinedDmMessage) => {
     setReplyingTo(message);
@@ -208,11 +213,22 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
     sendTypingSignal.cancel();
 
     try {
+      // Build fileKeys from encrypted upload key material
+      const fileKeys = isE2ee && files.length > 0
+        ? files.map((f) => {
+          const keyInfo = fileKeyMapRef.current.get(f.id);
+          return keyInfo
+            ? { fileId: f.id, key: keyInfo.key, nonce: keyInfo.nonce, mimeType: keyInfo.mimeType }
+            : null;
+        }).filter((k): k is NonNullable<typeof k> => k !== null)
+        : undefined;
+
       await sendDmMessage(
         dmChannelId,
         preprocessMarkdown(newMessage),
         files.length > 0 ? files.map((f) => f.id) : undefined,
-        replyingTo?.id
+        replyingTo?.id,
+        fileKeys
       );
     } catch (error) {
       toast.error(getTrpcError(error, 'Failed to send message'));
@@ -222,7 +238,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
     setNewMessage('');
     setReplyingTo(null);
     clearFiles();
-  }, [newMessage, dmChannelId, files, clearFiles, replyingTo, sendTypingSignal]);
+  }, [newMessage, dmChannelId, files, clearFiles, replyingTo, sendTypingSignal, isE2ee, fileKeyMapRef]);
 
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
@@ -1021,6 +1037,64 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   );
 });
 
+/** Renders a single DM media file, decrypting if E2EE. */
+const DmMediaFile = memo(({
+  file, fileIndex, messageId, isE2ee
+}: {
+  file: TFile;
+  fileIndex: number;
+  messageId: number;
+  isE2ee: boolean;
+}) => {
+  const { url, loading } = useDecryptedFileUrl(file, messageId, isE2ee, fileIndex);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center bg-muted rounded h-48 w-64 animate-pulse">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (imageExtensions.includes(file.extension)) {
+    return <ImageOverride src={url} />;
+  }
+  if (videoExtensions.includes(file.extension)) {
+    return <VideoPlayer src={url} name={file.originalName} />;
+  }
+  if (audioExtensions.includes(file.extension)) {
+    return <AudioPlayer src={url} name={file.originalName} />;
+  }
+  return null;
+});
+
+/** Renders a non-media DM file link, decrypting if E2EE. */
+const DmNonMediaFile = memo(({
+  file, fileIndex, messageId, isE2ee
+}: {
+  file: TFile;
+  fileIndex: number;
+  messageId: number;
+  isE2ee: boolean;
+}) => {
+  const { url, loading } = useDecryptedFileUrl(file, messageId, isE2ee, fileIndex);
+
+  return (
+    <a
+      key={file.id}
+      href={loading ? undefined : url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+    >
+      <span className="truncate">{file.originalName}</span>
+      <span className="text-xs text-muted-foreground">
+        ({filesize(file.size)})
+      </span>
+    </a>
+  );
+});
+
 const DmMessageContent = memo(
   ({ message }: { message: TJoinedDmMessage }) => {
     const { foundMedia, messageHtml } = useMemo(() => {
@@ -1032,33 +1106,25 @@ const DmMessageContent = memo(
       return { messageHtml, foundMedia };
     }, [message.content]);
 
-    const allMedia = useMemo(() => {
-      const mediaFromFiles: TFoundMedia[] = [];
+    // Categorize files into media vs non-media, preserving original index
+    const { mediaFiles, nonMediaFiles } = useMemo(() => {
+      const mediaFiles: { file: TFile; index: number }[] = [];
+      const nonMediaFiles: { file: TFile; index: number }[] = [];
 
-      for (const file of message.files) {
-        const url = getFileUrl(file);
-        if (imageExtensions.includes(file.extension)) {
-          mediaFromFiles.push({ type: 'image', url });
-        } else if (videoExtensions.includes(file.extension)) {
-          mediaFromFiles.push({ type: 'video', url, name: file.originalName });
-        } else if (audioExtensions.includes(file.extension)) {
-          mediaFromFiles.push({ type: 'audio', url, name: file.originalName });
+      message.files.forEach((file, index) => {
+        if (
+          imageExtensions.includes(file.extension) ||
+          videoExtensions.includes(file.extension) ||
+          audioExtensions.includes(file.extension)
+        ) {
+          mediaFiles.push({ file, index });
+        } else {
+          nonMediaFiles.push({ file, index });
         }
-      }
+      });
 
-      return [...foundMedia, ...mediaFromFiles];
-    }, [foundMedia, message.files]);
-
-    const otherFiles = useMemo(
-      () =>
-        message.files.filter(
-          (f) =>
-            !imageExtensions.includes(f.extension) &&
-            !videoExtensions.includes(f.extension) &&
-            !audioExtensions.includes(f.extension)
-        ),
-      [message.files]
-    );
+      return { mediaFiles, nonMediaFiles };
+    }, [message.files]);
 
     const isDecryptionFailure =
       message.e2ee &&
@@ -1089,18 +1155,30 @@ const DmMessageContent = memo(
           <span className="text-[10px] text-muted-foreground">(edited)</span>
         )}
 
-        {allMedia.map((media, index) => {
+        {/* Inline media from message HTML */}
+        {foundMedia.map((media, index) => {
           if (media.type === 'image') {
-            return <ImageOverride src={media.url} key={`media-${index}`} />;
+            return <ImageOverride src={media.url} key={`inline-${index}`} />;
           }
           if (media.type === 'video') {
-            return <VideoPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+            return <VideoPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
           }
           if (media.type === 'audio') {
-            return <AudioPlayer src={media.url} name={media.name} key={`media-${index}`} />;
+            return <AudioPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
           }
           return null;
         })}
+
+        {/* Media file attachments — each handles E2EE decryption */}
+        {mediaFiles.map(({ file, index }) => (
+          <DmMediaFile
+            key={file.id}
+            file={file}
+            fileIndex={index}
+            messageId={message.id}
+            isE2ee={message.e2ee}
+          />
+        ))}
 
         {message.metadata && message.metadata.length > 0 && (
           <div className="flex flex-col gap-1.5">
@@ -1112,21 +1190,16 @@ const DmMessageContent = memo(
           </div>
         )}
 
-        {otherFiles.length > 0 && (
+        {nonMediaFiles.length > 0 && (
           <div className="flex gap-1 flex-wrap">
-            {otherFiles.map((file) => (
-              <a
+            {nonMediaFiles.map(({ file, index }) => (
+              <DmNonMediaFile
                 key={file.id}
-                href={getFileUrl(file)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
-              >
-                <span className="truncate">{file.originalName}</span>
-                <span className="text-xs text-muted-foreground">
-                  ({filesize(file.size)})
-                </span>
-              </a>
+                file={file}
+                fileIndex={index}
+                messageId={message.id}
+                isE2ee={message.e2ee}
+              />
             ))}
           </div>
         )}
