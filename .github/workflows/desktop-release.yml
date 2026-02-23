@@ -78,12 +78,26 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      # Windows: reinstall electron-winstaller with npm so vendored
-      # executables land in the standard node_modules path
+      # Windows: bun's node_modules/.bun/ layout can break electron-winstaller's
+      # vendored binaries (7z, Squirrel.exe). Install in an isolated temp dir
+      # with npm and copy the vendor directory into bun's package location.
       - name: Fix Squirrel vendor paths (Windows)
         if: matrix.platform == 'win32'
-        working-directory: apps/desktop
-        run: npm install electron-winstaller --no-save
+        shell: pwsh
+        run: |
+          $pkgDir = node -e "console.log(require('path').dirname(require.resolve('electron-winstaller/package.json')))"
+          $vendorDir = Join-Path $pkgDir "vendor"
+          if (-not (Test-Path (Join-Path $vendorDir "Squirrel.exe"))) {
+            Write-Host "Vendor binaries missing at $vendorDir — installing standalone copy"
+            $tmp = "$env:RUNNER_TEMP\ewi"
+            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+            '{}' | Set-Content "$tmp\package.json"
+            npm install electron-winstaller --prefix $tmp
+            Copy-Item "$tmp\node_modules\electron-winstaller\vendor" $vendorDir -Recurse -Force
+            Write-Host "Copied vendor directory to $vendorDir"
+          } else {
+            Write-Host "Vendor binaries already present at $vendorDir"
+          }
 
       # macOS: build native CoreAudio modules
       - name: Build native modules (macOS)
