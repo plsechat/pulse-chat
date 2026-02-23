@@ -1,43 +1,54 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/plsechat/pulse-chat/main/apps/client/public/logo.png" alt="Pulse Chat" width="80" />
-  <h1>Pulse Chat</h1>
-  <p>Self-hosted communication platform with E2EE, voice/video, and federation.</p>
-  <p>[Pulse Home Page](https://plse.chat)</p>
-  
+<p align="center">
+  <img src="https://raw.githubusercontent.com/plsechat/pulse-chat/main/apps/client/public/logo.png" alt="Pulse Chat" width="100" />
+</p>
 
-  [Pulse Home Page](https://plse.chat)
+<h1 align="center">Pulse Chat</h1>
 
-  [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-  [![Last Commit](https://img.shields.io/github/last-commit/plsechat/pulse-chat)](https://github.com/plsechat/pulse-chat/commits)
+<p align="center">
+  A self-hosted chat platform built for privacy, voice, and connecting communities.
+  <br />
+  <a href="https://plse.chat"><strong>plse.chat</strong></a> &middot;
+  <a href="README-SELFHOSTED-SUPABASE.md">Self-Hosting Guide</a> &middot;
+  <a href="https://github.com/plsechat/pulse-chat/releases">Releases</a>
+</p>
 
-  <!-- TODO: Add a screenshot here -->
-  <!-- <img src="docs/screenshot.png" alt="Screenshot" width="700" /> -->
-</div>
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License" /></a>
+  <a href="https://github.com/plsechat/pulse-chat/commits"><img src="https://img.shields.io/github/last-commit/plsechat/pulse-chat" alt="Last Commit" /></a>
+</p>
+
+<!-- <p align="center"><img src="docs/screenshot.png" alt="Screenshot" width="720" /></p> -->
 
 ---
-
-## Features
-
-- **End-to-end encryption** — Signal Protocol (X3DH + Double Ratchet) for DMs and channels
-- **Voice, video & screen sharing** — WebRTC via Mediasoup
-- **Federation** — Connect multiple Pulse instances together
-- **Forum channels** — Threaded discussions with tags
-- **Text channels & DMs** — Real-time messaging with file sharing, reactions, and threads
-- **Custom roles & permissions** — Granular access control at server, channel, and user level
-- **Custom emojis** — Upload and manage server emojis
-- **Automod** — Keyword, regex, mention limit, and link filtering rules
-- **Webhooks** — Integrate with external services
-- **OAuth** — Google, Discord, Facebook, Twitch (configurable)
-- **Invite-only mode** — Disable open registration per instance
 
 > [!NOTE]
 > Pulse Chat is in alpha (v0.1.3). Expect bugs and breaking changes between updates.
 
-## Quick Start
+## Why Pulse?
 
-Pulse requires a Supabase instance for authentication and database. You can use [Supabase Cloud](https://supabase.com) or self-host it (either integrated in the deployment or separate). See the [Self-Hosted Supabase Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup including PostgreSQL, GoTrue, and Kong.
+Pulse is a self-hosted alternative to Discord and Slack that puts you in control. Every message can be end-to-end encrypted, voice and video stay on your infrastructure, and federation lets separate instances talk to each other — no central service required.
 
-### Docker (Recommended)
+## What's included
+
+| | |
+|---|---|
+| **Encrypted messaging** | Signal Protocol (X3DH + Double Ratchet) for DMs and channels |
+| **Voice & video** | WebRTC-powered calls with screen sharing via Mediasoup |
+| **Federation** | Link multiple Pulse instances so users can discover and join across servers |
+| **Forum channels** | Threaded discussions with tags for long-form topics |
+| **Channels & DMs** | Real-time text with file uploads, reactions, threads, and mentions |
+| **Roles & permissions** | Granular access control at the server, channel, and user level |
+| **Custom emojis** | Upload and manage emojis per server |
+| **Automod** | Keyword filters, regex rules, mention limits, and link blocking |
+| **Webhooks** | Push events to external services |
+| **OAuth login** | Google, Discord, Facebook, Twitch — toggle each on or off |
+| **Invite-only mode** | Lock down registration so only invited users can join |
+
+## Getting started
+
+Pulse needs a Supabase backend (auth + database). You can use [Supabase Cloud](https://supabase.com) or self-host everything together — see the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup with PostgreSQL, GoTrue, and Kong.
+
+### Docker
 
 ```bash
 docker run \
@@ -49,11 +60,9 @@ docker run \
   ghcr.io/plsechat/pulse-chat:latest
 ```
 
-For production deployments with Supabase included, use the [docker-compose-supabase.yml](docker-compose-supabase.yml) setup described in the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
+For production with Supabase bundled, use [docker-compose-supabase.yml](docker-compose-supabase.yml) from the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
 
-### Linux Binary
-
-Download the latest Linux x64 binary from [Releases](https://github.com/plsechat/pulse-chat/releases).
+### Linux binary
 
 ```bash
 curl -L https://github.com/plsechat/pulse-chat/releases/latest/download/pulse-linux-x64 -o pulse
@@ -61,40 +70,40 @@ chmod +x pulse
 ./pulse
 ```
 
-### First Launch
+### After first launch
 
-1. Open `http://localhost:4991` in your browser
-2. A **security token** will be printed to the server console on first run — save it securely
-3. Create an account and log in
-4. To claim owner permissions: open browser DevTools console and run `useToken('your_token_here')`
+1. Open `http://localhost:4991`
+2. A **security token** prints to the server console on first run — save it
+3. Register and log in
+4. Claim ownership: open the browser console and run `useToken('your_token_here')`
 
 ## Configuration
 
-A default config is generated at `~/.config/pulse/config.ini` on first run.
+A config file is generated at `~/.config/pulse/config.ini` on first run.
 
-| Section | Field | Default | Description |
-|---------|-------|---------|-------------|
-| server | `port` | `4991` | HTTP and WebSocket port |
-| server | `debug` | `false` | Enable debug logging |
-| server | `autoupdate` | `false` | Auto-check and install updates |
-| http | `maxFiles` | `40` | Max files per upload request |
-| http | `maxFileSize` | `100` | Max file size in MB |
-| mediasoup | `worker.rtcMinPort` | `40000` | WebRTC UDP min port |
-| mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC UDP max port |
-| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Voice/video bandwidth (bps) |
-| federation | `enabled` | `false` | Enable federation |
-| federation | `domain` | | Your instance's public domain (required when federation is enabled) |
+| Section | Key | Default | What it does |
+|---|---|---|---|
+| server | `port` | `4991` | HTTP / WebSocket port |
+| server | `debug` | `false` | Verbose logging |
+| server | `autoupdate` | `false` | Auto-check for updates |
+| http | `maxFiles` | `40` | Max files per upload |
+| http | `maxFileSize` | `100` | Max file size (MB) |
+| mediasoup | `worker.rtcMinPort` | `40000` | WebRTC port range start |
+| mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC port range end |
+| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Bandwidth per stream (bps) |
+| federation | `enabled` | `false` | Turn on federation |
+| federation | `domain` | — | Your public domain (required for federation) |
 
 > [!IMPORTANT]
-> The `rtcMinPort`–`rtcMaxPort` range determines how many concurrent voice/video connections your server can handle. Each connection uses one UDP port. These ports must be open in your firewall (TCP and UDP). If using Docker, map this range from host to container.
+> The port range `rtcMinPort`–`rtcMaxPort` controls how many concurrent voice/video connections are possible. Each connection uses one UDP port. Open these ports (TCP + UDP) in your firewall, and map the range in Docker if applicable.
 
 ## HTTPS
 
-Pulse does not handle TLS directly. Use a reverse proxy (Nginx, Caddy, or Traefik) to terminate HTTPS. See the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md) for example configurations.
+Pulse doesn't terminate TLS. Put a reverse proxy in front — Caddy, Nginx, or Traefik all work. The [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md#set-up-https) has example configs for Caddy and Nginx.
 
-## Tech Stack
+## Built with
 
-[Bun](https://bun.sh) · [tRPC](https://trpc.io) · [Mediasoup](https://mediasoup.org) · [Drizzle ORM](https://orm.drizzle.team) · [React](https://react.dev) · [Tailwind CSS](https://tailwindcss.com) · [Supabase](https://supabase.com) · [Signal Protocol](https://signal.org/docs/)
+[Bun](https://bun.sh) · [React](https://react.dev) · [tRPC](https://trpc.io) · [Drizzle ORM](https://orm.drizzle.team) · [Mediasoup](https://mediasoup.org) · [Tailwind CSS](https://tailwindcss.com) · [Supabase](https://supabase.com) · [Signal Protocol](https://signal.org/docs/)
 
 ## License
 
