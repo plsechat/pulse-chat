@@ -5,6 +5,7 @@ import {
 } from '@/features/server/channels/actions';
 import { useActiveThreadId } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
+import { useMessagesByChannelId } from '@/features/server/messages/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission } from '@pulse/shared';
@@ -79,6 +80,31 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Sync live reaction data from Redux for the active thread
+  const activeMessages = useMessagesByChannelId(activeThreadId ?? 0);
+
+  useEffect(() => {
+    if (!activeThreadId || activeMessages.length === 0) return;
+
+    const firstMsg = activeMessages[0];
+    const reactionMap = new Map<string, number>();
+
+    for (const r of firstMsg.reactions) {
+      reactionMap.set(r.emoji, (reactionMap.get(r.emoji) ?? 0) + 1);
+    }
+
+    const liveReactions = [...reactionMap.entries()].map(([emoji, count]) => ({
+      emoji,
+      count
+    }));
+
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === activeThreadId ? { ...t, reactions: liveReactions } : t
+      )
+    );
+  }, [activeThreadId, activeMessages]);
 
   const sortedThreads = useMemo(() => {
     let filtered = activeTagFilter
