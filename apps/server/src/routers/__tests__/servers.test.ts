@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { db } from '../../db';
 import { getServerUnreadCount } from '../../db/queries/servers';
 import { servers } from '../../db/schema';
-import { getCaller, initTest } from '../../__tests__/helpers';
+import { initTest } from '../../__tests__/helpers';
 
 describe('server unread counts', () => {
   test('getServerUnreadCounts returns unread messages from other users', async () => {
@@ -140,7 +140,7 @@ describe('joinFederated password', () => {
 
   test('should reject wrong password for password-protected federated server', async () => {
     const server = await createFederatedServer('secret123');
-    const { caller } = await getCaller(2);
+    const { caller } = await initTest(2);
 
     await expect(
       caller.servers.joinFederated({
@@ -152,7 +152,7 @@ describe('joinFederated password', () => {
 
   test('should reject missing password for password-protected federated server', async () => {
     const server = await createFederatedServer('secret123');
-    const { caller } = await getCaller(2);
+    const { caller } = await initTest(2);
 
     await expect(
       caller.servers.joinFederated({
@@ -163,7 +163,7 @@ describe('joinFederated password', () => {
 
   test('should allow correct password for password-protected federated server', async () => {
     const server = await createFederatedServer('secret123');
-    const { caller } = await getCaller(2);
+    const { caller } = await initTest(2);
 
     const result = await caller.servers.joinFederated({
       publicId: server.publicId,
@@ -176,7 +176,7 @@ describe('joinFederated password', () => {
 
   test('should allow no-password federated server to be joined freely', async () => {
     const server = await createFederatedServer(null);
-    const { caller } = await getCaller(2);
+    const { caller } = await initTest(2);
 
     const result = await caller.servers.joinFederated({
       publicId: server.publicId
@@ -187,7 +187,7 @@ describe('joinFederated password', () => {
 
   test('should skip password for already-member of password-protected server', async () => {
     const server = await createFederatedServer('secret123');
-    const { caller } = await getCaller(2);
+    const { caller } = await initTest(2);
 
     // First join with correct password
     await caller.servers.joinFederated({
