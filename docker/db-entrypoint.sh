@@ -42,7 +42,8 @@ EOSQL
 done
 
 if [ "$SYNCED" -eq 0 ]; then
-  echo "db-entrypoint: WARNING — timed out syncing auth password (role may not exist yet on first boot)"
+  echo "db-entrypoint: FATAL: timed out syncing auth password. Container will restart."
+  exit 1
 fi
 
 # Signal that DB init is complete (used by healthcheck)
