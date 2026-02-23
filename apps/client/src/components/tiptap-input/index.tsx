@@ -81,10 +81,25 @@ const TiptapInput = memo(
       [isDm, roles]
     );
 
-    const mentionChannels = useMemo(
-      () => (isDm ? [] : channels.map((c) => ({ id: c.id, name: c.name, type: c.type }))),
-      [isDm, channels]
-    );
+    const mentionChannels = useMemo(() => {
+      if (isDm) return [];
+
+      const forumIds = new Set(
+        channels.filter((c) => c.type === 'FORUM').map((c) => c.id)
+      );
+      const forumNameMap = new Map(
+        channels.filter((c) => c.type === 'FORUM').map((c) => [c.id, c.name])
+      );
+
+      return channels
+        .filter((c) => c.type === 'TEXT' || (c.type === 'THREAD' && forumIds.has(c.parentChannelId!)))
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          type: c.type,
+          parentName: c.type === 'THREAD' ? forumNameMap.get(c.parentChannelId!) : undefined
+        }));
+    }, [isDm, channels]);
 
     const extensions = useMemo(() => {
       const exts = [

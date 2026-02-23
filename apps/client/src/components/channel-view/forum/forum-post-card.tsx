@@ -1,6 +1,6 @@
-import { useUserById } from '@/features/server/users/hooks';
 import { cn } from '@/lib/utils';
-import { Archive, MessageSquare } from 'lucide-react';
+import { gitHubEmojis } from '@tiptap/extension-emoji';
+import { MessageSquare } from 'lucide-react';
 import { memo, useMemo } from 'react';
 
 type TForumPostCardProps = {
@@ -12,14 +12,25 @@ type TForumPostCardProps = {
     archived: boolean;
     createdAt: number;
     creatorId?: number;
+    creatorName?: string;
+    creatorAvatarId?: number | null;
+    contentPreview?: string;
+    firstImage?: string;
     tags?: { id: number; name: string; color: string }[];
+    reactions?: { emoji: string; count: number }[];
   };
+  isActive?: boolean;
   onClick: (threadId: number) => void;
 };
 
-const ForumPostCard = memo(({ thread, onClick }: TForumPostCardProps) => {
-  const creator = useUserById(thread.creatorId ?? 0);
+const resolveEmoji = (name: string): string => {
+  const found = gitHubEmojis.find(
+    (e) => e.name === name || e.shortcodes.includes(name)
+  );
+  return found?.emoji ?? `:${name}:`;
+};
 
+const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) => {
   const timeAgo = useMemo(() => {
     const ts = thread.lastMessageAt ?? thread.createdAt;
     const diff = Date.now() - ts;
@@ -36,48 +47,66 @@ const ForumPostCard = memo(({ thread, onClick }: TForumPostCardProps) => {
     return `${days}d ago`;
   }, [thread.lastMessageAt, thread.createdAt]);
 
+  // Subtract 1 for the original post message
+  const replyCount = Math.max(0, thread.messageCount - 1);
+
+  const hasReactions = thread.reactions && thread.reactions.length > 0;
+
   return (
     <button
       type="button"
       onClick={() => onClick(thread.id)}
       className={cn(
-        'w-full text-left p-3 rounded-lg border border-border/50 hover:border-border hover:bg-accent/30 transition-all cursor-pointer',
+        'w-full text-left px-3 py-2.5 border-b border-border/20 hover:bg-accent/30 transition-colors cursor-pointer',
+        isActive && 'bg-accent/40',
         thread.archived && 'opacity-60'
       )}
     >
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium truncate">{thread.name}</h3>
-            {thread.archived && (
-              <Archive className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-            {creator && <span>{creator.name}</span>}
-            <span className="flex items-center gap-1">
-              <MessageSquare className="w-3 h-3" />
-              {thread.messageCount}
+      {/* Title */}
+      <h3 className="text-sm font-semibold truncate">{thread.name}</h3>
+
+      {/* Username: content preview */}
+      {(thread.creatorName || thread.contentPreview) && (
+        <p className="text-xs mt-0.5 truncate">
+          {thread.creatorName && (
+            <span className="text-primary font-medium">
+              {thread.creatorName}
             </span>
-            <span>{timeAgo}</span>
-          </div>
-          {thread.tags && thread.tags.length > 0 && (
-            <div className="flex gap-1 mt-1.5 flex-wrap">
-              {thread.tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                  style={{
-                    backgroundColor: `${tag.color}20`,
-                    color: tag.color
-                  }}
-                >
-                  {tag.name}
-                </span>
-              ))}
-            </div>
           )}
+          {thread.creatorName && thread.contentPreview && (
+            <span className="text-muted-foreground">: </span>
+          )}
+          {thread.contentPreview && (
+            <span className="text-muted-foreground">
+              {thread.contentPreview}
+            </span>
+          )}
+        </p>
+      )}
+
+      {/* Reactions */}
+      {hasReactions && (
+        <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+          {thread.reactions!.map((r) => (
+            <span
+              key={r.emoji}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-muted/40 text-xs"
+            >
+              <span className="text-sm">{resolveEmoji(r.emoji)}</span>
+              <span className="text-muted-foreground">{r.count}</span>
+            </span>
+          ))}
         </div>
+      )}
+
+      {/* Footer: reply count + time */}
+      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <MessageSquare className="w-3 h-3" />
+          {replyCount}
+        </span>
+        <span className="text-muted-foreground/60">&middot;</span>
+        <span>{timeAgo}</span>
       </div>
     </button>
   );

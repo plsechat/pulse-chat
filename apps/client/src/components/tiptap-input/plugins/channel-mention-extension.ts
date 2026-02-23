@@ -10,7 +10,7 @@ import {
 export const ChannelMentionPluginKey = new PluginKey('channelMention');
 
 export interface ChannelMentionOptions {
-  channels: { id: number; name: string; type: string }[];
+  channels: { id: number; name: string; type: string; parentName?: string }[];
   suggestion: typeof ChannelMentionSuggestion;
 }
 

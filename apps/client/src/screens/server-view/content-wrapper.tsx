@@ -1,6 +1,7 @@
 import { ForumChannel } from '@/components/channel-view/forum';
 import { TextChannel } from '@/components/channel-view/text';
 import { VoiceChannel } from '@/components/channel-view/voice';
+import { ForumThreadView } from '@/components/thread-panel/forum-thread-view';
 import { ThreadPanel } from '@/components/thread-panel';
 import {
   useActiveThreadId,
@@ -17,6 +18,8 @@ const ContentWrapper = memo(() => {
   const serverName = useServerName();
   const activeThreadId = useActiveThreadId();
 
+  const isForum = selectedChannelType === ChannelType.FORUM;
+
   let content;
 
   if (selectedChannelId) {
@@ -28,7 +31,7 @@ const ContentWrapper = memo(() => {
       content = (
         <VoiceChannel key={selectedChannelId} channelId={selectedChannelId} />
       );
-    } else if (selectedChannelType === ChannelType.FORUM) {
+    } else if (isForum) {
       content = (
         <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
       );
@@ -51,7 +54,14 @@ const ContentWrapper = memo(() => {
       <div className="flex flex-1 flex-col overflow-hidden">
         {content}
       </div>
-      {activeThreadId && <ThreadPanel key={activeThreadId} />}
+      {/* Forum: thread view as right panel */}
+      {activeThreadId && isForum && (
+        <ForumThreadView key={activeThreadId} />
+      )}
+      {/* Non-forum: standard thread side panel */}
+      {activeThreadId && !isForum && (
+        <ThreadPanel key={activeThreadId} />
+      )}
     </main>
   );
 });

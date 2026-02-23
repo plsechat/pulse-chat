@@ -41,7 +41,7 @@ const ThreadListPopover = memo(
           includeArchived: showArchived
         });
 
-        setServerThreads(threads);
+        setServerThreads(threads as TThreadItem[]);
       } catch {
         // Fall back to local data
       } finally {
