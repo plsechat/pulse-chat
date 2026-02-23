@@ -1,4 +1,5 @@
 import { ServerEvents } from '@pulse/shared';
+import { timingSafeEqual } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -11,12 +12,18 @@ import {
 import { servers, userRoles } from '../../db/schema';
 import { logger } from '../../logger';
 import { invariant } from '../../utils/invariant';
+import {
+  checkPasswordRateLimit,
+  recordPasswordFailure,
+  recordPasswordSuccess
+} from '../../utils/password-rate-limit';
 import { protectedProcedure } from '../../utils/trpc';
 
 const joinFederatedRoute = protectedProcedure
   .input(
     z.object({
-      publicId: z.string().min(1)
+      publicId: z.string().min(1),
+      password: z.string().optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -45,13 +52,40 @@ const joinFederatedRoute = protectedProcedure
       message: 'This server is not accepting new members'
     });
 
-    // Check if already a member
+    // Check if already a member (existing members skip password)
     const alreadyMember = await isServerMember(server.id, ctx.userId);
     logger.info('[servers/joinFederated] alreadyMember=%s', alreadyMember);
 
     if (alreadyMember) {
       const userServers = await getServersByUserId(ctx.userId);
       return userServers.find((s) => s.id === server.id)!;
+    }
+
+    // Password check for new members
+    if (server.password) {
+      const rateCheck = checkPasswordRateLimit(ctx.userId, server.id);
+      invariant(rateCheck.allowed, {
+        code: 'TOO_MANY_REQUESTS',
+        message: `Too many failed attempts. Try again in ${Math.ceil(rateCheck.retryAfterMs! / 60000)} minutes.`
+      });
+
+      const passwordValid = (() => {
+        if (!input.password) return false;
+        const a = Buffer.from(input.password);
+        const b = Buffer.from(server.password);
+        if (a.length !== b.length) return false;
+        return timingSafeEqual(a, b);
+      })();
+
+      if (!passwordValid) {
+        recordPasswordFailure(ctx.userId, server.id);
+        invariant(false, {
+          code: 'FORBIDDEN',
+          message: 'Invalid password'
+        });
+      }
+
+      recordPasswordSuccess(ctx.userId, server.id);
     }
 
     // Add member

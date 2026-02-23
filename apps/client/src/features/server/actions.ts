@@ -1,4 +1,3 @@
-import { Dialog } from '@/components/dialogs/dialogs';
 import {
   fetchJoinedServers,
   fetchServerUnreadCounts,
@@ -15,7 +14,6 @@ import { applyServerPreferences } from '@/lib/preferences-apply';
 import { seedPreferencesFromLocalStorage } from '@/lib/preferences-seed';
 import { cleanup, connectToTRPC, getHomeTRPCClient } from '@/lib/trpc';
 import { type TPublicServerSettings, type TServerInfo } from '@pulse/shared';
-import { openDialog } from '../dialogs/actions';
 import { store } from '../store';
 import { setPluginCommands } from './plugins/actions';
 import { infoSelector } from './selectors';
@@ -73,35 +71,25 @@ export const connect = async () => {
     throw new Error('Failed to fetch server info');
   }
 
-  const { serverId } = info;
-
   const host = getHostFromServer();
   const trpc = await connectToTRPC(host);
 
-  const { hasPassword, handshakeHash } = await trpc.others.handshake.query();
+  const { handshakeHash } = await trpc.others.handshake.query();
 
   currentHandshakeHash = handshakeHash;
 
-  if (hasPassword) {
-    // show password prompt
-    openDialog(Dialog.SERVER_PASSWORD, { handshakeHash, serverId });
-    return;
-  }
-
   // Restore last active server from localStorage
   const savedServerId = getSavedActiveServerId();
-  await joinServer(handshakeHash, undefined, savedServerId);
+  await joinServer(handshakeHash, savedServerId);
 };
 
 export const joinServer = async (
   handshakeHash: string,
-  password?: string,
   serverId?: number
 ) => {
   const trpc = getHomeTRPCClient();
   const data = await trpc.others.joinServer.query({
     handshakeHash,
-    password,
     serverId
   });
 

@@ -1,7 +1,6 @@
 export enum LocalStorageKey {
   EMAIL = 'pulse-email',
   REMEMBER_CREDENTIALS = 'pulse-remember-identity',
-  SERVER_PASSWORD = 'pulse-server-password',
   VITE_UI_THEME = 'vite-ui-theme',
   DEVICES_SETTINGS = 'pulse-devices-settings',
   FLOATING_CARD_POSITION = 'pulse-floating-card-position',
