@@ -4,7 +4,8 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
-import { channels, forumPostTags, messages } from '../../db/schema';
+import { channels, forumPostTags, messageFiles, messages } from '../../db/schema';
+import { fileManager } from '../../utils/file-manager';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -79,6 +80,19 @@ const createForumPostRoute = protectedProcedure
 
       return { thread: thread!, message: firstMessage! };
     });
+
+    // Attach files to the initial message
+    if (input.files && input.files.length > 0) {
+      for (const tempFileId of input.files) {
+        const newFile = await fileManager.saveFile(tempFileId, ctx.userId);
+
+        await db.insert(messageFiles).values({
+          messageId: result.message.id,
+          fileId: newFile.id,
+          createdAt: Date.now()
+        });
+      }
+    }
 
     // Publish events
     publishChannel(result.thread.id, 'create');

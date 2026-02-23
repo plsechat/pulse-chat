@@ -5,10 +5,11 @@ import { useCan } from '@/features/server/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission } from '@pulse/shared';
-import { ArrowDownUp, Plus } from 'lucide-react';
+import { ArrowDownUp, Plus, Tags } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
 import { ForumPostCard } from './forum-post-card';
+import { ManageTagsDialog } from './manage-tags-dialog';
 
 type TForumChannelProps = {
   channelId: number;
@@ -23,6 +24,10 @@ type TForumThread = {
   parentChannelId: number;
   createdAt: number;
   creatorId?: number;
+  creatorName?: string;
+  creatorAvatarId?: number | null;
+  contentPreview?: string;
+  firstImage?: string;
   tags?: { id: number; name: string; color: string }[];
 };
 
@@ -40,6 +45,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   const [sortBy, setSortBy] = useState<'latest' | 'creation'>('latest');
   const [activeTagFilter, setActiveTagFilter] = useState<number | null>(null);
   const [showArchived, _setShowArchived] = useState(false);
+  const [showManageTags, setShowManageTags] = useState(false);
   const can = useCan();
 
   const fetchData = useCallback(async () => {
@@ -54,7 +60,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         trpc.threads.getForumTags.query({ channelId })
       ]);
 
-      setThreads(threadsResult);
+      setThreads(threadsResult as TForumThread[]);
       setTags(tagsResult);
     } catch {
       // ignore
@@ -89,6 +95,11 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   const onPostCreated = useCallback(() => {
     setShowCreateDialog(false);
+    fetchData();
+  }, [fetchData]);
+
+  const onManageTagsClose = useCallback(() => {
+    setShowManageTags(false);
     fetchData();
   }, [fetchData]);
 
@@ -169,6 +180,18 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
               <ArrowDownUp className="w-3 h-3" />
               {sortBy === 'latest' ? 'Latest Activity' : 'Creation Date'}
             </Button>
+
+            {can(Permission.MANAGE_CHANNELS) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 gap-1 text-xs"
+                onClick={() => setShowManageTags(true)}
+              >
+                <Tags className="w-3 h-3" />
+                Tags
+              </Button>
+            )}
           </div>
         </div>
 
@@ -184,7 +207,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
               )}
             </div>
           ) : (
-            <div className="space-y-2 max-w-2xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-4xl mx-auto">
               {sortedThreads.map((thread) => (
                 <ForumPostCard
                   key={thread.id}
@@ -201,6 +224,13 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         <CreateForumPostDialog
           channelId={channelId}
           onClose={onPostCreated}
+        />
+      )}
+
+      {showManageTags && (
+        <ManageTagsDialog
+          channelId={channelId}
+          onClose={onManageTagsClose}
         />
       )}
     </>
