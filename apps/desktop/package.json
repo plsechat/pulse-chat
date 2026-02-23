@@ -2,6 +2,7 @@
   "name": "@pulse/desktop",
   "version": "0.0.1",
   "private": true,
+  "author": "Pulse",
   "description": "Pulse Desktop — native Electron wrapper",
   "main": "dist/main.js",
   "scripts": {

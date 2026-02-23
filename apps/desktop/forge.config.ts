@@ -59,6 +59,7 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({
       name: 'Pulse',
+      authors: 'Pulse',
     }),
     new MakerDMG({
       format: 'ULFO',
@@ -67,6 +68,7 @@ const config: ForgeConfig = {
     new MakerDeb({
       options: {
         name: 'pulse-desktop',
+        bin: 'pulse-desktop',
         productName: 'Pulse',
         icon: './assets/icon.png',
         categories: ['Network', 'Chat'],
@@ -75,6 +77,7 @@ const config: ForgeConfig = {
     new MakerRpm({
       options: {
         name: 'pulse-desktop',
+        bin: 'pulse-desktop',
         productName: 'Pulse',
         icon: './assets/icon.png',
         categories: ['Network', 'Chat'],
