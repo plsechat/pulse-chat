@@ -6,7 +6,7 @@ export const DEFAULT_MESSAGES_LIMIT = 100;
 
 export const OWNER_ROLE_ID = 1;
 
-export const TYPING_MS = 300;
+export const TYPING_MS = 2000;
 
 export enum DisconnectCode {
   UNEXPECTED = 1006,

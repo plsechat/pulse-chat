@@ -29,6 +29,17 @@ const MessageEditInline = memo(
 
         try {
           const content = preprocessMarkdown(newValue);
+          const stripped = content
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .trim();
+
+          if (!stripped) {
+            await trpc.messages.delete.mutate({ messageId: message.id });
+            toast.success('Message deleted');
+            onBlur();
+            return;
+          }
 
           if (message.e2ee && ownUserId) {
             const encryptedContent = await encryptChannelMessage(

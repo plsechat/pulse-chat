@@ -850,7 +850,18 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   const handleEditSubmit = useCallback(
     async (newContent: string) => {
       try {
-        await editDmMessage(message.id, preprocessMarkdown(newContent));
+        const content = preprocessMarkdown(newContent);
+        const stripped = content
+          .replace(/<[^>]*>/g, '')
+          .replace(/&nbsp;/g, ' ')
+          .trim();
+
+        if (!stripped) {
+          await deleteDmMessageAction(message.id);
+          toast.success('Message deleted');
+        } else {
+          await editDmMessage(message.id, content);
+        }
         setIsEditing(false);
       } catch {
         toast.error('Failed to edit message');
@@ -1226,7 +1237,6 @@ const DmMessageEdit = memo(
     }, [dmChannels, message.dmChannelId]);
 
     const handleSubmit = useCallback(() => {
-      if (!editContent.trim()) return;
       onSubmit(editContent);
     }, [editContent, onSubmit]);
 
