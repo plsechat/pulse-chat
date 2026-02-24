@@ -323,44 +323,57 @@ const DiscoverView = memo(() => {
 
   const handleJoinFederated = useCallback(
     async (server: TRemoteServerSummary) => {
+      // Prompt for password if the remote server requires one
+      let password: string | undefined;
+      if (server.hasPassword) {
+        const result = await requestTextInput({
+          title: 'Server Password',
+          message: `"${server.name}" on ${server.instanceDomain} requires a password to join.`,
+          type: 'password',
+          confirmLabel: 'Join'
+        });
+        if (!result) return;
+        password = result;
+      }
+
       setJoiningFedPublicId(server.publicId);
 
       try {
         const trpc = getTRPCClient();
 
-        console.log('[handleJoinFederated] joining server:', server.name, 'on', server.instanceDomain, 'publicId:', server.publicId);
-
         // Find the instance
         const instance = instances.find(
           (i) => i.domain === server.instanceDomain
         );
-        console.log('[handleJoinFederated] found instance:', instance);
         if (!instance) throw new Error('Instance not found');
 
         // Get federation token + remote URL
-        console.log('[handleJoinFederated] calling joinRemote with instanceId:', instance.id);
         const { federationToken, remoteUrl } =
           await trpc.federation.joinRemote.mutate({
             instanceId: instance.id,
             remoteServerPublicId: server.publicId
           });
-        console.log('[handleJoinFederated] got token (length:', federationToken.length, '), remoteUrl:', remoteUrl);
 
         const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
 
-        console.log('[handleJoinFederated] calling joinFederatedServer...');
         await joinFederatedServer(
           server.instanceDomain,
           server.instanceName,
           remoteUrl,
           server.publicId,
           federationToken,
-          expiresAt
+          expiresAt,
+          password
         );
-        console.log('[handleJoinFederated] success');
       } catch (error) {
         console.error('[handleJoinFederated] error:', error);
-        toast.error('Failed to join federated server');
+        const errMsg = error instanceof Error ? error.message : '';
+        const msg = errMsg.includes('Invalid password')
+          ? 'Invalid password'
+          : errMsg.includes('Too many failed')
+            ? errMsg
+            : 'Failed to join federated server';
+        toast.error(msg);
       } finally {
         setJoiningFedPublicId(null);
       }

@@ -101,7 +101,7 @@ const ServerIcon = memo(
         <button
           onClick={onClick}
           className={cn(
-            'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden',
+            'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
             isActive
               ? 'bg-primary text-primary-foreground rounded-xl'
               : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
@@ -165,7 +165,7 @@ const FederatedServerIcon = memo(
         <button
           onClick={onClick}
           className={cn(
-            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden',
+            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
             isActive
               ? 'bg-primary text-primary-foreground rounded-xl'
               : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl',
@@ -447,7 +447,7 @@ const ServerStrip = memo(() => {
             <button
               onClick={handleHomeClick}
               className={cn(
-                'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
+                'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
                 activeView === 'home'
                   ? 'bg-primary text-primary-foreground rounded-xl'
                   : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
@@ -639,7 +639,7 @@ const ServerStrip = memo(() => {
         <button
           onClick={handleDiscoverClick}
           className={cn(
-            'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200',
+            'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
             activeView === 'discover'
               ? 'bg-primary text-primary-foreground rounded-xl'
               : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl'

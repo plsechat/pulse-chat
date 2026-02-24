@@ -89,7 +89,7 @@ export const switchServer = async (
   }
 
   // Re-join with the new serverId to load its data
-  await joinServer(handshakeHash, undefined, serverId);
+  await joinServer(handshakeHash, serverId);
 };
 
 export const createServer = async (
@@ -300,7 +300,8 @@ export const joinFederatedServer = async (
   remoteUrl: string,
   remoteServerPublicId: string,
   federationToken: string,
-  tokenExpiresAt: number
+  tokenExpiresAt: number,
+  password?: string
 ) => {
   try {
     console.log('[joinFederatedServer] connecting to remote:', instanceDomain, remoteUrl);
@@ -316,7 +317,8 @@ export const joinFederatedServer = async (
 
     // Join the remote server via the federated join route
     const server = await remoteTrpc.servers.joinFederated.mutate({
-      publicId: remoteServerPublicId
+      publicId: remoteServerPublicId,
+      password
     });
     console.log('[joinFederatedServer] joined server:', server);
 
@@ -353,7 +355,7 @@ export const joinFederatedServer = async (
     return entry;
   } catch (error) {
     console.error('[joinFederatedServer] error:', error);
-    toast.error('Failed to join federated server');
+    throw error;
   }
 };
 
@@ -497,6 +499,23 @@ export const switchToFederatedServer = async (
     initE2EEForInstance(instanceDomain).catch((err) =>
       console.error('[E2EE] Federation E2EE init failed:', err)
     );
+
+    // Self-heal: fetch full server info if logo is missing
+    if (!entry.server.logo) {
+      remoteTrpc.servers.getAll.query().then((servers) => {
+        const match = servers.find((s) => s.id === serverId);
+        if (match) {
+          store.dispatch(
+            appSliceActions.updateFederatedServerInfo({
+              instanceDomain,
+              serverId,
+              server: match
+            })
+          );
+          saveFederatedServers();
+        }
+      }).catch(() => {});
+    }
   } catch (error) {
     console.error('Failed to load federated server data:', error);
     toast.error('Failed to connect to federated server');
@@ -560,6 +579,14 @@ export const loadFederatedServers = async () => {
       return;
     }
 
+    // Preserve logos from previously saved entries (the API doesn't return them)
+    const saved = getLocalStorageItemAsJSON<TFederatedServerEntry[]>(
+      LocalStorageKey.FEDERATED_SERVERS
+    );
+    const savedLogoMap = new Map(
+      (saved ?? []).map((e) => [`${e.instanceDomain}:${e.server.id}`, e.server.logo])
+    );
+
     const entries: TFederatedServerEntry[] = [];
     for (const m of memberships) {
       try {
@@ -579,7 +606,7 @@ export const loadFederatedServers = async () => {
             id: m.remoteServerId,
             publicId: m.remoteServerPublicId,
             name: m.remoteServerName ?? 'Unknown Server',
-            logo: null
+            logo: savedLogoMap.get(`${m.instanceDomain}:${m.remoteServerId}`) ?? null
           },
           federationToken: token,
           tokenExpiresAt: expiresAt

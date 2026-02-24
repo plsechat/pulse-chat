@@ -154,6 +154,23 @@ export const appSlice = createSlice({
         }
       }
     },
+    updateFederatedServerInfo: (
+      state,
+      action: PayloadAction<{
+        instanceDomain: string;
+        serverId: number;
+        server: TServerSummary;
+      }>
+    ) => {
+      const entry = state.federatedServers.find(
+        (s) =>
+          s.instanceDomain === action.payload.instanceDomain &&
+          s.server.id === action.payload.serverId
+      );
+      if (entry) {
+        entry.server = action.payload.server;
+      }
+    },
     setServerUnreadCounts: (
       state,
       action: PayloadAction<Record<number, number>>

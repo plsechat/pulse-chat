@@ -15,6 +15,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { findOrCreateShadowUser, syncShadowUserAvatar } from '../db/mutations/federation';
 import { invalidateCorsCache } from './cors';
 import { pubsub } from '../utils/pubsub';
+import { validateFederationUrl } from '../utils/validate-url';
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
 
@@ -113,7 +114,9 @@ const federationRequestHandler = async (
   // attacker can't claim "victim.com" because we verify the key at that URL.
   try {
     const protocol = domain.includes('localhost') ? 'http' : 'https';
-    const infoRes = await fetch(`${protocol}://${domain}/federation/info`, {
+    const federationInfoUrl = `${protocol}://${domain}/federation/info`;
+    const validatedUrl = await validateFederationUrl(federationInfoUrl);
+    const infoRes = await fetch(validatedUrl.href, {
       signal: AbortSignal.timeout(10_000)
     });
 

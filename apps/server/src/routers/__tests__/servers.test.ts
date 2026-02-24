@@ -1,5 +1,14 @@
+import {
+  STORAGE_MAX_FILE_SIZE,
+  STORAGE_MIN_QUOTA_PER_USER,
+  STORAGE_OVERFLOW_ACTION,
+  STORAGE_QUOTA
+} from '@pulse/shared';
+import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
+import { db } from '../../db';
 import { getServerUnreadCount } from '../../db/queries/servers';
+import { servers } from '../../db/schema';
 import { initTest } from '../../__tests__/helpers';
 
 describe('server unread counts', () => {
@@ -103,5 +112,94 @@ describe('server unread counts', () => {
 
     const { unreadCounts: counts } = await caller.servers.getUnreadCounts();
     expect(counts[1] ?? 0).toBe(0);
+  });
+});
+
+describe('joinFederated password', () => {
+  const createFederatedServer = async (password: string | null) => {
+    const publicId = randomUUIDv7();
+    const [server] = await db
+      .insert(servers)
+      .values({
+        name: 'Federated Test Server',
+        password,
+        publicId,
+        allowNewUsers: true,
+        storageUploadEnabled: true,
+        storageQuota: STORAGE_QUOTA,
+        storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+        storageSpaceQuotaByUser: STORAGE_MIN_QUOTA_PER_USER,
+        storageOverflowAction: STORAGE_OVERFLOW_ACTION,
+        enablePlugins: false,
+        federatable: true,
+        createdAt: Date.now()
+      })
+      .returning();
+    return server!;
+  };
+
+  test('should reject wrong password for password-protected federated server', async () => {
+    const server = await createFederatedServer('secret123');
+    const { caller } = await initTest(2);
+
+    await expect(
+      caller.servers.joinFederated({
+        publicId: server.publicId,
+        password: 'wrongpassword'
+      })
+    ).rejects.toThrow('Invalid password');
+  });
+
+  test('should reject missing password for password-protected federated server', async () => {
+    const server = await createFederatedServer('secret123');
+    const { caller } = await initTest(2);
+
+    await expect(
+      caller.servers.joinFederated({
+        publicId: server.publicId
+      })
+    ).rejects.toThrow('Invalid password');
+  });
+
+  test('should allow correct password for password-protected federated server', async () => {
+    const server = await createFederatedServer('secret123');
+    const { caller } = await initTest(2);
+
+    const result = await caller.servers.joinFederated({
+      publicId: server.publicId,
+      password: 'secret123'
+    });
+
+    expect(result).toHaveProperty('id', server.id);
+    expect(result).toHaveProperty('name', 'Federated Test Server');
+  });
+
+  test('should allow no-password federated server to be joined freely', async () => {
+    const server = await createFederatedServer(null);
+    const { caller } = await initTest(2);
+
+    const result = await caller.servers.joinFederated({
+      publicId: server.publicId
+    });
+
+    expect(result).toHaveProperty('id', server.id);
+  });
+
+  test('should skip password for already-member of password-protected server', async () => {
+    const server = await createFederatedServer('secret123');
+    const { caller } = await initTest(2);
+
+    // First join with correct password
+    await caller.servers.joinFederated({
+      publicId: server.publicId,
+      password: 'secret123'
+    });
+
+    // Second join without password — should succeed (already a member)
+    const result = await caller.servers.joinFederated({
+      publicId: server.publicId
+    });
+
+    expect(result).toHaveProperty('id', server.id);
   });
 });

@@ -1,0 +1,9 @@
+queries:
+  - uses: security-and-quality
+  - uses: ./.github/codeql/custom-queries
+
+query-filters:
+  # Exclude the built-in js/request-forgery query so our custom version
+  # (with the validateFederationUrl sanitizer) takes its place.
+  - exclude:
+      id: js/request-forgery

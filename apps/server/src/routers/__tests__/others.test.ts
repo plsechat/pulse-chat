@@ -47,24 +47,32 @@ describe('others router', () => {
     }
   });
 
-  test('should ask for password if server has one set', async () => {
+  test('handshake should not include hasPassword', async () => {
     const { caller } = await initTest(1);
-    const { hasPassword } = await caller.others.handshake();
 
-    expect(hasPassword).toBe(false);
+    await caller.others.updateSettings({ serverId: 1, password: 'testpassword' });
 
-    await caller.others.updateSettings({ serverId: 1,
-      password: 'testpassword'
-    });
-
-    const { hasPassword: hasPasswordAfter } = await caller.others.handshake();
-
-    expect(hasPasswordAfter).toBe(true);
+    const result = await caller.others.handshake();
+    expect(result).not.toHaveProperty('hasPassword');
+    expect(result).toHaveProperty('handshakeHash');
 
     // Clean up
-    await caller.others.updateSettings({ serverId: 1,
-      password: null
-    });
+    await caller.others.updateSettings({ serverId: 1, password: null });
+  });
+
+  test('should allow existing member to join without password even if server has one', async () => {
+    const { caller } = await initTest(1);
+
+    await caller.others.updateSettings({ serverId: 1, password: 'testpassword' });
+
+    const { handshakeHash } = await caller.others.handshake();
+    const result = await caller.others.joinServer({ handshakeHash });
+
+    expect(result).toHaveProperty('categories');
+    expect(result).toHaveProperty('channels');
+
+    // Clean up
+    await caller.others.updateSettings({ serverId: 1, password: null });
   });
 
   test('should update server settings', async () => {

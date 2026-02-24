@@ -14,7 +14,6 @@ import {
   type TUserPreferences,
   type TVoiceMap
 } from '@pulse/shared';
-import { timingSafeEqual } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -24,10 +23,7 @@ import {
 } from '../../db/queries/channels';
 import { getEmojis } from '../../db/queries/emojis';
 import { getRolesForServer } from '../../db/queries/roles';
-import {
-  getFirstServerPassword,
-  getServerPublicSettings
-} from '../../db/queries/server';
+import { getServerPublicSettings } from '../../db/queries/server';
 import {
   getServerById,
   getServerMemberIds,
@@ -43,32 +39,23 @@ import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueLogin } from '../../queues/logins';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
-import {
-  checkPasswordRateLimit,
-  recordPasswordFailure,
-  recordPasswordSuccess
-} from '../../utils/password-rate-limit';
 import { t } from '../../utils/trpc';
 
 const joinServerRoute = t.procedure
   .input(
     z.object({
       handshakeHash: z.string(),
-      password: z.string().optional(),
       serverId: z.number().optional()
     })
   )
   .query(async ({ input, ctx }) => {
-    const serverPassword = await getFirstServerPassword();
-    const hasPassword = !!serverPassword;
-
     invariant(ctx.user, {
       code: 'UNAUTHORIZED',
       message: 'User not authenticated'
     });
 
     // Federated users are already authenticated via their token — skip
-    // handshake and password validation which are for local auth only
+    // handshake validation which is for local auth only
     if (!ctx.user.isFederated) {
       invariant(
         input.handshakeHash &&
@@ -79,36 +66,6 @@ const joinServerRoute = t.procedure
           message: 'Invalid handshake hash'
         }
       );
-
-      if (hasPassword) {
-        const rateCheck = checkPasswordRateLimit(ctx.user.id, 'handshake');
-        invariant(rateCheck.allowed, {
-          code: 'TOO_MANY_REQUESTS',
-          message: `Too many failed attempts. Try again in ${Math.ceil(rateCheck.retryAfterMs! / 60000)} minutes.`
-        });
-      }
-
-      const passwordValid = hasPassword
-        ? (() => {
-            if (!input.password || !serverPassword) return false;
-            const a = Buffer.from(input.password);
-            const b = Buffer.from(serverPassword);
-            if (a.length !== b.length) return false;
-            return timingSafeEqual(a, b);
-          })()
-        : true;
-
-      if (!passwordValid) {
-        recordPasswordFailure(ctx.user.id, 'handshake');
-        invariant(false, {
-          code: 'FORBIDDEN',
-          message: 'Invalid password'
-        });
-      }
-
-      if (hasPassword) {
-        recordPasswordSuccess(ctx.user.id, 'handshake');
-      }
     }
 
     ctx.authenticated = true;
