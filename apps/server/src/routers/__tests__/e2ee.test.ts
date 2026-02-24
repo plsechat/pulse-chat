@@ -502,7 +502,8 @@ describe('e2ee router', () => {
   test('should return null for user with no identity key', async () => {
     const { caller } = await initTest();
 
-    const key = await caller.e2ee.getIdentityPublicKey({ userId: 999 });
+    // User 3 is in the same server but has no identity key registered
+    const key = await caller.e2ee.getIdentityPublicKey({ userId: 3 });
     expect(key).toBeNull();
   });
 

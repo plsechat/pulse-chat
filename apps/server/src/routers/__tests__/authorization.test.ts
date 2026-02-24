@@ -16,7 +16,7 @@ async function createSecondServer() {
 
   const [server2] = await tdb.execute(sql`
     INSERT INTO servers (name, description, password, public_id, secret_token,
-      allow_new_users, storage_upload_enabled, storage_quota,
+      allow_new_users, storage_uploads_enabled, storage_quota,
       storage_upload_max_file_size, storage_space_quota_by_user,
       storage_overflow_action, enable_plugins, owner_id, created_at)
     VALUES ('Server 2', 'Second test server', '', ${randomUUIDv7()},
@@ -139,8 +139,8 @@ describe('cross-server authorization', () => {
     const now = Date.now();
 
     const [user4] = await tdb.execute(sql`
-      INSERT INTO users (name, supabase_id, public_id, created_at)
-      VALUES ('Server2 Only User', ${`s2-only-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now})
+      INSERT INTO users (name, supabase_id, public_id, created_at, last_login_at)
+      VALUES ('Server2 Only User', ${`s2-only-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now}, ${now})
       RETURNING id
     `);
 
@@ -161,8 +161,8 @@ describe('cross-server authorization', () => {
     const now = Date.now();
 
     const [user4] = await tdb.execute(sql`
-      INSERT INTO users (name, supabase_id, public_id, created_at)
-      VALUES ('Server2 Only User2', ${`s2-only2-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now})
+      INSERT INTO users (name, supabase_id, public_id, created_at, last_login_at)
+      VALUES ('Server2 Only User2', ${`s2-only2-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now}, ${now})
       RETURNING id
     `);
 
@@ -261,8 +261,8 @@ describe('E2EE authorization', () => {
 
     // Create an isolated user with no shared servers
     const [isolated] = await tdb.execute(sql`
-      INSERT INTO users (name, supabase_id, public_id, created_at)
-      VALUES ('Isolated User', ${`isolated-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now})
+      INSERT INTO users (name, supabase_id, public_id, created_at, last_login_at)
+      VALUES ('Isolated User', ${`isolated-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now}, ${now})
       RETURNING id
     `);
 
@@ -280,8 +280,8 @@ describe('E2EE authorization', () => {
     const now = Date.now();
 
     const [isolated] = await tdb.execute(sql`
-      INSERT INTO users (name, supabase_id, public_id, created_at)
-      VALUES ('Isolated User 2', ${`isolated2-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now})
+      INSERT INTO users (name, supabase_id, public_id, created_at, last_login_at)
+      VALUES ('Isolated User 2', ${`isolated2-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now}, ${now})
       RETURNING id
     `);
 
