@@ -1,5 +1,5 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
@@ -20,7 +20,12 @@ const deleteChannelRoute = protectedProcedure
 
     const [removedChannel] = await db
       .delete(channels)
-      .where(eq(channels.id, input.channelId))
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId!)
+        )
+      )
       .returning();
 
     invariant(removedChannel, {

@@ -3,7 +3,7 @@ import {
   type TJoinedUser,
   type TStorageData
 } from '@pulse/shared';
-import { count, eq, inArray, sum } from 'drizzle-orm';
+import { count, eq, inArray, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { supabaseAdmin } from '../../utils/supabase';
@@ -185,7 +185,9 @@ const getPublicUsers = async (
         avatar: avatarFiles,
         banner: bannerFiles,
         createdAt: users.createdAt,
-        _identity: users.supabaseId
+        _identity: sql<string | null>`NULL`.as('_identity'),
+        isFederated: users.isFederated,
+        federatedInstanceId: users.federatedInstanceId
       })
       .from(users)
       .leftJoin(avatarFiles, eq(users.avatarId, avatarFiles.id))
@@ -207,21 +209,50 @@ const getPublicUsers = async (
       {} as Record<number, number[]>
     );
 
-    return results.map((result) => ({
-      id: result.id,
-      name: result.name,
-      publicId: result.publicId,
-      bannerColor: result.bannerColor,
-      bio: result.bio,
-      banned: result.banned,
-      avatarId: result.avatarId,
-      bannerId: result.bannerId,
-      avatar: result.avatar,
-      banner: result.banner,
-      createdAt: result.createdAt,
-      _identity: result._identity,
-      roleIds: rolesMap[result.id] || []
-    }));
+    // Resolve federated identities
+    const federatedInstanceIds = [
+      ...new Set(
+        results
+          .filter((r) => r.isFederated && r.federatedInstanceId)
+          .map((r) => r.federatedInstanceId!)
+      )
+    ];
+
+    const instanceDomainMap: Record<number, string> = {};
+    if (federatedInstanceIds.length > 0) {
+      const instances = await db
+        .select({ id: federationInstances.id, domain: federationInstances.domain })
+        .from(federationInstances);
+      for (const inst of instances) {
+        instanceDomainMap[inst.id] = inst.domain;
+      }
+    }
+
+    return results.map((result) => {
+      let identity: string | undefined;
+      if (result.isFederated && result.federatedInstanceId) {
+        const domain = instanceDomainMap[result.federatedInstanceId];
+        if (domain) {
+          identity = `${result.name}@${domain}`;
+        }
+      }
+
+      return {
+        id: result.id,
+        name: result.name,
+        publicId: result.publicId,
+        bannerColor: result.bannerColor,
+        bio: result.bio,
+        banned: result.banned,
+        avatarId: result.avatarId,
+        bannerId: result.bannerId,
+        avatar: result.avatar,
+        banner: result.banner,
+        createdAt: result.createdAt,
+        _identity: identity,
+        roleIds: rolesMap[result.id] || []
+      };
+    });
   } else {
     const results = await db
       .select({
@@ -515,7 +546,7 @@ const getPublicUsersForServer = async (
       avatar: avatarFiles,
       banner: bannerFiles,
       createdAt: users.createdAt,
-      _identity: users.supabaseId,
+      _identity: sql<string | null>`NULL`.as('_identity'),
       isFederated: users.isFederated,
       federatedInstanceId: users.federatedInstanceId,
       nickname: serverMembers.nickname
@@ -562,7 +593,7 @@ const getPublicUsersForServer = async (
   }
 
   return results.map((result) => {
-    let identity = result._identity;
+    let identity: string | undefined;
 
     // For federated users, set _identity to username@domain
     if (result.isFederated && result.federatedInstanceId) {

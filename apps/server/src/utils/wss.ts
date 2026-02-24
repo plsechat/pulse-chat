@@ -146,21 +146,27 @@ const createContext = async ({
     _cachedChannelPerms = undefined;
   };
 
+  const _activeServer = { id: undefined as number | undefined };
+
   const hasPermission = async (
     targetPermission: Permission | Permission[],
     serverId?: number
   ) => {
+    // Default to the active server so callers that omit serverId
+    // are scoped to the current server instead of checking globally.
+    const effectiveServerId = serverId ?? _activeServer.id;
+
     const user = await getCachedUser();
 
     if (!user) return false;
 
     // Check if user is the server owner (bypasses all permission checks)
-    if (serverId) {
-      const server = await getCachedServer(serverId);
+    if (effectiveServerId) {
+      const server = await getCachedServer(effectiveServerId);
       if (server && server.ownerId === user.id) return true;
     }
 
-    const roles = await getCachedUserRoles(user.id, serverId);
+    const roles = await getCachedUserRoles(user.id, effectiveServerId);
 
     const permissionsSet = new Set<Permission>();
 
@@ -303,7 +309,8 @@ const createContext = async ({
     authenticated: isFederated,
     userId: decodedUser.id,
     handshakeHash: '',
-    activeServerId: undefined,
+    get activeServerId() { return _activeServer.id; },
+    set activeServerId(id: number | undefined) { _activeServer.id = id; },
     currentVoiceChannelId: undefined,
     currentDmVoiceChannelId: undefined,
     hasPermission,

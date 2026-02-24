@@ -1,5 +1,5 @@
 import { ActivityLogType, OWNER_ROLE_ID, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
@@ -30,11 +30,16 @@ const updateChannelRoute = protectedProcedure
         message: 'E2EE cannot be disabled once enabled'
       });
 
-      // Look up the channel's server and verify caller is server owner
+      // Look up the channel and verify it belongs to the caller's active server
       const [channel] = await db
         .select({ serverId: channels.serverId })
         .from(channels)
-        .where(eq(channels.id, input.channelId))
+        .where(
+          and(
+            eq(channels.id, input.channelId),
+            eq(channels.serverId, ctx.activeServerId!)
+          )
+        )
         .limit(1);
 
       invariant(channel, {
@@ -69,7 +74,12 @@ const updateChannelRoute = protectedProcedure
         slowMode: input.slowMode,
         e2ee: input.e2ee
       })
-      .where(eq(channels.id, input.channelId))
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId!)
+        )
+      )
       .returning();
 
     publishChannel(updatedChannel!.id, 'update');
