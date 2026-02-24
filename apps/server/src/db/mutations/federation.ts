@@ -124,7 +124,7 @@ async function syncShadowUserAvatar(
 ): Promise<void> {
   try {
     // Validate URL is safe (not internal/private IP)
-    await validateFederationUrl(remoteAvatarUrl);
+    const validatedUrl = await validateFederationUrl(remoteAvatarUrl);
 
     // Skip if shadow already has an avatar
     const [shadow] = await db
@@ -135,7 +135,7 @@ async function syncShadowUserAvatar(
 
     if (shadow?.avatarId) return;
 
-    const response = await fetch(remoteAvatarUrl, {
+    const response = await fetch(validatedUrl.href, {
       signal: AbortSignal.timeout(10_000)
     });
     if (!response.ok) return;

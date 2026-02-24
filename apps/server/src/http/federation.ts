@@ -115,8 +115,8 @@ const federationRequestHandler = async (
   try {
     const protocol = domain.includes('localhost') ? 'http' : 'https';
     const federationInfoUrl = `${protocol}://${domain}/federation/info`;
-    await validateFederationUrl(federationInfoUrl);
-    const infoRes = await fetch(federationInfoUrl, {
+    const validatedUrl = await validateFederationUrl(federationInfoUrl);
+    const infoRes = await fetch(validatedUrl.href, {
       signal: AbortSignal.timeout(10_000)
     });
 

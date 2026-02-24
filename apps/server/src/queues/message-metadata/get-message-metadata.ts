@@ -23,7 +23,7 @@ export const urlMetadataParser = async (
       .filter((url) => {
         try {
           const hostname = new URL(url).hostname;
-          return !hostname.endsWith('giphy.com');
+          return hostname !== 'giphy.com' && !hostname.endsWith('.giphy.com');
         } catch {
           return false;
         }
