@@ -135,7 +135,7 @@ const createContext = async ({
 
   const getCachedChannelPermissions = async () => {
     if (!_cachedChannelPerms)
-      _cachedChannelPerms = await getAllChannelUserPermissions(decodedUser.id);
+      _cachedChannelPerms = await getAllChannelUserPermissions(decodedUser.id, _activeServer.id);
     return _cachedChannelPerms;
   };
 
@@ -398,11 +398,30 @@ const createWsServer = async (server: http.Server) => {
         if (voiceRuntime) {
           voiceRuntime.removeUser(user.id);
 
-          pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
-            channelId: voiceRuntime.id,
-            userId: user.id,
-            startedAt: voiceRuntime.getState().startedAt
-          });
+          // Scope voice leave to server members or DM members
+          if (voiceRuntime.isDmVoice) {
+            const { getDmChannelMemberIds } = await import('../db/queries/dms');
+            const dmMemberIds = await getDmChannelMemberIds(voiceRuntime.id);
+            pubsub.publishFor(dmMemberIds, ServerEvents.USER_LEAVE_VOICE, {
+              channelId: voiceRuntime.id,
+              userId: user.id,
+              startedAt: voiceRuntime.getState().startedAt
+            });
+          } else {
+            const [ch] = await db
+              .select({ serverId: channels.serverId })
+              .from(channels)
+              .where(eq(channels.id, voiceRuntime.id))
+              .limit(1);
+            if (ch) {
+              const voiceMemberIds = await getServerMemberIds(ch.serverId);
+              pubsub.publishFor(voiceMemberIds, ServerEvents.USER_LEAVE_VOICE, {
+                channelId: voiceRuntime.id,
+                userId: user.id,
+                startedAt: voiceRuntime.getState().startedAt
+              });
+            }
+          }
 
           // If this was a DM voice call and no users remain, destroy the runtime
           if (voiceRuntime.isDmVoice && voiceRuntime.getState().users.length === 0) {

@@ -159,19 +159,33 @@ const getChannelsForUser = async (userId: number): Promise<TChannel[]> => {
 };
 
 const getAllChannelUserPermissions = async (
-  userId: number
+  userId: number,
+  serverId?: number
 ): Promise<TChannelUserPermissionsMap> => {
   const roleIds = await getUserRoleIds(userId);
-  const allChannels = await db.select().from(channels);
+  const allChannels = serverId
+    ? await db.select().from(channels).where(eq(channels.serverId, serverId))
+    : await db.select().from(channels);
 
-  const userPermissions = await db
+  const channelIds = serverId
+    ? allChannels.map((c) => c.id)
+    : undefined;
+
+  let userPermissions = await db
     .select({
       channelId: channelUserPermissions.channelId,
       permission: channelUserPermissions.permission,
       allow: channelUserPermissions.allow
     })
     .from(channelUserPermissions)
-    .where(eq(channelUserPermissions.userId, userId));
+    .where(
+      channelIds && channelIds.length > 0
+        ? and(
+            eq(channelUserPermissions.userId, userId),
+            inArray(channelUserPermissions.channelId, channelIds)
+          )
+        : eq(channelUserPermissions.userId, userId)
+    );
 
   let rolePermissions: typeof userPermissions = [];
 
@@ -183,7 +197,14 @@ const getAllChannelUserPermissions = async (
         allow: channelRolePermissions.allow
       })
       .from(channelRolePermissions)
-      .where(inArray(channelRolePermissions.roleId, roleIds));
+      .where(
+        channelIds && channelIds.length > 0
+          ? and(
+              inArray(channelRolePermissions.roleId, roleIds),
+              inArray(channelRolePermissions.channelId, channelIds)
+            )
+          : inArray(channelRolePermissions.roleId, roleIds)
+      );
   }
 
   const userPermMap = new Map<number, Map<ChannelPermission, boolean>>();
@@ -398,9 +419,12 @@ const getAffectedUserIdsForChannel = async (
 
 const getChannelsReadStatesForUser = async (
   userId: number,
-  channelId?: number
+  channelId?: number,
+  serverId?: number
 ): Promise<{ readStates: TReadStateMap; mentionStates: TMentionStateMap; lastReadMessageIds: TLastReadMessageIdMap }> => {
-  const results = await db
+  const needsChannelJoin = !channelId && serverId;
+
+  const query = db
     .select({
       channelId: messages.channelId,
       lastReadMessageId: sql<number | null>`MAX(${channelReadStates.lastReadMessageId})`.as('last_read_message_id'),
@@ -429,9 +453,21 @@ const getChannelsReadStatesForUser = async (
         eq(channelReadStates.channelId, messages.channelId),
         eq(channelReadStates.userId, userId)
       )
-    )
-    .where(channelId ? eq(messages.channelId, channelId) : undefined)
-    .groupBy(messages.channelId);
+    );
+
+  if (needsChannelJoin) {
+    query.innerJoin(channels, eq(channels.id, messages.channelId));
+  }
+
+  const whereConditions: ReturnType<typeof eq>[] = [];
+  if (channelId) whereConditions.push(eq(messages.channelId, channelId));
+  if (needsChannelJoin) whereConditions.push(eq(channels.serverId, serverId));
+
+  if (whereConditions.length > 0) {
+    query.where(whereConditions.length === 1 ? whereConditions[0] : and(...whereConditions));
+  }
+
+  const results = await query.groupBy(messages.channelId);
 
   const readStates: TReadStateMap = {};
   const mentionStates: TMentionStateMap = {};

@@ -17,7 +17,11 @@ import type {
   WebRtcTransport,
   WebRtcTransportOptions
 } from 'mediasoup/types';
+import { eq } from 'drizzle-orm';
 import { config, SERVER_PUBLIC_IP } from '../config';
+import { db } from '../db';
+import { getServerMemberIds } from '../db/queries/servers';
+import { channels } from '../db/schema';
 import { logger } from '../logger';
 import { eventBus } from '../plugins/event-bus';
 import { IS_PRODUCTION } from '../utils/env';
@@ -141,6 +145,7 @@ class VoiceRuntime {
   private externalStreamsInternal: {
     [streamId: number]: TExternalStreamInternal;
   } = {};
+  private _cachedServerId: number | undefined;
 
   constructor(channelId: number, isDmVoice = false) {
     this.id = channelId;
@@ -164,10 +169,12 @@ class VoiceRuntime {
     return undefined;
   };
 
-  public static getVoiceMap = (): TVoiceMap => {
+  public static getVoiceMap = (channelIds?: Set<number>): TVoiceMap => {
     const map: TVoiceMap = {};
 
     voiceRuntimes.forEach((runtime, channelId) => {
+      if (channelIds && !channelIds.has(channelId)) return;
+
       const channelState = runtime.getState();
 
       const entry: TVoiceMap[number] = {
@@ -185,10 +192,14 @@ class VoiceRuntime {
     return map;
   };
 
-  public static getExternalStreamsMap = (): TExternalStreamsMap => {
+  public static getExternalStreamsMap = (
+    channelIds?: Set<number>
+  ): TExternalStreamsMap => {
     const map: TExternalStreamsMap = {};
 
     voiceRuntimes.forEach((runtime, channelId) => {
+      if (channelIds && !channelIds.has(channelId)) return;
+
       if (map[channelId]) {
         map[channelId] = [];
       }
@@ -197,6 +208,20 @@ class VoiceRuntime {
     });
 
     return map;
+  };
+
+  private getServerMemberIdsForChannel = async (): Promise<number[]> => {
+    if (this.isDmVoice) return [];
+    if (!this._cachedServerId) {
+      const [ch] = await db
+        .select({ serverId: channels.serverId })
+        .from(channels)
+        .where(eq(channels.id, this.id))
+        .limit(1);
+      if (ch) this._cachedServerId = ch.serverId;
+    }
+    if (!this._cachedServerId) return [];
+    return getServerMemberIds(this._cachedServerId);
   };
 
   public init = async (): Promise<void> => {
@@ -637,10 +662,16 @@ class VoiceRuntime {
             video: !!internal.producers.videoProducer
           };
 
-          pubsub.publish(ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM, {
-            channelId: this.id,
-            streamId,
-            stream: existingStream
+          this.getServerMemberIdsForChannel().then((memberIds) => {
+            pubsub.publishFor(
+              memberIds,
+              ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM,
+              {
+                channelId: this.id,
+                streamId,
+                stream: existingStream
+              }
+            );
           });
         }
       }
@@ -668,9 +699,11 @@ class VoiceRuntime {
     delete this.externalStreamsInternal[streamId];
     delete this.state.externalStreams[streamId];
 
-    pubsub.publish(ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM, {
-      channelId: this.id,
-      streamId
+    this.getServerMemberIdsForChannel().then((memberIds) => {
+      pubsub.publishFor(memberIds, ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM, {
+        channelId: this.id,
+        streamId
+      });
     });
   };
 
@@ -762,10 +795,12 @@ class VoiceRuntime {
       };
     }
 
-    pubsub.publish(ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM, {
-      channelId: this.id,
-      streamId,
-      stream: publicStream
+    this.getServerMemberIdsForChannel().then((memberIds) => {
+      pubsub.publishFor(memberIds, ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM, {
+        channelId: this.id,
+        streamId,
+        stream: publicStream
+      });
     });
   };
 

@@ -10,6 +10,7 @@ import {
   userOneTimePreKeys,
   userSignedPreKeys
 } from '../../db/schema';
+import { getCoMemberIds } from '../../db/queries/servers';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, t } from '../../utils/trpc';
@@ -117,7 +118,8 @@ const registerKeysRoute = protectedProcedure
         console.error('[E2EE] insertIdentityResetMessages failed:', err);
       }
 
-      pubsub.publish(ServerEvents.E2EE_IDENTITY_RESET, {
+      const coMemberIds = await getCoMemberIds(ctx.userId);
+      pubsub.publishFor(coMemberIds, ServerEvents.E2EE_IDENTITY_RESET, {
         userId: ctx.userId
       });
     }
@@ -451,9 +453,11 @@ const onSenderKeyDistributionRoute = protectedProcedure.subscription(
   }
 );
 
-const onIdentityResetRoute = protectedProcedure.subscription(async () => {
-  return pubsub.subscribe(ServerEvents.E2EE_IDENTITY_RESET);
-});
+const onIdentityResetRoute = protectedProcedure.subscription(
+  async ({ ctx }) => {
+    return pubsub.subscribeFor(ctx.userId, ServerEvents.E2EE_IDENTITY_RESET);
+  }
+);
 
 export const e2eeRouter = t.router({
   registerKeys: registerKeysRoute,

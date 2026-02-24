@@ -3,19 +3,19 @@ import { protectedProcedure } from '../../utils/trpc';
 
 const onThreadCreateRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.THREAD_CREATE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.THREAD_CREATE);
   }
 );
 
 const onThreadUpdateRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.THREAD_UPDATE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.THREAD_UPDATE);
   }
 );
 
 const onThreadDeleteRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.THREAD_DELETE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.THREAD_DELETE);
   }
 );
 

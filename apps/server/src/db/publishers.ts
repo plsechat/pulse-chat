@@ -17,7 +17,7 @@ import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
 import { getServerPublicSettings } from './queries/server';
-import { getServerMemberIds } from './queries/servers';
+import { getCoMemberIds, getServerMemberIds } from './queries/servers';
 import { getPublicUserById } from './queries/users';
 import { categories, channels } from './schema';
 
@@ -29,7 +29,10 @@ const publishMessage = async (
   if (!messageId || !channelId) return;
 
   if (type === 'delete') {
-    pubsub.publish(ServerEvents.MESSAGE_DELETE, {
+    const deleteAffected = await getAffectedUserIdsForChannel(channelId, {
+      permission: ChannelPermission.VIEW_CHANNEL
+    });
+    pubsub.publishFor(deleteAffected, ServerEvents.MESSAGE_DELETE, {
       messageId: messageId,
       channelId: channelId
     });
@@ -165,8 +168,11 @@ const publishUser = async (
 ) => {
   if (!userId) return;
 
+  const coMemberIds = await getCoMemberIds(userId);
+  const recipients = [...coMemberIds, userId];
+
   if (type === 'delete') {
-    pubsub.publish(ServerEvents.USER_DELETE, userId);
+    pubsub.publishFor(recipients, ServerEvents.USER_DELETE, userId);
     return;
   }
 
@@ -184,8 +190,7 @@ const publishUser = async (
   const targetEvent =
     type === 'create' ? ServerEvents.USER_CREATE : ServerEvents.USER_UPDATE;
 
-  // User updates are global (visible across servers)
-  pubsub.publish(targetEvent, user);
+  pubsub.publishFor(recipients, targetEvent, user);
 };
 
 const publishChannel = async (

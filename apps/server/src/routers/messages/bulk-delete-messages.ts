@@ -1,8 +1,9 @@
-import { Permission, ServerEvents } from '@pulse/shared';
+import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
 import { inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { messageFiles, messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
@@ -51,7 +52,10 @@ const bulkDeleteMessagesRoute = protectedProcedure
 
     await db.delete(messages).where(inArray(messages.id, foundIds));
 
-    pubsub.publish(ServerEvents.MESSAGE_BULK_DELETE, {
+    const affectedUserIds = await getAffectedUserIdsForChannel(channelId, {
+      permission: ChannelPermission.VIEW_CHANNEL
+    });
+    pubsub.publishFor(affectedUserIds, ServerEvents.MESSAGE_BULK_DELETE, {
       messageIds: foundIds,
       channelId
     });

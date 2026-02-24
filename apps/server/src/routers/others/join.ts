@@ -156,8 +156,8 @@ const joinServerRoute = t.procedure
       getPublicUsersForServer(targetServer.id),
       getRolesForServer(targetServer.id),
       getEmojis(targetServer.id),
-      getAllChannelUserPermissions(ctx.user.id),
-      getChannelsReadStatesForUser(ctx.user.id),
+      getAllChannelUserPermissions(ctx.user.id, targetServer.id),
+      getChannelsReadStatesForUser(ctx.user.id, undefined, targetServer.id),
       db
         .select()
         .from(userPreferences)
@@ -193,8 +193,9 @@ const joinServerRoute = t.procedure
       ctx.saveUserIp(ctx.user.id, connectionInfo.ip);
     }
 
-    const voiceMap = VoiceRuntime.getVoiceMap();
-    const externalStreamsMap = VoiceRuntime.getExternalStreamsMap();
+    const serverChannelIds = new Set(channelsForUser.map((c) => c.id));
+    const voiceMap = VoiceRuntime.getVoiceMap(serverChannelIds);
+    const externalStreamsMap = VoiceRuntime.getExternalStreamsMap(serverChannelIds);
 
     await db
       .update(users)

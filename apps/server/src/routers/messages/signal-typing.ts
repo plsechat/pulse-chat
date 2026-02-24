@@ -1,5 +1,6 @@
-import { ServerEvents } from '@pulse/shared';
+import { ChannelPermission, ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { protectedProcedure } from '../../utils/trpc';
 
 const signalTypingRoute = protectedProcedure
@@ -11,7 +12,11 @@ const signalTypingRoute = protectedProcedure
       .required()
   )
   .mutation(async ({ input, ctx }) => {
-    ctx.pubsub.publish(ServerEvents.MESSAGE_TYPING, {
+    const affectedUserIds = await getAffectedUserIdsForChannel(
+      input.channelId,
+      { permission: ChannelPermission.VIEW_CHANNEL }
+    );
+    ctx.pubsub.publishFor(affectedUserIds, ServerEvents.MESSAGE_TYPING, {
       channelId: input.channelId,
       userId: ctx.userId
     });

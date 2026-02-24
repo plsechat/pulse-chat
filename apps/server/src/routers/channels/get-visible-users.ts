@@ -5,7 +5,12 @@ import { protectedProcedure } from '../../utils/trpc';
 
 const getVisibleUsersRoute = protectedProcedure
   .input(z.object({ channelId: z.number() }))
-  .query(async ({ input }) => {
+  .query(async ({ input, ctx }) => {
+    await ctx.needsChannelPermission(
+      input.channelId,
+      ChannelPermission.VIEW_CHANNEL
+    );
+
     const userIds = await getAffectedUserIdsForChannel(input.channelId, {
       permission: ChannelPermission.VIEW_CHANNEL
     });

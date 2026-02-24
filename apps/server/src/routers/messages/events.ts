@@ -3,13 +3,13 @@ import { protectedProcedure } from '../../utils/trpc';
 
 const onMessageDeleteRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.MESSAGE_DELETE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_DELETE);
   }
 );
 
 const onMessageBulkDeleteRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.MESSAGE_BULK_DELETE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_BULK_DELETE);
   }
 );
 
@@ -25,7 +25,7 @@ const onMessageRoute = protectedProcedure.subscription(async ({ ctx }) => {
 
 const onMessageTypingRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.MESSAGE_TYPING);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_TYPING);
   }
 );
 

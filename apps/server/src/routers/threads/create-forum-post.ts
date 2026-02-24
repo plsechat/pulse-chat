@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, forumPostTags, messageFiles, messages } from '../../db/schema';
 import { fileManager } from '../../utils/file-manager';
 import { pubsub } from '../../utils/pubsub';
@@ -98,7 +99,8 @@ const createForumPostRoute = protectedProcedure
     publishChannel(result.thread.id, 'create');
     publishMessage(result.message.id, result.thread.id, 'create');
 
-    pubsub.publish(ServerEvents.THREAD_CREATE, {
+    const memberIds = await getServerMemberIds(forumChannel.serverId);
+    pubsub.publishFor(memberIds, ServerEvents.THREAD_CREATE, {
       id: result.thread.id,
       name: result.thread.name,
       messageCount: 1,

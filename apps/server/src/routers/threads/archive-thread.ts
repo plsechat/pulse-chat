@@ -3,6 +3,7 @@ import { count, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, messages } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -43,7 +44,8 @@ const archiveThreadRoute = protectedProcedure
       .from(messages)
       .where(eq(messages.channelId, input.threadId));
 
-    pubsub.publish(ServerEvents.THREAD_UPDATE, {
+    const memberIds = await getServerMemberIds(thread.serverId);
+    pubsub.publishFor(memberIds, ServerEvents.THREAD_UPDATE, {
       id: thread.id,
       name: thread.name,
       messageCount: stats?.messageCount ?? 0,
