@@ -198,6 +198,10 @@ const createContext = async ({
 
     if (!channelRecord) return false;
 
+    // Ensure the channel belongs to the caller's active server
+    if (_activeServer.id && channelRecord.serverId !== _activeServer.id)
+      return false;
+
     if (!channelRecord.private) return true;
 
     const user = await getCachedUser();
