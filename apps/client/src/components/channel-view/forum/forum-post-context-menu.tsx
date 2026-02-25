@@ -1,10 +1,10 @@
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger
-} from '@/components/ui/context-menu';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useCan } from '@/features/server/hooks';
 import { setActiveThreadId } from '@/features/server/channels/actions';
@@ -15,6 +15,7 @@ import {
   Bell,
   BellOff,
   ClipboardCopy,
+  Ellipsis,
   ExternalLink,
   Tags,
   Trash
@@ -22,8 +23,7 @@ import {
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-type TForumPostContextMenuProps = {
-  children: React.ReactNode;
+type TForumPostMenuProps = {
   threadId: number;
   threadName: string;
   creatorId?: number;
@@ -33,9 +33,8 @@ type TForumPostContextMenuProps = {
   onPostDeleted: () => void;
 };
 
-const ForumPostContextMenu = memo(
+const ForumPostMenu = memo(
   ({
-    children,
     threadId,
     threadName,
     creatorId,
@@ -43,7 +42,7 @@ const ForumPostContextMenu = memo(
     channelId,
     onEditTags,
     onPostDeleted
-  }: TForumPostContextMenuProps) => {
+  }: TForumPostMenuProps) => {
     const can = useCan();
     const ownUserId = useOwnUserId();
     const [following, setFollowing] = useState(false);
@@ -111,50 +110,58 @@ const ForumPostContextMenu = memo(
     }, [threadId, threadName, onPostDeleted]);
 
     return (
-      <ContextMenu onOpenChange={setMenuOpen}>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={onOpenPost}>
+      <DropdownMenu onOpenChange={setMenuOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="absolute top-2 right-2 h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Ellipsis className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-48" align="end">
+          <DropdownMenuItem onClick={onOpenPost}>
             <ExternalLink className="h-4 w-4" />
             Open Post
-          </ContextMenuItem>
+          </DropdownMenuItem>
 
-          <ContextMenuItem onClick={onToggleFollow}>
+          <DropdownMenuItem onClick={onToggleFollow}>
             {following ? (
               <BellOff className="h-4 w-4" />
             ) : (
               <Bell className="h-4 w-4" />
             )}
             {following ? 'Unfollow Post' : 'Follow Post'}
-          </ContextMenuItem>
+          </DropdownMenuItem>
 
           {canEditTags && (
-            <ContextMenuItem onClick={() => onEditTags(threadId, currentTagIds)}>
+            <DropdownMenuItem onClick={() => onEditTags(threadId, currentTagIds)}>
               <Tags className="h-4 w-4" />
               Edit Tags
-            </ContextMenuItem>
+            </DropdownMenuItem>
           )}
 
-          <ContextMenuSeparator />
+          <DropdownMenuSeparator />
 
-          <ContextMenuItem onClick={onCopyLink}>
+          <DropdownMenuItem onClick={onCopyLink}>
             <ClipboardCopy className="h-4 w-4" />
             Copy Link
-          </ContextMenuItem>
+          </DropdownMenuItem>
 
           {canDelete && (
             <>
-              <ContextMenuSeparator />
-              <ContextMenuItem onClick={onDelete} variant="destructive">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onDelete} variant="destructive">
                 <Trash className="h-4 w-4" />
                 Delete Post
-              </ContextMenuItem>
+              </DropdownMenuItem>
             </>
           )}
-        </ContextMenuContent>
-      </ContextMenu>
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
 );
 
-export { ForumPostContextMenu };
+export { ForumPostMenu };

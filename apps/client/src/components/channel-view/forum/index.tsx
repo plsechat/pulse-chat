@@ -14,7 +14,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
 import { EditPostTagsDialog } from './edit-post-tags-dialog';
 import { ForumPostCard } from './forum-post-card';
-import { ForumPostContextMenu } from './forum-post-context-menu';
+import { ForumPostMenu } from './forum-post-context-menu';
 import { ManageTagsDialog } from './manage-tags-dialog';
 
 type TForumChannelProps = {
@@ -296,22 +296,22 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
           ) : (
             <div className="flex flex-col">
               {sortedThreads.map((thread) => (
-                <ForumPostContextMenu
-                  key={thread.id}
-                  threadId={thread.id}
-                  threadName={thread.name}
-                  creatorId={thread.creatorId}
-                  currentTagIds={thread.tags?.map((t) => t.id) ?? []}
-                  channelId={channelId}
-                  onEditTags={onEditTags}
-                  onPostDeleted={onPostDeleted}
-                >
+                <div key={thread.id} className="relative group">
                   <ForumPostCard
                     thread={thread}
                     isActive={activeThreadId === thread.id}
                     onClick={onPostClick}
                   />
-                </ForumPostContextMenu>
+                  <ForumPostMenu
+                    threadId={thread.id}
+                    threadName={thread.name}
+                    creatorId={thread.creatorId}
+                    currentTagIds={thread.tags?.map((t) => t.id) ?? []}
+                    channelId={channelId}
+                    onEditTags={onEditTags}
+                    onPostDeleted={onPostDeleted}
+                  />
+                </div>
               ))}
             </div>
           )}
