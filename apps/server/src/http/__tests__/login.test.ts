@@ -44,7 +44,7 @@ describe('/login', () => {
     expect(data).toHaveProperty('refreshToken');
   });
 
-  test.skip('should fail when allowNewUsers is false and no invite provided', async () => {
+  test('should fail when allowNewUsers is false and no invite provided', async () => {
     const tdb = getTestDb();
     await tdb.update(settings).set({ allowNewUsers: false });
 
@@ -58,7 +58,7 @@ describe('/login', () => {
     expect(data.errors).toHaveProperty('email');
   });
 
-  test.skip('should allow registration with valid invite when allowNewUsers is false', async () => {
+  test('should allow registration with valid invite when allowNewUsers is false', async () => {
     const tdb = getTestDb();
     await tdb.update(settings).set({ allowNewUsers: false });
 
@@ -94,7 +94,7 @@ describe('/login', () => {
     expect(updatedInvite?.uses).toBe(1);
   });
 
-  test.skip('should fail with expired invite', async () => {
+  test('should fail with expired invite', async () => {
     const tdb = getTestDb();
     await tdb.update(settings).set({ allowNewUsers: false });
 
@@ -122,7 +122,7 @@ describe('/login', () => {
     expect(data.errors).toHaveProperty('email');
   });
 
-  test.skip('should fail with maxed out invite', async () => {
+  test('should fail with maxed out invite', async () => {
     const tdb = getTestDb();
     await tdb.update(settings).set({ allowNewUsers: false });
 
@@ -150,7 +150,7 @@ describe('/login', () => {
     expect(data.errors).toHaveProperty('email');
   });
 
-  test.skip('should fail with non-existent invite', async () => {
+  test('should fail with non-existent invite', async () => {
     const tdb = getTestDb();
     await tdb.update(settings).set({ allowNewUsers: false });
 
@@ -237,8 +237,7 @@ describe('/login', () => {
     expect(typeof data.refreshToken).toBe('string');
   });
 
-  test.skip('should assign default role to newly registered user', async () => {
-    // TODO: /login's registerUser doesn't assign default roles (only /register does)
+  test('should assign default role to newly registered user', async () => {
     const tdb = getTestDb();
     const response = await login('roleuser@pulse.local', 'password123');
 
