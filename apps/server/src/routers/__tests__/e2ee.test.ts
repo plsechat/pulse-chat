@@ -652,16 +652,17 @@ describe('e2ee router', () => {
     expect(backup).toBeNull();
   });
 
-  test('hasKeyBackup should return correct boolean', async () => {
+  test('hasKeyBackup should return exists status with timestamp', async () => {
     const { caller } = await initTest(1);
 
     const before = await caller.e2ee.hasKeyBackup();
-    expect(before).toBe(false);
+    expect(before.exists).toBe(false);
 
     await caller.e2ee.uploadKeyBackup({ encryptedData: 'encrypted-blob' });
 
     const after = await caller.e2ee.hasKeyBackup();
-    expect(after).toBe(true);
+    expect(after.exists).toBe(true);
+    expect(after.updatedAt).toBeGreaterThan(0);
   });
 
   test('should upsert key backup (uploading twice overwrites)', async () => {

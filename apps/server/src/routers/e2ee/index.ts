@@ -427,7 +427,10 @@ const uploadKeyBackupRoute = protectedProcedure
 
 const getKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
   const [backup] = await db
-    .select({ encryptedData: userKeyBackups.encryptedData })
+    .select({
+      encryptedData: userKeyBackups.encryptedData,
+      updatedAt: userKeyBackups.updatedAt
+    })
     .from(userKeyBackups)
     .where(eq(userKeyBackups.userId, ctx.userId))
     .limit(1);
@@ -437,11 +440,12 @@ const getKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
 
 const hasKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
   const [result] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ updatedAt: userKeyBackups.updatedAt })
     .from(userKeyBackups)
-    .where(eq(userKeyBackups.userId, ctx.userId));
+    .where(eq(userKeyBackups.userId, ctx.userId))
+    .limit(1);
 
-  return (result?.count ?? 0) > 0;
+  return result ? { exists: true as const, updatedAt: result.updatedAt } : { exists: false as const };
 });
 
 const onSenderKeyDistributionRoute = protectedProcedure.subscription(
