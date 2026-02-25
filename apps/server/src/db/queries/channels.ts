@@ -485,12 +485,63 @@ const getChannelsReadStatesForUser = async (
   return { readStates, mentionStates, lastReadMessageIds };
 };
 
+/**
+ * Aggregate unread + mention counts across all child THREAD channels
+ * of a given parent forum channel, for a single user.
+ */
+const getForumUnreadForUser = async (
+  userId: number,
+  forumChannelId: number
+): Promise<{ unreadCount: number; mentionCount: number }> => {
+  const [result] = await db
+    .select({
+      unreadCount: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND ${channelReadStates.lastReadMessageId} IS NOT NULL
+            AND ${messages.id} > ${channelReadStates.lastReadMessageId}
+          THEN 1
+        END), 0)
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COALESCE(SUM(CASE
+          WHEN ${messages.userId} != ${userId}
+            AND ${channelReadStates.lastReadMessageId} IS NOT NULL
+            AND ${messages.id} > ${channelReadStates.lastReadMessageId}
+            AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
+          THEN 1
+        END), 0)
+      `.as('mention_count')
+    })
+    .from(messages)
+    .innerJoin(channels, eq(channels.id, messages.channelId))
+    .leftJoin(
+      channelReadStates,
+      and(
+        eq(channelReadStates.channelId, messages.channelId),
+        eq(channelReadStates.userId, userId)
+      )
+    )
+    .where(
+      and(
+        eq(channels.parentChannelId, forumChannelId),
+        eq(channels.type, 'THREAD')
+      )
+    );
+
+  return {
+    unreadCount: Number(result?.unreadCount ?? 0),
+    mentionCount: Number(result?.mentionCount ?? 0)
+  };
+};
+
 export {
   channelUserCan,
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
   getChannelsForUser,
   getChannelsReadStatesForUser,
+  getForumUnreadForUser,
   getRoleChannelPermissions,
   getUserChannelPermissions
 };

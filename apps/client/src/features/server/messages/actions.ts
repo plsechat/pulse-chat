@@ -39,8 +39,27 @@ export const addMessages = (
       const sender = state.server.users.find(
         (u) => u.id === targetMessage.userId
       );
+      const senderName = sender?.name || 'Someone';
+      const channel = state.server.channels.find((c) => c.id === channelId);
+
+      let title: string;
+      if (channel?.type === 'THREAD' && channel.parentChannelId) {
+        const parentChannel = state.server.channels.find(
+          (c) => c.id === channel.parentChannelId
+        );
+        if (parentChannel?.type === 'FORUM') {
+          title = `${senderName} in #${parentChannel.name} › ${channel.name}`;
+        } else {
+          title = `${senderName} in #${parentChannel?.name ?? 'thread'} › ${channel.name}`;
+        }
+      } else if (channel) {
+        title = `${senderName} in #${channel.name}`;
+      } else {
+        title = senderName;
+      }
+
       sendDesktopNotification(
-        sender?.name || 'New Message',
+        title,
         targetMessage.content?.slice(0, 100) || 'New message received'
       );
     }

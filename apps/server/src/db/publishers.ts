@@ -12,7 +12,8 @@ import { pubsub } from '../utils/pubsub';
 import {
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
-  getChannelsReadStatesForUser
+  getChannelsReadStatesForUser,
+  getForumUnreadForUser
 } from './queries/channels';
 import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
@@ -67,6 +68,8 @@ const publishMessage = async (
     .where(eq(channels.id, channelId))
     .limit(1);
 
+  let forumParentId: number | null = null;
+
   if (channelInfo?.type === ChannelType.THREAD && channelInfo.parentChannelId) {
     const [parentInfo] = await db
       .select({ type: channels.type })
@@ -75,6 +78,8 @@ const publishMessage = async (
       .limit(1);
 
     if (parentInfo?.type === ChannelType.FORUM) {
+      forumParentId = channelInfo.parentChannelId;
+
       const followers = await db
         .select({ userId: threadFollowers.userId })
         .from(threadFollowers)
@@ -104,6 +109,21 @@ const publishMessage = async (
   });
 
   await Promise.all(promises);
+
+  // Also update the parent forum channel's aggregated unread count
+  if (forumParentId) {
+    const forumPromises = usersToNotify.map(async (userId) => {
+      const { unreadCount, mentionCount } = await getForumUnreadForUser(userId, forumParentId!);
+
+      pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
+        channelId: forumParentId,
+        count: unreadCount,
+        mentionCount
+      });
+    });
+
+    await Promise.all(forumPromises);
+  }
 
   // Signal server-level unread increment without extra DB queries.
   // publishMessage is fire-and-forget (not awaited by callers), so heavy DB

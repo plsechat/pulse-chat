@@ -1,5 +1,6 @@
 import {
   ActivityLogType,
+  ChannelType,
   ServerEvents,
   type TCategory,
   type TChannel,
@@ -19,7 +20,8 @@ import { z } from 'zod';
 import { db } from '../../db';
 import {
   getAllChannelUserPermissions,
-  getChannelsReadStatesForUser
+  getChannelsReadStatesForUser,
+  getForumUnreadForUser
 } from '../../db/queries/channels';
 import { getEmojis } from '../../db/queries/emojis';
 import { getRolesForServer } from '../../db/queries/roles';
@@ -214,6 +216,22 @@ const joinServerRoute = t.procedure
       username: ctx.user.name
     });
 
+    // Aggregate unread counts for forum channels from their child threads
+    const forumChannels = channelsForUser.filter((c) => c.type === ChannelType.FORUM);
+    const { readStates, mentionStates } = readStatesResult;
+
+    if (forumChannels.length > 0) {
+      const forumResults = await Promise.all(
+        forumChannels.map((f) => getForumUnreadForUser(ctx.user.id, f.id))
+      );
+
+      forumChannels.forEach((f, i) => {
+        const result = forumResults[i]!;
+        if (result.unreadCount > 0) readStates[f.id] = result.unreadCount;
+        if (result.mentionCount > 0) mentionStates[f.id] = result.mentionCount;
+      });
+    }
+
     return {
       categories: allCategories,
       channels: channelsForUser,
@@ -227,8 +245,8 @@ const joinServerRoute = t.procedure
       emojis,
       publicSettings,
       channelPermissions,
-      readStates: readStatesResult.readStates,
-      mentionStates: readStatesResult.mentionStates,
+      readStates,
+      mentionStates,
       lastReadMessageIds: readStatesResult.lastReadMessageIds,
       commands: pluginManager.getCommands(),
       externalStreamsMap,

@@ -1,7 +1,8 @@
-import { ChannelPermission, ServerEvents } from '@pulse/shared';
+import { ChannelPermission, ChannelType, ServerEvents } from '@pulse/shared';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { getForumUnreadForUser } from '../../db/queries/channels';
 import { getServerUnreadCount } from '../../db/queries/servers';
 import { channelReadStates, channels, messages } from '../../db/schema';
 import { protectedProcedure } from '../../utils/trpc';
@@ -76,7 +77,11 @@ const markAsReadRoute = protectedProcedure
 
     // Publish server-level unread count update
     const [channel] = await db
-      .select({ serverId: channels.serverId })
+      .select({
+        serverId: channels.serverId,
+        type: channels.type,
+        parentChannelId: channels.parentChannelId
+      })
       .from(channels)
       .where(eq(channels.id, channelId))
       .limit(1);
@@ -89,6 +94,27 @@ const markAsReadRoute = protectedProcedure
         ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
         { serverId: channel.serverId, count: serverCount, mentionCount: serverMentionCount }
       );
+
+      // If this is a forum thread, also update the parent forum's aggregated unread
+      if (channel.type === ChannelType.THREAD && channel.parentChannelId) {
+        const [parentInfo] = await db
+          .select({ type: channels.type })
+          .from(channels)
+          .where(eq(channels.id, channel.parentChannelId))
+          .limit(1);
+
+        if (parentInfo?.type === ChannelType.FORUM) {
+          const { unreadCount, mentionCount } = await getForumUnreadForUser(
+            ctx.userId,
+            channel.parentChannelId
+          );
+          ctx.pubsub.publishFor(ctx.userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
+            channelId: channel.parentChannelId,
+            count: unreadCount,
+            mentionCount
+          });
+        }
+      }
     }
   });
 

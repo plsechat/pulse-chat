@@ -13,6 +13,7 @@ import {
   messages,
   users
 } from '../../db/schema';
+import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
 import { protectedProcedure } from '../../utils/trpc';
 
 const getThreadsRoute = protectedProcedure
@@ -198,9 +199,8 @@ const getThreadsRoute = protectedProcedure
         ? firstImageByMessage.get(String(firstMsg.id))
         : undefined;
 
-      // Strip HTML tags for preview
       const contentPreview = firstMsg?.content
-        ? firstMsg.content.replace(/<[^>]*>/g, '').slice(0, 200)
+        ? getPlainTextFromHtml(firstMsg.content).slice(0, 200)
         : undefined;
 
       const reactions = firstMsg
