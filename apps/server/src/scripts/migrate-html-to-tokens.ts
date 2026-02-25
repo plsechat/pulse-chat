@@ -9,7 +9,7 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { gt, isNotNull, sql } from 'drizzle-orm';
+import { gt, sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { messages, dmMessages } from '../db/schema';
 
@@ -139,8 +139,8 @@ function htmlToTokens(html: string): string {
   result = result.replace(/<\/p>\s*<p>/g, '\n');
   result = result.replace(/<\/?p>/g, '');
 
-  // 12. Remove any remaining HTML tags
-  result = result.replace(/<[^>]+>/g, '');
+  // 12. Remove any remaining HTML tags (but not our tokens like <@1>, <#1>, <:n:1>)
+  result = result.replace(/<\/?[a-zA-Z][^>]*>/g, '');
 
   // 13. Decode entities
   result = decodeEntities(result);

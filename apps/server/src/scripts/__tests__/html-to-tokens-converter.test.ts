@@ -109,7 +109,7 @@ function htmlToTokens(html: string): string {
   result = result.replace(/<\/p>\s*<p>/g, '\n');
   result = result.replace(/<\/?p>/g, '');
 
-  result = result.replace(/<[^>]+>/g, '');
+  result = result.replace(/<\/?[a-zA-Z][^>]*>/g, '');
 
   result = decodeEntities(result);
 
