@@ -19,7 +19,7 @@ import { useIsOwnUserOwner, useServerName } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, LogOut } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Dialog } from '../dialogs/dialogs';
@@ -63,6 +63,21 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
       toast.error('Failed to delete server');
     }
   }, [activeServerId]);
+
+  const handleLogOut = useCallback(async () => {
+    const confirmed = await requestConfirmation({
+      title: 'Log Out',
+      message:
+        'Are you sure you want to log out? Your end-to-end encryption keys will be cleared from this device. Make sure you have a backup of your keys before proceeding.',
+      confirmLabel: 'Log Out',
+      cancelLabel: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
+
+    disconnectFromServer();
+  }, []);
 
   const handleLeaveServer = useCallback(async () => {
     if (!activeServerId) return;
@@ -133,8 +148,9 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
                   Create Invite
                 </DropdownMenuItem>
               </Protect>
-              <DropdownMenuItem onClick={disconnectFromServer}>
-                Disconnect
+              <DropdownMenuItem onClick={handleLogOut}>
+                <LogOut className="h-4 w-4 mr-2" />
+                Log Out
               </DropdownMenuItem>
               {!isOwner && (
                 <>
