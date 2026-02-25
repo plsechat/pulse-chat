@@ -9,6 +9,7 @@ export const customEmojisSelector = createSelector(
   [emojisSelector],
   (emojis) => {
     const items: EmojiItem[] = emojis.map((emoji) => ({
+      id: emoji.id,
       name: emoji.name,
       shortcodes: [emoji.name],
       tags: ['custom'],

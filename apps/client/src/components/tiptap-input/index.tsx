@@ -26,6 +26,7 @@ import {
   MENTION_STORAGE_KEY,
   MentionSuggestion
 } from './plugins/mention-suggestion';
+import { CustomEmojiNode } from './plugins/custom-emoji-extension';
 import { SlashCommands } from './plugins/slash-commands-extension';
 import { EmojiSuggestion } from './suggestions';
 import type { TEmojiItem } from './types';
@@ -121,6 +122,7 @@ const TiptapInput = memo(
             class: 'emoji-image'
           }
         }),
+        CustomEmojiNode,
         MentionExtension.configure({
           users: mentionUsers,
           roles: mentionRoles,
@@ -239,8 +241,14 @@ const TiptapInput = memo(
       if (emoji.emoji) {
         // Standard emoji — insert native unicode directly (avoids broken GitHub CDN img tags)
         editor?.chain().focus().insertContent(emoji.emoji).run();
+      } else if (emoji.id && emoji.fallbackImage) {
+        // Custom server emoji — insert as customEmoji node (bypasses stale options lookup)
+        editor?.chain().focus().insertContent({
+          type: 'customEmoji',
+          attrs: { id: emoji.id, name: emoji.name, src: emoji.fallbackImage }
+        }).run();
       } else if (emoji.shortcodes.length > 0) {
-        // Custom emoji — use setEmoji which creates an img node with local server URL
+        // Fallback — use setEmoji for any non-custom emoji with shortcodes
         editor?.chain().focus().setEmoji(emoji.shortcodes[0]).run();
       }
     };
