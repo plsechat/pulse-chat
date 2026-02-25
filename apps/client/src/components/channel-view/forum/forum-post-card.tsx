@@ -1,3 +1,7 @@
+import {
+  useMentionCount,
+  useUnreadMessagesCount
+} from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { MessageSquare } from 'lucide-react';
@@ -31,6 +35,11 @@ const resolveEmoji = (name: string): string => {
 };
 
 const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) => {
+  const unreadCount = useUnreadMessagesCount(thread.id);
+  const mentionCount = useMentionCount(thread.id);
+  const hasUnread = unreadCount > 0;
+  const hasMentions = mentionCount > 0;
+
   const timeAgo = useMemo(() => {
     const ts = thread.lastMessageAt ?? thread.createdAt;
     const diff = Date.now() - ts;
@@ -59,7 +68,8 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
       className={cn(
         'w-full text-left px-3 py-2.5 border-b border-border/20 hover:bg-accent/30 transition-colors cursor-pointer',
         isActive && 'bg-accent/40',
-        thread.archived && 'opacity-60'
+        thread.archived && 'opacity-60',
+        hasUnread && 'border-l-2 border-l-primary'
       )}
     >
       {/* Title + Tags */}
@@ -117,7 +127,7 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
         </div>
       )}
 
-      {/* Footer: reply count + time */}
+      {/* Footer: reply count + time + unread badge */}
       <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <MessageSquare className="w-3 h-3" />
@@ -125,6 +135,18 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
         </span>
         <span className="text-muted-foreground/60">&middot;</span>
         <span>{timeAgo}</span>
+        {hasUnread && (
+          <div
+            className={cn(
+              'ml-auto flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium',
+              hasMentions
+                ? 'bg-destructive text-destructive-foreground'
+                : 'bg-primary text-primary-foreground'
+            )}
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </div>
+        )}
       </div>
     </button>
   );
