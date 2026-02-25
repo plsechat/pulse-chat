@@ -2,7 +2,7 @@ import { sendDesktopNotification } from '@/features/notifications/desktop-notifi
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
 import { TYPING_MS, type TJoinedMessage } from '@pulse/shared';
-import { selectedChannelIdSelector } from '../channels/selectors';
+import { activeThreadIdSelector, selectedChannelIdSelector } from '../channels/selectors';
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';
 import { SoundType } from '../types';
@@ -21,6 +21,7 @@ export const addMessages = (
 ) => {
   const state = store.getState();
   const selectedChannelId = selectedChannelIdSelector(state);
+  const activeThreadId = activeThreadIdSelector(state);
 
   store.dispatch(serverSliceActions.addMessages({ channelId, messages, opts }));
 
@@ -34,7 +35,10 @@ export const addMessages = (
     const targetMessage = messages[0];
     const isFromOwnUser = ownUserId != null && ownUserId === targetMessage.userId;
 
-    if (!isFromOwnUser && ownUserId != null) {
+    const isViewingChannel =
+      channelId === selectedChannelId || channelId === activeThreadId;
+
+    if (!isFromOwnUser && ownUserId != null && !isViewingChannel) {
       playSound(SoundType.MESSAGE_RECEIVED);
       const sender = state.server.users.find(
         (u) => u.id === targetMessage.userId
@@ -64,7 +68,7 @@ export const addMessages = (
       );
     }
 
-    if (channelId === selectedChannelId && !isFromOwnUser) {
+    if (isViewingChannel && !isFromOwnUser) {
       // user is viewing this channel - mark messages as read
       const trpc = getTRPCClient();
 
