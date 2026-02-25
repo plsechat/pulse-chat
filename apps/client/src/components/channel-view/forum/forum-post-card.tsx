@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { MessageSquare } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { forwardRef, useMemo } from 'react';
 
 type TForumPostCardProps = {
   thread: {
@@ -30,7 +30,7 @@ const resolveEmoji = (name: string): string => {
   return found?.emoji ?? `:${name}:`;
 };
 
-const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) => {
+const ForumPostCard = forwardRef<HTMLButtonElement, TForumPostCardProps>(({ thread, isActive, onClick }, ref) => {
   const timeAgo = useMemo(() => {
     const ts = thread.lastMessageAt ?? thread.createdAt;
     const diff = Date.now() - ts;
@@ -54,6 +54,7 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
 
   return (
     <button
+      ref={ref}
       type="button"
       onClick={() => onClick(thread.id)}
       className={cn(
@@ -111,5 +112,7 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
     </button>
   );
 });
+
+ForumPostCard.displayName = 'ForumPostCard';
 
 export { ForumPostCard };
