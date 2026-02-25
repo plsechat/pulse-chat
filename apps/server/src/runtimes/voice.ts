@@ -141,6 +141,7 @@ class VoiceRuntime {
   private screenAudioProducers: TProducerMap = {};
   private consumers: TConsumerMap = {};
 
+  private _destroying = false;
   private externalCounter = 0;
   private externalStreamsInternal: {
     [streamId: number]: TExternalStreamInternal;
@@ -238,6 +239,9 @@ class VoiceRuntime {
   };
 
   public destroy = async () => {
+    if (this._destroying) return;
+    this._destroying = true;
+
     await this.router?.close();
 
     Object.values(this.consumerTransports).forEach((transport) => {
@@ -410,6 +414,12 @@ class VoiceRuntime {
   };
 
   public createConsumerTransport = async (userId: number) => {
+    // Close any existing transport to prevent leaks from duplicate requests
+    const existing = this.consumerTransports[userId];
+    if (existing) {
+      existing.close();
+    }
+
     const { transport, params } = await this.createTransport();
 
     this.consumerTransports[userId] = transport;
@@ -448,6 +458,12 @@ class VoiceRuntime {
   };
 
   public createProducerTransport = async (userId: number) => {
+    // Close any existing transport to prevent leaks from duplicate requests
+    const existing = this.producerTransports[userId];
+    if (existing) {
+      existing.close();
+    }
+
     const { params, transport } = await this.createTransport();
 
     this.producerTransports[userId] = transport;
@@ -526,6 +542,19 @@ class VoiceRuntime {
       } else if (type === StreamKind.SCREEN_AUDIO) {
         delete this.screenAudioProducers[userId];
       }
+
+      // Notify peers that this producer is gone so they can clean up consumers
+      this.getServerMemberIdsForChannel()
+        .then((memberIds) => {
+          pubsub.publishFor(memberIds, ServerEvents.VOICE_PRODUCER_CLOSED, {
+            channelId: this.id,
+            remoteId: userId,
+            kind: type
+          });
+        })
+        .catch((err) => {
+          logger.error('[VoiceRuntime] Failed to broadcast producer close for user %d:', userId, err);
+        });
     });
   };
 

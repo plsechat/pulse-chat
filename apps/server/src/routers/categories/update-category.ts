@@ -1,5 +1,5 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishCategory } from '../../db/publishers';
@@ -16,12 +16,17 @@ const updateCategoryRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_EMOJIS);
+    await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
+
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
 
     const [existingCategory] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, input.categoryId))
+      .where(and(eq(categories.id, input.categoryId), eq(categories.serverId, ctx.activeServerId)))
       .limit(1);
 
     invariant(existingCategory, {

@@ -1,10 +1,10 @@
 import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { messages } from '../../db/schema';
+import { channels, messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -17,6 +17,11 @@ const pinMessageRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.PIN_MESSAGES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [message] = await db
       .select({
         id: messages.id,
@@ -24,7 +29,8 @@ const pinMessageRoute = protectedProcedure
         pinned: messages.pinned
       })
       .from(messages)
-      .where(eq(messages.id, input.messageId))
+      .innerJoin(channels, eq(messages.channelId, channels.id))
+      .where(and(eq(messages.id, input.messageId), eq(channels.serverId, ctx.activeServerId)))
       .limit(1);
 
     invariant(message, {

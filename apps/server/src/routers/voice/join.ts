@@ -55,12 +55,18 @@ const joinVoiceRoute = protectedProcedure
       message: 'User already in a voice channel'
     });
 
-    const runtime = VoiceRuntime.findById(input.channelId);
+    // Re-create runtime if it was destroyed when the last user left
+    let runtime = VoiceRuntime.findById(input.channelId);
 
-    invariant(runtime, {
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
-    });
+    if (!runtime) {
+      runtime = new VoiceRuntime(input.channelId);
+      try {
+        await runtime.init();
+      } catch (err) {
+        await runtime.destroy();
+        throw err;
+      }
+    }
 
     runtime.addUser(ctx.user.id, input.state);
 

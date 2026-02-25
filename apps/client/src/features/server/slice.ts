@@ -183,6 +183,7 @@ export const serverSlice = createSlice({
       // Clear transient state from previous server
       state.messagesMap = {};
       state.typingMap = {};
+      state.activeThreadId = undefined;
 
       // Reset voice state if the user is no longer in voice on this server
       // (e.g. after reconnect where the server removed the user from voice)

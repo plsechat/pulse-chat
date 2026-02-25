@@ -17,12 +17,17 @@ const addRoleRoute = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     await ctx.needsPermission(Permission.MANAGE_USERS);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     // Verify the role belongs to the caller's active server
     const [role] = await db
       .select({ id: roles.id })
       .from(roles)
       .where(
-        and(eq(roles.id, input.roleId), eq(roles.serverId, ctx.activeServerId!))
+        and(eq(roles.id, input.roleId), eq(roles.serverId, ctx.activeServerId))
       )
       .limit(1);
 

@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { threadFollowers } from '../../db/schema';
+import { channels, threadFollowers } from '../../db/schema';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const followThreadRoute = protectedProcedure
@@ -12,6 +13,23 @@ const followThreadRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Verify the thread exists and belongs to the caller's active server
+    const [thread] = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, input.threadId), eq(channels.serverId, ctx.activeServerId)))
+      .limit(1);
+
+    invariant(thread, {
+      code: 'NOT_FOUND',
+      message: 'Thread not found'
+    });
+
     if (input.follow) {
       await db
         .insert(threadFollowers)

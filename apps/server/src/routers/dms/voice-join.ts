@@ -51,7 +51,12 @@ const dmVoiceJoinRoute = protectedProcedure
 
     if (!runtime) {
       runtime = new VoiceRuntime(input.dmChannelId, true);
-      await runtime.init();
+      try {
+        await runtime.init();
+      } catch (err) {
+        await runtime.destroy();
+        throw err;
+      }
     }
 
     runtime.addUser(ctx.user.id, input.state);

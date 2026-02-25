@@ -372,89 +372,106 @@ const createWsServer = async (server: http.Server) => {
 
         let user;
 
-        // Handle federated user disconnect
-        const fedToken = ws.federationToken;
-        if (fedToken) {
-          const fedResult = await verifyFederationToken(fedToken).catch(
-            () => null
-          );
-          if (fedResult) {
-            user = await getUserById(
-              (
-                await findOrCreateShadowUser(
-                  fedResult.instanceId,
-                  fedResult.userId,
-                  fedResult.username,
-                  undefined,
-                  fedResult.publicId
-                )
-              ).id
+        try {
+          // Handle federated user disconnect
+          const fedToken = ws.federationToken;
+          if (fedToken) {
+            const fedResult = await verifyFederationToken(fedToken).catch(
+              () => null
             );
+            if (fedResult) {
+              user = await getUserById(
+                (
+                  await findOrCreateShadowUser(
+                    fedResult.instanceId,
+                    fedResult.userId,
+                    fedResult.username,
+                    undefined,
+                    fedResult.publicId
+                  )
+                ).id
+              );
+            }
+          } else {
+            user = await getUserByToken(ws.token);
           }
-        } else {
-          user = await getUserByToken(ws.token);
+        } catch (err) {
+          logger.error('Failed to resolve user during WS close:', err);
         }
 
         if (!user) return;
 
-        const voiceRuntime = VoiceRuntime.findRuntimeByUserId(user.id);
+        try {
+          const voiceRuntime = VoiceRuntime.findRuntimeByUserId(user.id);
 
-        if (voiceRuntime) {
-          voiceRuntime.removeUser(user.id);
+          if (voiceRuntime) {
+            voiceRuntime.removeUser(user.id);
 
-          // Scope voice leave to server members or DM members
-          if (voiceRuntime.isDmVoice) {
-            const { getDmChannelMemberIds } = await import('../db/queries/dms');
-            const dmMemberIds = await getDmChannelMemberIds(voiceRuntime.id);
-            pubsub.publishFor(dmMemberIds, ServerEvents.USER_LEAVE_VOICE, {
-              channelId: voiceRuntime.id,
-              userId: user.id,
-              startedAt: voiceRuntime.getState().startedAt
-            });
-          } else {
-            const [ch] = await db
-              .select({ serverId: channels.serverId })
-              .from(channels)
-              .where(eq(channels.id, voiceRuntime.id))
-              .limit(1);
-            if (ch) {
-              const voiceMemberIds = await getServerMemberIds(ch.serverId);
-              pubsub.publishFor(voiceMemberIds, ServerEvents.USER_LEAVE_VOICE, {
+            // Scope voice leave to server members or DM members
+            if (voiceRuntime.isDmVoice) {
+              const { getDmChannelMemberIds } = await import('../db/queries/dms');
+              const dmMemberIds = await getDmChannelMemberIds(voiceRuntime.id);
+              pubsub.publishFor(dmMemberIds, ServerEvents.USER_LEAVE_VOICE, {
                 channelId: voiceRuntime.id,
                 userId: user.id,
                 startedAt: voiceRuntime.getState().startedAt
               });
+            } else {
+              const [ch] = await db
+                .select({ serverId: channels.serverId })
+                .from(channels)
+                .where(eq(channels.id, voiceRuntime.id))
+                .limit(1);
+              if (ch) {
+                const voiceMemberIds = await getServerMemberIds(ch.serverId);
+                pubsub.publishFor(voiceMemberIds, ServerEvents.USER_LEAVE_VOICE, {
+                  channelId: voiceRuntime.id,
+                  userId: user.id,
+                  startedAt: voiceRuntime.getState().startedAt
+                });
+              }
+            }
+
+            // If this was a DM voice call and no users remain, destroy the runtime
+            if (voiceRuntime.isDmVoice && voiceRuntime.getState().users.length === 0) {
+              await voiceRuntime.destroy();
+              const { getDmChannelMemberIds } = await import('../db/queries/dms');
+              const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
+              pubsub.publishFor(memberIds, ServerEvents.DM_CALL_ENDED, {
+                dmChannelId: voiceRuntime.id
+              });
+            } else if (voiceRuntime.isDmVoice) {
+              const { getDmChannelMemberIds } = await import('../db/queries/dms');
+              const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
+              pubsub.publishFor(memberIds, ServerEvents.DM_CALL_USER_LEFT, {
+                dmChannelId: voiceRuntime.id,
+                userId: user.id
+              });
+            } else if (voiceRuntime.getState().users.length === 0) {
+              // Destroy empty server voice runtimes to free mediasoup resources
+              await voiceRuntime.destroy();
             }
           }
-
-          // If this was a DM voice call and no users remain, destroy the runtime
-          if (voiceRuntime.isDmVoice && voiceRuntime.getState().users.length === 0) {
-            await voiceRuntime.destroy();
-            const { getDmChannelMemberIds } = await import('../db/queries/dms');
-            const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
-            pubsub.publishFor(memberIds, ServerEvents.DM_CALL_ENDED, {
-              dmChannelId: voiceRuntime.id
-            });
-          } else if (voiceRuntime.isDmVoice) {
-            const { getDmChannelMemberIds } = await import('../db/queries/dms');
-            const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
-            pubsub.publishFor(memberIds, ServerEvents.DM_CALL_USER_LEFT, {
-              dmChannelId: voiceRuntime.id,
-              userId: user.id
-            });
-          }
+        } catch (err) {
+          logger.error('Voice cleanup failed during WS close for user %d:', user.id, err);
         }
 
+        // Always clean up user state, even if voice cleanup failed
         usersIpMap.delete(user.id);
+        userStatusOverrides.delete(user.id);
 
-        // Scope USER_LEAVE to members of the user's servers
-        const userServers = await getServersByUserId(user.id);
-        const allMemberIds = new Set<number>();
-        for (const server of userServers) {
-          const memberIds = await getServerMemberIds(server.id);
-          for (const id of memberIds) allMemberIds.add(id);
+        try {
+          // Scope USER_LEAVE to members of the user's servers
+          const userServers = await getServersByUserId(user.id);
+          const allMemberIds = new Set<number>();
+          for (const server of userServers) {
+            const memberIds = await getServerMemberIds(server.id);
+            for (const id of memberIds) allMemberIds.add(id);
+          }
+          pubsub.publishFor([...allMemberIds], ServerEvents.USER_LEAVE, user.id);
+        } catch (err) {
+          logger.error('Failed to publish USER_LEAVE for user %d:', user.id, err);
         }
-        pubsub.publishFor([...allMemberIds], ServerEvents.USER_LEAVE, user.id);
 
         logger.info('%s left the server', user.name);
 

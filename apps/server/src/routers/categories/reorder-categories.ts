@@ -1,10 +1,11 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishCategory } from '../../db/publishers';
 import { categories } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const reorderCategoriesRoute = protectedProcedure
@@ -15,6 +16,13 @@ const reorderCategoriesRoute = protectedProcedure
   )
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
+
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    const serverId = ctx.activeServerId;
 
     await db.transaction(async (tx) => {
       for (let i = 0; i < input.categoryIds.length; i++) {
@@ -27,7 +35,7 @@ const reorderCategoriesRoute = protectedProcedure
             position: newPosition,
             updatedAt: Date.now()
           })
-          .where(eq(categories.id, categoryId));
+          .where(and(eq(categories.id, categoryId), eq(categories.serverId, serverId)));
       }
     });
 

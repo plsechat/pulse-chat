@@ -2,11 +2,11 @@ import {
   ChannelPermission,
   ChannelType,
   ServerEvents,
-  UserStatus,
-  type TChannelUserPermissionsMap
+  UserStatus
 } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '.';
+import { logger } from '../logger';
 import { pluginManager } from '../plugins';
 import { pubsub } from '../utils/pubsub';
 import {
@@ -30,6 +30,18 @@ const publishMessage = async (
 ) => {
   if (!messageId || !channelId) return;
 
+  try {
+    return await _publishMessageInner(messageId, channelId, type);
+  } catch (err) {
+    logger.error('[publishMessage] failed for message %d channel %d:', messageId, channelId, err);
+  }
+};
+
+const _publishMessageInner = async (
+  messageId: number,
+  channelId: number,
+  type: 'create' | 'update' | 'delete'
+) => {
   if (type === 'delete') {
     const deleteAffected = await getAffectedUserIdsForChannel(channelId, {
       permission: ChannelPermission.VIEW_CHANNEL
@@ -282,15 +294,10 @@ const publishChannel = async (
 };
 
 const publishSettings = async (serverId?: number) => {
-  if (serverId) {
-    const settings = await getServerPublicSettings(serverId);
-    const memberIds = await getServerMemberIds(serverId);
-    pubsub.publishFor(memberIds, ServerEvents.SERVER_SETTINGS_UPDATE, settings);
-  } else {
-    // Backward compat: publish to all
-    const settings = await getServerPublicSettings(1);
-    pubsub.publish(ServerEvents.SERVER_SETTINGS_UPDATE, settings);
-  }
+  const effectiveServerId = serverId ?? 1;
+  const settings = await getServerPublicSettings(effectiveServerId);
+  const memberIds = await getServerMemberIds(effectiveServerId);
+  pubsub.publishFor(memberIds, ServerEvents.SERVER_SETTINGS_UPDATE, settings);
 };
 
 const publishCategory = async (
@@ -325,25 +332,23 @@ const publishCategory = async (
 };
 
 const publishChannelPermissions = async (affectedUserIds: number[]) => {
-  const permissionsMap = new Map<number, TChannelUserPermissionsMap>();
-  const promises = affectedUserIds.map(async (userId) => {
-    const updatedPermissions = await getAllChannelUserPermissions(userId);
+  // Process in batches to avoid overwhelming the DB with concurrent queries
+  const BATCH_SIZE = 20;
 
-    permissionsMap.set(userId, updatedPermissions);
-  });
-
-  await Promise.all(promises);
-
-  for (const userId of affectedUserIds) {
-    const updatedPermissions = permissionsMap.get(userId);
-
-    if (!updatedPermissions) continue;
-
-    pubsub.publishFor(
-      userId,
-      ServerEvents.CHANNEL_PERMISSIONS_UPDATE,
-      updatedPermissions
+  for (let i = 0; i < affectedUserIds.length; i += BATCH_SIZE) {
+    const batch = affectedUserIds.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (userId) => {
+        const updatedPermissions = await getAllChannelUserPermissions(userId);
+        pubsub.publishFor(userId, ServerEvents.CHANNEL_PERMISSIONS_UPDATE, updatedPermissions);
+      })
     );
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        logger.error('[publishChannelPermissions] failed for a user:', result.reason);
+      }
+    }
   }
 };
 

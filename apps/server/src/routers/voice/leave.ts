@@ -56,6 +56,11 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
   });
   ctx.currentVoiceChannelId = undefined;
 
+  // Destroy the runtime when no users remain to free mediasoup resources
+  if (runtime.getState().users.length === 0) {
+    await runtime.destroy();
+  }
+
   logger.info('%s left voice channel %s', ctx.user.name, channel.name);
 });
 

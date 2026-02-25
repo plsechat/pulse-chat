@@ -5,7 +5,7 @@ import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getEmojiFileIdByEmojiName } from '../../db/queries/emojis';
 import { getReaction } from '../../db/queries/messages';
-import { messageReactions, messages } from '../../db/schema';
+import { channels, messageReactions, messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -19,10 +19,16 @@ const toggleMessageReactionRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.REACT_TO_MESSAGES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [message] = await db
       .select()
       .from(messages)
-      .where(eq(messages.id, input.messageId))
+      .innerJoin(channels, eq(messages.channelId, channels.id))
+      .where(and(eq(messages.id, input.messageId), eq(channels.serverId, ctx.activeServerId)))
       .limit(1);
 
     invariant(message, {
@@ -58,7 +64,7 @@ const toggleMessageReactionRoute = protectedProcedure
         );
     }
 
-    publishMessage(input.messageId, message.channelId, 'update');
+    publishMessage(input.messageId, message.messages.channelId, 'update');
   });
 
 export { toggleMessageReactionRoute };

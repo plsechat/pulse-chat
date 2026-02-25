@@ -75,7 +75,7 @@ async function findOrCreateShadowUser(
     return existing;
   }
 
-  // Create shadow user with synthetic supabaseId
+  // Create shadow user with synthetic supabaseId (use onConflictDoNothing to handle races)
   const [shadowUser] = await db
     .insert(users)
     .values({
@@ -89,9 +89,24 @@ async function findOrCreateShadowUser(
       createdAt: Date.now(),
       lastLoginAt: Date.now()
     })
+    .onConflictDoNothing()
     .returning();
 
-  return shadowUser!;
+  if (shadowUser) return shadowUser;
+
+  // Conflict: another request already created this user — re-query
+  const [raced] = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.federatedInstanceId, instanceId),
+        eq(users.federatedUsername, String(remoteUserId))
+      )
+    )
+    .limit(1);
+
+  return raced!;
 }
 
 async function deleteShadowUsersByInstance(instanceId: number): Promise<void> {
