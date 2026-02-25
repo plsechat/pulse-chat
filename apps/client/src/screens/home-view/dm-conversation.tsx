@@ -409,12 +409,12 @@ const DmUsersTyping = memo(({ dmChannelId }: { dmChannelId: number }) => {
   const typingUserIds = useDmTypingUsers(dmChannelId);
 
   if (typingUserIds.length === 0) {
-    return null;
+    return <div className="h-6" />;
   }
 
   return (
-    <div className="flex items-center gap-1 text-xs text-muted-foreground px-3 py-0.5">
-      <TypingDots className="[&>div]:w-0.5 [&>div]:h-0.5" />
+    <div className="flex h-6 items-center gap-2 px-4 text-xs text-muted-foreground">
+      <TypingDots />
       <DmTypingNames userIds={typingUserIds} />
     </div>
   );
@@ -425,20 +425,26 @@ const DmTypingNames = memo(({ userIds }: { userIds: number[] }) => {
   const user1 = useUserById(userIds[1] ?? 0);
 
   if (userIds.length === 1) {
-    return <span>{user0?.name ?? 'Someone'} is typing...</span>;
+    return (
+      <span>
+        <strong>{user0?.name ?? 'Someone'}</strong> is typing...
+      </span>
+    );
   }
 
   if (userIds.length === 2) {
     return (
       <span>
-        {user0?.name ?? 'Someone'} and {user1?.name ?? 'someone'} are typing...
+        <strong>{user0?.name ?? 'Someone'}</strong> and{' '}
+        <strong>{user1?.name ?? 'someone'}</strong> are typing...
       </span>
     );
   }
 
   return (
     <span>
-      {user0?.name ?? 'Someone'} and {userIds.length - 1} others are typing...
+      <strong>{user0?.name ?? 'Someone'}</strong> and {userIds.length - 1}{' '}
+      others are typing...
     </span>
   );
 });
