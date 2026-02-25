@@ -53,12 +53,7 @@ const publishMessage = async (
     permission: ChannelPermission.VIEW_CHANNEL
   });
 
-  pubsub.publishFor(affectedUserIds, targetEvent, message);
-
-  // only send count updates to users OTHER than the message author
-  let usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
-
-  // For forum post threads, only notify followers + mentioned users
+  // Check if this is a forum thread — if so, only publish to followers + mentioned
   const [channelInfo] = await db
     .select({
       type: channels.type,
@@ -69,6 +64,7 @@ const publishMessage = async (
     .limit(1);
 
   let forumParentId: number | null = null;
+  let messageRecipients = affectedUserIds;
 
   if (channelInfo?.type === ChannelType.THREAD && channelInfo.parentChannelId) {
     const [parentInfo] = await db
@@ -90,11 +86,17 @@ const publishMessage = async (
         (message.mentionedUserIds as number[] | null) ?? []
       );
 
-      usersToNotify = usersToNotify.filter(
-        (id) => followerIds.has(id) || mentionedSet.has(id)
+      // Only deliver the message event to the author, followers, and mentioned users
+      messageRecipients = affectedUserIds.filter(
+        (id) => id === message.userId || followerIds.has(id) || mentionedSet.has(id)
       );
     }
   }
+
+  pubsub.publishFor(messageRecipients, targetEvent, message);
+
+  // only send count updates to users OTHER than the message author
+  const usersToNotify = messageRecipients.filter((id) => id !== message.userId);
 
   const promises = usersToNotify.map(async (userId) => {
     const { readStates, mentionStates } = await getChannelsReadStatesForUser(userId, channelId);
