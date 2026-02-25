@@ -12,7 +12,9 @@ import { Permission } from '@pulse/shared';
 import { ArrowDownUp, MessageSquareText, Search, Tags } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
+import { EditPostTagsDialog } from './edit-post-tags-dialog';
 import { ForumPostCard } from './forum-post-card';
+import { ForumPostContextMenu } from './forum-post-context-menu';
 import { ManageTagsDialog } from './manage-tags-dialog';
 
 type TForumChannelProps = {
@@ -51,6 +53,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   const [activeTagFilter, setActiveTagFilter] = useState<number | null>(null);
   const [showArchived, _setShowArchived] = useState(false);
   const [showManageTags, setShowManageTags] = useState(false);
+  const [editTagsInfo, setEditTagsInfo] = useState<{ threadId: number; currentTagIds: number[] } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const activeThreadId = useActiveThreadId();
@@ -79,6 +82,15 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Listen for real-time thread updates (create/delete/tag changes)
+  useEffect(() => {
+    const handler = () => {
+      fetchData();
+    };
+    window.addEventListener('threads-changed', handler);
+    return () => window.removeEventListener('threads-changed', handler);
   }, [fetchData]);
 
   // Sync live reaction data from Redux for the active thread
@@ -143,6 +155,19 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   const onManageTagsClose = useCallback(() => {
     setShowManageTags(false);
+    fetchData();
+  }, [fetchData]);
+
+  const onEditTags = useCallback((threadId: number, currentTagIds: number[]) => {
+    setEditTagsInfo({ threadId, currentTagIds });
+  }, []);
+
+  const onEditTagsClose = useCallback(() => {
+    setEditTagsInfo(null);
+    fetchData();
+  }, [fetchData]);
+
+  const onPostDeleted = useCallback(() => {
     fetchData();
   }, [fetchData]);
 
@@ -271,12 +296,22 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
           ) : (
             <div className="flex flex-col">
               {sortedThreads.map((thread) => (
-                <ForumPostCard
+                <ForumPostContextMenu
                   key={thread.id}
-                  thread={thread}
-                  isActive={activeThreadId === thread.id}
-                  onClick={onPostClick}
-                />
+                  threadId={thread.id}
+                  threadName={thread.name}
+                  creatorId={thread.creatorId}
+                  currentTagIds={thread.tags?.map((t) => t.id) ?? []}
+                  channelId={channelId}
+                  onEditTags={onEditTags}
+                  onPostDeleted={onPostDeleted}
+                >
+                  <ForumPostCard
+                    thread={thread}
+                    isActive={activeThreadId === thread.id}
+                    onClick={onPostClick}
+                  />
+                </ForumPostContextMenu>
               ))}
             </div>
           )}
@@ -294,6 +329,15 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         <ManageTagsDialog
           channelId={channelId}
           onClose={onManageTagsClose}
+        />
+      )}
+
+      {editTagsInfo && (
+        <EditPostTagsDialog
+          threadId={editTagsInfo.threadId}
+          channelId={channelId}
+          currentTagIds={editTagsInfo.currentTagIds}
+          onClose={onEditTagsClose}
         />
       )}
     </>

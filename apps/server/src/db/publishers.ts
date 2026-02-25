@@ -1,5 +1,6 @@
 import {
   ChannelPermission,
+  ChannelType,
   ServerEvents,
   UserStatus,
   type TChannelUserPermissionsMap
@@ -19,7 +20,7 @@ import { getRole } from './queries/roles';
 import { getServerPublicSettings } from './queries/server';
 import { getCoMemberIds, getServerMemberIds } from './queries/servers';
 import { getPublicUserById } from './queries/users';
-import { categories, channels } from './schema';
+import { categories, channels, threadFollowers } from './schema';
 
 const publishMessage = async (
   messageId: number | undefined,
@@ -54,7 +55,41 @@ const publishMessage = async (
   pubsub.publishFor(affectedUserIds, targetEvent, message);
 
   // only send count updates to users OTHER than the message author
-  const usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
+  let usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
+
+  // For forum post threads, only notify followers + mentioned users
+  const [channelInfo] = await db
+    .select({
+      type: channels.type,
+      parentChannelId: channels.parentChannelId
+    })
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+
+  if (channelInfo?.type === ChannelType.THREAD && channelInfo.parentChannelId) {
+    const [parentInfo] = await db
+      .select({ type: channels.type })
+      .from(channels)
+      .where(eq(channels.id, channelInfo.parentChannelId))
+      .limit(1);
+
+    if (parentInfo?.type === ChannelType.FORUM) {
+      const followers = await db
+        .select({ userId: threadFollowers.userId })
+        .from(threadFollowers)
+        .where(eq(threadFollowers.threadId, channelId));
+
+      const followerIds = new Set(followers.map((f) => f.userId));
+      const mentionedSet = new Set<number>(
+        (message.mentionedUserIds as number[] | null) ?? []
+      );
+
+      usersToNotify = usersToNotify.filter(
+        (id) => followerIds.has(id) || mentionedSet.has(id)
+      );
+    }
+  }
 
   const promises = usersToNotify.map(async (userId) => {
     const { readStates, mentionStates } = await getChannelsReadStatesForUser(userId, channelId);
