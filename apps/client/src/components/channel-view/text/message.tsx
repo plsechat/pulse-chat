@@ -3,6 +3,7 @@ import { setHighlightedMessageId } from '@/features/server/channels/actions';
 import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { Pin, Reply } from 'lucide-react';
@@ -24,7 +25,7 @@ const ReplyPreview = memo(
   ({ replyTo }: { replyTo: { id: number; userId: number; content: string | null } }) => {
     const user = useUserById(replyTo.userId);
     const truncated = replyTo.content
-      ? replyTo.content.replace(/<[^>]*>/g, '').slice(0, 100)
+      ? stripToPlainText(replyTo.content).slice(0, 100)
       : 'Message deleted';
 
     const scrollToOriginal = useCallback(() => {

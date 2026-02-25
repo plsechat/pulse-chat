@@ -2,32 +2,49 @@ import { inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { userRoles } from '../db/schema';
 
-const USER_MENTION_RE =
+// Token format patterns
+const TOKEN_USER_MENTION_RE = /<@(\d+)>/g;
+const TOKEN_ROLE_MENTION_RE = /<@&(\d+)>/g;
+const TOKEN_ALL_MENTION_RE = /@everyone/;
+
+// Legacy HTML format patterns
+const HTML_USER_MENTION_RE =
   /data-mention-type=["']user["'][^>]*data-mention-id=["'](\d+)["']/g;
-const ROLE_MENTION_RE =
+const HTML_ROLE_MENTION_RE =
   /data-mention-type=["']role["'][^>]*data-mention-id=["'](\d+)["']/g;
-const ALL_MENTION_RE = /data-mention-type=["']all["']/;
+const HTML_ALL_MENTION_RE = /data-mention-type=["']all["']/;
+
+function isLegacyHtml(content: string): boolean {
+  return content.startsWith('<p>') || /^<[a-z][\w-]*[\s>]/i.test(content);
+}
 
 /**
- * Parse mention spans from message HTML and return the set of mentioned user IDs
- * plus whether the message uses @all.
+ * Parse mention tokens from message content and return the set of mentioned
+ * user IDs plus whether the message uses @all/@everyone.
  *
- * @param html     The message HTML content
+ * Supports both token format (<@123>, <@&456>, @everyone) and legacy HTML format.
+ *
+ * @param content   The message content
  * @param memberIds All user IDs who are members of the channel
  */
 export async function parseMentionedUserIds(
-  html: string,
+  content: string,
   memberIds: number[]
 ): Promise<{ userIds: number[]; mentionsAll: boolean }> {
   const mentionedIds = new Set<number>();
+  const legacy = isLegacyHtml(content);
 
-  // @all → everyone in the channel
-  if (ALL_MENTION_RE.test(html)) {
+  const allRe = legacy ? HTML_ALL_MENTION_RE : TOKEN_ALL_MENTION_RE;
+  const userRe = legacy ? HTML_USER_MENTION_RE : TOKEN_USER_MENTION_RE;
+  const roleRe = legacy ? HTML_ROLE_MENTION_RE : TOKEN_ROLE_MENTION_RE;
+
+  // @all / @everyone → everyone in the channel
+  if (allRe.test(content)) {
     return { userIds: memberIds, mentionsAll: true };
   }
 
   // @user mentions
-  for (const match of html.matchAll(USER_MENTION_RE)) {
+  for (const match of content.matchAll(userRe)) {
     const userId = Number(match[1]);
     if (!Number.isNaN(userId)) {
       mentionedIds.add(userId);
@@ -36,7 +53,7 @@ export async function parseMentionedUserIds(
 
   // @role mentions → resolve to user IDs
   const roleIds: number[] = [];
-  for (const match of html.matchAll(ROLE_MENTION_RE)) {
+  for (const match of content.matchAll(roleRe)) {
     const roleId = Number(match[1]);
     if (!Number.isNaN(roleId)) {
       roleIds.push(roleId);

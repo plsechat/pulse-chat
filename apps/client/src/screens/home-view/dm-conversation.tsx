@@ -40,8 +40,16 @@ import { AudioPlayer } from '@/components/channel-view/text/overrides/audio-play
 import { ImageOverride } from '@/components/channel-view/text/overrides/image';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
-import { preprocessMarkdown } from '@/components/channel-view/text/renderer/markdown-preprocessor';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import { stripToPlainText } from '@/helpers/strip-to-plain-text';
+import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
+import {
+  isLegacyHtml,
+  TokenContentRenderer
+} from '@/lib/converters/token-content-renderer';
+import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
+import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 import parse from 'html-react-parser';
@@ -225,7 +233,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
 
       await sendDmMessage(
         dmChannelId,
-        preprocessMarkdown(newMessage),
+        tiptapHtmlToTokens(newMessage),
         files.length > 0 ? files.map((f) => f.id) : undefined,
         replyingTo?.id,
         fileKeys
@@ -245,7 +253,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
       try {
         await sendDmMessage(
           dmChannelId,
-          `<p><a href="${gifUrl}">${gifUrl}</a></p>`
+          gifUrl
         );
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
@@ -675,11 +683,15 @@ const DmPinnedMessageItem = memo(
   }) => {
     const user = useUserById(message.userId);
 
+    const content = message.content ?? '';
+    const legacy = isLegacyHtml(content);
+
     const messageHtml = useMemo(() => {
-      return parse(message.content ?? '', {
+      if (!legacy || !content) return null;
+      return parse(content, {
         replace: (domNode) => serializer(domNode, () => {})
       });
-    }, [message.content]);
+    }, [content, legacy]);
 
     return (
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
@@ -693,7 +705,9 @@ const DmPinnedMessageItem = memo(
           </span>
         </div>
         <div className="pl-7 text-sm msg-content">
-          {message.content ? messageHtml : null}
+          {content ? (legacy ? messageHtml : (
+            <TokenContentRenderer content={content} fileCount={0} onFoundMedia={() => {}} />
+          )) : null}
         </div>
         <div className="flex justify-end mt-1">
           <Button
@@ -750,7 +764,7 @@ const DmReplyPreview = memo(
   ({ replyTo }: { replyTo: { id: number; userId: number; content: string | null } }) => {
     const user = useUserById(replyTo.userId);
     const truncated = replyTo.content
-      ? replyTo.content.replace(/<[^>]*>/g, '').slice(0, 100)
+      ? stripToPlainText(replyTo.content).slice(0, 100)
       : 'Message deleted';
 
     const scrollToOriginal = useCallback(() => {
@@ -787,7 +801,7 @@ const DmReplyBar = memo(
     const user = useUserById(message.userId);
     const contentPreview = useMemo(() => {
       if (!message.content) return 'Message deleted';
-      return message.content.replace(/<[^>]*>/g, '').slice(0, 80) || 'Attachment';
+      return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
     }, [message.content]);
 
     const scrollToMessage = useCallback(() => {
@@ -850,13 +864,9 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   const handleEditSubmit = useCallback(
     async (newContent: string) => {
       try {
-        const content = preprocessMarkdown(newContent);
-        const stripped = content
-          .replace(/<[^>]*>/g, '')
-          .replace(/&nbsp;/g, ' ')
-          .trim();
+        const content = tiptapHtmlToTokens(newContent);
 
-        if (!stripped) {
+        if (isTokenContentEmpty(content)) {
           await deleteDmMessageAction(message.id);
           toast.success('Message deleted');
         } else {
@@ -922,7 +932,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 
   const onCopyText = useCallback(() => {
     if (!message.content) return;
-    const plainText = message.content.replace(/<[^>]*>/g, '');
+    const plainText = stripToPlainText(message.content);
     navigator.clipboard.writeText(plainText);
     toast.success('Copied to clipboard');
   }, [message.content]);
@@ -1108,14 +1118,28 @@ const DmNonMediaFile = memo(({
 
 const DmMessageContent = memo(
   ({ message }: { message: TJoinedDmMessage }) => {
-    const { foundMedia, messageHtml } = useMemo(() => {
+    const content = message.content ?? '';
+    const legacy = isLegacyHtml(content);
+    const [tokenMedia, setTokenMedia] = useState<TFoundMedia[]>([]);
+
+    const { foundMedia: htmlMedia, messageHtml } = useMemo(() => {
+      if (!legacy) return { foundMedia: [] as TFoundMedia[], messageHtml: null };
       const foundMedia: TFoundMedia[] = [];
-      const messageHtml = parse(message.content ?? '', {
+      const messageHtml = parse(content, {
         replace: (domNode) =>
           serializer(domNode, (found) => foundMedia.push(found))
       });
       return { messageHtml, foundMedia };
-    }, [message.content]);
+    }, [content, legacy]);
+
+    const foundMedia = legacy ? htmlMedia : tokenMedia;
+
+    const handleTokenMedia = useCallback((media: TFoundMedia) => {
+      setTokenMedia((prev) => {
+        if (prev.some((m) => m.url === media.url)) return prev;
+        return [...prev, media];
+      });
+    }, []);
 
     // Categorize files into media vs non-media, preserving original index
     const { mediaFiles, nonMediaFiles } = useMemo(() => {
@@ -1149,7 +1173,7 @@ const DmMessageContent = memo(
             <Lock className="h-3 w-3" />
             <span>Unable to decrypt this message</span>
           </div>
-        ) : message.content ? (
+        ) : content ? (
           <div className="flex items-start gap-1.5">
             {message.e2ee && (
               <Tooltip content="End-to-end encrypted">
@@ -1157,7 +1181,9 @@ const DmMessageContent = memo(
               </Tooltip>
             )}
             <div className="max-w-full break-words msg-content min-w-0">
-              {messageHtml}
+              {legacy ? messageHtml : (
+                <TokenContentRenderer content={content} fileCount={message.files.length} onFoundMedia={handleTokenMedia} />
+              )}
             </div>
           </div>
         ) : null}
@@ -1229,7 +1255,13 @@ const DmMessageEdit = memo(
     onSubmit: (content: string) => void;
     onCancel: () => void;
   }) => {
-    const [editContent, setEditContent] = useState(message.content ?? '');
+    const ctx = useTokenToTiptapContext();
+    const initialContent = useMemo(() => {
+      const raw = message.content ?? '';
+      if (isLegacyHtml(raw) || !raw) return raw;
+      return tokensToTiptapHtml(raw, ctx);
+    }, [message.content, ctx]);
+    const [editContent, setEditContent] = useState(initialContent);
     const dmChannels = useDmChannels();
     const editDmMembers = useMemo(() => {
       const channel = dmChannels.find((c) => c.id === message.dmChannelId);

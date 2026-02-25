@@ -25,7 +25,8 @@ import { throttle } from 'lodash-es';
 import { setHighlightedMessageId } from '@/features/server/channels/actions';
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { preprocessMarkdown } from './renderer/markdown-preprocessor';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
+import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
@@ -63,7 +64,7 @@ const ReplyBar = memo(
     const user = useUserById(message.userId);
     const contentPreview = useMemo(() => {
       if (!message.content) return 'Message deleted';
-      return message.content.replace(/<[^>]*>/g, '').slice(0, 80) || 'Attachment';
+      return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
     }, [message.content]);
 
     const scrollToMessage = useCallback(() => {
@@ -222,7 +223,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     const trpc = getTRPCClient();
 
     try {
-      const content = preprocessMarkdown(newMessage);
+      const content = tiptapHtmlToTokens(newMessage);
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
@@ -297,7 +298,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
       const trpc = getTRPCClient();
-      const content = `<p><a href="${gifUrl}">${gifUrl}</a></p>`;
+      const content = gifUrl;
 
       try {
         if (isE2ee && ownUserId) {
