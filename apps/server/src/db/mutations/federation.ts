@@ -7,6 +7,7 @@ import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
 import { signChallenge } from '../../utils/federation';
 import { validateFederationUrl } from '../../utils/validate-url';
+import { publishUser } from '../publishers';
 import { files, users } from '../schema';
 
 async function findOrCreateShadowUser(
@@ -334,6 +335,9 @@ async function syncShadowUserProfile(
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = Date.now();
       await db.update(users).set(updates).where(eq(users.id, shadowUserId));
+
+      // Notify connected clients about the profile change
+      publishUser(shadowUserId, 'update');
     }
   } catch (err) {
     logger.error('[syncShadowUserProfile] failed for user %d: %o', shadowUserId, err);

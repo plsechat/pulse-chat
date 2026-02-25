@@ -89,8 +89,12 @@ const createContext = async ({
     );
     logger.info('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
 
-    // Sync profile (avatar, banner, bio) from home instance (fire-and-forget)
-    syncShadowUserProfile(decodedUser.id, fedResult.issuerDomain, fedResult.publicId);
+    // Sync profile (avatar, banner, bio) from home instance — await with timeout
+    // so the profile data is ready before the client's first request
+    await Promise.race([
+      syncShadowUserProfile(decodedUser.id, fedResult.issuerDomain, fedResult.publicId),
+      Bun.sleep(3000)
+    ]);
 
     // Use the federation token itself for WS client matching
     accessToken = params.federationToken;

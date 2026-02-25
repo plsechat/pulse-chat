@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { findOrCreateShadowUser } from '../../db/mutations/federation';
+import { findOrCreateShadowUser, syncShadowUserProfile } from '../../db/mutations/federation';
 import { federationInstances } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -45,6 +45,9 @@ const ensureShadowUserRoute = protectedProcedure
       undefined,
       input.remotePublicId
     );
+
+    // Sync profile (avatar, banner, bio) from remote instance (fire-and-forget)
+    syncShadowUserProfile(shadowUser.id, input.instanceDomain, input.remotePublicId);
 
     return { localUserId: shadowUser.id };
   });
