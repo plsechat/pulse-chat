@@ -575,11 +575,11 @@ describe('e2ee router', () => {
   test('should publish E2EE_IDENTITY_RESET when identity key changes', async () => {
     const { caller } = await initTest(1);
     const publishedEvents: { topic: string; payload: unknown }[] = [];
-    const original = pubsub.publish.bind(pubsub);
+    const original = pubsub.publishFor.bind(pubsub);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = (topic: string, payload: unknown) => {
+    (pubsub as any).publishFor = (userIds: unknown, topic: string, payload: unknown) => {
       publishedEvents.push({ topic, payload });
-      return original(topic as never, payload as never);
+      return original(userIds as never, topic as never, payload as never);
     };
 
     // Register initial keys
@@ -599,17 +599,17 @@ describe('e2ee router', () => {
     expect(resetEvents[0]!.payload).toEqual({ userId: 1 });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = original;
+    (pubsub as any).publishFor = original;
   });
 
   test('should NOT publish E2EE_IDENTITY_RESET when re-registering with same key', async () => {
     const { caller } = await initTest(1);
     const publishedEvents: { topic: string; payload: unknown }[] = [];
-    const original = pubsub.publish.bind(pubsub);
+    const original = pubsub.publishFor.bind(pubsub);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = (topic: string, payload: unknown) => {
+    (pubsub as any).publishFor = (userIds: unknown, topic: string, payload: unknown) => {
       publishedEvents.push({ topic, payload });
-      return original(topic as never, payload as never);
+      return original(userIds as never, topic as never, payload as never);
     };
 
     // Register initial keys
@@ -626,7 +626,7 @@ describe('e2ee router', () => {
     expect(resetEvents.length).toBe(0);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = original;
+    (pubsub as any).publishFor = original;
   });
 
   // --- Key backup ---
