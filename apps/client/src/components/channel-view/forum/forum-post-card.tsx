@@ -62,8 +62,26 @@ const ForumPostCard = memo(({ thread, isActive, onClick }: TForumPostCardProps) 
         thread.archived && 'opacity-60'
       )}
     >
-      {/* Title */}
-      <h3 className="text-sm font-semibold truncate">{thread.name}</h3>
+      {/* Title + Tags */}
+      <div className="flex items-center gap-2 pr-7">
+        <h3 className="text-sm font-semibold truncate">{thread.name}</h3>
+        {thread.tags && thread.tags.length > 0 && (
+          <div className="flex items-center gap-1 shrink-0">
+            {thread.tags.map((tag) => (
+              <span
+                key={tag.id}
+                className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                style={{
+                  backgroundColor: `${tag.color}20`,
+                  color: tag.color
+                }}
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Username: content preview */}
       {(thread.creatorName || thread.contentPreview) && (
