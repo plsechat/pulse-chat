@@ -3,7 +3,7 @@ import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
 import { useCan, useChannelCan } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
-import { useLastReadMessageId, useSelectedChannel } from '@/features/server/channels/hooks';
+import { useChannelById, useLastReadMessageId, useSelectedChannel } from '@/features/server/channels/hooks';
 import { useMessages } from '@/features/server/messages/hooks';
 import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
 import { playSound } from '@/features/server/sounds/actions';
@@ -117,6 +117,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const [slowModeRemaining, setSlowModeRemaining] = useState(0);
   const slowModeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const selectedChannel = useSelectedChannel();
+  const currentChannel = useChannelById(channelId);
   const slowMode = selectedChannel?.slowMode ?? 0;
   const isE2ee = selectedChannel?.e2ee ?? false;
   const ownUserId = useOwnUserId();
@@ -463,7 +464,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           )}
           <TiptapInput
             value={newMessage}
-            placeholder={`Message #${selectedChannel?.name ?? 'channel'}`}
+            placeholder={`Message #${currentChannel?.name ?? selectedChannel?.name ?? 'channel'}`}
             onChange={setNewMessage}
             onSubmit={onSendMessage}
             onTyping={sendTypingSignal}

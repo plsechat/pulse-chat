@@ -177,6 +177,9 @@ class VoiceRuntime {
 
       const channelState = runtime.getState();
 
+      // Skip empty runtimes (no active users)
+      if (channelState.users.length === 0) return;
+
       const entry: TVoiceMap[number] = {
         users: {},
         startedAt: channelState.startedAt

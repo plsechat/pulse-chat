@@ -1,10 +1,10 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
 import { getServerMemberIds } from '../../db/queries/servers';
-import { channels } from '../../db/schema';
+import { channels, messages } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -40,7 +40,21 @@ const deleteForumPostRoute = protectedProcedure
       }
     }
 
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+    // Allow deletion by post creator or users with MANAGE_CHANNELS
+    const hasManagePermission = await ctx.hasPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+
+    if (!hasManagePermission) {
+      const [firstMessage] = await db
+        .select({ userId: messages.userId })
+        .from(messages)
+        .where(eq(messages.channelId, input.threadId))
+        .orderBy(asc(messages.createdAt))
+        .limit(1);
+
+      if (!firstMessage || firstMessage.userId !== ctx.userId) {
+        await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+      }
+    }
 
     // Delete the thread channel (cascades to messages, forumPostTags, threadFollowers)
     await db.delete(channels).where(eq(channels.id, input.threadId));

@@ -50,7 +50,7 @@ const ForumPostMenu = memo(
 
     const isCreator = creatorId === ownUserId;
     const canEditTags = isCreator || can(Permission.MANAGE_CHANNELS);
-    const canDelete = can(Permission.MANAGE_CHANNELS);
+    const canDelete = isCreator || can(Permission.MANAGE_CHANNELS);
 
     // Fetch follow status when menu opens
     useEffect(() => {
