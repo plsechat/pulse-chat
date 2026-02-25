@@ -32,5 +32,11 @@ export const serverMentionCountsSelector = (state: IRootState) =>
 export const totalDmUnreadCountSelector = (state: IRootState) =>
   state.dms.channels.reduce((sum, ch) => sum + (ch.unreadCount ?? 0), 0);
 
+export const federatedUnreadCountsSelector = (state: IRootState) =>
+  state.app.federatedUnreadCounts;
+
+export const federatedMentionCountsSelector = (state: IRootState) =>
+  state.app.federatedMentionCounts;
+
 export const federatedConnectionStatusesSelector = (state: IRootState) =>
   state.app.federatedConnectionStatuses;

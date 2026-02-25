@@ -25,6 +25,10 @@ export interface TAppState {
   activeInstanceDomain: string | null;
   serverUnreadCounts: Record<number, number>;
   serverMentionCounts: Record<number, number>;
+  /** Keyed by "instanceDomain:serverId" */
+  federatedUnreadCounts: Record<string, number>;
+  /** Keyed by "instanceDomain:serverId" */
+  federatedMentionCounts: Record<string, number>;
   federatedConnectionStatuses: Record<
     string,
     'connecting' | 'connected' | 'disconnected'
@@ -43,6 +47,8 @@ const initialState: TAppState = {
   activeInstanceDomain: null,
   serverUnreadCounts: {},
   serverMentionCounts: {},
+  federatedUnreadCounts: {},
+  federatedMentionCounts: {},
   federatedConnectionStatuses: {}
 };
 
@@ -205,6 +211,72 @@ export const appSlice = createSlice({
       action: PayloadAction<Record<number, number>>
     ) => {
       state.serverMentionCounts = action.payload;
+    },
+    setFederatedUnreadCount: (
+      state,
+      action: PayloadAction<{
+        instanceDomain: string;
+        serverId: number;
+        count: number;
+        mentionCount: number;
+      }>
+    ) => {
+      const key = `${action.payload.instanceDomain}:${action.payload.serverId}`;
+      const { count, mentionCount } = action.payload;
+      if (count === -1) {
+        state.federatedUnreadCounts[key] =
+          (state.federatedUnreadCounts[key] ?? 0) + 1;
+      } else if (count > 0) {
+        state.federatedUnreadCounts[key] = count;
+      } else {
+        delete state.federatedUnreadCounts[key];
+      }
+      if (mentionCount === -1) {
+        state.federatedMentionCounts[key] =
+          (state.federatedMentionCounts[key] ?? 0) + 1;
+      } else if (mentionCount > 0) {
+        state.federatedMentionCounts[key] = mentionCount;
+      } else {
+        delete state.federatedMentionCounts[key];
+      }
+    },
+    setFederatedUnreadCounts: (
+      state,
+      action: PayloadAction<{
+        instanceDomain: string;
+        unreadCounts: Record<number, number>;
+        mentionCounts: Record<number, number>;
+      }>
+    ) => {
+      const { instanceDomain, unreadCounts, mentionCounts } = action.payload;
+      for (const [serverId, count] of Object.entries(unreadCounts)) {
+        const key = `${instanceDomain}:${serverId}`;
+        if (count > 0) {
+          state.federatedUnreadCounts[key] = count;
+        } else {
+          delete state.federatedUnreadCounts[key];
+        }
+      }
+      for (const [serverId, count] of Object.entries(mentionCounts)) {
+        const key = `${instanceDomain}:${serverId}`;
+        if (count > 0) {
+          state.federatedMentionCounts[key] = count;
+        } else {
+          delete state.federatedMentionCounts[key];
+        }
+      }
+    },
+    clearFederatedCountsForInstance: (
+      state,
+      action: PayloadAction<string>
+    ) => {
+      const prefix = `${action.payload}:`;
+      for (const key of Object.keys(state.federatedUnreadCounts)) {
+        if (key.startsWith(prefix)) delete state.federatedUnreadCounts[key];
+      }
+      for (const key of Object.keys(state.federatedMentionCounts)) {
+        if (key.startsWith(prefix)) delete state.federatedMentionCounts[key];
+      }
     },
     setFederatedConnectionStatus: (
       state,
