@@ -51,11 +51,11 @@ const ContentWrapper = memo(() => {
           defaultLayout={savedLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          <ResizablePanel id="forum-posts" minSize={15} maxSize={80}>
+          <ResizablePanel id="forum-posts" minSize="15" maxSize="85">
             <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel id="forum-thread" minSize={15}>
+          <ResizablePanel id="forum-thread" minSize="15">
             <ForumThreadView key={activeThreadId} />
           </ResizablePanel>
         </ResizablePanelGroup>
