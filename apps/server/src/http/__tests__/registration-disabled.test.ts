@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { login } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { testsBaseUrl } from '../../__tests__/setup';
-import { invites, users } from '../../db/schema';
+import { invites } from '../../db/schema';
 
 const register = (body: {
   email: string;

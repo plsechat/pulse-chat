@@ -8,6 +8,7 @@ import {
   type JWK
 } from 'jose';
 import { and, eq } from 'drizzle-orm';
+import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { db } from '../db';
 import { federationInstances, federationKeys } from '../db/schema';
 import { config } from '../config';
@@ -111,7 +112,7 @@ async function verifyFederationToken(token: string): Promise<{
     // Decode without verifying to get issuer
     const decoded = decodeJwt(token);
     const issuerDomain = decoded.iss;
-    logger.info('[verifyFederationToken] issuer=%s, aud=%s, sub=%s', issuerDomain, decoded.aud, decoded.sub);
+    logger.info('[verifyFederationToken] issuer=%s, aud=%s, sub=%s', sanitizeForLog(issuerDomain), sanitizeForLog(decoded.aud), sanitizeForLog(decoded.sub));
 
     if (!issuerDomain) {
       logger.warn('[verifyFederationToken] no issuer in token');

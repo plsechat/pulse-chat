@@ -120,9 +120,10 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       ALLOWED_ATTR: [
         'href', 'src', 'alt', 'class', 'target', 'rel',
         'data-type', 'data-mention-type', 'data-mention-id', 'data-mention-name',
-        'data-emoji-name', 'data-emoji-id'
+        'data-emoji-name', 'data-emoji-id',
+        'data-channel-id', 'data-channel-name'
       ],
-      ALLOW_DATA_ATTR: true
+      ALLOW_DATA_ATTR: false
     });
 
     let isEmojiOnly = false;

@@ -67,9 +67,9 @@ const serializer = (
 
     if (url) {
       const isTweet =
-        url.hostname.match(/(twitter|x).com/) && href.match(twitterRegex);
+        url.hostname.match(/^(www\.)?(twitter|x)\.com$/) && href.match(twitterRegex);
       const isYoutube =
-        url.hostname.match(/(youtube.com|youtu.be)/) &&
+        url.hostname.match(/^(www\.)?(youtube\.com|youtu\.be)$/) &&
         href.match(youtubeRegex);
 
       const isImage = imageExtensions.some((ext) => href.endsWith(ext));

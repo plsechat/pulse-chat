@@ -3,6 +3,7 @@ import http from 'http';
 import z from 'zod';
 import { config } from '../config';
 import { getWsInfo } from '../helpers/get-ws-info';
+import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
 import {
   federationAcceptHandler,
@@ -55,8 +56,8 @@ const createHttpServer = async (port: number = config.server.port) => {
         logger.debug(
           `${chalk.dim('[HTTP]')} %s - %s - [%s]`,
           req.method,
-          req.url,
-          info?.ip
+          sanitizeForLog(req.url),
+          sanitizeForLog(info?.ip)
         );
 
         if (req.method === 'OPTIONS') {

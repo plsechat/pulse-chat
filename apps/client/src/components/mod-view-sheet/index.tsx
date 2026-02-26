@@ -33,7 +33,7 @@ const ContentWrapper = memo(({ userId }: TContentWrapperProps) => {
         }
 
         const plainUrlRegex =
-          /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/g;
+          /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*)/g;
         let plainMatch;
         while ((plainMatch = plainUrlRegex.exec(content)) !== null) {
           urls.push(plainMatch[0]);

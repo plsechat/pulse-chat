@@ -22,8 +22,11 @@ export const urlMetadataParser = async (
       .filter((v, i, a) => a.indexOf(v) === i)
       .filter((url) => {
         try {
-          const hostname = new URL(url).hostname;
-          return hostname !== 'giphy.com' && !hostname.endsWith('.giphy.com');
+          const parsed = new URL(url);
+          // Block giphy domains by checking the registered domain
+          const parts = parsed.hostname.split('.');
+          const baseDomain = parts.slice(-2).join('.');
+          return baseDomain !== 'giphy.com';
         } catch {
           return false;
         }
