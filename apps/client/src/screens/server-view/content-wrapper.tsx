@@ -18,7 +18,7 @@ import { ChannelType } from '@pulse/shared';
 import { memo, useCallback, useState } from 'react';
 
 const FORUM_LAYOUT_KEY = 'forum-panel-layout';
-const DEFAULT_LAYOUT = { 'forum-posts': 30, 'forum-thread': 70 };
+const DEFAULT_LAYOUT = { 'forum-posts': 40, 'forum-thread': 60 };
 
 function getSavedLayout() {
   try {
@@ -51,11 +51,11 @@ const ContentWrapper = memo(() => {
           defaultLayout={savedLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          <ResizablePanel id="forum-posts" minSize={20} maxSize={50}>
+          <ResizablePanel id="forum-posts" minSize={15} maxSize={80}>
             <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel id="forum-thread" minSize={40}>
+          <ResizablePanel id="forum-thread" minSize={15}>
             <ForumThreadView key={activeThreadId} />
           </ResizablePanel>
         </ResizablePanelGroup>
