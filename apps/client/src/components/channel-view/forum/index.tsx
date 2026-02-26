@@ -182,10 +182,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   return (
     <>
       <div
-        className={cn(
-          'flex flex-col overflow-hidden border-r border-border/30',
-          activeThreadId ? 'w-[420px] flex-shrink-0' : 'flex-1'
-        )}
+        className="flex flex-col overflow-hidden flex-1"
       >
         {/* Search bar + New Post */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30">
