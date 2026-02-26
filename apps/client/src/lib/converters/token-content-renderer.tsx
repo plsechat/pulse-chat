@@ -213,7 +213,7 @@ function tokenize(text: string): Token[] {
 
 // ── Renderer ─────────────────────────────────────────────────
 
-const twitterRegex = /https:\/\/(twitter|x)\.com\/\w+\/status\/(\d+)/;
+const twitterRegex = /^https:\/\/(twitter|x)\.com\/\w+\/status\/(\d+)/;
 const youtubeRegex =
   /^.*((youtu\.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
 
