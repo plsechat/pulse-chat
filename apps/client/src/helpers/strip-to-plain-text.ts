@@ -9,9 +9,11 @@ export function stripToPlainText(content: string | null | undefined): string {
   if (!content) return '';
 
   if (isLegacyHtml(content)) {
-    // Use DOMParser for robust HTML stripping — handles nested tags and entities
-    const doc = new DOMParser().parseFromString(content, 'text/html');
-    return (doc.body.textContent || '').trim();
+    // Iteratively strip HTML tags until stable (handles nested/malformed tags)
+    let result = content;
+    let prev: string;
+    do { prev = result; result = result.replace(/<[^>]*>/g, ''); } while (result !== prev);
+    return result.trim();
   }
 
   // Token format → resolve tokens to readable text

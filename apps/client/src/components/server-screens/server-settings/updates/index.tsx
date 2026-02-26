@@ -94,7 +94,7 @@ const Updates = memo(() => {
           {hasUpdate ? (
             <Button
               onClick={update}
-              disabled={loading || !canUpdate}
+              disabled={!canUpdate}
             >
               Update Server
             </Button>

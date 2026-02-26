@@ -3,8 +3,9 @@ queries:
   - uses: ./.github/codeql/custom-queries
 
 paths-ignore:
-  # Build scripts and test helpers — not runtime code
+  # Build scripts, migration scripts, and test helpers — not runtime code
   - apps/server/build/**
+  - apps/server/src/scripts/**
   - apps/desktop/scripts/**
   - '**/__tests__/**'
 

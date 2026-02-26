@@ -23,15 +23,18 @@ function isLegacyHtml(content: string): boolean {
 
 // ── HTML entity decoding ──────────────────────────────────────
 
+const entityMap: Record<string, string> = {
+  '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>',
+  '&quot;': '"', '&#39;': "'"
+};
 function decodeEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+  return text.replace(
+    /&(?:nbsp|amp|lt|gt|quot|#39|#(\d+));/g,
+    (m, code?: string) => {
+      if (code) return String.fromCharCode(Number(code));
+      return entityMap[m] ?? m;
+    }
+  );
 }
 
 // ── Regex-based HTML to token converter ───────────────────────
@@ -45,7 +48,10 @@ function htmlToTokens(html: string): string {
   result = result.replace(
     /<pre><code(?:\s+class="language-(\w+)")?>([\s\S]*?)<\/code><\/pre>/g,
     (_m, lang: string | undefined, code: string) => {
-      const decoded = decodeEntities(code.replace(/<[^>]*>/g, ''));
+      let stripped = code;
+      let prev: string;
+      do { prev = stripped; stripped = stripped.replace(/<[^>]*>/g, ''); } while (stripped !== prev);
+      const decoded = decodeEntities(stripped);
       return `\`\`\`${lang ?? ''}\n${decoded}\n\`\`\``;
     }
   );
@@ -111,12 +117,13 @@ function htmlToTokens(html: string): string {
   result = result.replace(
     /<blockquote>([\s\S]*?)<\/blockquote>/g,
     (_m, inner: string) => {
-      const text = inner
+      let cleaned = inner
         .replace(/<p>/g, '')
         .replace(/<\/p>/g, '\n')
-        .replace(/<br\s*\/?>/g, '\n')
-        .replace(/<[^>]+>/g, '')
-        .trim();
+        .replace(/<br\s*\/?>/g, '\n');
+      let prev: string;
+      do { prev = cleaned; cleaned = cleaned.replace(/<[^>]+>/g, ''); } while (cleaned !== prev);
+      const text = cleaned.trim();
       return text.split('\n').map((line) => `> ${line}`).join('\n');
     }
   );
@@ -140,7 +147,10 @@ function htmlToTokens(html: string): string {
   result = result.replace(/<\/?p>/g, '');
 
   // 12. Remove any remaining HTML tags (but not our tokens like <@1>, <#1>, <:n:1>)
-  result = result.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+  {
+    let prev: string;
+    do { prev = result; result = result.replace(/<\/?[a-zA-Z][^>]*>/g, ''); } while (result !== prev);
+  }
 
   // 13. Decode entities
   result = decodeEntities(result);

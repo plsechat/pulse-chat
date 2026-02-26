@@ -16,17 +16,13 @@ function stripTags(html: string): string {
   return result;
 }
 
-/** Decode common HTML entities to their text equivalents. */
+/** Decode common HTML entities to their text equivalents (single-pass to prevent double-decoding). */
+const entityMap: Record<string, string> = {
+  '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>',
+  '&quot;': '"', '&#39;': "'", '&#x27;': "'", '&#x2F;': '/'
+};
 function decodeEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'")
-    .replace(/&#x2F;/g, '/');
+  return text.replace(/&(?:nbsp|amp|lt|gt|quot|#39|#x27|#x2F);/g, (m) => entityMap[m] ?? m);
 }
 
 /**
