@@ -1,4 +1,4 @@
-import { ActivityLogType, Permission, ServerEvents } from '@pulse/shared';
+import { ActivityLogType, DisconnectCode, Permission, ServerEvents } from '@pulse/shared';
 import z from 'zod';
 import { publishUser } from '../../db/publishers';
 import {
@@ -30,6 +30,12 @@ const kickRoute = protectedProcedure
       message: 'User is not a member of this server'
     });
 
+    // Close the kicked user's WebSocket connection
+    const userWs = ctx.getUserWs(input.userId);
+    if (userWs) {
+      userWs.close(DisconnectCode.KICKED, input.reason);
+    }
+
     // Remove the user from this server (same as leaving)
     await removeServerMember(ctx.activeServerId, input.userId);
 
@@ -46,9 +52,6 @@ const kickRoute = protectedProcedure
     });
 
     // Notify other members to remove the user from the member list
-    publishUser(input.userId, 'delete');
-
-    // Notify other members to remove the user from member list
     publishUser(input.userId, 'delete');
 
     enqueueActivityLog({

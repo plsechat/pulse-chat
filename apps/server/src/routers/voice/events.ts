@@ -8,41 +8,41 @@ type TVoiceProducerEvent = {
   kind: StreamKind;
 };
 
-// these events are broadcast to ALL users (for UI population in the sidebar)
+// these events are scoped to server members
 const onUserJoinVoiceRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_JOIN_VOICE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_JOIN_VOICE);
   }
 );
 
 const onUserLeaveVoiceRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_LEAVE_VOICE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_LEAVE_VOICE);
   }
 );
 
 const onUserUpdateVoiceStateRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.USER_VOICE_STATE_UPDATE);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_VOICE_STATE_UPDATE);
   }
 );
 
-// these events are broadcast to ALL users (for external stream UI in the sidebar)
+// these events are scoped to server members
 const onVoiceAddExternalStreamRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.VOICE_ADD_EXTERNAL_STREAM);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.VOICE_ADD_EXTERNAL_STREAM);
   }
 );
 
 const onVoiceUpdateExternalStreamRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM);
   }
 );
 
 const onVoiceRemoveExternalStreamRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    return ctx.pubsub.subscribe(ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM);
+    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM);
   }
 );
 

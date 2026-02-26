@@ -91,12 +91,18 @@ const Updates = memo(() => {
           <Button variant="outline" onClick={closeServerScreens}>
             Close
           </Button>
-          <Button
-            onClick={update}
-            disabled={loading || !hasUpdate || !canUpdate}
-          >
-            {hasUpdate ? 'Update Server' : 'No Updates Available'}
-          </Button>
+          {hasUpdate ? (
+            <Button
+              onClick={update}
+              disabled={!canUpdate}
+            >
+              Update Server
+            </Button>
+          ) : (
+            <Button disabled>
+              No Updates Available
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

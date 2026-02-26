@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { eq } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
+import { getTestDb } from '../../__tests__/mock-db';
+import { userRoles } from '../../db/schema';
 
 describe('messages router', () => {
   test('should throw when user lacks permissions (edit - not own message)', async () => {
@@ -53,10 +56,14 @@ describe('messages router', () => {
     ).rejects.toThrow('You do not have permission to delete this message');
   });
 
-  test.skip('should throw when user lacks permissions (toggleReaction)', async () => {
-    // TODO: user 2 has REACT_TO_MESSAGES via default Member role, so this test is incorrect
+  test('should throw when user lacks permissions (toggleReaction)', async () => {
+    const tdb = getTestDb();
     const { caller: caller1 } = await initTest(1);
-    const { caller: caller2 } = await initTest(2);
+    const { caller: caller2, ctx: ctx2 } = await initTest(2);
+
+    // Remove user 2's roles so they lack REACT_TO_MESSAGES
+    await tdb.delete(userRoles).where(eq(userRoles.userId, 2));
+    ctx2.invalidatePermissionCache();
 
     await caller1.messages.send({
       channelId: 1,

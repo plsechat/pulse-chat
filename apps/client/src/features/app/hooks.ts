@@ -7,7 +7,9 @@ import {
   appLoadingSelector,
   devicesSelector,
   federatedConnectionStatusesSelector,
+  federatedMentionCountsSelector,
   federatedServersSelector,
+  federatedUnreadCountsSelector,
   joinedServersSelector,
   modViewOpenSelector,
   modViewUserIdSelector,
@@ -47,6 +49,12 @@ export const useServerMentionCounts = () =>
 
 export const useTotalDmUnreadCount = () =>
   useSelector(totalDmUnreadCountSelector);
+
+export const useFederatedUnreadCounts = () =>
+  useSelector(federatedUnreadCountsSelector);
+
+export const useFederatedMentionCounts = () =>
+  useSelector(federatedMentionCountsSelector);
 
 export const useFederatedConnectionStatuses = () =>
   useSelector(federatedConnectionStatusesSelector);

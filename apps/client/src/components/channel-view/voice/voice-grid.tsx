@@ -32,7 +32,7 @@ const VoiceGrid = memo(
 
       const totalCards = childArray.length;
 
-      let cols = 1;
+      let cols: number;
 
       if (totalCards <= 1) cols = 1;
       else if (totalCards <= 4) cols = 2;

@@ -1,12 +1,13 @@
 import { ActivityLogType, ChannelType, Permission } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
-import { channels } from '../../db/schema';
+import { categories, channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { VoiceRuntime } from '../../runtimes/voice';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const addChannelRoute = protectedProcedure
@@ -20,6 +21,23 @@ const addChannelRoute = protectedProcedure
   )
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CHANNELS, input.serverId);
+
+    // Verify the category belongs to the specified server
+    const [category] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(
+        and(
+          eq(categories.id, input.categoryId),
+          eq(categories.serverId, input.serverId)
+        )
+      )
+      .limit(1);
+
+    invariant(category, {
+      code: 'NOT_FOUND',
+      message: 'Category not found'
+    });
 
     const channel = await db.transaction(async (tx) => {
       const [maxPositionChannel] = await tx

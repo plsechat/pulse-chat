@@ -26,13 +26,13 @@ const addMemberRoute = protectedProcedure
       return ctx.throwValidationError('dmChannelId', 'Group DM not found');
     }
 
-    // Only the owner can add members
-    if (channel.ownerId !== ctx.userId) {
-      ctx.throwValidationError('dmChannelId', 'Only the group owner can add members');
-    }
-
     // Check member limit (max 10)
     const memberIds = await getDmChannelMemberIds(input.dmChannelId);
+
+    // Only the owner can add members, and they must still be a member
+    if (channel.ownerId !== ctx.userId || !memberIds.includes(ctx.userId)) {
+      return ctx.throwValidationError('dmChannelId', 'Only the group owner can add members');
+    }
 
     if (memberIds.length >= 10) {
       ctx.throwValidationError('userId', 'Group DM is full (max 10 members)');

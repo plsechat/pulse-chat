@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmChannels } from '../../db/schema';
+import { VoiceRuntime } from '../../runtimes/voice';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -24,6 +25,12 @@ const deleteChannelRoute = protectedProcedure
 
     if (!memberIds.includes(ctx.userId)) {
       ctx.throwValidationError('dmChannelId', 'Not a member of this channel');
+    }
+
+    // Destroy any active voice runtime for this DM channel
+    const voiceRuntime = VoiceRuntime.findById(input.dmChannelId);
+    if (voiceRuntime) {
+      await voiceRuntime.destroy();
     }
 
     // Delete the channel — cascades to members, messages, files, reactions, read states

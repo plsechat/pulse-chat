@@ -3,12 +3,15 @@ import { Input } from '@/components/ui/input';
 import {
   exportKeys,
   importKeys,
+  restoreBackupFromServer,
   uploadBackupToServer
 } from '@/lib/e2ee/key-backup';
 import { hasKeys, signalStore, setupE2EEKeys, initE2EE } from '@/lib/e2ee';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import {
   Cloud,
+  CloudDownload,
   Download,
   KeyRound,
   Upload,
@@ -36,10 +39,20 @@ const Encryption = memo(() => {
   const [backupError, setBackupError] = useState('');
   const [backingUp, setBackingUp] = useState(false);
 
+  const [restorePassphrase, setRestorePassphrase] = useState('');
+  const [restoreError, setRestoreError] = useState('');
+  const [restoring, setRestoring] = useState(false);
+
+  const [backupStatus, setBackupStatus] = useState<{ exists: boolean; updatedAt?: number } | null>(null);
+
   const openFilePicker = useFilePicker();
 
   useEffect(() => {
     hasKeys().then(setHasE2eeKeys);
+    getHomeTRPCClient()
+      .e2ee.hasKeyBackup.query()
+      .then(setBackupStatus)
+      .catch(() => setBackupStatus({ exists: false }));
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -179,6 +192,7 @@ const Encryption = memo(() => {
       await uploadBackupToServer(backupPassphrase);
       setBackupPassphrase('');
       setBackupConfirm('');
+      setBackupStatus({ exists: true, updatedAt: Date.now() });
       toast.success('Keys backed up to server');
     } catch (err) {
       const message =
@@ -189,6 +203,32 @@ const Encryption = memo(() => {
       setBackingUp(false);
     }
   }, [backupPassphrase, backupConfirm]);
+
+  const handleServerRestore = useCallback(async () => {
+    setRestoreError('');
+
+    if (!restorePassphrase) {
+      setRestoreError('Please enter the passphrase used during backup');
+      return;
+    }
+
+    setRestoring(true);
+    try {
+      await restoreBackupFromServer(restorePassphrase);
+      await initE2EE();
+
+      setRestorePassphrase('');
+      setHasE2eeKeys(true);
+      toast.success('Keys restored from server');
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to restore keys';
+      setRestoreError(message);
+      toast.error(message);
+    } finally {
+      setRestoring(false);
+    }
+  }, [restorePassphrase]);
 
   return (
     <div className="space-y-8">
@@ -259,6 +299,32 @@ const Encryption = memo(() => {
           </p>
         </div>
 
+        {backupStatus && (
+          <div className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+            backupStatus.exists
+              ? 'border-green-500/30 bg-green-500/5 text-green-600 dark:text-green-400'
+              : 'border-yellow-500/30 bg-yellow-500/5 text-yellow-600 dark:text-yellow-400'
+          }`}>
+            {backupStatus.exists ? (
+              <>
+                <Cloud className="h-4 w-4 shrink-0" />
+                <span>
+                  Server backup exists — last updated{' '}
+                  {new Date(backupStatus.updatedAt!).toLocaleDateString(undefined, {
+                    year: 'numeric', month: 'short', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                  })}
+                </span>
+              </>
+            ) : (
+              <>
+                <ShieldAlert className="h-4 w-4 shrink-0" />
+                <span>No server backup found</span>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="space-y-3">
           <Input
             type="password"
@@ -287,6 +353,39 @@ const Encryption = memo(() => {
           >
             <Cloud className="mr-2 h-4 w-4" />
             {backingUp ? 'Backing up...' : 'Back Up to Server'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Restore from Server */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-base font-medium">Restore from Server</h3>
+          <p className="text-sm text-muted-foreground">
+            Restore your encryption keys from a server backup. Enter the
+            passphrase you used when backing up.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <Input
+            type="password"
+            placeholder="Backup passphrase"
+            value={restorePassphrase}
+            onChange={(e) => {
+              setRestorePassphrase(e.target.value);
+              setRestoreError('');
+            }}
+          />
+          {restoreError && (
+            <p className="text-sm text-destructive">{restoreError}</p>
+          )}
+          <Button
+            onClick={handleServerRestore}
+            disabled={restoring || (backupStatus !== null && !backupStatus.exists)}
+          >
+            <CloudDownload className="mr-2 h-4 w-4" />
+            {restoring ? 'Restoring...' : 'Restore from Server'}
           </Button>
         </div>
       </div>

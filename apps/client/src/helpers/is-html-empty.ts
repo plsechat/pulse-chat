@@ -7,7 +7,8 @@ export function isHtmlEmpty(html: string): boolean {
   if (!html) return true;
   // If there are <img> tags (custom emojis, uploaded files), it's not empty
   if (/<img\s/i.test(html)) return false;
-  // Strip all HTML tags, decode &nbsp;, and check if any text remains
-  const text = html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  // Use DOMParser for robust HTML stripping — handles nested tags and entities
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const text = (doc.body.textContent || '').trim();
   return text.length === 0;
 }

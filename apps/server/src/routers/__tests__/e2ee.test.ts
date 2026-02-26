@@ -502,7 +502,8 @@ describe('e2ee router', () => {
   test('should return null for user with no identity key', async () => {
     const { caller } = await initTest();
 
-    const key = await caller.e2ee.getIdentityPublicKey({ userId: 999 });
+    // User 3 is in the same server but has no identity key registered
+    const key = await caller.e2ee.getIdentityPublicKey({ userId: 3 });
     expect(key).toBeNull();
   });
 
@@ -574,11 +575,11 @@ describe('e2ee router', () => {
   test('should publish E2EE_IDENTITY_RESET when identity key changes', async () => {
     const { caller } = await initTest(1);
     const publishedEvents: { topic: string; payload: unknown }[] = [];
-    const original = pubsub.publish.bind(pubsub);
+    const original = pubsub.publishFor.bind(pubsub);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = (topic: string, payload: unknown) => {
+    (pubsub as any).publishFor = (userIds: unknown, topic: string, payload: unknown) => {
       publishedEvents.push({ topic, payload });
-      return original(topic as never, payload as never);
+      return original(userIds as never, topic as never, payload as never);
     };
 
     // Register initial keys
@@ -598,17 +599,17 @@ describe('e2ee router', () => {
     expect(resetEvents[0]!.payload).toEqual({ userId: 1 });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = original;
+    (pubsub as any).publishFor = original;
   });
 
   test('should NOT publish E2EE_IDENTITY_RESET when re-registering with same key', async () => {
     const { caller } = await initTest(1);
     const publishedEvents: { topic: string; payload: unknown }[] = [];
-    const original = pubsub.publish.bind(pubsub);
+    const original = pubsub.publishFor.bind(pubsub);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = (topic: string, payload: unknown) => {
+    (pubsub as any).publishFor = (userIds: unknown, topic: string, payload: unknown) => {
       publishedEvents.push({ topic, payload });
-      return original(topic as never, payload as never);
+      return original(userIds as never, topic as never, payload as never);
     };
 
     // Register initial keys
@@ -625,7 +626,7 @@ describe('e2ee router', () => {
     expect(resetEvents.length).toBe(0);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (pubsub as any).publish = original;
+    (pubsub as any).publishFor = original;
   });
 
   // --- Key backup ---
@@ -651,16 +652,17 @@ describe('e2ee router', () => {
     expect(backup).toBeNull();
   });
 
-  test('hasKeyBackup should return correct boolean', async () => {
+  test('hasKeyBackup should return exists status with timestamp', async () => {
     const { caller } = await initTest(1);
 
     const before = await caller.e2ee.hasKeyBackup();
-    expect(before).toBe(false);
+    expect(before.exists).toBe(false);
 
     await caller.e2ee.uploadKeyBackup({ encryptedData: 'encrypted-blob' });
 
     const after = await caller.e2ee.hasKeyBackup();
-    expect(after).toBe(true);
+    expect(after.exists).toBe(true);
+    expect(after.updatedAt).toBeGreaterThan(0);
   });
 
   test('should upsert key backup (uploading twice overwrites)', async () => {

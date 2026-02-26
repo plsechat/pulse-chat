@@ -19,6 +19,14 @@ import {
 export const setDmChannels = (channels: TJoinedDmChannel[]) =>
   store.dispatch(dmsSliceActions.setChannels(channels));
 
+/** Mark a single DM channel as read on the server (fire-and-forget). */
+const markDmChannelAsRead = (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  trpc.dms.markChannelAsRead.mutate({ dmChannelId }).catch(() => {
+    // ignore errors — this is a best-effort background update
+  });
+};
+
 export const addOrUpdateDmChannel = (channel: TJoinedDmChannel) =>
   store.dispatch(dmsSliceActions.addOrUpdateChannel(channel));
 
@@ -35,23 +43,29 @@ export const addDmMessages = (
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);
     if (ownUserId != null && messages[0].userId !== ownUserId) {
-      playSound(SoundType.MESSAGE_RECEIVED);
-
-      const senderChannel = state.dms.channels.find((c) =>
-        c.members.some((m) => m.id === messages[0].userId)
-      );
-      const senderName =
-        senderChannel?.members.find((m) => m.id === messages[0].userId)?.name;
-
-      sendDesktopNotification(
-        senderName ? `${senderName}` : 'New Direct Message',
-        messages[0].content?.slice(0, 100) || 'New message received'
-      );
-
-      // Increment unread count if this channel is not currently selected
       const selectedId = state.dms.selectedChannelId;
-      if (selectedId !== dmChannelId) {
+      const isViewingThisChannel = selectedId === dmChannelId;
+
+      if (!isViewingThisChannel) {
+        playSound(SoundType.MESSAGE_RECEIVED);
+
+        const senderChannel = state.dms.channels.find((c) =>
+          c.members.some((m) => m.id === messages[0].userId)
+        );
+        const senderName =
+          senderChannel?.members.find((m) => m.id === messages[0].userId)
+            ?.name;
+
+        sendDesktopNotification(
+          senderName ? `${senderName}` : 'New Direct Message',
+          messages[0].content?.slice(0, 100) || 'New message received'
+        );
+
         store.dispatch(dmsSliceActions.incrementChannelUnread(dmChannelId));
+      } else {
+        // User is viewing this DM — update server read state so
+        // any future channel re-fetch won't resurrect unread badges
+        markDmChannelAsRead(dmChannelId);
       }
     }
   }

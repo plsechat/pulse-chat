@@ -45,7 +45,7 @@ const E2EESetupModal = memo(() => {
       // Query whether a server backup exists
       getHomeTRPCClient()
         .e2ee.hasKeyBackup.query()
-        .then(setHasBackup)
+        .then((result) => setHasBackup(result.exists))
         .catch(() => setHasBackup(false));
     };
     window.addEventListener('e2ee-setup-needed', handler);

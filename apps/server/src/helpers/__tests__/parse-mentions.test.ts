@@ -88,4 +88,49 @@ describe('parseMentionedUserIds', () => {
     // Only the user mention is resolved; the role doesn't exist
     expect(result).toEqual({ userIds: [1], mentionsAll: false });
   });
+
+  // ── Token format tests ────────────────────────────────────
+
+  test('token format: returns empty for plain text', async () => {
+    const result = await parseMentionedUserIds('Hello world', MEMBER_IDS);
+    expect(result).toEqual({ userIds: [], mentionsAll: false });
+  });
+
+  test('token format: extracts user mention <@123>', async () => {
+    const result = await parseMentionedUserIds('Hey <@3>', MEMBER_IDS);
+    expect(result).toEqual({ userIds: [3], mentionsAll: false });
+  });
+
+  test('token format: extracts multiple user mentions', async () => {
+    const result = await parseMentionedUserIds('<@1> and <@4>', MEMBER_IDS);
+    expect(result.userIds.sort()).toEqual([1, 4]);
+    expect(result.mentionsAll).toBe(false);
+  });
+
+  test('token format: @everyone returns all members', async () => {
+    const result = await parseMentionedUserIds('Hey @everyone!', MEMBER_IDS);
+    expect(result.userIds.sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(result.mentionsAll).toBe(true);
+  });
+
+  test('token format: role mention <@&999> (non-existent role)', async () => {
+    const result = await parseMentionedUserIds('Hey <@&999>', MEMBER_IDS);
+    expect(result).toEqual({ userIds: [], mentionsAll: false });
+  });
+
+  test('token format: mixed user and @everyone', async () => {
+    const result = await parseMentionedUserIds('<@1> @everyone', MEMBER_IDS);
+    expect(result.userIds.sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(result.mentionsAll).toBe(true);
+  });
+
+  test('token format: deduplicates repeated user mentions', async () => {
+    const result = await parseMentionedUserIds('<@2> hello <@2>', MEMBER_IDS);
+    expect(result).toEqual({ userIds: [2], mentionsAll: false });
+  });
+
+  test('token format: does not match partial tokens', async () => {
+    const result = await parseMentionedUserIds('<@abc> @123', MEMBER_IDS);
+    expect(result).toEqual({ userIds: [], mentionsAll: false });
+  });
 });

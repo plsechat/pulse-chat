@@ -60,7 +60,9 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
 
   const handleEmojiSelect = useCallback(
     (emoji: TEmojiMartEmoji) => {
+      const custom = customEmojis.find((e) => e.name === emoji.id);
       const item: TEmojiItem = {
+        id: custom?.id as number | undefined,
         name: emoji.id,
         shortcodes: [emoji.shortcodes?.replace(/:/g, '') || emoji.id],
         emoji: emoji.native,
@@ -69,7 +71,7 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
       onEmojiSelect(item);
       setOpen(false);
     },
-    [onEmojiSelect]
+    [onEmojiSelect, customEmojis]
   );
 
   return (

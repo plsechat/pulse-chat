@@ -1,4 +1,4 @@
-import { ChannelType } from '@pulse/shared';
+import { ChannelPermission, ChannelType } from '@pulse/shared';
 import { and, asc, count, desc, eq, inArray, max, min } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
@@ -13,6 +13,7 @@ import {
   messages,
   users
 } from '../../db/schema';
+import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
 import { protectedProcedure } from '../../utils/trpc';
 
 const getThreadsRoute = protectedProcedure
@@ -22,7 +23,13 @@ const getThreadsRoute = protectedProcedure
       includeArchived: z.boolean().optional().default(false)
     })
   )
-  .query(async ({ input }) => {
+  .query(async ({ ctx, input }) => {
+    // Verify the caller has access to the parent channel
+    await ctx.needsChannelPermission(
+      input.channelId,
+      ChannelPermission.VIEW_CHANNEL
+    );
+
     const conditions = [
       eq(channels.parentChannelId, input.channelId),
       eq(channels.type, ChannelType.THREAD)
@@ -192,9 +199,8 @@ const getThreadsRoute = protectedProcedure
         ? firstImageByMessage.get(String(firstMsg.id))
         : undefined;
 
-      // Strip HTML tags for preview
       const contentPreview = firstMsg?.content
-        ? firstMsg.content.replace(/<[^>]*>/g, '').slice(0, 200)
+        ? getPlainTextFromHtml(firstMsg.content).slice(0, 200)
         : undefined;
 
       const reactions = firstMsg

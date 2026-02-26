@@ -271,7 +271,7 @@ export async function encryptDmMessage(
   payload: E2EEPlaintext
 ): Promise<string> {
   await ensureE2EEKeys();
-  await ensureSession(recipientUserId);
+  await ensureSession(recipientUserId, { verifyIdentity: true });
   const plaintext = JSON.stringify(payload);
   return encryptMessage(recipientUserId, plaintext);
 }
@@ -279,13 +279,31 @@ export async function encryptDmMessage(
 /**
  * Decrypt a DM message received from a specific sender.
  * Always uses home instance store.
+ *
+ * If decryption fails (e.g. the sender reset their keys and the local session
+ * is stale), clears the stale session and retries once. The retry allows the
+ * Signal Protocol library to process the PreKeyWhisperMessage with a clean
+ * slate and establish a fresh session.
  */
 export async function decryptDmMessage(
   senderUserId: number,
   encryptedContent: string
 ): Promise<E2EEPlaintext> {
-  const plaintext = await decryptMessage(senderUserId, encryptedContent);
-  return JSON.parse(plaintext) as E2EEPlaintext;
+  try {
+    const plaintext = await decryptMessage(senderUserId, encryptedContent);
+    return JSON.parse(plaintext) as E2EEPlaintext;
+  } catch (firstErr) {
+    // Clear the stale session and retry — the message may be a
+    // PreKeyWhisperMessage from a sender who regenerated keys.
+    await signalStore.clearUserSession(senderUserId);
+    try {
+      const plaintext = await decryptMessage(senderUserId, encryptedContent);
+      return JSON.parse(plaintext) as E2EEPlaintext;
+    } catch {
+      // Re-throw the original error if retry also fails
+      throw firstErr;
+    }
+  }
 }
 
 // --- Channel E2EE (Sender Keys) ---
@@ -613,9 +631,14 @@ export async function handlePeerIdentityReset(
     return;
   }
 
-  // Peer reset their keys — clear our stale session with them
+  // Peer reset their keys — clear our stale session with them.
+  // Always clear from the home store (DM sessions live there) AND the
+  // active store (channel sender key sessions may live in a federated store).
   const store = getActiveStore();
   await store.clearUserSession(userId);
+  if (store !== signalStore) {
+    await signalStore.clearUserSession(userId);
+  }
   clearDistributedMember(userId);
 
   // Invalidate member cache in case the reset user's permissions changed

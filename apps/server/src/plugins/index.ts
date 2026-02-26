@@ -24,7 +24,8 @@ import fs from 'node:fs/promises';
 import path from 'path';
 import { db } from '../db';
 import { getSettings } from '../db/queries/server';
-import { pluginData } from '../db/schema';
+import { getServerMemberIds } from '../db/queries/servers';
+import { channels, pluginData } from '../db/schema';
 import { PLUGINS_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 import { VoiceRuntime } from '../runtimes/voice';
@@ -719,11 +720,25 @@ class PluginManager {
 
             const stream = channel.getState().externalStreams[streamId]!;
 
-            pubsub.publish(ServerEvents.VOICE_ADD_EXTERNAL_STREAM, {
-              channelId: options.channelId,
-              streamId,
-              stream
-            });
+            // Scope to server members (fire-and-forget, createStream is sync)
+            db.select({ serverId: channels.serverId })
+              .from(channels)
+              .where(eq(channels.id, options.channelId))
+              .limit(1)
+              .then(([ch]) => {
+                if (!ch) return;
+                return getServerMemberIds(ch.serverId).then((memberIds) => {
+                  pubsub.publishFor(
+                    memberIds,
+                    ServerEvents.VOICE_ADD_EXTERNAL_STREAM,
+                    {
+                      channelId: options.channelId,
+                      streamId,
+                      stream
+                    }
+                  );
+                });
+              });
 
             if (options.producers.audio) {
               pubsub.publishForChannel(

@@ -17,7 +17,11 @@ import type {
   WebRtcTransport,
   WebRtcTransportOptions
 } from 'mediasoup/types';
+import { eq } from 'drizzle-orm';
 import { config, SERVER_PUBLIC_IP } from '../config';
+import { db } from '../db';
+import { getServerMemberIds } from '../db/queries/servers';
+import { channels } from '../db/schema';
 import { logger } from '../logger';
 import { eventBus } from '../plugins/event-bus';
 import { IS_PRODUCTION } from '../utils/env';
@@ -137,10 +141,12 @@ class VoiceRuntime {
   private screenAudioProducers: TProducerMap = {};
   private consumers: TConsumerMap = {};
 
+  private _destroying = false;
   private externalCounter = 0;
   private externalStreamsInternal: {
     [streamId: number]: TExternalStreamInternal;
   } = {};
+  private _cachedServerId: number | undefined;
 
   constructor(channelId: number, isDmVoice = false) {
     this.id = channelId;
@@ -164,11 +170,16 @@ class VoiceRuntime {
     return undefined;
   };
 
-  public static getVoiceMap = (): TVoiceMap => {
+  public static getVoiceMap = (channelIds?: Set<number>): TVoiceMap => {
     const map: TVoiceMap = {};
 
     voiceRuntimes.forEach((runtime, channelId) => {
+      if (channelIds && !channelIds.has(channelId)) return;
+
       const channelState = runtime.getState();
+
+      // Skip empty runtimes (no active users)
+      if (channelState.users.length === 0) return;
 
       const entry: TVoiceMap[number] = {
         users: {},
@@ -185,10 +196,14 @@ class VoiceRuntime {
     return map;
   };
 
-  public static getExternalStreamsMap = (): TExternalStreamsMap => {
+  public static getExternalStreamsMap = (
+    channelIds?: Set<number>
+  ): TExternalStreamsMap => {
     const map: TExternalStreamsMap = {};
 
     voiceRuntimes.forEach((runtime, channelId) => {
+      if (channelIds && !channelIds.has(channelId)) return;
+
       if (map[channelId]) {
         map[channelId] = [];
       }
@@ -197,6 +212,20 @@ class VoiceRuntime {
     });
 
     return map;
+  };
+
+  private getServerMemberIdsForChannel = async (): Promise<number[]> => {
+    if (this.isDmVoice) return [];
+    if (!this._cachedServerId) {
+      const [ch] = await db
+        .select({ serverId: channels.serverId })
+        .from(channels)
+        .where(eq(channels.id, this.id))
+        .limit(1);
+      if (ch) this._cachedServerId = ch.serverId;
+    }
+    if (!this._cachedServerId) return [];
+    return getServerMemberIds(this._cachedServerId);
   };
 
   public init = async (): Promise<void> => {
@@ -210,6 +239,9 @@ class VoiceRuntime {
   };
 
   public destroy = async () => {
+    if (this._destroying) return;
+    this._destroying = true;
+
     await this.router?.close();
 
     Object.values(this.consumerTransports).forEach((transport) => {
@@ -382,6 +414,12 @@ class VoiceRuntime {
   };
 
   public createConsumerTransport = async (userId: number) => {
+    // Close any existing transport to prevent leaks from duplicate requests
+    const existing = this.consumerTransports[userId];
+    if (existing) {
+      existing.close();
+    }
+
     const { transport, params } = await this.createTransport();
 
     this.consumerTransports[userId] = transport;
@@ -420,6 +458,12 @@ class VoiceRuntime {
   };
 
   public createProducerTransport = async (userId: number) => {
+    // Close any existing transport to prevent leaks from duplicate requests
+    const existing = this.producerTransports[userId];
+    if (existing) {
+      existing.close();
+    }
+
     const { params, transport } = await this.createTransport();
 
     this.producerTransports[userId] = transport;
@@ -498,6 +542,19 @@ class VoiceRuntime {
       } else if (type === StreamKind.SCREEN_AUDIO) {
         delete this.screenAudioProducers[userId];
       }
+
+      // Notify peers that this producer is gone so they can clean up consumers
+      this.getServerMemberIdsForChannel()
+        .then((memberIds) => {
+          pubsub.publishFor(memberIds, ServerEvents.VOICE_PRODUCER_CLOSED, {
+            channelId: this.id,
+            remoteId: userId,
+            kind: type
+          });
+        })
+        .catch((err) => {
+          logger.error('[VoiceRuntime] Failed to broadcast producer close for user %d:', userId, err);
+        });
     });
   };
 
@@ -637,10 +694,16 @@ class VoiceRuntime {
             video: !!internal.producers.videoProducer
           };
 
-          pubsub.publish(ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM, {
-            channelId: this.id,
-            streamId,
-            stream: existingStream
+          this.getServerMemberIdsForChannel().then((memberIds) => {
+            pubsub.publishFor(
+              memberIds,
+              ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM,
+              {
+                channelId: this.id,
+                streamId,
+                stream: existingStream
+              }
+            );
           });
         }
       }
@@ -668,9 +731,11 @@ class VoiceRuntime {
     delete this.externalStreamsInternal[streamId];
     delete this.state.externalStreams[streamId];
 
-    pubsub.publish(ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM, {
-      channelId: this.id,
-      streamId
+    this.getServerMemberIdsForChannel().then((memberIds) => {
+      pubsub.publishFor(memberIds, ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM, {
+        channelId: this.id,
+        streamId
+      });
     });
   };
 
@@ -762,10 +827,12 @@ class VoiceRuntime {
       };
     }
 
-    pubsub.publish(ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM, {
-      channelId: this.id,
-      streamId,
-      stream: publicStream
+    this.getServerMemberIdsForChannel().then((memberIds) => {
+      pubsub.publishFor(memberIds, ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM, {
+        channelId: this.id,
+        streamId,
+        stream: publicStream
+      });
     });
   };
 

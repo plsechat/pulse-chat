@@ -1,5 +1,5 @@
 import type { TJoinedServer, TServerSummary } from '@pulse/shared';
-import { and, asc, count, eq, max, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, max, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   channelReadStates,
@@ -354,8 +354,46 @@ const getServerUnreadCount = async (
   };
 };
 
+const getCoMemberIds = async (userId: number): Promise<number[]> => {
+  const rows = await db
+    .selectDistinct({ userId: serverMembers.userId })
+    .from(serverMembers)
+    .where(
+      inArray(
+        serverMembers.serverId,
+        db
+          .select({ serverId: serverMembers.serverId })
+          .from(serverMembers)
+          .where(eq(serverMembers.userId, userId))
+      )
+    );
+
+  return rows.map((r) => r.userId).filter((id) => id !== userId);
+};
+
+const sharesServerWith = async (
+  userId1: number,
+  userId2: number
+): Promise<boolean> => {
+  const sm1 = db
+    .select({ serverId: serverMembers.serverId })
+    .from(serverMembers)
+    .where(eq(serverMembers.userId, userId1))
+    .as('sm1');
+
+  const [row] = await db
+    .select({ serverId: serverMembers.serverId })
+    .from(serverMembers)
+    .innerJoin(sm1, eq(sm1.serverId, serverMembers.serverId))
+    .where(eq(serverMembers.userId, userId2))
+    .limit(1);
+
+  return !!row;
+};
+
 export {
   addServerMember,
+  getCoMemberIds,
   getDiscoverableServers,
   getFirstServer,
   getServerById,
@@ -365,5 +403,6 @@ export {
   getServerUnreadCounts,
   getServersByUserId,
   isServerMember,
-  removeServerMember
+  removeServerMember,
+  sharesServerWith
 };

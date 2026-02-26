@@ -12,7 +12,9 @@ import { Permission } from '@pulse/shared';
 import { ArrowDownUp, MessageSquareText, Search, Tags } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
+import { EditPostTagsDialog } from './edit-post-tags-dialog';
 import { ForumPostCard } from './forum-post-card';
+import { ForumPostMenu } from './forum-post-context-menu';
 import { ManageTagsDialog } from './manage-tags-dialog';
 
 type TForumChannelProps = {
@@ -51,6 +53,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   const [activeTagFilter, setActiveTagFilter] = useState<number | null>(null);
   const [showArchived, _setShowArchived] = useState(false);
   const [showManageTags, setShowManageTags] = useState(false);
+  const [editTagsInfo, setEditTagsInfo] = useState<{ threadId: number; currentTagIds: number[] } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const activeThreadId = useActiveThreadId();
@@ -79,6 +82,15 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Listen for real-time thread updates (create/delete/tag changes)
+  useEffect(() => {
+    const handler = () => {
+      fetchData();
+    };
+    window.addEventListener('threads-changed', handler);
+    return () => window.removeEventListener('threads-changed', handler);
   }, [fetchData]);
 
   // Sync live reaction data from Redux for the active thread
@@ -146,6 +158,19 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
     fetchData();
   }, [fetchData]);
 
+  const onEditTags = useCallback((threadId: number, currentTagIds: number[]) => {
+    setEditTagsInfo({ threadId, currentTagIds });
+  }, []);
+
+  const onEditTagsClose = useCallback(() => {
+    setEditTagsInfo(null);
+    fetchData();
+  }, [fetchData]);
+
+  const onPostDeleted = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -157,10 +182,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   return (
     <>
       <div
-        className={cn(
-          'flex flex-col overflow-hidden border-r border-border/30',
-          activeThreadId ? 'w-[420px] flex-shrink-0' : 'flex-1'
-        )}
+        className="flex flex-col overflow-hidden flex-1"
       >
         {/* Search bar + New Post */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30">
@@ -271,12 +293,22 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
           ) : (
             <div className="flex flex-col">
               {sortedThreads.map((thread) => (
-                <ForumPostCard
-                  key={thread.id}
-                  thread={thread}
-                  isActive={activeThreadId === thread.id}
-                  onClick={onPostClick}
-                />
+                <div key={thread.id} className="relative group">
+                  <ForumPostCard
+                    thread={thread}
+                    isActive={activeThreadId === thread.id}
+                    onClick={onPostClick}
+                  />
+                  <ForumPostMenu
+                    threadId={thread.id}
+                    threadName={thread.name}
+                    creatorId={thread.creatorId}
+                    currentTagIds={thread.tags?.map((t) => t.id) ?? []}
+                    channelId={channelId}
+                    onEditTags={onEditTags}
+                    onPostDeleted={onPostDeleted}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -294,6 +326,15 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         <ManageTagsDialog
           channelId={channelId}
           onClose={onManageTagsClose}
+        />
+      )}
+
+      {editTagsInfo && (
+        <EditPostTagsDialog
+          threadId={editTagsInfo.threadId}
+          channelId={channelId}
+          currentTagIds={editTagsInfo.currentTagIds}
+          onClose={onEditTagsClose}
         />
       )}
     </>

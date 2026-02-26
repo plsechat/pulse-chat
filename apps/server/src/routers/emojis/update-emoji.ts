@@ -19,11 +19,21 @@ const updateEmojiRoute = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     await ctx.needsPermission(Permission.MANAGE_EMOJIS);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const existingEmoji = await getEmojiById(input.emojiId);
 
     invariant(existingEmoji, {
       code: 'NOT_FOUND',
       message: 'Emoji not found'
+    });
+
+    invariant(existingEmoji.serverId === ctx.activeServerId, {
+      code: 'NOT_FOUND',
+      message: 'Emoji not found in this server'
     });
 
     const exists = await emojiExists(input.name);

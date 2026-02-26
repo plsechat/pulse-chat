@@ -2,8 +2,9 @@ import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { removeFile } from '../../db/mutations/files';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
-import { dmMessages } from '../../db/schema';
+import { dmMessageFiles, dmMessages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -28,6 +29,16 @@ const deleteMessageRoute = protectedProcedure
     });
 
     const memberIds = await getDmChannelMemberIds(msg.dmChannelId);
+
+    // Clean up attached files before deleting the message
+    const attachedFiles = await db
+      .select({ fileId: dmMessageFiles.fileId })
+      .from(dmMessageFiles)
+      .where(eq(dmMessageFiles.dmMessageId, input.messageId));
+
+    for (const { fileId } of attachedFiles) {
+      await removeFile(fileId);
+    }
 
     await db.delete(dmMessages).where(eq(dmMessages.id, input.messageId));
 

@@ -4,13 +4,29 @@ import { VoiceChannel } from '@/components/channel-view/voice';
 import { ForumThreadView } from '@/components/thread-panel/forum-thread-view';
 import { ThreadPanel } from '@/components/thread-panel';
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@/components/ui/resizable';
+import {
   useActiveThreadId,
   useSelectedChannelId,
   useSelectedChannelType
 } from '@/features/server/channels/hooks';
 import { useServerName } from '@/features/server/hooks';
 import { ChannelType } from '@pulse/shared';
-import { memo } from 'react';
+import { memo, useCallback, useState } from 'react';
+
+const FORUM_LAYOUT_KEY = 'forum-panel-layout';
+const DEFAULT_LAYOUT = { 'forum-posts': 40, 'forum-thread': 60 };
+
+function getSavedLayout() {
+  try {
+    const saved = localStorage.getItem(FORUM_LAYOUT_KEY);
+    if (saved) return JSON.parse(saved) as Record<string, number>;
+  } catch { /* ignore */ }
+  return DEFAULT_LAYOUT;
+}
 
 const ContentWrapper = memo(() => {
   const selectedChannelId = useSelectedChannelId();
@@ -19,6 +35,33 @@ const ContentWrapper = memo(() => {
   const activeThreadId = useActiveThreadId();
 
   const isForum = selectedChannelType === ChannelType.FORUM;
+
+  const [savedLayout] = useState(getSavedLayout);
+
+  const onLayoutChanged = useCallback((layout: Record<string, number>) => {
+    localStorage.setItem(FORUM_LAYOUT_KEY, JSON.stringify(layout));
+  }, []);
+
+  // Forum with active thread: resizable two-panel layout
+  if (selectedChannelId && isForum && activeThreadId) {
+    return (
+      <main className="flex flex-1 relative overflow-hidden">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          defaultLayout={savedLayout}
+          onLayoutChanged={onLayoutChanged}
+        >
+          <ResizablePanel id="forum-posts" minSize="15" maxSize="85">
+            <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel id="forum-thread" minSize="15">
+            <ForumThreadView key={activeThreadId} />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </main>
+    );
+  }
 
   let content;
 
@@ -54,10 +97,6 @@ const ContentWrapper = memo(() => {
       <div className="flex flex-1 flex-col overflow-hidden">
         {content}
       </div>
-      {/* Forum: thread view as right panel */}
-      {activeThreadId && isForum && (
-        <ForumThreadView key={activeThreadId} />
-      )}
       {/* Non-forum: standard thread side panel */}
       {activeThreadId && !isForum && (
         <ThreadPanel key={activeThreadId} />

@@ -1,8 +1,9 @@
-import { Permission, ServerEvents } from '@pulse/shared';
+import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { channels, messageFiles, messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
@@ -47,7 +48,11 @@ const purgeChannelRoute = protectedProcedure
 
     await db.delete(messages).where(eq(messages.channelId, input.channelId));
 
-    pubsub.publish(ServerEvents.MESSAGE_BULK_DELETE, {
+    const affectedUserIds = await getAffectedUserIdsForChannel(
+      input.channelId,
+      { permission: ChannelPermission.VIEW_CHANNEL }
+    );
+    pubsub.publishFor(affectedUserIds, ServerEvents.MESSAGE_BULK_DELETE, {
       messageIds: [],
       channelId: input.channelId,
       purged: true

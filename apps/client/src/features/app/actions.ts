@@ -289,6 +289,11 @@ export const resetApp = () => {
   store.dispatch(appSliceActions.setServerMentionCounts({}));
   store.dispatch(appSliceActions.setFederatedServers([]));
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  // Clean up federated unread subscriptions
+  for (const [, sub] of federatedUnreadSubs) {
+    sub.unsubscribe();
+  }
+  federatedUnreadSubs.clear();
   connectionManager.disconnectAll();
 };
 
@@ -393,6 +398,13 @@ export const leaveFederatedServer = async (
   );
 
   if (remaining.length === 0) {
+    // Clean up unread subscription for this instance
+    const sub = federatedUnreadSubs.get(instanceDomain);
+    if (sub) {
+      sub.unsubscribe();
+      federatedUnreadSubs.delete(instanceDomain);
+    }
+    store.dispatch(appSliceActions.clearFederatedCountsForInstance(instanceDomain));
     connectionManager.disconnectRemote(instanceDomain);
     store.dispatch(
       appSliceActions.clearFederatedConnectionStatus(instanceDomain)
@@ -547,6 +559,51 @@ export const saveFederatedServers = () => {
   );
 };
 
+// Track federated unread count subscriptions so we can clean up
+const federatedUnreadSubs = new Map<string, { unsubscribe: () => void }>();
+
+const setupFederatedUnreadSubscriptions = (instanceDomain: string) => {
+  // Avoid duplicate subscriptions for the same instance
+  if (federatedUnreadSubs.has(instanceDomain)) return;
+
+  const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
+  if (!remoteTrpc) return;
+
+  // Subscribe to real-time unread count updates
+  const sub = remoteTrpc.servers.onUnreadCountUpdate.subscribe(undefined, {
+    onData: (data: { serverId: number; count: number; mentionCount: number }) => {
+      store.dispatch(
+        appSliceActions.setFederatedUnreadCount({
+          instanceDomain,
+          serverId: data.serverId,
+          count: data.count,
+          mentionCount: data.mentionCount
+        })
+      );
+    },
+    onError: (err) =>
+      console.error(`[federation] onUnreadCountUpdate error for ${instanceDomain}:`, err)
+  });
+
+  federatedUnreadSubs.set(instanceDomain, sub);
+
+  // Fetch initial unread counts
+  remoteTrpc.servers.getUnreadCounts
+    .query()
+    .then(({ unreadCounts, mentionCounts }) => {
+      store.dispatch(
+        appSliceActions.setFederatedUnreadCounts({
+          instanceDomain,
+          unreadCounts,
+          mentionCounts
+        })
+      );
+    })
+    .catch((err) =>
+      console.error(`[federation] getUnreadCounts failed for ${instanceDomain}:`, err)
+    );
+};
+
 export const loadFederatedServers = async () => {
   // Register connection status handler (idempotent — last handler wins)
   connectionManager.setStatusChangeHandler((domain, status) => {
@@ -621,6 +678,20 @@ export const loadFederatedServers = async () => {
 
     store.dispatch(appSliceActions.setFederatedServers(entries));
     saveFederatedServers();
+
+    // Eagerly connect to each federated instance and set up unread subscriptions
+    const connectedInstances = new Set<string>();
+    for (const entry of entries) {
+      if (connectedInstances.has(entry.instanceDomain)) continue;
+      connectedInstances.add(entry.instanceDomain);
+
+      connectionManager.connectRemote(
+        entry.instanceDomain,
+        entry.remoteUrl,
+        entry.federationToken
+      );
+      setupFederatedUnreadSubscriptions(entry.instanceDomain);
+    }
   } catch (error) {
     console.error('Failed to load federated servers from server:', error);
 

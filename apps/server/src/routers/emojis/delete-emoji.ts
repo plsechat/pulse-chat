@@ -1,5 +1,5 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
@@ -18,9 +18,14 @@ const deleteEmojiRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_EMOJIS);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [removedEmoji] = await db
       .delete(emojis)
-      .where(eq(emojis.id, input.emojiId))
+      .where(and(eq(emojis.id, input.emojiId), eq(emojis.serverId, ctx.activeServerId)))
       .returning();
 
     invariant(removedEmoji, {

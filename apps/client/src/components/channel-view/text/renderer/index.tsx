@@ -2,6 +2,11 @@ import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
+import {
+  isLegacyHtml,
+  TokenContentRenderer,
+  isEmojiOnlyContent
+} from '@/lib/converters/token-content-renderer';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import {
@@ -16,7 +21,7 @@ import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
 import parse from 'html-react-parser';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Tooltip } from '../../../ui/tooltip';
 import { FileCard } from '../file-card';
@@ -96,10 +101,17 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     [message.userId, ownUserId]
   );
 
-  const { foundMedia, messageHtml, isEmojiOnly } = useMemo(() => {
+  const content = message.content ?? '';
+  const legacy = isLegacyHtml(content);
+  const [tokenMedia, setTokenMedia] = useState<TFoundMedia[]>([]);
+
+  // Legacy HTML rendering path
+  const { foundMedia: htmlMedia, messageHtml, isEmojiOnly: htmlEmojiOnly } = useMemo(() => {
+    if (!legacy) return { foundMedia: [] as TFoundMedia[], messageHtml: null, isEmojiOnly: false };
+
     const foundMedia: TFoundMedia[] = [];
 
-    const sanitized = DOMPurify.sanitize(message.content ?? '', {
+    const sanitized = DOMPurify.sanitize(content, {
       ALLOWED_TAGS: [
         'p', 'br', 'strong', 'em', 'u', 's', 'del', 'code', 'pre',
         'blockquote', 'ul', 'ol', 'li', 'a', 'img', 'span', 'div',
@@ -108,13 +120,12 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       ALLOWED_ATTR: [
         'href', 'src', 'alt', 'class', 'target', 'rel',
         'data-type', 'data-mention-type', 'data-mention-id', 'data-mention-name',
-        'data-emoji-name', 'data-emoji-id'
+        'data-emoji-name', 'data-emoji-id',
+        'data-channel-id', 'data-channel-name'
       ],
-      ALLOW_DATA_ATTR: true
+      ALLOW_DATA_ATTR: false
     });
 
-    // Detect emoji-only messages: strip tags, check if remaining text is only whitespace,
-    // and verify there are emoji elements (1-6 emojis)
     let isEmojiOnly = false;
     if (message.files.length === 0) {
       const textOnly = sanitized.replace(/<[^>]*>/g, '').trim();
@@ -125,7 +136,6 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
         .replace(/\u200D|\uFE0E|\uFE0F/g, '')
         .trim();
 
-      // Also count custom emoji img tags with data-emoji-name
       const customEmojiCount = (sanitized.match(/data-emoji-name/g) || []).length;
       const totalEmojis = (emojiMatches?.length ?? 0) + customEmojiCount;
 
@@ -146,7 +156,18 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     }
 
     return { messageHtml, foundMedia, isEmojiOnly };
-  }, [message.content, message.files.length]);
+  }, [content, legacy, message.files.length]);
+
+  const tokenEmojiOnly = !legacy && isEmojiOnlyContent(content, message.files.length);
+  const isEmojiOnly = legacy ? htmlEmojiOnly : tokenEmojiOnly;
+  const foundMedia = legacy ? htmlMedia : tokenMedia;
+
+  const handleTokenMedia = useCallback((media: TFoundMedia) => {
+    setTokenMedia((prev) => {
+      if (prev.some((m) => m.url === media.url)) return prev;
+      return [...prev, media];
+    });
+  }, []);
 
   const onRemoveFileClick = useCallback(async (fileId: number) => {
     if (!fileId) return;
@@ -210,7 +231,13 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
           </Tooltip>
         )}
       <div className={cn('max-w-full break-words msg-content min-w-0', isEmojiOnly && 'emoji-only')}>
-        {messageHtml}
+        {legacy ? messageHtml : (
+          <TokenContentRenderer
+            content={content}
+            fileCount={message.files.length}
+            onFoundMedia={handleTokenMedia}
+          />
+        )}
         {message.edited && (
           <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), fullDateTime())}` : 'Edited'}>
             <span className="text-[10px] text-muted-foreground/50 ml-1 cursor-default">

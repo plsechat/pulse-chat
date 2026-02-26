@@ -19,11 +19,21 @@ const deleteRoleRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_ROLES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const role = await getRole(input.roleId);
 
     invariant(role, {
       code: 'NOT_FOUND',
       message: 'Role not found'
+    });
+
+    invariant(role.serverId === ctx.activeServerId, {
+      code: 'NOT_FOUND',
+      message: 'Role not found in this server'
     });
     invariant(!role.isPersistent, {
       code: 'FORBIDDEN',

@@ -798,6 +798,24 @@ const forumPostTags = pgTable(
   (t) => [primaryKey({ columns: [t.threadId, t.tagId] })]
 );
 
+const threadFollowers = pgTable(
+  'thread_followers',
+  {
+    threadId: integer('thread_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.threadId, t.userId] }),
+    index('thread_followers_thread_idx').on(t.threadId),
+    index('thread_followers_user_idx').on(t.userId)
+  ]
+);
+
 const webhooks = pgTable(
   'webhooks',
   {
@@ -1054,6 +1072,7 @@ export {
   serverMembers,
   servers,
   settings,
+  threadFollowers,
   userIdentityKeys,
   userKeyBackups,
   userNotes,

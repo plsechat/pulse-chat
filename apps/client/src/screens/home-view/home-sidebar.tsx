@@ -13,6 +13,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { useFriendRequests } from '@/features/friends/hooks';
 import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
@@ -213,7 +214,7 @@ const DmChannelItem = memo(
               )}
               {!channel.isGroup && channel.lastMessage?.content && (
                 <span className="truncate text-xs text-muted-foreground w-full text-left">
-                  {channel.lastMessage.content.replace(/<[^>]*>/g, '').slice(0, 40)}
+                  {stripToPlainText(channel.lastMessage.content).slice(0, 40)}
                 </span>
               )}
             </div>

@@ -1,5 +1,5 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishCategory } from '../../db/publishers';
@@ -17,9 +17,14 @@ const deleteCategoryRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [removedCategory] = await db
       .delete(categories)
-      .where(eq(categories.id, input.categoryId))
+      .where(and(eq(categories.id, input.categoryId), eq(categories.serverId, ctx.activeServerId)))
       .returning();
 
     invariant(removedCategory, 'Category not found');

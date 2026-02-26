@@ -1,6 +1,7 @@
 import { UserAvatar } from '@/components/user-avatar';
 import { useChannels } from '@/features/server/channels/hooks';
 import { useUserById } from '@/features/server/users/hooks';
+import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import type { TJoinedMessage } from '@pulse/shared';
 import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
@@ -17,7 +18,7 @@ type TSearchResultProps = {
 const highlightMatch = (text: string, query: string) => {
   if (!query || !text) return text;
 
-  const stripped = text.replace(/<[^>]*>/g, '');
+  const stripped = stripToPlainText(text);
   const idx = stripped.toLowerCase().indexOf(query.toLowerCase());
 
   if (idx === -1) return stripped.slice(0, 150);

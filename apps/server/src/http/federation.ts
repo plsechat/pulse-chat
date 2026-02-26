@@ -10,6 +10,7 @@ import {
   verifyChallenge
 } from '../utils/federation';
 import { SERVER_VERSION } from '../utils/env';
+import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
 import { alias } from 'drizzle-orm/pg-core';
 import { findOrCreateShadowUser, syncShadowUserAvatar } from '../db/mutations/federation';
@@ -128,14 +129,14 @@ const federationRequestHandler = async (
     if (!remoteInfo.publicKey || remoteInfo.publicKey !== publicKey) {
       logger.warn(
         '[federation/request] Public key mismatch for domain %s — possible spoofing attempt',
-        domain
+        sanitizeForLog(domain)
       );
       return jsonResponse(res, 401, {
         error: 'Public key does not match the key served by the claimed domain'
       });
     }
   } catch (err) {
-    logger.error('[federation/request] Failed to verify domain %s:', domain, err);
+    logger.error('[federation/request] Failed to verify domain %s:', sanitizeForLog(domain), err);
     return jsonResponse(res, 400, {
       error: 'Could not verify domain ownership — unable to reach the claimed domain'
     });
@@ -916,9 +917,9 @@ const federationReportUserHandler = async (
 
   logger.info(
     'Federation report received from %s for user %s: %s',
-    fromDomain,
-    username,
-    reason
+    sanitizeForLog(fromDomain),
+    sanitizeForLog(username),
+    sanitizeForLog(reason)
   );
 
   jsonResponse(res, 200, { success: true });
