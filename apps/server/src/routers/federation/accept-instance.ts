@@ -45,24 +45,36 @@ const acceptInstanceRoute = protectedProcedure
       })
       .where(eq(federationInstances.id, input.instanceId));
 
-    // Notify remote instance
-    try {
-      const signature = await signChallenge(config.federation.domain);
-      const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
+    // Notify remote instance (retry once on failure, fire-and-forget)
+    const notifyRemote = async (attempt: number) => {
+      try {
+        const signature = await signChallenge(config.federation.domain);
+        const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
 
-      await fetch(`${protocol}://${instance!.domain}/federation/accept`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(10_000),
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          domain: config.federation.domain,
-          signature
-        })
-      });
-    } catch (error) {
-      logger.error('Failed to notify remote instance of acceptance:', error);
-      // Still accept locally even if remote notification fails
-    }
+        const res = await fetch(`${protocol}://${instance!.domain}/federation/accept`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(10_000),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            domain: config.federation.domain,
+            signature
+          })
+        });
+
+        if (!res.ok && attempt < 2) {
+          logger.warn('Remote instance returned %d on acceptance notification (attempt %d)', res.status, attempt);
+          await Bun.sleep(2000);
+          return notifyRemote(attempt + 1);
+        }
+      } catch (error) {
+        logger.error('Failed to notify remote instance of acceptance (attempt %d):', attempt, error);
+        if (attempt < 2) {
+          await Bun.sleep(2000);
+          return notifyRemote(attempt + 1);
+        }
+      }
+    };
+    notifyRemote(1).catch(() => {});
 
     invalidateCorsCache();
 

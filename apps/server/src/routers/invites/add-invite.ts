@@ -4,7 +4,6 @@ import {
   Permission,
   ServerEvents
 } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { getServerMemberIds } from '../../db/queries/servers';
@@ -26,17 +25,8 @@ const addInviteRoute = protectedProcedure
     await ctx.needsPermission(Permission.MANAGE_INVITES, input.serverId);
 
     const newCode = input.code || getRandomString(24);
-    const [existingInvite] = await db
-      .select()
-      .from(invites)
-      .where(eq(invites.code, newCode))
-      .limit(1);
 
-    invariant(!existingInvite, {
-      code: 'CONFLICT',
-      message: 'An invite with this code already exists'
-    });
-
+    // Use onConflictDoNothing to handle concurrent inserts with the same code
     const [invite] = await db
       .insert(invites)
       .values({
@@ -48,12 +38,18 @@ const addInviteRoute = protectedProcedure
         expiresAt: input.expiresAt || null,
         createdAt: Date.now()
       })
+      .onConflictDoNothing()
       .returning();
+
+    invariant(invite, {
+      code: 'CONFLICT',
+      message: 'An invite with this code already exists'
+    });
 
     // Notify server members so admin invite lists update
     const memberIds = await getServerMemberIds(input.serverId);
     ctx.pubsub.publishFor(memberIds, ServerEvents.INVITE_CREATE, {
-      inviteId: invite!.id,
+      inviteId: invite.id,
       serverId: input.serverId
     });
 
@@ -61,9 +57,9 @@ const addInviteRoute = protectedProcedure
       type: ActivityLogType.CREATED_INVITE,
       userId: ctx.user.id,
       details: {
-        code: invite!.code,
-        maxUses: invite!.maxUses || 0,
-        expiresAt: invite!.expiresAt
+        code: invite.code,
+        maxUses: invite.maxUses || 0,
+        expiresAt: invite.expiresAt
       }
     });
 

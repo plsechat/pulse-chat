@@ -1,5 +1,9 @@
 import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { db } from '../../db';
+import { getServerMemberIds } from '../../db/queries/servers';
+import { channels } from '../../db/schema';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -66,11 +70,29 @@ const updateVoiceStateRoute = protectedProcedure
 
     const newState = runtime.getUserState(ctx.user.id);
 
-    ctx.pubsub.publish(ServerEvents.USER_VOICE_STATE_UPDATE, {
-      channelId: ctx.currentVoiceChannelId,
-      userId: ctx.user.id,
-      state: newState
-    });
+    if (ctx.currentDmVoiceChannelId) {
+      const { getDmChannelMemberIds } = await import('../../db/queries/dms');
+      const dmMemberIds = await getDmChannelMemberIds(ctx.currentDmVoiceChannelId);
+      ctx.pubsub.publishFor(dmMemberIds, ServerEvents.USER_VOICE_STATE_UPDATE, {
+        channelId: ctx.currentVoiceChannelId,
+        userId: ctx.user.id,
+        state: newState
+      });
+    } else {
+      const [ch] = await db
+        .select({ serverId: channels.serverId })
+        .from(channels)
+        .where(eq(channels.id, ctx.currentVoiceChannelId))
+        .limit(1);
+      if (ch) {
+        const memberIds = await getServerMemberIds(ch.serverId);
+        ctx.pubsub.publishFor(memberIds, ServerEvents.USER_VOICE_STATE_UPDATE, {
+          channelId: ctx.currentVoiceChannelId,
+          userId: ctx.user.id,
+          state: newState
+        });
+      }
+    }
   });
 
 export { updateVoiceStateRoute };

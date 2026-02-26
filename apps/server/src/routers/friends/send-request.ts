@@ -3,6 +3,7 @@ import { and, eq, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { areFriends, getJoinedFriendRequest } from '../../db/queries/friends';
+import { sharesServerWith } from '../../db/queries/servers';
 import { getUserById } from '../../db/queries/users';
 import { federationInstances, friendRequests } from '../../db/schema';
 import { relayToInstance } from '../../utils/federation';
@@ -24,6 +25,13 @@ const sendRequestRoute = protectedProcedure
     invariant(!alreadyFriends, {
       code: 'BAD_REQUEST',
       message: 'You are already friends with this user'
+    });
+
+    // Require shared server to send a friend request
+    const shares = await sharesServerWith(ctx.userId, input.userId);
+    invariant(shares, {
+      code: 'FORBIDDEN',
+      message: 'You must share a server to send a friend request'
     });
 
     // Check for existing pending request in either direction

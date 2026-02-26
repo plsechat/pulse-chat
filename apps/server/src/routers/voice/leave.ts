@@ -1,6 +1,7 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { channels } from '../../db/schema';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
@@ -47,12 +48,18 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
 
   runtime.removeUser(ctx.user.id);
 
-  ctx.pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
+  const memberIds = await getServerMemberIds(channel.serverId);
+  ctx.pubsub.publishFor(memberIds, ServerEvents.USER_LEAVE_VOICE, {
     channelId: ctx.currentVoiceChannelId,
     userId: ctx.user.id,
     startedAt: runtime.getState().startedAt
   });
   ctx.currentVoiceChannelId = undefined;
+
+  // Destroy the runtime when no users remain to free mediasoup resources
+  if (runtime.getState().users.length === 0) {
+    await runtime.destroy();
+  }
 
   logger.info('%s left voice channel %s', ctx.user.name, channel.name);
 });

@@ -89,8 +89,12 @@ const createContext = async ({
     );
     logger.info('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
 
-    // Sync profile (avatar, banner, bio) from home instance (fire-and-forget)
-    syncShadowUserProfile(decodedUser.id, fedResult.issuerDomain, fedResult.publicId);
+    // Sync profile (avatar, banner, bio) from home instance — await with timeout
+    // so the profile data is ready before the client's first request
+    await Promise.race([
+      syncShadowUserProfile(decodedUser.id, fedResult.issuerDomain, fedResult.publicId),
+      Bun.sleep(3000)
+    ]);
 
     // Use the federation token itself for WS client matching
     accessToken = params.federationToken;
@@ -135,7 +139,7 @@ const createContext = async ({
 
   const getCachedChannelPermissions = async () => {
     if (!_cachedChannelPerms)
-      _cachedChannelPerms = await getAllChannelUserPermissions(decodedUser.id);
+      _cachedChannelPerms = await getAllChannelUserPermissions(decodedUser.id, _activeServer.id);
     return _cachedChannelPerms;
   };
 
@@ -146,21 +150,27 @@ const createContext = async ({
     _cachedChannelPerms = undefined;
   };
 
+  const _activeServer = { id: undefined as number | undefined };
+
   const hasPermission = async (
     targetPermission: Permission | Permission[],
     serverId?: number
   ) => {
+    // Default to the active server so callers that omit serverId
+    // are scoped to the current server instead of checking globally.
+    const effectiveServerId = serverId ?? _activeServer.id;
+
     const user = await getCachedUser();
 
     if (!user) return false;
 
     // Check if user is the server owner (bypasses all permission checks)
-    if (serverId) {
-      const server = await getCachedServer(serverId);
+    if (effectiveServerId) {
+      const server = await getCachedServer(effectiveServerId);
       if (server && server.ownerId === user.id) return true;
     }
 
-    const roles = await getCachedUserRoles(user.id, serverId);
+    const roles = await getCachedUserRoles(user.id, effectiveServerId);
 
     const permissionsSet = new Set<Permission>();
 
@@ -191,6 +201,10 @@ const createContext = async ({
       .limit(1);
 
     if (!channelRecord) return false;
+
+    // Ensure the channel belongs to the caller's active server
+    if (_activeServer.id && channelRecord.serverId !== _activeServer.id)
+      return false;
 
     if (!channelRecord.private) return true;
 
@@ -303,7 +317,8 @@ const createContext = async ({
     authenticated: isFederated,
     userId: decodedUser.id,
     handshakeHash: '',
-    activeServerId: undefined,
+    get activeServerId() { return _activeServer.id; },
+    set activeServerId(id: number | undefined) { _activeServer.id = id; },
     currentVoiceChannelId: undefined,
     currentDmVoiceChannelId: undefined,
     hasPermission,
@@ -357,70 +372,106 @@ const createWsServer = async (server: http.Server) => {
 
         let user;
 
-        // Handle federated user disconnect
-        const fedToken = ws.federationToken;
-        if (fedToken) {
-          const fedResult = await verifyFederationToken(fedToken).catch(
-            () => null
-          );
-          if (fedResult) {
-            user = await getUserById(
-              (
-                await findOrCreateShadowUser(
-                  fedResult.instanceId,
-                  fedResult.userId,
-                  fedResult.username,
-                  undefined,
-                  fedResult.publicId
-                )
-              ).id
+        try {
+          // Handle federated user disconnect
+          const fedToken = ws.federationToken;
+          if (fedToken) {
+            const fedResult = await verifyFederationToken(fedToken).catch(
+              () => null
             );
+            if (fedResult) {
+              user = await getUserById(
+                (
+                  await findOrCreateShadowUser(
+                    fedResult.instanceId,
+                    fedResult.userId,
+                    fedResult.username,
+                    undefined,
+                    fedResult.publicId
+                  )
+                ).id
+              );
+            }
+          } else {
+            user = await getUserByToken(ws.token);
           }
-        } else {
-          user = await getUserByToken(ws.token);
+        } catch (err) {
+          logger.error('Failed to resolve user during WS close:', err);
         }
 
         if (!user) return;
 
-        const voiceRuntime = VoiceRuntime.findRuntimeByUserId(user.id);
+        try {
+          const voiceRuntime = VoiceRuntime.findRuntimeByUserId(user.id);
 
-        if (voiceRuntime) {
-          voiceRuntime.removeUser(user.id);
+          if (voiceRuntime) {
+            voiceRuntime.removeUser(user.id);
 
-          pubsub.publish(ServerEvents.USER_LEAVE_VOICE, {
-            channelId: voiceRuntime.id,
-            userId: user.id,
-            startedAt: voiceRuntime.getState().startedAt
-          });
+            // Scope voice leave to server members or DM members
+            if (voiceRuntime.isDmVoice) {
+              const { getDmChannelMemberIds } = await import('../db/queries/dms');
+              const dmMemberIds = await getDmChannelMemberIds(voiceRuntime.id);
+              pubsub.publishFor(dmMemberIds, ServerEvents.USER_LEAVE_VOICE, {
+                channelId: voiceRuntime.id,
+                userId: user.id,
+                startedAt: voiceRuntime.getState().startedAt
+              });
+            } else {
+              const [ch] = await db
+                .select({ serverId: channels.serverId })
+                .from(channels)
+                .where(eq(channels.id, voiceRuntime.id))
+                .limit(1);
+              if (ch) {
+                const voiceMemberIds = await getServerMemberIds(ch.serverId);
+                pubsub.publishFor(voiceMemberIds, ServerEvents.USER_LEAVE_VOICE, {
+                  channelId: voiceRuntime.id,
+                  userId: user.id,
+                  startedAt: voiceRuntime.getState().startedAt
+                });
+              }
+            }
 
-          // If this was a DM voice call and no users remain, destroy the runtime
-          if (voiceRuntime.isDmVoice && voiceRuntime.getState().users.length === 0) {
-            await voiceRuntime.destroy();
-            const { getDmChannelMemberIds } = await import('../db/queries/dms');
-            const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
-            pubsub.publishFor(memberIds, ServerEvents.DM_CALL_ENDED, {
-              dmChannelId: voiceRuntime.id
-            });
-          } else if (voiceRuntime.isDmVoice) {
-            const { getDmChannelMemberIds } = await import('../db/queries/dms');
-            const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
-            pubsub.publishFor(memberIds, ServerEvents.DM_CALL_USER_LEFT, {
-              dmChannelId: voiceRuntime.id,
-              userId: user.id
-            });
+            // If this was a DM voice call and no users remain, destroy the runtime
+            if (voiceRuntime.isDmVoice && voiceRuntime.getState().users.length === 0) {
+              await voiceRuntime.destroy();
+              const { getDmChannelMemberIds } = await import('../db/queries/dms');
+              const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
+              pubsub.publishFor(memberIds, ServerEvents.DM_CALL_ENDED, {
+                dmChannelId: voiceRuntime.id
+              });
+            } else if (voiceRuntime.isDmVoice) {
+              const { getDmChannelMemberIds } = await import('../db/queries/dms');
+              const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
+              pubsub.publishFor(memberIds, ServerEvents.DM_CALL_USER_LEFT, {
+                dmChannelId: voiceRuntime.id,
+                userId: user.id
+              });
+            } else if (voiceRuntime.getState().users.length === 0) {
+              // Destroy empty server voice runtimes to free mediasoup resources
+              await voiceRuntime.destroy();
+            }
           }
+        } catch (err) {
+          logger.error('Voice cleanup failed during WS close for user %d:', user.id, err);
         }
 
+        // Always clean up user state, even if voice cleanup failed
         usersIpMap.delete(user.id);
+        userStatusOverrides.delete(user.id);
 
-        // Scope USER_LEAVE to members of the user's servers
-        const userServers = await getServersByUserId(user.id);
-        const allMemberIds = new Set<number>();
-        for (const server of userServers) {
-          const memberIds = await getServerMemberIds(server.id);
-          for (const id of memberIds) allMemberIds.add(id);
+        try {
+          // Scope USER_LEAVE to members of the user's servers
+          const userServers = await getServersByUserId(user.id);
+          const allMemberIds = new Set<number>();
+          for (const server of userServers) {
+            const memberIds = await getServerMemberIds(server.id);
+            for (const id of memberIds) allMemberIds.add(id);
+          }
+          pubsub.publishFor([...allMemberIds], ServerEvents.USER_LEAVE, user.id);
+        } catch (err) {
+          logger.error('Failed to publish USER_LEAVE for user %d:', user.id, err);
         }
-        pubsub.publishFor([...allMemberIds], ServerEvents.USER_LEAVE, user.id);
 
         logger.info('%s left the server', user.name);
 

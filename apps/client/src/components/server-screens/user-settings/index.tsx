@@ -1,6 +1,8 @@
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
-import { memo, useState } from 'react';
+import { requestConfirmation } from '@/features/dialogs/actions';
+import { disconnectFromServer } from '@/features/server/actions';
+import { ChevronLeft, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
+import { memo, useCallback, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
 import { Devices } from './devices';
@@ -74,6 +76,21 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
   const [activeSection, setActiveSection] = useState<Section>('profile');
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
 
+  const handleLogOut = useCallback(async () => {
+    const confirmed = await requestConfirmation({
+      title: 'Log Out',
+      message:
+        'Are you sure you want to log out? Your end-to-end encryption keys will be cleared from this device. Make sure you have a backup of your keys before proceeding.',
+      confirmLabel: 'Log Out',
+      cancelLabel: 'Cancel',
+      variant: 'danger'
+    });
+
+    if (!confirmed) return;
+
+    disconnectFromServer();
+  }, []);
+
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
       {/* Mobile top nav */}
@@ -100,6 +117,13 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
             </button>
           ))
         )}
+        <button
+          onClick={handleLogOut}
+          className="flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm font-medium text-destructive hover:text-destructive/80 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+          Log Out
+        </button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -134,6 +158,15 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
               </div>
             ))}
           </nav>
+          <div className="border-t border-border p-2">
+            <button
+              onClick={handleLogOut}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              Log Out
+            </button>
+          </div>
         </aside>
 
         {/* Content panel */}

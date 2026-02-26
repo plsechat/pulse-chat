@@ -1,6 +1,6 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channels } from '../../db/schema';
@@ -17,10 +17,15 @@ const rotateFileAccessTokenRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CHANNELS);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [channel] = await db
       .select()
       .from(channels)
-      .where(eq(channels.id, input.channelId))
+      .where(and(eq(channels.id, input.channelId), eq(channels.serverId, ctx.activeServerId)))
       .limit(1);
 
     invariant(channel, {

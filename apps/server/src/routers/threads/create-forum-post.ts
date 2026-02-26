@@ -4,7 +4,16 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
-import { channels, forumPostTags, messageFiles, messages } from '../../db/schema';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
+import { getServerMemberIds } from '../../db/queries/servers';
+import {
+  channels,
+  forumPostTags,
+  messageFiles,
+  messages,
+  threadFollowers
+} from '../../db/schema';
+import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { fileManager } from '../../utils/file-manager';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -78,8 +87,35 @@ const createForumPostRoute = protectedProcedure
         );
       }
 
+      // Auto-follow the creator
+      await tx
+        .insert(threadFollowers)
+        .values({
+          threadId: thread!.id,
+          userId: ctx.userId,
+          createdAt: now
+        })
+        .onConflictDoNothing();
+
       return { thread: thread!, message: firstMessage! };
     });
+
+    // Parse @mentions in the initial post content
+    const channelMemberIds = await getAffectedUserIdsForChannel(
+      result.thread.id
+    );
+    const { userIds: mentionedUserIds, mentionsAll } =
+      await parseMentionedUserIds(input.content, channelMemberIds);
+
+    if (mentionedUserIds.length > 0 || mentionsAll) {
+      await db
+        .update(messages)
+        .set({
+          mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : null,
+          mentionsAll
+        })
+        .where(eq(messages.id, result.message.id));
+    }
 
     // Attach files to the initial message
     if (input.files && input.files.length > 0) {
@@ -98,7 +134,8 @@ const createForumPostRoute = protectedProcedure
     publishChannel(result.thread.id, 'create');
     publishMessage(result.message.id, result.thread.id, 'create');
 
-    pubsub.publish(ServerEvents.THREAD_CREATE, {
+    const memberIds = await getServerMemberIds(forumChannel.serverId);
+    pubsub.publishFor(memberIds, ServerEvents.THREAD_CREATE, {
       id: result.thread.id,
       name: result.thread.name,
       messageCount: 1,

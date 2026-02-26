@@ -1,25 +1,27 @@
 import {
   ChannelPermission,
+  ChannelType,
   ServerEvents,
-  UserStatus,
-  type TChannelUserPermissionsMap
+  UserStatus
 } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '.';
+import { logger } from '../logger';
 import { pluginManager } from '../plugins';
 import { pubsub } from '../utils/pubsub';
 import {
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
-  getChannelsReadStatesForUser
+  getChannelsReadStatesForUser,
+  getForumUnreadForUser
 } from './queries/channels';
 import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
 import { getServerPublicSettings } from './queries/server';
-import { getServerMemberIds } from './queries/servers';
+import { getCoMemberIds, getServerMemberIds } from './queries/servers';
 import { getPublicUserById } from './queries/users';
-import { categories, channels } from './schema';
+import { categories, channels, threadFollowers } from './schema';
 
 const publishMessage = async (
   messageId: number | undefined,
@@ -28,8 +30,23 @@ const publishMessage = async (
 ) => {
   if (!messageId || !channelId) return;
 
+  try {
+    return await _publishMessageInner(messageId, channelId, type);
+  } catch (err) {
+    logger.error('[publishMessage] failed for message %d channel %d:', messageId, channelId, err);
+  }
+};
+
+const _publishMessageInner = async (
+  messageId: number,
+  channelId: number,
+  type: 'create' | 'update' | 'delete'
+) => {
   if (type === 'delete') {
-    pubsub.publish(ServerEvents.MESSAGE_DELETE, {
+    const deleteAffected = await getAffectedUserIdsForChannel(channelId, {
+      permission: ChannelPermission.VIEW_CHANNEL
+    });
+    pubsub.publishFor(deleteAffected, ServerEvents.MESSAGE_DELETE, {
       messageId: messageId,
       channelId: channelId
     });
@@ -48,10 +65,50 @@ const publishMessage = async (
     permission: ChannelPermission.VIEW_CHANNEL
   });
 
-  pubsub.publishFor(affectedUserIds, targetEvent, message);
+  // Check if this is a forum thread — if so, only publish to followers + mentioned
+  const [channelInfo] = await db
+    .select({
+      type: channels.type,
+      parentChannelId: channels.parentChannelId
+    })
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+
+  let forumParentId: number | null = null;
+  let messageRecipients = affectedUserIds;
+
+  if (channelInfo?.type === ChannelType.THREAD && channelInfo.parentChannelId) {
+    const [parentInfo] = await db
+      .select({ type: channels.type })
+      .from(channels)
+      .where(eq(channels.id, channelInfo.parentChannelId))
+      .limit(1);
+
+    if (parentInfo?.type === ChannelType.FORUM) {
+      forumParentId = channelInfo.parentChannelId;
+
+      const followers = await db
+        .select({ userId: threadFollowers.userId })
+        .from(threadFollowers)
+        .where(eq(threadFollowers.threadId, channelId));
+
+      const followerIds = new Set(followers.map((f) => f.userId));
+      const mentionedSet = new Set<number>(
+        (message.mentionedUserIds as number[] | null) ?? []
+      );
+
+      // Only deliver the message event to the author, followers, and mentioned users
+      messageRecipients = affectedUserIds.filter(
+        (id) => id === message.userId || followerIds.has(id) || mentionedSet.has(id)
+      );
+    }
+  }
+
+  pubsub.publishFor(messageRecipients, targetEvent, message);
 
   // only send count updates to users OTHER than the message author
-  const usersToNotify = affectedUserIds.filter((id) => id !== message.userId);
+  const usersToNotify = messageRecipients.filter((id) => id !== message.userId);
 
   const promises = usersToNotify.map(async (userId) => {
     const { readStates, mentionStates } = await getChannelsReadStatesForUser(userId, channelId);
@@ -66,6 +123,21 @@ const publishMessage = async (
   });
 
   await Promise.all(promises);
+
+  // Also update the parent forum channel's aggregated unread count
+  if (forumParentId) {
+    const forumPromises = usersToNotify.map(async (userId) => {
+      const { unreadCount, mentionCount } = await getForumUnreadForUser(userId, forumParentId!);
+
+      pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
+        channelId: forumParentId,
+        count: unreadCount,
+        mentionCount
+      });
+    });
+
+    await Promise.all(forumPromises);
+  }
 
   // Signal server-level unread increment without extra DB queries.
   // publishMessage is fire-and-forget (not awaited by callers), so heavy DB
@@ -165,8 +237,11 @@ const publishUser = async (
 ) => {
   if (!userId) return;
 
+  const coMemberIds = await getCoMemberIds(userId);
+  const recipients = [...coMemberIds, userId];
+
   if (type === 'delete') {
-    pubsub.publish(ServerEvents.USER_DELETE, userId);
+    pubsub.publishFor(recipients, ServerEvents.USER_DELETE, userId);
     return;
   }
 
@@ -184,8 +259,7 @@ const publishUser = async (
   const targetEvent =
     type === 'create' ? ServerEvents.USER_CREATE : ServerEvents.USER_UPDATE;
 
-  // User updates are global (visible across servers)
-  pubsub.publish(targetEvent, user);
+  pubsub.publishFor(recipients, targetEvent, user);
 };
 
 const publishChannel = async (
@@ -220,15 +294,10 @@ const publishChannel = async (
 };
 
 const publishSettings = async (serverId?: number) => {
-  if (serverId) {
-    const settings = await getServerPublicSettings(serverId);
-    const memberIds = await getServerMemberIds(serverId);
-    pubsub.publishFor(memberIds, ServerEvents.SERVER_SETTINGS_UPDATE, settings);
-  } else {
-    // Backward compat: publish to all
-    const settings = await getServerPublicSettings(1);
-    pubsub.publish(ServerEvents.SERVER_SETTINGS_UPDATE, settings);
-  }
+  const effectiveServerId = serverId ?? 1;
+  const settings = await getServerPublicSettings(effectiveServerId);
+  const memberIds = await getServerMemberIds(effectiveServerId);
+  pubsub.publishFor(memberIds, ServerEvents.SERVER_SETTINGS_UPDATE, settings);
 };
 
 const publishCategory = async (
@@ -263,25 +332,23 @@ const publishCategory = async (
 };
 
 const publishChannelPermissions = async (affectedUserIds: number[]) => {
-  const permissionsMap = new Map<number, TChannelUserPermissionsMap>();
-  const promises = affectedUserIds.map(async (userId) => {
-    const updatedPermissions = await getAllChannelUserPermissions(userId);
+  // Process in batches to avoid overwhelming the DB with concurrent queries
+  const BATCH_SIZE = 20;
 
-    permissionsMap.set(userId, updatedPermissions);
-  });
-
-  await Promise.all(promises);
-
-  for (const userId of affectedUserIds) {
-    const updatedPermissions = permissionsMap.get(userId);
-
-    if (!updatedPermissions) continue;
-
-    pubsub.publishFor(
-      userId,
-      ServerEvents.CHANNEL_PERMISSIONS_UPDATE,
-      updatedPermissions
+  for (let i = 0; i < affectedUserIds.length; i += BATCH_SIZE) {
+    const batch = affectedUserIds.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (userId) => {
+        const updatedPermissions = await getAllChannelUserPermissions(userId);
+        pubsub.publishFor(userId, ServerEvents.CHANNEL_PERMISSIONS_UPDATE, updatedPermissions);
+      })
     );
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        logger.error('[publishChannelPermissions] failed for a user:', result.reason);
+      }
+    }
   }
 };
 

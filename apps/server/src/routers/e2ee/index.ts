@@ -1,14 +1,17 @@
-import { ServerEvents } from '@pulse/shared';
+import { ChannelPermission, ServerEvents } from '@pulse/shared';
 import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
   e2eeSenderKeys,
+  serverMembers,
   userIdentityKeys,
   userKeyBackups,
   userOneTimePreKeys,
   userSignedPreKeys
 } from '../../db/schema';
+import { getCoMemberIds } from '../../db/queries/servers';
+import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, t } from '../../utils/trpc';
 import { insertIdentityResetMessages } from './identity-reset-messages';
@@ -115,7 +118,8 @@ const registerKeysRoute = protectedProcedure
         console.error('[E2EE] insertIdentityResetMessages failed:', err);
       }
 
-      pubsub.publish(ServerEvents.E2EE_IDENTITY_RESET, {
+      const coMemberIds = await getCoMemberIds(ctx.userId);
+      pubsub.publishFor(coMemberIds, ServerEvents.E2EE_IDENTITY_RESET, {
         userId: ctx.userId
       });
     }
@@ -123,7 +127,29 @@ const registerKeysRoute = protectedProcedure
 
 const getPreKeyBundleRoute = protectedProcedure
   .input(z.object({ userId: z.number() }))
-  .query(async ({ input }) => {
+  .query(async ({ ctx, input }) => {
+    // Verify the caller shares at least one server with the target user
+    const callerServers = db
+      .select({ serverId: serverMembers.serverId })
+      .from(serverMembers)
+      .where(eq(serverMembers.userId, ctx.userId));
+
+    const [shared] = await db
+      .select({ serverId: serverMembers.serverId })
+      .from(serverMembers)
+      .where(
+        and(
+          eq(serverMembers.userId, input.userId),
+          sql`${serverMembers.serverId} IN (${callerServers})`
+        )
+      )
+      .limit(1);
+
+    invariant(shared, {
+      code: 'FORBIDDEN',
+      message: 'No shared server with target user'
+    });
+
     // Get identity key
     const [identityKey] = await db
       .select()
@@ -182,7 +208,29 @@ const getPreKeyBundleRoute = protectedProcedure
 
 const getIdentityPublicKeyRoute = protectedProcedure
   .input(z.object({ userId: z.number() }))
-  .query(async ({ input }) => {
+  .query(async ({ ctx, input }) => {
+    // Verify the caller shares at least one server with the target user
+    const callerServers = db
+      .select({ serverId: serverMembers.serverId })
+      .from(serverMembers)
+      .where(eq(serverMembers.userId, ctx.userId));
+
+    const [shared] = await db
+      .select({ serverId: serverMembers.serverId })
+      .from(serverMembers)
+      .where(
+        and(
+          eq(serverMembers.userId, input.userId),
+          sql`${serverMembers.serverId} IN (${callerServers})`
+        )
+      )
+      .limit(1);
+
+    invariant(shared, {
+      code: 'FORBIDDEN',
+      message: 'No shared server with target user'
+    });
+
     const [key] = await db
       .select({ identityPublicKey: userIdentityKeys.identityPublicKey })
       .from(userIdentityKeys)
@@ -252,6 +300,12 @@ const distributeSenderKeyRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
+    // Verify the caller has access to this channel
+    await ctx.needsChannelPermission(
+      input.channelId,
+      ChannelPermission.VIEW_CHANNEL
+    );
+
     await db.insert(e2eeSenderKeys).values({
       channelId: input.channelId,
       fromUserId: ctx.userId,
@@ -284,6 +338,12 @@ const distributeSenderKeysBatchRoute = protectedProcedure
   )
   .mutation(async ({ ctx, input }) => {
     if (input.distributions.length === 0) return;
+
+    // Verify the caller has access to this channel
+    await ctx.needsChannelPermission(
+      input.channelId,
+      ChannelPermission.VIEW_CHANNEL
+    );
 
     await db.insert(e2eeSenderKeys).values(
       input.distributions.map((d) => ({
@@ -367,7 +427,10 @@ const uploadKeyBackupRoute = protectedProcedure
 
 const getKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
   const [backup] = await db
-    .select({ encryptedData: userKeyBackups.encryptedData })
+    .select({
+      encryptedData: userKeyBackups.encryptedData,
+      updatedAt: userKeyBackups.updatedAt
+    })
     .from(userKeyBackups)
     .where(eq(userKeyBackups.userId, ctx.userId))
     .limit(1);
@@ -377,11 +440,12 @@ const getKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
 
 const hasKeyBackupRoute = protectedProcedure.query(async ({ ctx }) => {
   const [result] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ updatedAt: userKeyBackups.updatedAt })
     .from(userKeyBackups)
-    .where(eq(userKeyBackups.userId, ctx.userId));
+    .where(eq(userKeyBackups.userId, ctx.userId))
+    .limit(1);
 
-  return (result?.count ?? 0) > 0;
+  return result ? { exists: true as const, updatedAt: result.updatedAt } : { exists: false as const };
 });
 
 const onSenderKeyDistributionRoute = protectedProcedure.subscription(
@@ -393,9 +457,11 @@ const onSenderKeyDistributionRoute = protectedProcedure.subscription(
   }
 );
 
-const onIdentityResetRoute = protectedProcedure.subscription(async () => {
-  return pubsub.subscribe(ServerEvents.E2EE_IDENTITY_RESET);
-});
+const onIdentityResetRoute = protectedProcedure.subscription(
+  async ({ ctx }) => {
+    return pubsub.subscribeFor(ctx.userId, ServerEvents.E2EE_IDENTITY_RESET);
+  }
+);
 
 export const e2eeRouter = t.router({
   registerKeys: registerKeysRoute,

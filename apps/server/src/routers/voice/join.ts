@@ -7,6 +7,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { channels } from '../../db/schema';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
@@ -54,12 +55,18 @@ const joinVoiceRoute = protectedProcedure
       message: 'User already in a voice channel'
     });
 
-    const runtime = VoiceRuntime.findById(input.channelId);
+    // Re-create runtime if it was destroyed when the last user left
+    let runtime = VoiceRuntime.findById(input.channelId);
 
-    invariant(runtime, {
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
-    });
+    if (!runtime) {
+      runtime = new VoiceRuntime(input.channelId);
+      try {
+        await runtime.init();
+      } catch (err) {
+        await runtime.destroy();
+        throw err;
+      }
+    }
 
     runtime.addUser(ctx.user.id, input.state);
 
@@ -67,7 +74,8 @@ const joinVoiceRoute = protectedProcedure
 
     ctx.currentVoiceChannelId = channel.id;
     const startedAt = runtime.getState().startedAt!;
-    ctx.pubsub.publish(ServerEvents.USER_JOIN_VOICE, {
+    const memberIds = await getServerMemberIds(channel.serverId);
+    ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN_VOICE, {
       channelId: input.channelId,
       userId: ctx.user.id,
       state,

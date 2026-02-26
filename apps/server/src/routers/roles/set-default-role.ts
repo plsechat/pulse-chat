@@ -18,6 +18,11 @@ const setDefaultRoleRoute = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     await ctx.needsPermission(Permission.MANAGE_ROLES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const defaultRole = await getDefaultRole();
 
     invariant(defaultRole, {
@@ -32,6 +37,12 @@ const setDefaultRoleRoute = protectedProcedure
     invariant(newDefaultRole, {
       code: 'NOT_FOUND',
       message: 'Role not found'
+    });
+
+    // Ensure the role belongs to the caller's active server
+    invariant(newDefaultRole.serverId === ctx.activeServerId, {
+      code: 'NOT_FOUND',
+      message: 'Role not found in this server'
     });
 
     await db.transaction(async (tx) => {

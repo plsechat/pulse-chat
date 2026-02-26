@@ -35,24 +35,21 @@ const uploadFileRouteHandler = async (
     parsedHeaders[UploadHeaders.CONTENT_LENGTH]
   ];
 
-  // Check for federation token in x-federation-token header
+  // Authenticate via standard token or federation token (both are validated)
   const federationToken = req.headers['x-federation-token'] as string | undefined;
-  let user;
-
-  if (federationToken) {
-    const fedResult = await verifyFederationToken(federationToken);
-    if (fedResult) {
-      user = await findOrCreateShadowUser(
-        fedResult.instanceId,
-        fedResult.userId,
-        fedResult.username,
-        undefined,
-        fedResult.publicId
-      );
-    }
-  } else {
-    user = await getUserByToken(token);
-  }
+  const user = federationToken
+    ? await (async () => {
+        const fedResult = await verifyFederationToken(federationToken);
+        if (!fedResult) return undefined;
+        return findOrCreateShadowUser(
+          fedResult.instanceId,
+          fedResult.userId,
+          fedResult.username,
+          undefined,
+          fedResult.publicId
+        );
+      })()
+    : await getUserByToken(token);
 
   if (!user) {
     req.resume();

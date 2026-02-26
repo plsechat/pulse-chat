@@ -7,6 +7,7 @@ import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
 import { signChallenge } from '../../utils/federation';
 import { validateFederationUrl } from '../../utils/validate-url';
+import { publishUser } from '../publishers';
 import { files, users } from '../schema';
 
 async function findOrCreateShadowUser(
@@ -74,7 +75,7 @@ async function findOrCreateShadowUser(
     return existing;
   }
 
-  // Create shadow user with synthetic supabaseId
+  // Create shadow user with synthetic supabaseId (use onConflictDoNothing to handle races)
   const [shadowUser] = await db
     .insert(users)
     .values({
@@ -88,9 +89,24 @@ async function findOrCreateShadowUser(
       createdAt: Date.now(),
       lastLoginAt: Date.now()
     })
+    .onConflictDoNothing()
     .returning();
 
-  return shadowUser!;
+  if (shadowUser) return shadowUser;
+
+  // Conflict: another request already created this user — re-query
+  const [raced] = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.federatedInstanceId, instanceId),
+        eq(users.federatedUsername, String(remoteUserId))
+      )
+    )
+    .limit(1);
+
+  return raced!;
 }
 
 async function deleteShadowUsersByInstance(instanceId: number): Promise<void> {
@@ -334,6 +350,9 @@ async function syncShadowUserProfile(
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = Date.now();
       await db.update(users).set(updates).where(eq(users.id, shadowUserId));
+
+      // Notify connected clients about the profile change
+      publishUser(shadowUserId, 'update');
     }
   } catch (err) {
     logger.error('[syncShadowUserProfile] failed for user %d: %o', shadowUserId, err);

@@ -24,6 +24,7 @@ import {
   Smile,
   Trash
 } from 'lucide-react';
+import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { useSelection } from './selection-context';
@@ -137,7 +138,7 @@ const MessageContextMenu = memo(
 
     const onCopyText = useCallback(() => {
       if (!messageContent) return;
-      const plainText = messageContent.replace(/<[^>]*>/g, '');
+      const plainText = stripToPlainText(messageContent);
       navigator.clipboard.writeText(plainText);
       toast.success('Copied to clipboard');
     }, [messageContent]);

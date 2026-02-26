@@ -1,5 +1,5 @@
 import { ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { getDefaultRoleForServer } from '../../db/queries/roles';
@@ -39,12 +39,28 @@ const joinServerByInviteRoute = protectedProcedure
       ctx.throwValidationError('inviteCode', 'This invite has expired');
     }
 
-    // Check max uses
-    if (invite.maxUses && invite.uses >= invite.maxUses) {
-      ctx.throwValidationError(
-        'inviteCode',
-        'This invite has reached its maximum uses'
-      );
+    // Atomically increment uses and check max uses in one query
+    if (invite.maxUses) {
+      const [updated] = await db
+        .update(invites)
+        .set({ uses: sql`${invites.uses} + 1` })
+        .where(
+          and(
+            eq(invites.id, invite.id),
+            or(
+              sql`${invites.maxUses} IS NULL`,
+              sql`${invites.uses} < ${invites.maxUses}`
+            )
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        ctx.throwValidationError(
+          'inviteCode',
+          'This invite has reached its maximum uses'
+        );
+      }
     }
 
     const server = await getServerById(invite.serverId);
@@ -85,11 +101,13 @@ const joinServerByInviteRoute = protectedProcedure
         .onConflictDoNothing();
     }
 
-    // Increment invite uses
-    await db
-      .update(invites)
-      .set({ uses: invite.uses + 1 })
-      .where(eq(invites.id, invite.id));
+    // Increment invite uses (only if not already incremented by the atomic maxUses check)
+    if (!invite.maxUses) {
+      await db
+        .update(invites)
+        .set({ uses: sql`${invites.uses} + 1` })
+        .where(eq(invites.id, invite.id));
+    }
 
     // Publish event
     const servers = await getServersByUserId(ctx.userId);

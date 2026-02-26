@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
-import { userRoles } from '../../db/schema';
+import { roles, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -16,6 +16,25 @@ const removeRoleRoute = protectedProcedure
   )
   .mutation(async ({ ctx, input }) => {
     await ctx.needsPermission(Permission.MANAGE_USERS);
+
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Verify the role belongs to the caller's active server
+    const [role] = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(
+        and(eq(roles.id, input.roleId), eq(roles.serverId, ctx.activeServerId))
+      )
+      .limit(1);
+
+    invariant(role, {
+      code: 'NOT_FOUND',
+      message: 'Role not found'
+    });
 
     const existing = await db
       .select()

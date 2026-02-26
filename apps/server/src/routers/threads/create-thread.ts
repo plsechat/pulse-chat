@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
+import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, messages } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -86,8 +87,9 @@ const createThreadRoute = protectedProcedure
     // Publish message update so clients see the threadId indicator
     publishMessage(input.messageId, message.channelId, 'update');
 
-    // Publish thread-specific event
-    pubsub.publish(ServerEvents.THREAD_CREATE, {
+    // Publish thread-specific event to server members
+    const memberIds = await getServerMemberIds(parentChannel.serverId);
+    pubsub.publishFor(memberIds, ServerEvents.THREAD_CREATE, {
       id: thread.id,
       name: thread.name,
       messageCount: 0,

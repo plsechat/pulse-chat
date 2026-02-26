@@ -8,6 +8,7 @@ import { initTRPC } from '@trpc/server';
 import chalk from 'chalk';
 import type WebSocket from 'ws';
 import { config } from '../config';
+import { getUserById } from '../db/queries/users';
 import { logger } from '../logger';
 import type { TConnectionInfo } from '../types';
 import { invariant } from './invariant';
@@ -73,6 +74,13 @@ const authMiddleware = t.middleware(async ({ ctx, next }) => {
   invariant(ctx.authenticated, {
     code: 'UNAUTHORIZED',
     message: 'You must be authenticated to perform this action.'
+  });
+
+  // Re-check banned status on every request (ban may have been applied after connection)
+  const freshUser = await getUserById(ctx.userId);
+  invariant(freshUser && !freshUser.banned, {
+    code: 'FORBIDDEN',
+    message: 'User is banned'
   });
 
   return next();

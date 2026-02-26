@@ -34,8 +34,19 @@ export const EmojiSuggestion = {
     if (props.emoji) {
       // Standard emoji — insert native unicode directly
       editor.chain().focus().deleteRange(range).insertContent(props.emoji).run();
+    } else if (props.id && props.fallbackImage) {
+      // Custom server emoji — insert as customEmoji node
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: 'customEmoji',
+          attrs: { id: props.id, name: props.name, src: props.fallbackImage }
+        })
+        .run();
     } else {
-      // Custom emoji — use setEmoji for img node
+      // Fallback — use setEmoji for non-custom emoji with shortcodes
       editor
         .chain()
         .focus()

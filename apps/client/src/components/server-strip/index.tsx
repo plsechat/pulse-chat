@@ -11,7 +11,9 @@ import {
   useActiveServerId,
   useActiveView,
   useFederatedConnectionStatuses,
+  useFederatedMentionCounts,
   useFederatedServers,
+  useFederatedUnreadCounts,
   useJoinedServers,
   useServerMentionCounts,
   useServerUnreadCounts,
@@ -135,11 +137,15 @@ const FederatedServerIcon = memo(
   ({
     entry,
     isActive,
+    hasUnread,
+    hasMentions,
     connectionStatus,
     onClick
   }: {
     entry: TFederatedServerEntry;
     isActive: boolean;
+    hasUnread: boolean;
+    hasMentions: boolean;
     connectionStatus?: 'connecting' | 'connected' | 'disconnected';
     onClick: () => void;
   }) => {
@@ -159,7 +165,7 @@ const FederatedServerIcon = memo(
         <div
           className={cn(
             'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
-            isActive ? 'h-10' : 'h-0 group-hover:h-5'
+            isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
           )}
         />
         <button
@@ -183,19 +189,23 @@ const FederatedServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
-        {/* Federation badge — color indicates connection status */}
-        <div
-          className={cn(
-            'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-sidebar text-[8px] font-bold text-white pointer-events-none',
-            isOffline
-              ? 'bg-destructive'
-              : isReconnecting
-                ? 'bg-yellow-600'
-                : 'bg-blue-600'
-          )}
-        >
-          {instanceInitial}
-        </div>
+        {hasMentions ? (
+          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
+        ) : (
+          /* Federation badge — color indicates connection status */
+          <div
+            className={cn(
+              'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-sidebar text-[8px] font-bold text-white pointer-events-none',
+              isOffline
+                ? 'bg-destructive'
+                : isReconnecting
+                  ? 'bg-yellow-600'
+                  : 'bg-blue-600'
+            )}
+          >
+            {instanceInitial}
+          </div>
+        )}
       </div>
     );
   }
@@ -249,6 +259,8 @@ const ServerStrip = memo(() => {
   const federatedServers = useFederatedServers();
   const activeInstanceDomain = useActiveInstanceDomain();
   const federatedConnectionStatuses = useFederatedConnectionStatuses();
+  const federatedUnreadCounts = useFederatedUnreadCounts();
+  const federatedMentionCounts = useFederatedMentionCounts();
 
   const serverIds = useMemo(
     () => joinedServers.map((s) => s.id),
@@ -597,6 +609,12 @@ const ServerStrip = memo(() => {
                       activeView === 'server' &&
                       activeServerId === entry.server.id &&
                       activeInstanceDomain === entry.instanceDomain
+                    }
+                    hasUnread={
+                      (federatedUnreadCounts[`${entry.instanceDomain}:${entry.server.id}`] ?? 0) > 0
+                    }
+                    hasMentions={
+                      (federatedMentionCounts[`${entry.instanceDomain}:${entry.server.id}`] ?? 0) > 0
                     }
                     connectionStatus={
                       federatedConnectionStatuses[entry.instanceDomain]

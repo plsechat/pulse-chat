@@ -1,12 +1,16 @@
 import { TiptapInput } from '@/components/tiptap-input';
 import { AutoFocus } from '@/components/ui/auto-focus';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { encryptChannelMessage } from '@/lib/e2ee';
+import { isLegacyHtml } from '@/lib/converters/token-content-renderer';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
+import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
+import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TMessage } from '@pulse/shared';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { preprocessMarkdown } from './renderer/markdown-preprocessor';
 
 type TMessageEditInlineProps = {
   message: TMessage;
@@ -15,7 +19,15 @@ type TMessageEditInlineProps = {
 
 const MessageEditInline = memo(
   ({ message, onBlur }: TMessageEditInlineProps) => {
-    const [value, setValue] = useState<string>(message.content ?? '');
+    const ctx = useTokenToTiptapContext();
+
+    const initialValue = useMemo(() => {
+      const raw = message.content ?? '';
+      if (isLegacyHtml(raw) || !raw) return raw;
+      return tokensToTiptapHtml(raw, ctx);
+    }, [message.content, ctx]);
+
+    const [value, setValue] = useState<string>(initialValue);
     const ownUserId = useOwnUserId();
 
     const onSubmit = useCallback(
@@ -28,7 +40,14 @@ const MessageEditInline = memo(
         const trpc = getTRPCClient();
 
         try {
-          const content = preprocessMarkdown(newValue);
+          const content = tiptapHtmlToTokens(newValue);
+
+          if (isTokenContentEmpty(content)) {
+            await trpc.messages.delete.mutate({ messageId: message.id });
+            toast.success('Message deleted');
+            onBlur();
+            return;
+          }
 
           if (message.e2ee && ownUserId) {
             const encryptedContent = await encryptChannelMessage(

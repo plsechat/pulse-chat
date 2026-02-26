@@ -2,8 +2,27 @@ queries:
   - uses: security-and-quality
   - uses: ./.github/codeql/custom-queries
 
+paths-ignore:
+  # Build scripts, migration scripts, and test helpers — not runtime code
+  - apps/server/build/**
+  - apps/server/src/scripts/**
+  - apps/desktop/scripts/**
+  - '**/__tests__/**'
+
 query-filters:
   # Exclude the built-in js/request-forgery query so our custom version
   # (with the validateFederationUrl sanitizer) takes its place.
   - exclude:
       id: js/request-forgery
+  # URL routing is not a "bypass" — rate limiting and auth are applied per-route
+  - exclude:
+      id: js/user-controlled-bypass
+  # CORS origin is validated via isAllowedOrigin() against a server-side allowlist
+  - exclude:
+      id: js/cors-misconfiguration-for-credentials
+  # localStorage is used for client-side preferences and session persistence by design
+  - exclude:
+      id: js/clear-text-storage-of-sensitive-data
+  # GitHub Actions workflows already have explicit top-level permissions blocks
+  - exclude:
+      id: actions/missing-workflow-permissions

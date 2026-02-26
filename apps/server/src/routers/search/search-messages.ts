@@ -46,6 +46,20 @@ const searchMessagesRoute = protectedProcedure
         ChannelPermission.VIEW_CHANNEL
       );
       conditions.push(eq(messages.channelId, input.channelId));
+    } else {
+      // Scope search to channels within the caller's active server
+      const serverChannelRows = await db
+        .select({ id: channels.id })
+        .from(channels)
+        .where(eq(channels.serverId, ctx.activeServerId!));
+
+      const serverChannelIds = serverChannelRows.map((c) => c.id);
+
+      if (serverChannelIds.length === 0) {
+        return { messages: [], nextCursor: null };
+      }
+
+      conditions.push(inArray(messages.channelId, serverChannelIds));
     }
 
     if (input.userId) {

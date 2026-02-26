@@ -135,10 +135,22 @@ type TForumProps = Omit<TItemWrapperProps, 'children'> & {
 };
 
 const Forum = memo(({ channel, ...props }: TForumProps) => {
+  const unreadCount = useUnreadMessagesCount(channel.id);
+  const mentionCount = useMentionCount(channel.id);
+  const hasMentions = mentionCount > 0;
+
   return (
-    <ItemWrapper {...props}>
+    <ItemWrapper {...props} hasUnread={unreadCount > 0}>
       <LayoutList className="h-4 w-4" />
       <span className="flex-1">{channel.name}</span>
+      {unreadCount > 0 && (
+        <div className={cn(
+          'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium',
+          hasMentions ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
+        )}>
+          {unreadCount > 99 ? '99+' : unreadCount}
+        </div>
+      )}
     </ItemWrapper>
   );
 });

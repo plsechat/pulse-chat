@@ -1,11 +1,12 @@
 import { ActivityLogType, OWNER_ROLE_ID, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { syncRolePermissions } from '../../db/mutations/roles';
 import { publishRole } from '../../db/publishers';
 import { roles } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const updateRoleRoute = protectedProcedure
@@ -22,25 +23,36 @@ const updateRoleRoute = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     await ctx.needsPermission(Permission.MANAGE_ROLES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Scope update to the caller's active server
     const [updatedRole] = await db
       .update(roles)
       .set({
         name: input.name,
         color: input.color
       })
-      .where(eq(roles.id, input.roleId))
+      .where(and(eq(roles.id, input.roleId), eq(roles.serverId, ctx.activeServerId)))
       .returning();
 
-    if (updatedRole!.id !== OWNER_ROLE_ID) {
-      await syncRolePermissions(updatedRole!.id, input.permissions);
+    invariant(updatedRole, {
+      code: 'NOT_FOUND',
+      message: 'Role not found in this server'
+    });
+
+    if (updatedRole.id !== OWNER_ROLE_ID) {
+      await syncRolePermissions(updatedRole.id, input.permissions);
     }
 
-    publishRole(updatedRole!.id, 'update');
+    publishRole(updatedRole.id, 'update');
     enqueueActivityLog({
       type: ActivityLogType.UPDATED_ROLE,
       userId: ctx.user.id,
       details: {
-        roleId: updatedRole!.id,
+        roleId: updatedRole.id,
         permissions: input.permissions,
         values: input
       }

@@ -10,9 +10,11 @@ import { publishChannelPermissions } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import {
   channelRolePermissions,
+  channels,
   channelUserPermissions
 } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const allPermissions = Object.values(ChannelPermission);
@@ -36,6 +38,23 @@ const updatePermissionsRoute = protectedProcedure
   )
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CHANNELS);
+
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Verify the channel belongs to the caller's active server
+    const [channel] = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, input.channelId), eq(channels.serverId, ctx.activeServerId)))
+      .limit(1);
+
+    invariant(channel, {
+      code: 'NOT_FOUND',
+      message: 'Channel not found in this server'
+    });
 
     const permissions = input.isCreate ? [] : input.permissions;
 
