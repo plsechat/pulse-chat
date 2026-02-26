@@ -1,7 +1,6 @@
 import { store } from '@/features/store';
 import type { TJoinedPublicUser } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
-import { userByIdSelector } from './selectors';
 
 export const setUsers = (users: TJoinedPublicUser[]) => {
   store.dispatch(serverSliceActions.setUsers(users));
@@ -23,12 +22,8 @@ export const updateUser = (
 };
 
 export const handleUserJoin = (user: TJoinedPublicUser) => {
-  const state = store.getState();
-  const foundUser = userByIdSelector(state, user.id);
-
-  if (foundUser) {
-    updateUser(user.id, user);
-  } else {
-    addUser(user);
-  }
+  // Only update users already in the current server's member list.
+  // Never add — USER_JOIN fires for all co-members across servers,
+  // so adding would create ghost entries when viewing a different server.
+  updateUser(user.id, user);
 };

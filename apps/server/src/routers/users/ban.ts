@@ -32,10 +32,12 @@ const banRoute = protectedProcedure
       message: 'User not found'
     });
 
-    const userWs = ctx.getUserWs(input.userId);
+    const userConnections = ctx.getUserWs(input.userId);
 
-    if (userWs) {
-      userWs.close(DisconnectCode.BANNED, input.reason);
+    if (userConnections) {
+      for (const ws of userConnections) {
+        ws.close(DisconnectCode.BANNED, input.reason);
+      }
     }
 
     await db

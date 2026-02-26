@@ -43,7 +43,7 @@ import type { Context } from './trpc';
 let wss: WebSocketServer | undefined;
 const userStatusOverrides = new Map<number, UserStatus>();
 const wsMapByToken = new Map<string, WebSocket>();
-const wsMapByUserId = new Map<number, WebSocket>();
+const wsMapByUserId = new Map<number, Set<WebSocket>>();
 
 const usersIpMap = new Map<number, string>();
 
@@ -231,9 +231,9 @@ const createContext = async ({
   const getUserWs = (userId: number) => wsMapByUserId.get(userId);
 
   const getStatusById = (userId: number) => {
-    const isConnected = wsMapByUserId.has(userId);
+    const connections = wsMapByUserId.get(userId);
 
-    if (!isConnected) return UserStatus.OFFLINE;
+    if (!connections || connections.size === 0) return UserStatus.OFFLINE;
 
     // Check for user-set status override
     const override = userStatusOverrides.get(userId);
@@ -257,7 +257,12 @@ const createContext = async ({
 
     if (ws) {
       ws.userId = userId;
-      wsMapByUserId.set(userId, ws);
+      let connections = wsMapByUserId.get(userId);
+      if (!connections) {
+        connections = new Set();
+        wsMapByUserId.set(userId, connections);
+      }
+      connections.add(ws);
     }
   };
 
@@ -368,7 +373,24 @@ const createWsServer = async (server: http.Server) => {
       ws.on('close', async () => {
         // Clean up lookup Maps immediately (before any async work)
         if (ws.token) wsMapByToken.delete(ws.token);
-        if (ws.userId !== undefined) wsMapByUserId.delete(ws.userId);
+
+        // Remove THIS connection from the per-user Set.
+        // Only do full cleanup when the last connection closes.
+        let isLastConnection = false;
+        if (ws.userId !== undefined) {
+          const connections = wsMapByUserId.get(ws.userId);
+          if (connections) {
+            connections.delete(ws);
+            if (connections.size === 0) {
+              wsMapByUserId.delete(ws.userId);
+              isLastConnection = true;
+            }
+          } else {
+            isLastConnection = true;
+          }
+        }
+
+        if (!isLastConnection) return;
 
         let user;
 
