@@ -30,10 +30,12 @@ const kickRoute = protectedProcedure
       message: 'User is not a member of this server'
     });
 
-    // Close the kicked user's WebSocket connection
-    const userWs = ctx.getUserWs(input.userId);
-    if (userWs) {
-      userWs.close(DisconnectCode.KICKED, input.reason);
+    // Close all of the kicked user's WebSocket connections
+    const userConnections = ctx.getUserWs(input.userId);
+    if (userConnections) {
+      for (const ws of userConnections) {
+        ws.close(DisconnectCode.KICKED, input.reason);
+      }
     }
 
     // Remove the user from this server (same as leaving)
