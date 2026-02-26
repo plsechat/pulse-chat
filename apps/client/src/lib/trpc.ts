@@ -128,7 +128,7 @@ const cleanup = (signOut = false) => {
   fullTeardown();
 
   if (signOut) {
-    supabase.auth.signOut();
+    supabase.auth.signOut({ scope: 'local' });
   }
 };
 
