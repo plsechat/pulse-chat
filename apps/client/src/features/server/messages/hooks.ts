@@ -56,18 +56,22 @@ export const useMessagesByChannelId = (channelId: number) =>
 export const useMessages = (channelId: number) => {
   const messages = useMessagesByChannelId(channelId);
   const inited = useRef(false);
+  const fetchingRef = useRef(false);
+  const cursorRef = useRef<number | null>(null);
+  const hasMoreRef = useRef(true);
   const [fetching, setFetching] = useState(false);
   const [loading, setLoading] = useState(messages.length === 0);
-  const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
   const fetchMessages = useCallback(
     async (cursorToFetch: number | null) => {
-      const trpcClient = getTRPCClient();
-
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
       setFetching(true);
 
       try {
+        const trpcClient = getTRPCClient();
+
         const { messages: rawPage, nextCursor } =
           await trpcClient.messages.get.query({
             channelId,
@@ -77,34 +81,31 @@ export const useMessages = (channelId: number) => {
 
         const decryptedPage = await decryptE2eeMessages(rawPage);
         const page = [...decryptedPage].reverse();
-        const existingIds = new Set(messages.map((m) => m.id));
-        const filtered = page.filter((m) => !existingIds.has(m.id));
 
         if (cursorToFetch === null) {
-          // initial load (latest page) — append (or replace if you prefer)
-          addMessages(channelId, filtered);
+          addMessages(channelId, page);
         } else {
-          // loading older messages -> they must go *before* current list
-          addMessages(channelId, filtered, { prepend: true });
+          addMessages(channelId, page, { prepend: true });
         }
 
-        setCursor(nextCursor);
+        cursorRef.current = nextCursor;
+        hasMoreRef.current = nextCursor !== null;
         setHasMore(nextCursor !== null);
 
         return { success: true };
       } finally {
+        fetchingRef.current = false;
         setFetching(false);
         setLoading(false);
       }
     },
-    [channelId, messages]
+    [channelId]
   );
 
   const loadMore = useCallback(async () => {
-    if (fetching || !hasMore) return;
-
-    await fetchMessages(cursor);
-  }, [fetching, hasMore, cursor, fetchMessages]);
+    if (fetchingRef.current || !hasMoreRef.current) return;
+    await fetchMessages(cursorRef.current);
+  }, [fetchMessages]);
 
   useEffect(() => {
     if (inited.current) return;
@@ -120,45 +121,49 @@ export const useMessages = (channelId: number) => {
   );
 
   const groupedMessages = useMemo(() => {
-    const grouped = messages.reduce((acc, message) => {
-      const last = acc[acc.length - 1];
+    const grouped: TJoinedMessage[][] = [];
 
-      if (!last) return [[message]];
+    for (const message of messages) {
+      const last = grouped[grouped.length - 1];
+
+      if (!last) {
+        grouped.push([message]);
+        continue;
+      }
 
       const lastMessage = last[last.length - 1];
 
       // System messages are always standalone (never grouped)
       if (message.type === 'system' || lastMessage.type === 'system') {
-        return [...acc, [message]];
+        grouped.push([message]);
+        continue;
       }
 
       // Don't group webhook messages with regular messages (or different webhooks)
       const sameWebhook = lastMessage.webhookId === message.webhookId;
 
       if (lastMessage.userId === message.userId && sameWebhook) {
-        const lastDate = lastMessage.createdAt;
-        const currentDate = message.createdAt;
-        const timeDifference = Math.abs(currentDate - lastDate) / 1000 / 60;
+        const timeDifference =
+          Math.abs(message.createdAt - lastMessage.createdAt) / 1000 / 60;
 
         if (timeDifference < 1) {
           last.push(message);
-          return acc;
+          continue;
         }
       }
 
-      return [...acc, [message]];
-    }, [] as TJoinedMessage[][]);
+      grouped.push([message]);
+    }
 
     return grouped;
   }, [messages]);
 
   return {
     fetching,
-    loading, // for initial load
+    loading,
     hasMore,
     messages,
     loadMore,
-    cursor,
     groupedMessages,
     isEmpty
   };

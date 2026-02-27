@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getLinkPreview } from 'link-preview-js';
 import { db } from '../../db';
 import { messages } from '../../db/schema';
+import { logger } from '../../logger';
 import { validateFederationUrl } from '../../utils/validate-url';
 
 const metadataCache = new Map<string, TGenericObject>();
@@ -56,8 +57,8 @@ export const urlMetadataParser = async (
     const metadata = (await Promise.all(promises)).filter(Boolean) as TMessageMetadata[];
 
     return metadata;
-  } catch {
-    // ignore
+  } catch (error) {
+    logger.warn('Failed to parse URL metadata: %s', error);
   }
 
   return [];

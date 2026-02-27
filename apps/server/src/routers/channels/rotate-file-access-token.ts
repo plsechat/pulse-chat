@@ -30,7 +30,7 @@ const rotateFileAccessTokenRoute = protectedProcedure
 
     invariant(channel, {
       code: 'NOT_FOUND',
-      message: 'Channel not found'
+      message: `Channel ${input.channelId} not found`
     });
 
     const newToken = randomUUIDv7();

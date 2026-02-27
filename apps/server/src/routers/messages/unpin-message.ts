@@ -35,7 +35,7 @@ const unpinMessageRoute = protectedProcedure
 
     invariant(message, {
       code: 'NOT_FOUND',
-      message: 'Message not found'
+      message: `Message ${input.messageId} not found`
     });
 
     invariant(message.pinned, {

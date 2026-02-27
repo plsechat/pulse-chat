@@ -20,7 +20,7 @@ const changeAvatarRoute = protectedProcedure
 
     invariant(user, {
       code: 'NOT_FOUND',
-      message: 'User not found'
+      message: `User ${ctx.userId} not found`
     });
 
     if (user.avatarId) {
@@ -38,7 +38,7 @@ const changeAvatarRoute = protectedProcedure
 
       invariant(tempFile, {
         code: 'NOT_FOUND',
-        message: 'Temporary file not found'
+        message: `Temporary file ${input.fileId} not found`
       });
 
       invariant(tempFile.size <= 3 * 1024 * 1024, {

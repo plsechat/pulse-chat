@@ -33,7 +33,7 @@ const toggleMessageReactionRoute = protectedProcedure
 
     invariant(message, {
       code: 'NOT_FOUND',
-      message: 'Message not found'
+      message: `Message ${input.messageId} not found`
     });
 
     const reaction = await getReaction(

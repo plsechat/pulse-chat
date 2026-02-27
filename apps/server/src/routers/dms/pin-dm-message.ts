@@ -22,7 +22,7 @@ const pinDmMessageRoute = protectedProcedure
 
     invariant(message, {
       code: 'NOT_FOUND',
-      message: 'Message not found'
+      message: `DM message ${input.dmMessageId} not found`
     });
 
     const memberIds = await getDmChannelMemberIds(message.dmChannelId);

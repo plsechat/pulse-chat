@@ -18,7 +18,7 @@ const createProducerTransportRoute = protectedProcedure.mutation(
 
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
+      message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
     });
 
     const params = await runtime.createProducerTransport(ctx.user.id);

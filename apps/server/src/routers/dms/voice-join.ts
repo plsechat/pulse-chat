@@ -28,7 +28,7 @@ const dmVoiceJoinRoute = protectedProcedure
 
     invariant(channel, {
       code: 'NOT_FOUND',
-      message: 'DM channel not found'
+      message: `DM channel ${input.dmChannelId} not found`
     });
 
     const memberIds = await getDmChannelMemberIds(input.dmChannelId);

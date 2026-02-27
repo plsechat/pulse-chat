@@ -22,7 +22,7 @@ const acceptRequestRoute = protectedProcedure
 
     invariant(request, {
       code: 'NOT_FOUND',
-      message: 'Friend request not found'
+      message: `Friend request ${input.requestId} not found`
     });
 
     invariant(request.receiverId === ctx.userId, {

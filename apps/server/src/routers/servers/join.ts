@@ -67,7 +67,7 @@ const joinServerByInviteRoute = protectedProcedure
 
     invariant(server, {
       code: 'NOT_FOUND',
-      message: 'Server not found'
+      message: `Server ${invite.serverId} not found`
     });
 
     // Check if already a member

@@ -32,7 +32,7 @@ const reorderChannelsRoute = protectedProcedure
 
     invariant(category, {
       code: 'NOT_FOUND',
-      message: 'Category not found'
+      message: `Category ${input.categoryId} not found`
     });
 
     await db.transaction(async (tx) => {

@@ -24,7 +24,7 @@ const closeProducerRoute = protectedProcedure
 
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
+      message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
     });
 
     const producer = runtime.getProducer(input.kind, ctx.user.id);

@@ -22,14 +22,14 @@ const getUserInfoRoute = protectedProcedure
 
     invariant(isMember, {
       code: 'NOT_FOUND',
-      message: 'User not found'
+      message: `User ${input.userId} is not a member of this server`
     });
 
     const user = await getUserById(input.userId);
 
     invariant(user, {
       code: 'NOT_FOUND',
-      message: 'User not found'
+      message: `User ${input.userId} not found`
     });
 
     const [logins, files, messages] = await Promise.all([

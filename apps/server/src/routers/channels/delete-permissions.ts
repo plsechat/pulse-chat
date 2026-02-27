@@ -45,7 +45,7 @@ const deletePermissionsRoute = protectedProcedure
 
     invariant(ch, {
       code: 'NOT_FOUND',
-      message: 'Channel not found in this server'
+      message: `Channel ${input.channelId} not found in this server`
     });
 
     const affectedUserIds = await getAffectedUserIdsForChannel(input.channelId);

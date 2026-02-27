@@ -130,7 +130,7 @@ const TextChannel = memo(({ channelId }: TChannelProps) => (
 ));
 
 const TextChannelInner = memo(({ channelId }: TChannelProps) => {
-  const { messages, hasMore, loadMore, loading, fetching, groupedMessages } =
+  const { messages, loadMore, loading, fetching, groupedMessages } =
     useMessages(channelId);
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedMessage | null>(null);
@@ -147,7 +147,6 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     channelId,
     messages,
     fetching,
-    hasMore,
     loadMore
   });
   const can = useCan();

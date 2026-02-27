@@ -27,7 +27,7 @@ const updatePasswordRoute = protectedProcedure
 
     invariant(user, {
       code: 'NOT_FOUND',
-      message: 'User not found'
+      message: `User ${ctx.userId} not found`
     });
 
     // Verify current password via Supabase Auth

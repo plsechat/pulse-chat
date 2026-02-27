@@ -700,7 +700,9 @@ class VoiceRuntime {
                 stream: existingStream
               }
             );
-          }).catch(() => {});
+          }).catch((err: unknown) => {
+            logger.warn('[VoiceRuntime] Failed to publish external stream update for channel %d: %s', this.id, err);
+          });
         }
       }
     });
@@ -732,7 +734,9 @@ class VoiceRuntime {
         channelId: this.id,
         streamId
       });
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      logger.warn('[VoiceRuntime] Failed to publish external stream removal for channel %d: %s', this.id, err);
+    });
   };
 
   public updateExternalStream = (
@@ -829,7 +833,9 @@ class VoiceRuntime {
         streamId,
         stream: publicStream
       });
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      logger.warn('[VoiceRuntime] Failed to publish external stream update for channel %d: %s', this.id, err);
+    });
   };
 
   public getExternalStreamProducer = (

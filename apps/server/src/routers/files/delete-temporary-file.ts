@@ -10,7 +10,7 @@ const deleteTemporaryFileRoute = protectedProcedure
 
     invariant(temporaryFile, {
       code: 'NOT_FOUND',
-      message: 'Temporary file not found'
+      message: `Temporary file ${input.fileId} not found`
     });
 
     const isOwnUserFile = temporaryFile.userId === ctx.user.id;

@@ -30,7 +30,7 @@ const deleteEmojiRoute = protectedProcedure
 
     invariant(removedEmoji, {
       code: 'NOT_FOUND',
-      message: 'Emoji not found'
+      message: `Emoji ${input.emojiId} not found`
     });
 
     await removeFile(removedEmoji.fileId);

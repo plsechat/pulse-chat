@@ -27,7 +27,7 @@ const kickRoute = protectedProcedure
     const isMember = await isServerMember(ctx.activeServerId, input.userId);
     invariant(isMember, {
       code: 'NOT_FOUND',
-      message: 'User is not a member of this server'
+      message: `User ${input.userId} is not a member of this server`
     });
 
     // Close all of the kicked user's WebSocket connections

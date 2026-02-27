@@ -1,20 +1,18 @@
 import type {
   TFile,
   TJoinedMessage,
-  TJoinedMessageReaction,
   TMessage,
   TMessageReaction
 } from '@pulse/shared';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';
+import { channels, messageFiles, messageReactions, messages } from '../schema';
 import {
-  channels,
-  files,
-  messageFiles,
-  messageReactions,
-  messages
-} from '../schema';
+  fetchChannelMessageFiles,
+  fetchChannelReactions,
+  fetchChannelReplyTo
+} from './shared-message-helpers';
 
 const getMessageByFileId = async (
   fileId: number
@@ -51,67 +49,22 @@ const getMessage = async (
 
   if (!channel) return undefined;
 
-  const fileRows = await db
-    .select({
-      file: files
-    })
-    .from(messageFiles)
-    .innerJoin(files, eq(messageFiles.fileId, files.id))
-    .where(eq(messageFiles.messageId, messageId));
+  const rawFiles = await fetchChannelMessageFiles(messageId);
 
-  const filesForMessage: TFile[] = fileRows.map((r) => {
-    if (channel.private) {
-      return {
-        ...r.file,
-        _accessToken: generateFileToken(r.file.id, channel.fileAccessToken)
-      };
-    }
+  const filesForMessage: TFile[] = channel.private
+    ? rawFiles.map((f) => ({
+        ...f,
+        _accessToken: generateFileToken(f.id, channel.fileAccessToken)
+      }))
+    : rawFiles;
 
-    return r.file;
-  });
-
-  const reactionRows = await db
-    .select({
-      messageId: messageReactions.messageId,
-      userId: messageReactions.userId,
-      emoji: messageReactions.emoji,
-      createdAt: messageReactions.createdAt,
-      fileId: messageReactions.fileId,
-      file: files
-    })
-    .from(messageReactions)
-    .leftJoin(files, eq(messageReactions.fileId, files.id))
-    .where(eq(messageReactions.messageId, messageId));
-
-  const reactions: TJoinedMessageReaction[] = reactionRows.map((r) => ({
-    messageId: r.messageId,
-    userId: r.userId,
-    emoji: r.emoji,
-    createdAt: r.createdAt,
-    fileId: r.fileId,
-    file: r.file
-  }));
-
-  let replyTo = null;
-
-  if (message.replyToId) {
-    const [replyRow] = await db
-      .select({
-        id: messages.id,
-        content: messages.content,
-        userId: messages.userId
-      })
-      .from(messages)
-      .where(eq(messages.id, message.replyToId))
-      .limit(1);
-
-    replyTo = replyRow ?? null;
-  }
+  const reactions = await fetchChannelReactions(messageId);
+  const replyTo = await fetchChannelReplyTo(message.replyToId);
 
   return {
     ...message,
-    files: filesForMessage ?? [],
-    reactions: reactions ?? [],
+    files: filesForMessage,
+    reactions,
     replyTo
   };
 };

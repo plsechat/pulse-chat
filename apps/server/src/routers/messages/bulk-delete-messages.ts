@@ -26,7 +26,7 @@ const bulkDeleteMessagesRoute = protectedProcedure
 
     invariant(targetMessages.length > 0, {
       code: 'NOT_FOUND',
-      message: 'No messages found'
+      message: `No messages found for IDs [${input.messageIds.join(', ')}]`
     });
 
     const channelId = targetMessages[0]!.channelId;

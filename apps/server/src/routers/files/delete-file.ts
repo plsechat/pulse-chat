@@ -19,7 +19,7 @@ const deleteFileRoute = protectedProcedure
 
     invariant(file, {
       code: 'NOT_FOUND',
-      message: 'File not found'
+      message: `File ${input.fileId} not found`
     });
 
     invariant(file.userId === ctx.userId, {

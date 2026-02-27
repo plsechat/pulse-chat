@@ -18,7 +18,7 @@ const transferOwnerRoute = protectedProcedure
 
     invariant(server, {
       code: 'NOT_FOUND',
-      message: 'Server not found'
+      message: `Server ${input.serverId} not found`
     });
 
     invariant(server.ownerId === ctx.userId, {

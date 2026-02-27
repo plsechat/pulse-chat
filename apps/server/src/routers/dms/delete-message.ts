@@ -20,7 +20,7 @@ const deleteMessageRoute = protectedProcedure
 
     invariant(msg, {
       code: 'NOT_FOUND',
-      message: 'Message not found'
+      message: `DM message ${input.messageId} not found`
     });
 
     invariant(msg.userId === ctx.userId, {

@@ -28,12 +28,12 @@ const updateEmojiRoute = protectedProcedure
 
     invariant(existingEmoji, {
       code: 'NOT_FOUND',
-      message: 'Emoji not found'
+      message: `Emoji ${input.emojiId} not found`
     });
 
     invariant(existingEmoji.serverId === ctx.activeServerId, {
       code: 'NOT_FOUND',
-      message: 'Emoji not found in this server'
+      message: `Emoji ${input.emojiId} not found in this server`
     });
 
     const exists = await emojiExists(input.name);

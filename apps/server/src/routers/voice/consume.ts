@@ -26,21 +26,21 @@ const consumeRoute = protectedProcedure
 
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
+      message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
     });
 
     const producer = runtime.getProducer(input.kind, input.remoteId);
 
     invariant(producer, {
       code: 'NOT_FOUND',
-      message: 'Producer not found'
+      message: `Producer ${input.kind} not found for remote ${input.remoteId}`
     });
 
     const userConsumerTransport = runtime.getConsumerTransport(ctx.user.id);
 
     invariant(userConsumerTransport, {
       code: 'NOT_FOUND',
-      message: 'Consumer transport not found'
+      message: `Consumer transport not found for user ${ctx.user.id}`
     });
 
     const router = runtime.getRouter();

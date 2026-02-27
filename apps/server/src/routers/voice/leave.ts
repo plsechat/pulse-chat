@@ -24,7 +24,7 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
 
   invariant(channel, {
     code: 'NOT_FOUND',
-    message: 'Channel not found'
+    message: `Channel ${ctx.currentVoiceChannelId} not found`
   });
 
   invariant(channel.type === ChannelType.VOICE, {
@@ -36,7 +36,7 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
 
   invariant(runtime, {
     code: 'INTERNAL_SERVER_ERROR',
-    message: 'Voice runtime not found for this channel'
+    message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
   });
 
   const userInChannel = runtime.getUser(ctx.user.id);

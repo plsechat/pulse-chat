@@ -80,7 +80,7 @@ type TDmConversationProps = {
 };
 
 const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
-  const { messages, loading, fetching, hasMore, loadMore, groupedMessages } =
+  const { messages, loading, fetching, loadMore, groupedMessages } =
     useDmMessages(dmChannelId);
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedDmMessage | null>(null);
@@ -216,10 +216,10 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
     isNearBottom.current =
       c.scrollTop + c.clientHeight >= c.scrollHeight * 0.9;
 
-    if (!fetching && hasMore && c.scrollTop < 100) {
+    if (c.scrollTop < 100) {
       loadMore();
     }
-  }, [fetching, hasMore, loadMore]);
+  }, [loadMore]);
 
   const onSendMessage = useCallback(async () => {
     if (isHtmlEmpty(newMessage) && !files.length) return;

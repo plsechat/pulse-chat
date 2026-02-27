@@ -30,7 +30,7 @@ const updateServerRoute = protectedProcedure
 
     invariant(server, {
       code: 'NOT_FOUND',
-      message: 'Server not found'
+      message: `Server ${input.serverId} not found`
     });
 
     // Only owner can update server settings

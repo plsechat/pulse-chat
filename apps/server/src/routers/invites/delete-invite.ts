@@ -24,7 +24,7 @@ const deleteInviteRoute = protectedProcedure
 
     invariant(removedInvite, {
       code: 'NOT_FOUND',
-      message: 'Invite not found'
+      message: `Invite ${input.inviteId} not found`
     });
 
     // Notify server members so admin invite lists update

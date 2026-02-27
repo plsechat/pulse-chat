@@ -23,7 +23,7 @@ const getCategoryRoute = protectedProcedure
 
     invariant(category, {
       code: 'NOT_FOUND',
-      message: 'Category not found'
+      message: `Category ${input.categoryId} not found`
     });
 
     return category;

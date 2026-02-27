@@ -33,7 +33,7 @@ const removeRoleRoute = protectedProcedure
 
     invariant(role, {
       code: 'NOT_FOUND',
-      message: 'Role not found'
+      message: `Role ${input.roleId} not found`
     });
 
     const existing = await db
@@ -49,7 +49,7 @@ const removeRoleRoute = protectedProcedure
 
     invariant(existing.length > 0, {
       code: 'NOT_FOUND',
-      message: 'User does not have this role'
+      message: `User ${input.userId} does not have role ${input.roleId}`
     });
 
     await db

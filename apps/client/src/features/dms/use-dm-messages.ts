@@ -10,22 +10,28 @@ export const useDmMessages = (dmChannelId: number) => {
     dmMessagesSelector(state, dmChannelId)
   );
   const inited = useRef(false);
+  const fetchingRef = useRef(false);
+  const cursorRef = useRef<number | null>(null);
+  const hasMoreRef = useRef(true);
   const [fetching, setFetching] = useState(false);
   const [loading, setLoading] = useState(messages.length === 0);
-  const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
   const fetchPage = useCallback(
     async (cursorToFetch: number | null) => {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
       setFetching(true);
       try {
         const nextCursor = await fetchDmMessages(
           dmChannelId,
           cursorToFetch
         );
-        setCursor(nextCursor ?? null);
+        cursorRef.current = nextCursor ?? null;
+        hasMoreRef.current = nextCursor != null;
         setHasMore(nextCursor != null);
       } finally {
+        fetchingRef.current = false;
         setFetching(false);
         setLoading(false);
       }
@@ -34,15 +40,17 @@ export const useDmMessages = (dmChannelId: number) => {
   );
 
   const loadMore = useCallback(async () => {
-    if (fetching || !hasMore) return;
-    await fetchPage(cursor);
-  }, [fetching, hasMore, cursor, fetchPage]);
+    if (fetchingRef.current || !hasMoreRef.current) return;
+    await fetchPage(cursorRef.current);
+  }, [fetchPage]);
 
   // Reset when dmChannelId changes so messages are fetched for the new channel
   useEffect(() => {
     inited.current = false;
+    fetchingRef.current = false;
+    cursorRef.current = null;
+    hasMoreRef.current = true;
     setLoading(true);
-    setCursor(null);
     setHasMore(true);
   }, [dmChannelId]);
 
@@ -53,16 +61,22 @@ export const useDmMessages = (dmChannelId: number) => {
   }, [fetchPage]);
 
   const groupedMessages = useMemo(() => {
-    const grouped = messages.reduce((acc, message) => {
-      const last = acc[acc.length - 1];
+    const grouped: TJoinedDmMessage[][] = [];
 
-      if (!last) return [[message]];
+    for (const message of messages) {
+      const last = grouped[grouped.length - 1];
+
+      if (!last) {
+        grouped.push([message]);
+        continue;
+      }
 
       const lastMessage = last[last.length - 1];
 
       // System messages are always standalone (never grouped)
       if (message.type === 'system' || lastMessage.type === 'system') {
-        return [...acc, [message]];
+        grouped.push([message]);
+        continue;
       }
 
       if (lastMessage.userId === message.userId) {
@@ -71,12 +85,12 @@ export const useDmMessages = (dmChannelId: number) => {
 
         if (timeDiff < 1) {
           last.push(message);
-          return acc;
+          continue;
         }
       }
 
-      return [...acc, [message]];
-    }, [] as TJoinedDmMessage[][]);
+      grouped.push([message]);
+    }
 
     return grouped;
   }, [messages]);

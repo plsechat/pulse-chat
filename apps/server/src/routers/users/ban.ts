@@ -29,7 +29,7 @@ const banRoute = protectedProcedure
 
     invariant(isMember, {
       code: 'NOT_FOUND',
-      message: 'User not found'
+      message: `User ${input.userId} is not a member of this server`
     });
 
     const userConnections = ctx.getUserWs(input.userId);

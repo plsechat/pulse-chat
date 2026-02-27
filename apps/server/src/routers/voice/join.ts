@@ -38,7 +38,7 @@ const joinVoiceRoute = protectedProcedure
 
     invariant(channel, {
       code: 'NOT_FOUND',
-      message: 'Channel not found'
+      message: `Channel ${input.channelId} not found`
     });
 
     invariant(channel.type === ChannelType.VOICE, {

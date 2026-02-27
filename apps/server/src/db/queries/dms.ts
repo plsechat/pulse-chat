@@ -1,21 +1,19 @@
 import type {
   TDmMessageReaction,
   TJoinedDmChannel,
-  TJoinedDmMessage,
-  TJoinedDmMessageReaction
+  TJoinedDmMessage
 } from '@pulse/shared';
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   dmChannelMembers,
   dmChannels,
-  dmMessageFiles,
   dmMessageReactions,
   dmMessages,
-  dmReadStates,
-  files
+  dmReadStates
 } from '../schema';
 import { getPublicUsersByIds } from './users';
+import { fetchDmMessageFiles, fetchDmReactions, fetchDmReplyTo } from './shared-message-helpers';
 
 const getDmChannelsForUser = async (
   userId: number
@@ -182,53 +180,15 @@ const getDmMessage = async (
 
   if (!msg) return null;
 
-  const fileRows = await db
-    .select({ file: files })
-    .from(dmMessageFiles)
-    .innerJoin(files, eq(dmMessageFiles.fileId, files.id))
-    .where(eq(dmMessageFiles.dmMessageId, messageId));
-
-  const reactionRows = await db
-    .select({
-      dmMessageId: dmMessageReactions.dmMessageId,
-      userId: dmMessageReactions.userId,
-      emoji: dmMessageReactions.emoji,
-      createdAt: dmMessageReactions.createdAt,
-      fileId: dmMessageReactions.fileId,
-      file: files
-    })
-    .from(dmMessageReactions)
-    .leftJoin(files, eq(dmMessageReactions.fileId, files.id))
-    .where(eq(dmMessageReactions.dmMessageId, messageId));
-
-  const reactions: TJoinedDmMessageReaction[] = reactionRows.map((r) => ({
-    dmMessageId: r.dmMessageId,
-    userId: r.userId,
-    emoji: r.emoji,
-    createdAt: r.createdAt,
-    fileId: r.fileId,
-    file: r.file
-  }));
-
-  let replyTo = null;
-
-  if (msg.replyToId) {
-    const [replyRow] = await db
-      .select({
-        id: dmMessages.id,
-        content: dmMessages.content,
-        userId: dmMessages.userId
-      })
-      .from(dmMessages)
-      .where(eq(dmMessages.id, msg.replyToId))
-      .limit(1);
-
-    replyTo = replyRow ?? null;
-  }
+  const [msgFiles, reactions, replyTo] = await Promise.all([
+    fetchDmMessageFiles(messageId),
+    fetchDmReactions(messageId),
+    fetchDmReplyTo(msg.replyToId)
+  ]);
 
   return {
     ...msg,
-    files: fileRows.map((r) => r.file),
+    files: msgFiles,
     reactions,
     replyTo
   };

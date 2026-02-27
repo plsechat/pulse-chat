@@ -24,7 +24,7 @@ const deleteMessageRoute = protectedProcedure
 
     invariant(targetMessage, {
       code: 'NOT_FOUND',
-      message: 'Message not found'
+      message: `Message ${input.messageId} not found`
     });
     invariant(
       targetMessage.userId === ctx.user.id ||

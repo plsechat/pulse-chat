@@ -24,14 +24,14 @@ const connectConsumerTransportRoute = protectedProcedure
 
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
+      message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
     });
 
     const consumerTransport = runtime.getConsumerTransport(ctx.user.id);
 
     invariant(consumerTransport, {
       code: 'NOT_FOUND',
-      message: 'Consumer transport not found'
+      message: `Consumer transport not found for user ${ctx.user.id}`
     });
 
     await consumerTransport.connect({ dtlsParameters: input.dtlsParameters });

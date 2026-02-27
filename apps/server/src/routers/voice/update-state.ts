@@ -61,7 +61,7 @@ const updateVoiceStateRoute = protectedProcedure
 
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
+      message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
     });
 
     runtime.updateUserState(ctx.user.id, {

@@ -40,7 +40,7 @@ const updateRoleRoute = protectedProcedure
 
     invariant(updatedRole, {
       code: 'NOT_FOUND',
-      message: 'Role not found in this server'
+      message: `Role ${input.roleId} not found in this server`
     });
 
     if (updatedRole.id !== OWNER_ROLE_ID) {

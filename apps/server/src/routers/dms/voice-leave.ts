@@ -15,7 +15,7 @@ const dmVoiceLeaveRoute = protectedProcedure.mutation(async ({ ctx }) => {
 
   invariant(runtime, {
     code: 'INTERNAL_SERVER_ERROR',
-    message: 'Voice runtime not found for this DM channel'
+    message: `Voice runtime not found for DM channel ${ctx.currentDmVoiceChannelId}`
   });
 
   const dmChannelId = ctx.currentDmVoiceChannelId;

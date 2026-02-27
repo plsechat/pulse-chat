@@ -31,7 +31,7 @@ const updateCategoryRoute = protectedProcedure
 
     invariant(existingCategory, {
       code: 'NOT_FOUND',
-      message: 'Category not found.'
+      message: `Category ${input.categoryId} not found`
     });
 
     await db

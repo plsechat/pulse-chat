@@ -22,7 +22,7 @@ const changeLogoRoute = protectedProcedure
 
     invariant(server, {
       code: 'NOT_FOUND',
-      message: 'Server not found'
+      message: `Server ${input.serverId} not found`
     });
 
     await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);

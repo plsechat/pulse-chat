@@ -53,7 +53,7 @@ const getMessagesRoute = protectedProcedure
 
     invariant(channel, {
       code: 'NOT_FOUND',
-      message: 'Channel not found'
+      message: `Channel ${channelId} not found`
     });
 
     const rows: TMessage[] = await db

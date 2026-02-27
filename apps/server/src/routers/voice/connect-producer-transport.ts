@@ -24,14 +24,14 @@ const connectProducerTransportRoute = protectedProcedure
 
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
+      message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
     });
 
     const producerTransport = runtime.getProducerTransport(ctx.user.id);
 
     invariant(producerTransport, {
       code: 'NOT_FOUND',
-      message: 'Producer transport not found'
+      message: `Producer transport not found for user ${ctx.user.id}`
     });
 
     await producerTransport.connect({ dtlsParameters: input.dtlsParameters });

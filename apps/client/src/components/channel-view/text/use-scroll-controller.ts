@@ -36,7 +36,6 @@ type TUseScrollControllerProps = {
   channelId: number;
   messages: unknown[];
   fetching: boolean;
-  hasMore: boolean;
   loadMore: () => Promise<unknown>;
 };
 
@@ -51,7 +50,6 @@ const useScrollController = ({
   channelId,
   messages,
   fetching,
-  hasMore,
   loadMore
 }: TUseScrollControllerProps): TUseScrollControllerReturn => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,8 +78,7 @@ const useScrollController = ({
   // detect scroll-to-top and load more messages
   const onScroll = useCallback(() => {
     const container = containerRef.current;
-
-    if (!container || fetching) return;
+    if (!container) return;
 
     // Save scroll position
     scrollPositions[channelId] = container.scrollTop;
@@ -90,16 +87,17 @@ const useScrollController = ({
     // Update isAtBottom state
     setIsAtBottom(checkIsAtBottom());
 
-    if (container.scrollTop <= 50 && hasMore) {
+    if (container.scrollTop <= 50) {
       const prevScrollHeight = container.scrollHeight;
 
       loadMore().then(() => {
-        const newScrollHeight = container.scrollHeight;
-        container.scrollTop =
-          newScrollHeight - prevScrollHeight + container.scrollTop;
+        const el = containerRef.current;
+        if (!el) return;
+        const newScrollHeight = el.scrollHeight;
+        el.scrollTop = newScrollHeight - prevScrollHeight + el.scrollTop;
       });
     }
-  }, [loadMore, hasMore, fetching, channelId, checkIsAtBottom]);
+  }, [loadMore, channelId, checkIsAtBottom]);
 
   // Save scroll position on unmount
   useEffect(() => {

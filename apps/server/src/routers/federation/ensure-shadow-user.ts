@@ -35,7 +35,7 @@ const ensureShadowUserRoute = protectedProcedure
 
     invariant(instance, {
       code: 'NOT_FOUND',
-      message: 'Federation instance not found'
+      message: `Federation instance not found for domain ${input.instanceDomain}`
     });
 
     const shadowUser = await findOrCreateShadowUser(

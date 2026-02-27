@@ -17,7 +17,7 @@ const getProducersRoute = protectedProcedure.query(async ({ ctx }) => {
 
   invariant(runtime, {
     code: 'INTERNAL_SERVER_ERROR',
-    message: 'Voice runtime not found for this channel'
+    message: `Voice runtime not found for channel ${ctx.currentVoiceChannelId}`
   });
 
   return runtime.getRemoteIds(ctx.user.id);

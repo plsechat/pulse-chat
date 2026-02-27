@@ -36,13 +36,13 @@ const setDefaultRoleRoute = protectedProcedure
 
     invariant(newDefaultRole, {
       code: 'NOT_FOUND',
-      message: 'Role not found'
+      message: `Role ${input.roleId} not found`
     });
 
     // Ensure the role belongs to the caller's active server
     invariant(newDefaultRole.serverId === ctx.activeServerId, {
       code: 'NOT_FOUND',
-      message: 'Role not found in this server'
+      message: `Role ${input.roleId} not found in this server`
     });
 
     await db.transaction(async (tx) => {

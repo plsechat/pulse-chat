@@ -28,7 +28,7 @@ const deleteRoleRoute = protectedProcedure
 
     invariant(role, {
       code: 'NOT_FOUND',
-      message: 'Role not found'
+      message: `Role ${input.roleId} not found`
     });
 
     invariant(role.serverId === ctx.activeServerId, {

@@ -27,7 +27,7 @@ const followThreadRoute = protectedProcedure
 
     invariant(thread, {
       code: 'NOT_FOUND',
-      message: 'Thread not found'
+      message: `Thread ${input.threadId} not found`
     });
 
     if (input.follow) {

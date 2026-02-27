@@ -44,7 +44,7 @@ const updateChannelRoute = protectedProcedure
 
       invariant(channel, {
         code: 'NOT_FOUND',
-        message: 'Channel not found'
+        message: `Channel ${input.channelId} not found`
       });
 
       const [server] = await db

@@ -39,7 +39,7 @@ const joinFederatedRoute = protectedProcedure
 
     invariant(server, {
       code: 'NOT_FOUND',
-      message: 'Server not found'
+      message: `Server not found for publicId ${input.publicId}`
     });
 
     invariant(server.federatable, {

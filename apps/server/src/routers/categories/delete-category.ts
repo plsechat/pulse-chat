@@ -27,7 +27,7 @@ const deleteCategoryRoute = protectedProcedure
       .where(and(eq(categories.id, input.categoryId), eq(categories.serverId, ctx.activeServerId)))
       .returning();
 
-    invariant(removedCategory, 'Category not found');
+    invariant(removedCategory, `Category ${input.categoryId} not found`);
 
     await db
       .delete(channels)
