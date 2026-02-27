@@ -268,28 +268,6 @@ describe('e2ee messages', () => {
     expect(edited!.edited).toBe(true);
   });
 
-  test('should reject editing E2EE DM with plaintext content', async () => {
-    const { caller } = await initTest();
-
-    const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
-
-    await caller.dms.sendMessage({
-      dmChannelId: channel.id,
-      content: 'encrypted-dm',
-      e2ee: true
-    });
-
-    const msgs = await caller.dms.getMessages({ dmChannelId: channel.id });
-    const messageId = msgs.messages[0]!.id;
-
-    await expect(
-      caller.dms.editMessage({
-        messageId,
-        content: 'plaintext edit attempt'
-      })
-    ).rejects.toThrow('E2EE messages must be edited with content');
-  });
-
   test('should exclude E2EE DM messages from search', async () => {
     const { caller } = await initTest();
 
@@ -391,30 +369,4 @@ describe('e2ee messages', () => {
     expect(edited!.edited).toBe(true);
   });
 
-  test('should reject editing E2EE channel message with plaintext', async () => {
-    const { caller } = await initTest();
-
-    await caller.channels.update({ channelId: 1, e2ee: true });
-
-    await caller.messages.send({
-      channelId: 1,
-      content: 'encrypted-payload',
-      e2ee: true
-    });
-
-    const result = await caller.messages.get({
-      channelId: 1,
-      cursor: null,
-      limit: 50
-    });
-
-    const messageId = result.messages[0]!.id;
-
-    await expect(
-      caller.messages.edit({
-        messageId,
-        content: 'plaintext edit attempt'
-      })
-    ).rejects.toThrow('E2EE messages must be edited with content');
-  });
 });

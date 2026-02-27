@@ -54,13 +54,22 @@ const UserStatusBadge = memo(({ status, className }: TUserStatusBadgeProps) => {
     );
   }
 
-  // Online, Invisible, Offline — simple filled circle
+  // Online — filled circle with subtle glow pulse
+  if (status === UserStatus.ONLINE) {
+    return (
+      <div className={cn('relative h-3 w-3', className)}>
+        <div className="absolute inset-[-1px] rounded-full bg-emerald-500/50 animate-pulse" />
+        <div className={cn('relative rounded-full border-2 border-card h-full w-full', config.color)} />
+      </div>
+    );
+  }
+
+  // Invisible, Offline — simple hollow ring
   return (
     <div
       className={cn(
         'rounded-full border-2 border-card h-3 w-3',
         config.color,
-        // Invisible/Offline: hollow ring effect
         (status === UserStatus.INVISIBLE || status === UserStatus.OFFLINE) &&
           'bg-transparent ring-[2px] ring-inset ring-gray-500',
         className

@@ -393,7 +393,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       </div>
 
       {!isAtBottom && (
-        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
           <button
             type="button"
             onClick={scrollToBottom}

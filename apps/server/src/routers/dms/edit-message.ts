@@ -37,19 +37,11 @@ const editMessageRoute = protectedProcedure
       updatedAt: Date.now()
     };
 
-    if (msg.e2ee) {
-      invariant(input.content, {
-        code: 'BAD_REQUEST',
-        message: 'E2EE messages must be edited with content'
-      });
-      updateSet.content = input.content;
-    } else {
-      invariant(input.content, {
-        code: 'BAD_REQUEST',
-        message: 'Non-E2EE messages must be edited with content'
-      });
-      updateSet.content = input.content;
-    }
+    invariant(input.content, {
+      code: 'BAD_REQUEST',
+      message: 'Edited messages must include content'
+    });
+    updateSet.content = input.content;
 
     await db
       .update(dmMessages)
