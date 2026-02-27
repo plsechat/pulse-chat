@@ -110,6 +110,9 @@ const getMessage = async (
 
   return {
     ...message,
+    // For E2EE messages, put ciphertext in content and drop encryptedContent
+    content: message.e2ee ? message.encryptedContent : message.content,
+    encryptedContent: null,
     files: filesForMessage ?? [],
     reactions: reactions ?? [],
     replyTo

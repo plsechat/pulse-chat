@@ -1,4 +1,6 @@
 import {
+  type TFile,
+  type TFileRef,
   type TJoinedPublicUser,
   type TJoinedUser,
   type TStorageData
@@ -7,7 +9,10 @@ import { count, eq, inArray, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { supabaseAdmin } from '../../utils/supabase';
-import { federationInstances, files, serverMembers, userRoles, users } from '../schema';
+import { federationInstances, files, roles, serverMembers, userRoles, users } from '../schema';
+
+const slimFile = (file: TFile | null): TFileRef | null =>
+  file ? { id: file.id, name: file.name } : null;
 
 const getPublicUserById = async (
   userId: number
@@ -65,8 +70,8 @@ const getPublicUserById = async (
     bio: results.bio,
     avatarId: results.avatarId,
     bannerId: results.bannerId,
-    avatar: results.avatar,
-    banner: results.banner,
+    avatar: slimFile(results.avatar),
+    banner: slimFile(results.banner),
     createdAt: results.createdAt,
     banned: results.banned,
     _identity: identity,
@@ -153,8 +158,8 @@ const getPublicUsersByIds = async (
       bio: row.bio,
       avatarId: row.avatarId,
       bannerId: row.bannerId,
-      avatar: row.avatar,
-      banner: row.banner,
+      avatar: slimFile(row.avatar),
+      banner: slimFile(row.banner),
       createdAt: row.createdAt,
       banned: row.banned,
       _identity: identity,
@@ -246,8 +251,8 @@ const getPublicUsers = async (
         banned: result.banned,
         avatarId: result.avatarId,
         bannerId: result.bannerId,
-        avatar: result.avatar,
-        banner: result.banner,
+        avatar: slimFile(result.avatar),
+        banner: slimFile(result.banner),
         createdAt: result.createdAt,
         _identity: identity,
         roleIds: rolesMap[result.id] || []
@@ -298,8 +303,8 @@ const getPublicUsers = async (
       bio: result.bio,
       avatarId: result.avatarId,
       bannerId: result.bannerId,
-      avatar: result.avatar,
-      banner: result.banner,
+      avatar: slimFile(result.avatar),
+      banner: slimFile(result.banner),
       createdAt: result.createdAt,
       roleIds: rolesMap[result.id] || []
     }));
@@ -369,8 +374,8 @@ const getUserById = async (
 
   return {
     ...user,
-    avatar: user.avatar,
-    banner: user.banner,
+    avatar: slimFile(user.avatar),
+    banner: slimFile(user.banner),
     roleIds: roles.map((r) => r.roleId)
   };
 };
@@ -419,8 +424,8 @@ const getUserBySupabaseId = async (
 
   return {
     ...user,
-    avatar: user.avatar,
-    banner: user.banner,
+    avatar: slimFile(user.avatar),
+    banner: slimFile(user.banner),
     roleIds: roles.map((r) => r.roleId)
   };
 };
@@ -509,8 +514,8 @@ const getUsers = async (serverId?: number): Promise<TJoinedUser[]> => {
     bio: result.bio,
     avatarId: result.avatarId,
     bannerId: result.bannerId,
-    avatar: result.avatar,
-    banner: result.banner,
+    avatar: slimFile(result.avatar),
+    banner: slimFile(result.banner),
     createdAt: result.createdAt,
     updatedAt: result.updatedAt,
     supabaseId: result.supabaseId,
@@ -557,12 +562,15 @@ const getPublicUsersForServer = async (
     .leftJoin(bannerFiles, eq(users.bannerId, bannerFiles.id))
     .where(eq(serverMembers.serverId, serverId));
 
+  // Scope userRoles to this server's roles only (avoids leaking role IDs from other servers)
   const rolesByUser = await db
     .select({
       userId: userRoles.userId,
       roleId: userRoles.roleId
     })
-    .from(userRoles);
+    .from(userRoles)
+    .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .where(eq(roles.serverId, serverId));
 
   const rolesMap = rolesByUser.reduce(
     (acc, { userId, roleId }) => {
@@ -612,8 +620,8 @@ const getPublicUsersForServer = async (
       banned: result.banned,
       avatarId: result.avatarId,
       bannerId: result.bannerId,
-      avatar: result.avatar,
-      banner: result.banner,
+      avatar: slimFile(result.avatar),
+      banner: slimFile(result.banner),
       createdAt: result.createdAt,
       _identity: identity,
       roleIds: rolesMap[result.id] || [],

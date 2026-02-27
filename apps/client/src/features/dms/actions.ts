@@ -171,6 +171,7 @@ export const fetchDmMessages = async (
     // Clear unread badge when fetching the first page (user opened the channel)
     if (!cursor) {
       store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+      markDmChannelAsRead(dmChannelId);
     }
 
     return result.nextCursor;
@@ -194,22 +195,21 @@ function getDmRecipientUserId(dmChannelId: number): number | null {
 
 /**
  * In-memory plaintext cache for own sent DM messages.
- * Keyed by encryptedContent so we can recover the plaintext when the
+ * Keyed by ciphertext so we can recover the plaintext when the
  * subscription echo arrives (own messages are encrypted for the recipient,
  * not for ourselves, so we cannot decrypt them via Signal Protocol).
  */
 const ownSentPlaintextCache = new Map<string, E2EEPlaintext>();
 
 /**
- * Decrypt an E2EE DM message in-place, replacing encryptedContent with decrypted content.
- * Uses a persistent IDB cache so that messages survive page refreshes
- * (Signal Protocol consumes message keys on decryption — ciphertexts can
- * only be decrypted once via the ratchet).
+ * Decrypt an E2EE DM message in-place, replacing content with decrypted plaintext.
+ * The server puts the ciphertext in the `content` field for E2EE messages
+ * (the `e2ee` flag indicates whether decryption is needed).
  */
 export async function decryptDmMessageInPlace(
   message: TJoinedDmMessage
 ): Promise<TJoinedDmMessage> {
-  if (!message.e2ee || !message.encryptedContent) return message;
+  if (!message.e2ee || !message.content) return message;
 
   // Check persistent cache first (works for both own and others' messages)
   const persisted = await getCachedPlaintext(message.id);
@@ -223,7 +223,7 @@ export async function decryptDmMessageInPlace(
   // Own messages are encrypted for the recipient — we cannot decrypt them.
   // Use the in-memory cache populated at send time for the current session.
   if (message.userId === ownUserId) {
-    const cached = ownSentPlaintextCache.get(message.encryptedContent);
+    const cached = ownSentPlaintextCache.get(message.content);
     if (cached !== undefined) {
       // Persist so it survives page refresh
       setCachedPlaintext(message.id, cached).catch(() => {});
@@ -234,7 +234,7 @@ export async function decryptDmMessageInPlace(
   }
 
   try {
-    const payload = await decryptDmMessage(message.userId, message.encryptedContent);
+    const payload = await decryptDmMessage(message.userId, message.content);
     // Persist the decrypted plaintext — the ratchet key is now consumed
     setCachedPlaintext(message.id, payload).catch(() => {});
     setFileKeys(message.id, payload.fileKeys);

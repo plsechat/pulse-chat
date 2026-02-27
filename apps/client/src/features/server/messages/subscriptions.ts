@@ -18,13 +18,13 @@ import {
 async function decryptE2eeMessage(
   message: TJoinedMessage
 ): Promise<TJoinedMessage> {
-  if (!message.e2ee || !message.encryptedContent) return message;
+  if (!message.e2ee || !message.content) return message;
 
   try {
     const payload = await decryptChannelMessage(
       message.channelId,
       message.userId,
-      message.encryptedContent
+      message.content
     );
     setFileKeys(message.id, payload.fileKeys);
     return { ...message, content: payload.content };

@@ -232,6 +232,9 @@ const joinServerRoute = t.procedure
       });
     }
 
+    // Strip creator user data from emojis — not needed for emoji display
+    const slimEmojis = emojis.map(({ user: _user, ...rest }) => rest);
+
     return {
       categories: allCategories,
       channels: channelsForUser,
@@ -242,7 +245,7 @@ const joinServerRoute = t.procedure
       ownUserId: ctx.user.id,
       voiceMap,
       roles,
-      emojis,
+      emojis: slimEmojis,
       publicSettings,
       channelPermissions,
       readStates,

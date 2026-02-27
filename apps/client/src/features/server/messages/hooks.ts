@@ -19,7 +19,7 @@ async function decryptE2eeMessages(
   // instead of each independently fetching from the server.
   const e2eeChannelIds = new Set(
     messages
-      .filter((m) => m.e2ee && m.encryptedContent)
+      .filter((m) => m.e2ee && m.content)
       .map((m) => m.channelId)
   );
   for (const channelId of e2eeChannelIds) {
@@ -28,13 +28,13 @@ async function decryptE2eeMessages(
 
   return Promise.all(
     messages.map(async (msg) => {
-      if (!msg.e2ee || !msg.encryptedContent) return msg;
+      if (!msg.e2ee || !msg.content) return msg;
 
       try {
         const payload = await decryptChannelMessage(
           msg.channelId,
           msg.userId,
-          msg.encryptedContent
+          msg.content
         );
         setFileKeys(msg.id, payload.fileKeys);
         return { ...msg, content: payload.content };

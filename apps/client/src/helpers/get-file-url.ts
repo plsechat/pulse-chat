@@ -1,4 +1,4 @@
-import type { TFile } from '@pulse/shared';
+import type { TFileRef } from '@pulse/shared';
 
 const getHostFromServer = () => {
   if (import.meta.env.MODE === 'development') {
@@ -22,7 +22,7 @@ const getUrlFromServer = () => {
 };
 
 const getFileUrl = (
-  file: TFile | undefined | null,
+  file: (TFileRef & { _accessToken?: string }) | undefined | null,
   instanceDomain?: string
 ) => {
   if (!file) return '';

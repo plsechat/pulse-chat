@@ -186,6 +186,9 @@ const getMessagesRoute = protectedProcedure
     // Combine messages with files, reactions, and reply previews
     const messagesWithFiles: TJoinedMessage[] = rows.map((msg) => ({
       ...msg,
+      // For E2EE messages, put ciphertext in content and drop encryptedContent
+      content: msg.e2ee ? msg.encryptedContent : msg.content,
+      encryptedContent: null,
       files: filesByMessage[msg.id] ?? [],
       reactions: reactionsByMessage[msg.id] ?? [],
       replyTo: msg.replyToId ? (replyToMap[msg.replyToId] ?? null) : null
