@@ -292,6 +292,9 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         handleUploadFiles(selectedFiles);
       }
       e.target.value = '';
+      requestAnimationFrame(() => {
+        inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
+      });
     },
     [handleUploadFiles]
   );
