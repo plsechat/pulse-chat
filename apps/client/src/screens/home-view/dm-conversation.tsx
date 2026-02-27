@@ -114,8 +114,14 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
+  const focusEditor = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
+    });
+  }, []);
+
   const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
-    useUploadFiles(false, isE2ee);
+    useUploadFiles(false, isE2ee, focusEditor);
 
   const handleReply = useCallback((message: TJoinedDmMessage) => {
     setReplyingTo(message);
@@ -269,9 +275,6 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
         handleUploadFiles(selectedFiles);
       }
       e.target.value = '';
-      requestAnimationFrame(() => {
-        inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-      });
     },
     [handleUploadFiles]
   );

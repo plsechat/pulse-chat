@@ -187,10 +187,17 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     [can, allPluginCommands]
   );
 
-  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
-    useUploadFiles(!canSendMessages, isE2ee);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  const focusEditor = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
+    });
+  }, []);
+
+  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
+    useUploadFiles(!canSendMessages, isE2ee, focusEditor);
 
   const handleReply = useCallback((message: TJoinedMessage) => {
     setReplyingTo(message);
@@ -292,9 +299,6 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         handleUploadFiles(selectedFiles);
       }
       e.target.value = '';
-      requestAnimationFrame(() => {
-        inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-      });
     },
     [handleUploadFiles]
   );
