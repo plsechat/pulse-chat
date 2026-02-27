@@ -304,7 +304,6 @@ const messages = pgTable(
   {
     id: serial('id').primaryKey(),
     content: text('content'),
-    encryptedContent: text('encrypted_content'),
     e2ee: boolean('e2ee').notNull().default(false),
     userId: integer('user_id')
       .notNull()
@@ -675,7 +674,6 @@ const dmMessages = pgTable(
   {
     id: serial('id').primaryKey(),
     content: text('content'),
-    encryptedContent: text('encrypted_content'),
     e2ee: boolean('e2ee').notNull().default(false),
     userId: integer('user_id')
       .notNull()

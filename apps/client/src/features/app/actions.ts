@@ -14,7 +14,7 @@ import { getHomeTRPCClient } from '@/lib/trpc';
 import { getAccessToken, initSupabase } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
-import { connect, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
+import { connect, fetchDeferredServerData, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
 import { serverSliceActions } from '../server/slice';
 import { store } from '../store';
 import { appSliceActions } from './slice';
@@ -503,6 +503,9 @@ export const switchToFederatedServer = async (
     });
 
     store.dispatch(serverSliceActions.setInitialData(data));
+
+    // Fetch deferred data (members, emojis, voice state) from the remote instance
+    fetchDeferredServerData(remoteTrpc, data.serverId);
 
     // Reinit subscriptions so they use the remote tRPC client
     reinitServerSubscriptions();

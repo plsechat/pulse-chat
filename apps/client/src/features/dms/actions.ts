@@ -13,6 +13,7 @@ import { store } from '../store';
 import { dmsSliceActions } from './slice';
 import {
   getCachedPlaintext,
+  getCachedPlaintextBatch,
   setCachedPlaintext
 } from './plaintext-cache';
 
@@ -171,6 +172,7 @@ export const fetchDmMessages = async (
     // Clear unread badge when fetching the first page (user opened the channel)
     if (!cursor) {
       store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+      markDmChannelAsRead(dmChannelId);
     }
 
     return result.nextCursor;
@@ -194,22 +196,21 @@ function getDmRecipientUserId(dmChannelId: number): number | null {
 
 /**
  * In-memory plaintext cache for own sent DM messages.
- * Keyed by encryptedContent so we can recover the plaintext when the
+ * Keyed by ciphertext so we can recover the plaintext when the
  * subscription echo arrives (own messages are encrypted for the recipient,
  * not for ourselves, so we cannot decrypt them via Signal Protocol).
  */
 const ownSentPlaintextCache = new Map<string, E2EEPlaintext>();
 
 /**
- * Decrypt an E2EE DM message in-place, replacing encryptedContent with decrypted content.
- * Uses a persistent IDB cache so that messages survive page refreshes
- * (Signal Protocol consumes message keys on decryption — ciphertexts can
- * only be decrypted once via the ratchet).
+ * Decrypt an E2EE DM message in-place, replacing content with decrypted plaintext.
+ * The server puts the ciphertext in the `content` field for E2EE messages
+ * (the `e2ee` flag indicates whether decryption is needed).
  */
 export async function decryptDmMessageInPlace(
   message: TJoinedDmMessage
 ): Promise<TJoinedDmMessage> {
-  if (!message.e2ee || !message.encryptedContent) return message;
+  if (!message.e2ee || !message.content) return message;
 
   // Check persistent cache first (works for both own and others' messages)
   const persisted = await getCachedPlaintext(message.id);
@@ -223,7 +224,7 @@ export async function decryptDmMessageInPlace(
   // Own messages are encrypted for the recipient — we cannot decrypt them.
   // Use the in-memory cache populated at send time for the current session.
   if (message.userId === ownUserId) {
-    const cached = ownSentPlaintextCache.get(message.encryptedContent);
+    const cached = ownSentPlaintextCache.get(message.content);
     if (cached !== undefined) {
       // Persist so it survives page refresh
       setCachedPlaintext(message.id, cached).catch(() => {});
@@ -234,7 +235,7 @@ export async function decryptDmMessageInPlace(
   }
 
   try {
-    const payload = await decryptDmMessage(message.userId, message.encryptedContent);
+    const payload = await decryptDmMessage(message.userId, message.content);
     // Persist the decrypted plaintext — the ratchet key is now consumed
     setCachedPlaintext(message.id, payload).catch(() => {});
     setFileKeys(message.id, payload.fileKeys);
@@ -247,17 +248,78 @@ export async function decryptDmMessageInPlace(
 
 /**
  * Decrypt an array of E2EE DM messages.
- * Must be sequential — Signal Protocol's Double Ratchet requires messages
- * from the same sender to be decrypted in order (the first PreKeyWhisperMessage
- * establishes the session that subsequent WhisperMessages depend on).
+ *
+ * Signal Protocol's Double Ratchet requires messages from the *same sender*
+ * to be decrypted in order — but messages from different senders are
+ * independent ratchet chains and can be decrypted in parallel.
+ *
+ * We also batch-read the IDB plaintext cache upfront so that cache hits
+ * (the common case on page reload) don't each await a separate IDB get.
  */
 async function decryptDmMessages(
   messages: TJoinedDmMessage[]
 ): Promise<TJoinedDmMessage[]> {
-  const results: TJoinedDmMessage[] = [];
-  for (const msg of messages) {
-    results.push(await decryptDmMessageInPlace(msg));
+  const e2eeMessages = messages.filter((m) => m.e2ee && m.content);
+  if (e2eeMessages.length === 0) return messages;
+
+  // Batch-read IDB cache in a single transaction
+  const cachedMap = await getCachedPlaintextBatch(
+    e2eeMessages.map((m) => m.id)
+  );
+
+  const ownUserId = ownUserIdSelector(store.getState());
+
+  // Group messages by sender to parallelize across senders
+  const bySender = new Map<number, { index: number; msg: TJoinedDmMessage }[]>();
+  const results = [...messages];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg.e2ee || !msg.content) continue;
+
+    // Resolve cache hits immediately (no decryption needed)
+    const cached = cachedMap.get(msg.id);
+    if (cached !== undefined) {
+      setFileKeys(msg.id, cached.fileKeys);
+      results[i] = { ...msg, content: cached.content };
+      continue;
+    }
+
+    // Own messages — check in-memory send cache
+    if (msg.userId === ownUserId) {
+      const sent = ownSentPlaintextCache.get(msg.content);
+      if (sent !== undefined) {
+        setCachedPlaintext(msg.id, sent).catch(() => {});
+        setFileKeys(msg.id, sent.fileKeys);
+        results[i] = { ...msg, content: sent.content };
+      } else {
+        results[i] = { ...msg, content: '[Encrypted message]' };
+      }
+      continue;
+    }
+
+    // Needs actual decryption — group by sender
+    if (!bySender.has(msg.userId)) bySender.set(msg.userId, []);
+    bySender.get(msg.userId)!.push({ index: i, msg });
   }
+
+  // Decrypt each sender's chain sequentially, but all senders in parallel
+  await Promise.all(
+    [...bySender.values()].map(async (chain) => {
+      for (const { index, msg } of chain) {
+        try {
+          const payload = await decryptDmMessage(msg.userId, msg.content!);
+          setCachedPlaintext(msg.id, payload).catch(() => {});
+          setFileKeys(msg.id, payload.fileKeys);
+          results[index] = { ...msg, content: payload.content };
+        } catch (err) {
+          console.error('[E2EE] Failed to decrypt DM message:', err);
+          results[index] = { ...msg, content: '[Unable to decrypt]' };
+        }
+      }
+    })
+  );
+
   return results;
 }
 
@@ -283,7 +345,7 @@ export const sendDmMessage = async (
       ownSentPlaintextCache.set(encryptedContent, plaintext);
       await trpc.dms.sendMessage.mutate({
         dmChannelId,
-        encryptedContent,
+        content: encryptedContent,
         e2ee: true,
         files,
         replyToId
@@ -325,7 +387,7 @@ export const editDmMessage = async (messageId: number, content: string) => {
       // Cache plaintext so we can display our own edited message when the
       // subscription echo arrives (same as sendDmMessage).
       ownSentPlaintextCache.set(encryptedContent, { content });
-      await trpc.dms.editMessage.mutate({ messageId, encryptedContent });
+      await trpc.dms.editMessage.mutate({ messageId, content: encryptedContent });
       return;
     } catch (err) {
       console.error('[E2EE] Edit encryption failed:', err);

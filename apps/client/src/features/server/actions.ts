@@ -83,6 +83,34 @@ export const connect = async () => {
   await joinServer(handshakeHash, savedServerId);
 };
 
+/**
+ * Fire deferred data fetches after the bootstrap data has been dispatched.
+ * Guards against stale responses when switching servers quickly.
+ */
+export const fetchDeferredServerData = (
+  trpc: ReturnType<typeof getHomeTRPCClient>,
+  expectedServerId: string
+) => {
+  const isStale = () => store.getState().server.serverId !== expectedServerId;
+
+  trpc.others.getServerMembers.query().then((users) => {
+    if (isStale()) return;
+    store.dispatch(serverSliceActions.setUsers(users));
+    store.dispatch(serverSliceActions.setUsersLoaded(true));
+  }).catch((err) => console.error('Failed to fetch server members:', err));
+
+  trpc.others.getServerEmojis.query().then((emojis) => {
+    if (isStale()) return;
+    store.dispatch(serverSliceActions.setEmojis(emojis));
+    store.dispatch(serverSliceActions.setEmojisLoaded(true));
+  }).catch((err) => console.error('Failed to fetch server emojis:', err));
+
+  trpc.others.getServerVoiceState.query().then((voiceState) => {
+    if (isStale()) return;
+    store.dispatch(serverSliceActions.setDeferredVoiceState(voiceState));
+  }).catch((err) => console.error('Failed to fetch voice state:', err));
+};
+
 export const joinServer = async (
   handshakeHash: string,
   serverId?: number
@@ -124,6 +152,9 @@ export const joinServer = async (
   }
 
   setPluginCommands(data.commands);
+
+  // Fetch deferred data (members, emojis, voice state) in parallel
+  fetchDeferredServerData(trpc, data.serverId);
 
   // Fetch friends, DM data, joined servers, and unread counts in parallel
   fetchFriends();

@@ -31,20 +31,18 @@ describe('others router', () => {
 
     expect(result).toHaveProperty('categories');
     expect(result).toHaveProperty('channels');
-    expect(result).toHaveProperty('users');
     expect(result).toHaveProperty('serverId');
     expect(result).toHaveProperty('serverName');
     expect(result).toHaveProperty('ownUserId');
-    expect(result).toHaveProperty('voiceMap');
     expect(result).toHaveProperty('roles');
-    expect(result).toHaveProperty('emojis');
     expect(result).toHaveProperty('channelPermissions');
 
-    expect(result.ownUserId).toBe(joiningUserId);
+    // Users, emojis, and voice state are now fetched separately via deferred endpoints
+    expect(result).not.toHaveProperty('users');
+    expect(result).not.toHaveProperty('emojis');
+    expect(result).not.toHaveProperty('voiceMap');
 
-    for (const user of result.users) {
-      expect(user._identity).toBeUndefined();
-    }
+    expect(result.ownUserId).toBe(joiningUserId);
   });
 
   test('handshake should not include hasPassword', async () => {

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 
 export type TFileKeyInfo = { key: string; nonce: string; mimeType: string };
 
-const useUploadFiles = (disabled: boolean = false, isE2ee: boolean = false) => {
+const useUploadFiles = (disabled: boolean = false, isE2ee: boolean = false, onAfterUpload?: () => void) => {
   const [files, setFiles] = useState<TTempFile[]>([]);
   const filesRef = useRef<TTempFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -60,9 +60,10 @@ const useUploadFiles = (disabled: boolean = false, isE2ee: boolean = false) => {
       } finally {
         setUploading(false);
         setUploadingSize((size) => size - total);
+        onAfterUpload?.();
       }
     },
-    [isE2ee, addFiles]
+    [isE2ee, addFiles, onAfterUpload]
   );
 
   useEffect(() => {

@@ -23,6 +23,7 @@ import {
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { setHighlightedMessageId } from '@/features/server/channels/actions';
+import { format, isToday, isYesterday } from 'date-fns';
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
@@ -48,6 +49,25 @@ const NewMessagesDivider = memo(() => (
     <div className="flex-1 h-px bg-destructive/50" />
   </div>
 ));
+
+const DateDivider = memo(({ timestamp }: { timestamp: number }) => {
+  const date = new Date(timestamp);
+  const label = isToday(date)
+    ? 'Today'
+    : isYesterday(date)
+      ? 'Yesterday'
+      : format(date, 'MMMM d, yyyy');
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-2">
+      <div className="flex-1 h-px bg-border" />
+      <span className="text-[11px] font-medium text-muted-foreground shrink-0">
+        {label}
+      </span>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  );
+});
 
 type TChannelProps = {
   channelId: number;
@@ -187,10 +207,17 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     [can, allPluginCommands]
   );
 
-  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
-    useUploadFiles(!canSendMessages, isE2ee);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  const focusEditor = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
+    });
+  }, []);
+
+  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
+    useUploadFiles(!canSendMessages, isE2ee, focusEditor);
 
   const handleReply = useCallback((message: TJoinedMessage) => {
     setReplyingTo(message);
@@ -247,7 +274,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         );
 
         await trpc.messages.send.mutate({
-          encryptedContent,
+          content: encryptedContent,
           e2ee: true,
           channelId,
           files: files.map((f) => f.id),
@@ -311,7 +338,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             { content }
           );
           await trpc.messages.send.mutate({
-            encryptedContent,
+            content: encryptedContent,
             e2ee: true,
             channelId
           });
@@ -372,8 +399,15 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
                 (msg) => msg.id > lastReadMessageId
               ));
 
+          const currentDay = new Date(group[0].createdAt).toDateString();
+          const prevDay = index > 0
+            ? new Date(groupedMessages[index - 1][0].createdAt).toDateString()
+            : null;
+          const showDateDivider = prevDay !== null && currentDay !== prevDay;
+
           return (
             <div key={index}>
+              {showDateDivider && <DateDivider timestamp={group[0].createdAt} />}
               {showDivider && <NewMessagesDivider />}
               {group[0].type === 'system' ? (
                 <SystemMessage message={group[0]} />
@@ -386,7 +420,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       </div>
 
       {!isAtBottom && (
-        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
           <button
             type="button"
             onClick={scrollToBottom}
@@ -437,7 +471,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         )}
         <div
           ref={inputAreaRef}
-          className="flex items-center gap-2 rounded-lg bg-muted px-4 py-2 transition-all duration-200 cursor-text"
+          className="flex items-center gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-all duration-200 cursor-text"
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;
             const pm = e.currentTarget.querySelector('.ProseMirror');

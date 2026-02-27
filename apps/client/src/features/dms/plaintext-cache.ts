@@ -49,6 +49,22 @@ export async function setCachedPlaintext(
   await db.put(STORE_NAME, plaintext, String(messageId));
 }
 
+export async function getCachedPlaintextBatch(
+  messageIds: number[]
+): Promise<Map<number, E2EEPlaintext>> {
+  if (messageIds.length === 0) return new Map();
+  const db = await getDb();
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const results = new Map<number, E2EEPlaintext>();
+  const gets = messageIds.map(async (id) => {
+    const val = await tx.store.get(String(id));
+    if (val !== undefined) results.set(id, val);
+  });
+  await Promise.all(gets);
+  await tx.done;
+  return results;
+}
+
 export async function setCachedPlaintextBatch(
   entries: { messageId: number; plaintext: E2EEPlaintext }[]
 ): Promise<void> {

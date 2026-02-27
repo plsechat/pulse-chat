@@ -120,6 +120,11 @@ const ServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
+        {isActive && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="h-12 w-12 rounded-xl ring-2 ring-primary/30" />
+          </div>
+        )}
         {hasMentions && !hasVoiceActivity && (
           <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
         )}

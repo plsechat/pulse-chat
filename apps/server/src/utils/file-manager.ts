@@ -109,6 +109,7 @@ class TemporaryFileManager {
     }
 
     clearTimeout(this.timeouts[id]);
+    delete this.timeouts[id];
 
     if (!skipDelete) {
       try {

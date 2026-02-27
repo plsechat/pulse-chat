@@ -15,7 +15,7 @@ describe('e2ee messages', () => {
 
     await caller.messages.send({
       channelId: 1,
-      encryptedContent: 'encrypted-payload-base64',
+      content: 'encrypted-payload-base64',
       e2ee: true
     });
 
@@ -28,11 +28,10 @@ describe('e2ee messages', () => {
     const msg = result.messages[0];
     expect(msg).toBeDefined();
     expect(msg!.e2ee).toBe(true);
-    expect(msg!.encryptedContent).toBe('encrypted-payload-base64');
-    expect(msg!.content).toBeNull();
+    expect(msg!.content).toBe('encrypted-payload-base64');
   });
 
-  test('should reject E2EE message without encryptedContent', async () => {
+  test('should reject E2EE message without content', async () => {
     const { caller } = await initTest();
 
     await expect(
@@ -59,7 +58,7 @@ describe('e2ee messages', () => {
     ).rejects.toThrow('This channel requires E2EE messages');
   });
 
-  test('should edit an E2EE channel message with encryptedContent', async () => {
+  test('should edit an E2EE channel message', async () => {
     const { caller } = await initTest();
 
     await caller.channels.update({
@@ -69,7 +68,7 @@ describe('e2ee messages', () => {
 
     await caller.messages.send({
       channelId: 1,
-      encryptedContent: 'original-encrypted',
+      content: 'original-encrypted',
       e2ee: true
     });
 
@@ -83,7 +82,7 @@ describe('e2ee messages', () => {
 
     await caller.messages.edit({
       messageId,
-      encryptedContent: 'updated-encrypted'
+      content: 'updated-encrypted'
     });
 
     const after = await caller.messages.get({
@@ -93,8 +92,7 @@ describe('e2ee messages', () => {
     });
 
     const edited = after.messages.find((m) => m.id === messageId);
-    expect(edited!.encryptedContent).toBe('updated-encrypted');
-    expect(edited!.content).toBeNull();
+    expect(edited!.content).toBe('updated-encrypted');
   });
 
   test('should exclude E2EE messages from search', async () => {
@@ -114,7 +112,7 @@ describe('e2ee messages', () => {
 
     await caller.messages.send({
       channelId: 1,
-      encryptedContent: 'encrypted-content',
+      content: 'encrypted-content',
       e2ee: true
     });
 
@@ -180,7 +178,7 @@ describe('e2ee messages', () => {
 
     await caller1.dms.sendMessage({
       dmChannelId: channel.id,
-      encryptedContent: 'encrypted-dm-payload',
+      content: 'encrypted-dm-payload',
       e2ee: true
     });
 
@@ -191,8 +189,7 @@ describe('e2ee messages', () => {
     const msg = result.messages[0];
     expect(msg).toBeDefined();
     expect(msg!.e2ee).toBe(true);
-    expect(msg!.encryptedContent).toBe('encrypted-dm-payload');
-    expect(msg!.content).toBeNull();
+    expect(msg!.content).toBe('encrypted-dm-payload');
   });
 
   test('should send a plaintext DM message', async () => {
@@ -213,10 +210,9 @@ describe('e2ee messages', () => {
     const msg = result.messages[0];
     expect(msg!.e2ee).toBe(false);
     expect(msg!.content).toBe('hello plaintext');
-    expect(msg!.encryptedContent).toBeNull();
   });
 
-  test('should reject E2EE DM without encryptedContent', async () => {
+  test('should reject E2EE DM without content', async () => {
     const { caller } = await initTest();
 
     const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
@@ -226,7 +222,7 @@ describe('e2ee messages', () => {
         dmChannelId: channel.id,
         e2ee: true
       })
-    ).rejects.toThrow('E2EE messages must include encryptedContent');
+    ).rejects.toThrow('E2EE messages must include content');
   });
 
   test('should reject non-E2EE DM without content', async () => {
@@ -238,17 +234,17 @@ describe('e2ee messages', () => {
       caller.dms.sendMessage({
         dmChannelId: channel.id
       })
-    ).rejects.toThrow('Non-E2EE messages must include content');
+    ).rejects.toThrow('Non-E2EE messages must include content or files');
   });
 
-  test('should edit an E2EE DM message with encryptedContent', async () => {
+  test('should edit an E2EE DM message', async () => {
     const { caller } = await initTest();
 
     const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
 
     await caller.dms.sendMessage({
       dmChannelId: channel.id,
-      encryptedContent: 'original-encrypted-dm',
+      content: 'original-encrypted-dm',
       e2ee: true
     });
 
@@ -260,7 +256,7 @@ describe('e2ee messages', () => {
 
     await caller.dms.editMessage({
       messageId,
-      encryptedContent: 'updated-encrypted-dm'
+      content: 'updated-encrypted-dm'
     });
 
     const after = await caller.dms.getMessages({
@@ -268,30 +264,8 @@ describe('e2ee messages', () => {
     });
 
     const edited = after.messages.find((m) => m.id === messageId);
-    expect(edited!.encryptedContent).toBe('updated-encrypted-dm');
+    expect(edited!.content).toBe('updated-encrypted-dm');
     expect(edited!.edited).toBe(true);
-  });
-
-  test('should reject editing E2EE DM with plaintext content', async () => {
-    const { caller } = await initTest();
-
-    const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
-
-    await caller.dms.sendMessage({
-      dmChannelId: channel.id,
-      encryptedContent: 'encrypted-dm',
-      e2ee: true
-    });
-
-    const msgs = await caller.dms.getMessages({ dmChannelId: channel.id });
-    const messageId = msgs.messages[0]!.id;
-
-    await expect(
-      caller.dms.editMessage({
-        messageId,
-        content: 'plaintext edit attempt'
-      })
-    ).rejects.toThrow('E2EE messages must be edited with encryptedContent');
   });
 
   test('should exclude E2EE DM messages from search', async () => {
@@ -308,7 +282,7 @@ describe('e2ee messages', () => {
     // Send E2EE DM
     await caller.dms.sendMessage({
       dmChannelId: channel.id,
-      encryptedContent: 'encrypted-not-searchable',
+      content: 'encrypted-not-searchable',
       e2ee: true
     });
 
@@ -332,14 +306,14 @@ describe('e2ee messages', () => {
     // User 1 sends E2EE message
     await caller1.messages.send({
       channelId: 1,
-      encryptedContent: 'encrypted-from-user1',
+      content: 'encrypted-from-user1',
       e2ee: true
     });
 
     // User 2 sends E2EE message
     await caller2.messages.send({
       channelId: 1,
-      encryptedContent: 'encrypted-from-user2',
+      content: 'encrypted-from-user2',
       e2ee: true
     });
 
@@ -352,12 +326,11 @@ describe('e2ee messages', () => {
     // Filter to E2EE messages only (seed creates a plaintext message)
     const e2eeMessages = result.messages.filter((m) => m.e2ee);
     expect(e2eeMessages.length).toBe(2);
-    expect(e2eeMessages.every((m) => m.content === null)).toBe(true);
 
     const fromUser1 = e2eeMessages.find((m) => m.userId === 1);
     const fromUser2 = e2eeMessages.find((m) => m.userId === 2);
-    expect(fromUser1!.encryptedContent).toBe('encrypted-from-user1');
-    expect(fromUser2!.encryptedContent).toBe('encrypted-from-user2');
+    expect(fromUser1!.content).toBe('encrypted-from-user1');
+    expect(fromUser2!.content).toBe('encrypted-from-user2');
   });
 
   test('should preserve E2EE flag on edited channel message', async () => {
@@ -367,7 +340,7 @@ describe('e2ee messages', () => {
 
     await caller.messages.send({
       channelId: 1,
-      encryptedContent: 'original-encrypted',
+      content: 'original-encrypted',
       e2ee: true
     });
 
@@ -381,7 +354,7 @@ describe('e2ee messages', () => {
 
     await caller.messages.edit({
       messageId,
-      encryptedContent: 'updated-encrypted'
+      content: 'updated-encrypted'
     });
 
     const after = await caller.messages.get({
@@ -392,35 +365,8 @@ describe('e2ee messages', () => {
 
     const edited = after.messages.find((m) => m.id === messageId);
     expect(edited!.e2ee).toBe(true);
-    expect(edited!.encryptedContent).toBe('updated-encrypted');
-    expect(edited!.content).toBeNull();
+    expect(edited!.content).toBe('updated-encrypted');
     expect(edited!.edited).toBe(true);
   });
 
-  test('should reject editing E2EE channel message with plaintext', async () => {
-    const { caller } = await initTest();
-
-    await caller.channels.update({ channelId: 1, e2ee: true });
-
-    await caller.messages.send({
-      channelId: 1,
-      encryptedContent: 'encrypted-payload',
-      e2ee: true
-    });
-
-    const result = await caller.messages.get({
-      channelId: 1,
-      cursor: null,
-      limit: 50
-    });
-
-    const messageId = result.messages[0]!.id;
-
-    await expect(
-      caller.messages.edit({
-        messageId,
-        content: 'plaintext edit attempt'
-      })
-    ).rejects.toThrow('E2EE messages must be edited with encryptedContent');
-  });
 });

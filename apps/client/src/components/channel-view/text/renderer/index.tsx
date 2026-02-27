@@ -227,7 +227,9 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       <div className="flex items-start gap-1.5">
         {message.e2ee && (
           <Tooltip content="End-to-end encrypted">
-            <Lock className="h-3 w-3 text-emerald-500 shrink-0 mt-[0.3rem] cursor-default" />
+            <div className="bg-emerald-500/10 rounded-full p-0.5 shrink-0 mt-[0.2rem] cursor-default">
+              <Lock className="h-3 w-3 text-emerald-500 drop-shadow-[0_0_3px_rgba(16,185,129,0.4)]" />
+            </div>
           </Tooltip>
         )}
       <div className={cn('max-w-full break-words msg-content min-w-0', isEmojiOnly && 'emoji-only')}>

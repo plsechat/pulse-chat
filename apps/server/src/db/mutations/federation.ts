@@ -1,4 +1,4 @@
-import type { TFile, TUser } from '@pulse/shared';
+import type { TUser } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import path from 'path';
@@ -288,8 +288,8 @@ async function syncShadowUserProfile(
       name: string;
       bio: string | null;
       bannerColor: string | null;
-      avatar: TFile | null;
-      banner: TFile | null;
+      avatar: { name: string } | null;
+      banner: { name: string } | null;
       createdAt: number;
     };
 

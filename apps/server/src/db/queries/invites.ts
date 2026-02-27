@@ -1,8 +1,11 @@
-import type { TJoinedInvite } from '@pulse/shared';
+import type { TFile, TFileRef, TJoinedInvite } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { files, invites, userRoles, users } from '../schema';
+
+const slimFile = (file: TFile | null): TFileRef | null =>
+  file ? { id: file.id, name: file.name } : null;
 
 const isInviteValid = async (
   code: string | undefined
@@ -84,8 +87,8 @@ const getInvites = async (serverId?: number): Promise<TJoinedInvite[]> => {
     ...row.invite,
     creator: {
       ...row.creator,
-      avatar: row.avatar,
-      banner: row.banner,
+      avatar: slimFile(row.avatar),
+      banner: slimFile(row.banner),
       roleIds: rolesMap[row.creator.id] || []
     }
   }));
