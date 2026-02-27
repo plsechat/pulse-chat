@@ -28,8 +28,9 @@ describe('e2ee messages', () => {
     const msg = result.messages[0];
     expect(msg).toBeDefined();
     expect(msg!.e2ee).toBe(true);
-    expect(msg!.encryptedContent).toBe('encrypted-payload-base64');
-    expect(msg!.content).toBeNull();
+    // Server merges encryptedContent into content for transport
+    expect(msg!.content).toBe('encrypted-payload-base64');
+    expect(msg!.encryptedContent).toBeNull();
   });
 
   test('should reject E2EE message without encryptedContent', async () => {
@@ -93,8 +94,9 @@ describe('e2ee messages', () => {
     });
 
     const edited = after.messages.find((m) => m.id === messageId);
-    expect(edited!.encryptedContent).toBe('updated-encrypted');
-    expect(edited!.content).toBeNull();
+    // Server merges encryptedContent into content for transport
+    expect(edited!.content).toBe('updated-encrypted');
+    expect(edited!.encryptedContent).toBeNull();
   });
 
   test('should exclude E2EE messages from search', async () => {
@@ -191,8 +193,9 @@ describe('e2ee messages', () => {
     const msg = result.messages[0];
     expect(msg).toBeDefined();
     expect(msg!.e2ee).toBe(true);
-    expect(msg!.encryptedContent).toBe('encrypted-dm-payload');
-    expect(msg!.content).toBeNull();
+    // Server merges encryptedContent into content for transport
+    expect(msg!.content).toBe('encrypted-dm-payload');
+    expect(msg!.encryptedContent).toBeNull();
   });
 
   test('should send a plaintext DM message', async () => {
@@ -268,7 +271,9 @@ describe('e2ee messages', () => {
     });
 
     const edited = after.messages.find((m) => m.id === messageId);
-    expect(edited!.encryptedContent).toBe('updated-encrypted-dm');
+    // Server merges encryptedContent into content for transport
+    expect(edited!.content).toBe('updated-encrypted-dm');
+    expect(edited!.encryptedContent).toBeNull();
     expect(edited!.edited).toBe(true);
   });
 
@@ -352,12 +357,13 @@ describe('e2ee messages', () => {
     // Filter to E2EE messages only (seed creates a plaintext message)
     const e2eeMessages = result.messages.filter((m) => m.e2ee);
     expect(e2eeMessages.length).toBe(2);
-    expect(e2eeMessages.every((m) => m.content === null)).toBe(true);
+    // Server merges encryptedContent into content, so encryptedContent is null
+    expect(e2eeMessages.every((m) => m.encryptedContent === null)).toBe(true);
 
     const fromUser1 = e2eeMessages.find((m) => m.userId === 1);
     const fromUser2 = e2eeMessages.find((m) => m.userId === 2);
-    expect(fromUser1!.encryptedContent).toBe('encrypted-from-user1');
-    expect(fromUser2!.encryptedContent).toBe('encrypted-from-user2');
+    expect(fromUser1!.content).toBe('encrypted-from-user1');
+    expect(fromUser2!.content).toBe('encrypted-from-user2');
   });
 
   test('should preserve E2EE flag on edited channel message', async () => {
@@ -392,8 +398,9 @@ describe('e2ee messages', () => {
 
     const edited = after.messages.find((m) => m.id === messageId);
     expect(edited!.e2ee).toBe(true);
-    expect(edited!.encryptedContent).toBe('updated-encrypted');
-    expect(edited!.content).toBeNull();
+    // Server merges encryptedContent into content for transport
+    expect(edited!.content).toBe('updated-encrypted');
+    expect(edited!.encryptedContent).toBeNull();
     expect(edited!.edited).toBe(true);
   });
 
