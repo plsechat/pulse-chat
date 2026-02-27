@@ -53,6 +53,7 @@ export type TChannel = InferSelectModel<typeof channels>;
 export type TFile = InferSelectModel<typeof files> & {
   _accessToken?: string;
 };
+export type TFileRef = Pick<TFile, 'id' | 'name'>;
 export type TUser = InferSelectModel<typeof users>;
 export type TLogin = InferSelectModel<typeof logins>;
 export type TMessage = InferSelectModel<typeof messages>;
@@ -172,18 +173,18 @@ export type TJoinedMessage = TMessage & {
 
 export type TJoinedEmoji = TEmoji & {
   file: TFile;
-  user: TPublicUser;
+  user?: TPublicUser;
 };
 
 export type TJoinedUser = TUser & {
-  avatar: TFile | null;
-  banner: TFile | null;
+  avatar: TFileRef | null;
+  banner: TFileRef | null;
   roleIds: number[];
 };
 
-export type TJoinedPublicUser = TPublicUser & {
-  avatar: TFile | null;
-  banner: TFile | null;
+export type TJoinedPublicUser = Omit<TPublicUser, 'avatar' | 'banner'> & {
+  avatar: TFileRef | null;
+  banner: TFileRef | null;
   roleIds: number[];
   nickname?: string | null;
 };

@@ -204,10 +204,6 @@ class VoiceRuntime {
     voiceRuntimes.forEach((runtime, channelId) => {
       if (channelIds && !channelIds.has(channelId)) return;
 
-      if (map[channelId]) {
-        map[channelId] = [];
-      }
-
       map[channelId] = runtime.getState().externalStreams;
     });
 
@@ -704,7 +700,7 @@ class VoiceRuntime {
                 stream: existingStream
               }
             );
-          });
+          }).catch(() => {});
         }
       }
     });
@@ -736,7 +732,7 @@ class VoiceRuntime {
         channelId: this.id,
         streamId
       });
-    });
+    }).catch(() => {});
   };
 
   public updateExternalStream = (
@@ -833,7 +829,7 @@ class VoiceRuntime {
         streamId,
         stream: publicStream
       });
-    });
+    }).catch(() => {});
   };
 
   public getExternalStreamProducer = (

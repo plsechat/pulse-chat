@@ -90,14 +90,15 @@ describe('nicknames', () => {
     ).rejects.toThrow('Insufficient permissions');
   });
 
-  test('should include nickname in initial join data', async () => {
+  test('should include nickname in server members data', async () => {
     // First set a nickname as admin
     const { caller: adminCaller } = await initTest();
     await adminCaller.users.setNickname({ nickname: 'OwnerNick' });
 
-    // Re-join and check that nickname is present in users list
-    const { initialData } = await initTest();
-    const ownUser = initialData.users.find((u) => u.id === 1);
+    // Fetch members and check that nickname is present
+    const { caller } = await initTest();
+    const members = await caller.others.getServerMembers();
+    const ownUser = members.find((u: { id: number }) => u.id === 1);
 
     expect(ownUser?.nickname).toBe('OwnerNick');
   });

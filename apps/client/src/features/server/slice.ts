@@ -63,6 +63,8 @@ export interface IServerState {
   pluginCommands: TCommandsMapByPlugin;
   activeThreadId: number | undefined;
   highlightedMessageId: number | undefined;
+  usersLoaded: boolean;
+  emojisLoaded: boolean;
 }
 
 const initialState: IServerState = {
@@ -101,7 +103,9 @@ const initialState: IServerState = {
   lastReadMessageIdMap: {},
   pluginCommands: {},
   activeThreadId: undefined,
-  highlightedMessageId: undefined
+  highlightedMessageId: undefined,
+  usersLoaded: false,
+  emojisLoaded: false
 };
 
 export const serverSlice = createSlice({
@@ -151,13 +155,9 @@ export const serverSlice = createSlice({
         serverId: string;
         categories: TCategory[];
         channels: TChannel[];
-        users: TJoinedPublicUser[];
         ownUserId: number;
         roles: TJoinedRole[];
-        emojis: TJoinedEmoji[];
         publicSettings?: TPublicServerSettings | undefined;
-        voiceMap: TVoiceMap;
-        externalStreamsMap: TExternalStreamsMap;
         channelPermissions: TChannelUserPermissionsMap;
         readStates: TReadStateMap;
         mentionStates?: TMentionStateMap;
@@ -168,35 +168,25 @@ export const serverSlice = createSlice({
       state.connecting = false;
       state.categories = action.payload.categories;
       state.channels = action.payload.channels;
-      state.emojis = action.payload.emojis;
-      state.users = action.payload.users;
       state.roles = action.payload.roles;
       state.ownUserId = action.payload.ownUserId;
       state.publicSettings = action.payload.publicSettings;
-      state.voiceMap = action.payload.voiceMap;
-      state.externalStreamsMap = action.payload.externalStreamsMap;
       state.serverId = action.payload.serverId;
       state.channelPermissions = action.payload.channelPermissions;
       state.readStatesMap = action.payload.readStates;
       state.mentionStatesMap = action.payload.mentionStates ?? {};
       state.lastReadMessageIdMap = action.payload.lastReadMessageIds ?? {};
+      // Clear deferred state from previous server (will be populated by separate fetches)
+      state.users = [];
+      state.emojis = [];
+      state.voiceMap = {};
+      state.externalStreamsMap = {};
+      state.usersLoaded = false;
+      state.emojisLoaded = false;
       // Clear transient state from previous server
       state.messagesMap = {};
       state.typingMap = {};
       state.activeThreadId = undefined;
-
-      // Reset voice state if the user is no longer in voice on this server
-      // (e.g. after reconnect where the server removed the user from voice)
-      if (state.currentVoiceServerId === Number(action.payload.serverId)) {
-        const ownId = action.payload.ownUserId;
-        const stillInVoice = Object.values(action.payload.voiceMap).some(
-          (ch) => ch && ownId in ch.users
-        );
-        if (!stillInVoice) {
-          state.currentVoiceChannelId = undefined;
-          state.currentVoiceServerId = undefined;
-        }
-      }
 
       // Restore the last-selected channel for this server (if it still exists)
       let restoredChannelId: number | undefined;
@@ -326,6 +316,9 @@ export const serverSlice = createSlice({
 
     setUsers: (state, action: PayloadAction<TJoinedPublicUser[]>) => {
       state.users = action.payload;
+    },
+    setUsersLoaded: (state, action: PayloadAction<boolean>) => {
+      state.usersLoaded = action.payload;
     },
     updateUser: (
       state,
@@ -491,6 +484,9 @@ export const serverSlice = createSlice({
     setEmojis: (state, action: PayloadAction<TJoinedEmoji[]>) => {
       state.emojis = action.payload;
     },
+    setEmojisLoaded: (state, action: PayloadAction<boolean>) => {
+      state.emojisLoaded = action.payload;
+    },
     updateEmoji: (
       state,
       action: PayloadAction<{ emojiId: number; emoji: Partial<TJoinedEmoji> }>
@@ -553,6 +549,32 @@ export const serverSlice = createSlice({
     },
 
     // VOICE ------------------------------------------------------------
+
+    setDeferredVoiceState: (
+      state,
+      action: PayloadAction<{
+        voiceMap: TVoiceMap;
+        externalStreamsMap: TExternalStreamsMap;
+      }>
+    ) => {
+      state.voiceMap = action.payload.voiceMap;
+      state.externalStreamsMap = action.payload.externalStreamsMap;
+
+      // Reset voice state if the user is no longer in voice on this server
+      // (e.g. after reconnect where the server removed the user from voice)
+      if (state.currentVoiceServerId === Number(state.serverId)) {
+        const ownId = state.ownUserId;
+        if (ownId !== undefined) {
+          const stillInVoice = Object.values(action.payload.voiceMap).some(
+            (ch) => ch && ownId in ch.users
+          );
+          if (!stillInVoice) {
+            state.currentVoiceChannelId = undefined;
+            state.currentVoiceServerId = undefined;
+          }
+        }
+      }
+    },
 
     addUserToVoiceChannel: (
       state,

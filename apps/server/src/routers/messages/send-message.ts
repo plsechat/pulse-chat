@@ -27,8 +27,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const sendMessageRoute = protectedProcedure
   .input(
     z.object({
-      content: z.string().max(4000).optional(),
-      encryptedContent: z.string().max(16000).optional(),
+      content: z.string().max(16000).optional(),
       e2ee: z.boolean().optional(),
       channelId: z.number(),
       files: z.array(z.string()).optional(),
@@ -54,21 +53,21 @@ const sendMessageRoute = protectedProcedure
       .limit(1);
 
     if (channel?.e2ee) {
-      invariant(isE2ee && input.encryptedContent, {
+      invariant(isE2ee && input.content, {
         code: 'BAD_REQUEST',
         message: 'This channel requires E2EE messages'
       });
     }
 
     if (isE2ee) {
-      invariant(input.encryptedContent, {
-        code: 'BAD_REQUEST',
-        message: 'E2EE messages must include encryptedContent'
-      });
-    } else {
       invariant(input.content, {
         code: 'BAD_REQUEST',
-        message: 'Non-E2EE messages must include content'
+        message: 'E2EE messages must include content'
+      });
+    } else {
+      invariant(input.content || (input.files && input.files.length > 0), {
+        code: 'BAD_REQUEST',
+        message: 'Non-E2EE messages must include content or files'
       });
     }
 
@@ -101,12 +100,12 @@ const sendMessageRoute = protectedProcedure
     }
 
     // Skip automod and plugin processing for E2EE messages
-    const content = input.content!;
-    let targetContent: string | null = isE2ee ? null : content;
+    const content = input.content ?? null;
+    let targetContent: string | null = content;
     let editable = true;
     let commandExecutor: ((messageId: number) => void) | undefined = undefined;
 
-    if (!isE2ee) {
+    if (!isE2ee && content) {
       // Automod check
       if (ctx.activeServerId) {
         const automodResult = await checkAutomod(
@@ -187,9 +186,13 @@ const sendMessageRoute = protectedProcedure
                 db.update(messages)
                   .set({ content: updatedContent })
                   .where(eq(messages.id, messageId))
-                  .execute();
-
-                publishMessage(messageId, input.channelId, 'update');
+                  .execute()
+                  .then(() => {
+                    publishMessage(messageId, input.channelId, 'update');
+                  })
+                  .catch((err) => {
+                    console.error('[Plugin] Failed to update command message:', err);
+                  });
               };
 
               pluginManager
@@ -241,7 +244,6 @@ const sendMessageRoute = protectedProcedure
         channelId: input.channelId,
         userId: ctx.userId,
         content: targetContent,
-        encryptedContent: isE2ee ? input.encryptedContent : null,
         e2ee: isE2ee,
         editable,
         replyToId: input.replyToId,

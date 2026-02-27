@@ -101,7 +101,7 @@ const ForumPostMenu = memo(
       const trpc = getTRPCClient();
 
       try {
-        await trpc.threads.deleteForumPost.mutate({ threadId });
+        await trpc.threads.deleteThread.mutate({ threadId });
         toast.success('Post deleted');
         onPostDeleted();
       } catch {

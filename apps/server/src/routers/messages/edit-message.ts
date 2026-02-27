@@ -14,8 +14,7 @@ const editMessageRoute = protectedProcedure
   .input(
     z.object({
       messageId: z.number(),
-      content: z.string().max(4000).optional(),
-      encryptedContent: z.string().max(16000).optional()
+      content: z.string().max(16000).optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -51,11 +50,11 @@ const editMessageRoute = protectedProcedure
     };
 
     if (message.e2ee) {
-      invariant(input.encryptedContent, {
+      invariant(input.content, {
         code: 'BAD_REQUEST',
-        message: 'E2EE messages must be edited with encryptedContent'
+        message: 'E2EE messages must be edited with content'
       });
-      updateSet.encryptedContent = input.encryptedContent;
+      updateSet.content = input.content;
     } else {
       invariant(input.content, {
         code: 'BAD_REQUEST',

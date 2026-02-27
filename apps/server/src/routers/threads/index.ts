@@ -2,7 +2,7 @@ import { t } from '../../utils/trpc';
 import { archiveThreadRoute } from './archive-thread';
 import { createForumPostRoute } from './create-forum-post';
 import { createThreadRoute } from './create-thread';
-import { deleteForumPostRoute } from './delete-forum-post';
+import { deleteThreadRoute } from './delete-thread';
 import {
   onThreadCreateRoute,
   onThreadDeleteRoute,
@@ -23,7 +23,7 @@ export const threadsRouter = t.router({
   getAll: getThreadsRoute,
   archive: archiveThreadRoute,
   createForumPost: createForumPostRoute,
-  deleteForumPost: deleteForumPostRoute,
+  deleteThread: deleteThreadRoute,
   updatePostTags: updatePostTagsRoute,
   followThread: followThreadRoute,
   getFollowStatus: getFollowStatusRoute,

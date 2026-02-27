@@ -67,7 +67,9 @@ const TopBar = memo(
             </span>
             {selectedChannel.e2ee && (
               <Tooltip content="End-to-end encrypted">
-                <Lock className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                <div className="bg-emerald-500/10 rounded-full p-1 flex-shrink-0">
+                  <Lock className="h-3.5 w-3.5 text-emerald-500 drop-shadow-[0_0_3px_rgba(16,185,129,0.4)]" />
+                </div>
               </Tooltip>
             )}
             {selectedChannel.topic && (

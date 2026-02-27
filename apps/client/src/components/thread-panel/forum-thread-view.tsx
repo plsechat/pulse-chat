@@ -7,7 +7,8 @@ import { useActiveThread } from '@/features/server/channels/hooks';
 import { useMessagesByChannelId } from '@/features/server/messages/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
-import { Archive, MessageCircle, MoreHorizontal, X } from 'lucide-react';
+import { requestConfirmation } from '@/features/dialogs/actions';
+import { Archive, MessageCircle, MoreHorizontal, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -37,6 +38,31 @@ const ForumThreadView = memo(() => {
       setShowMenu(false);
     } catch {
       toast.error('Failed to update thread');
+    }
+  }, [thread]);
+
+  const onDelete = useCallback(async () => {
+    if (!thread) return;
+
+    setShowMenu(false);
+
+    const choice = await requestConfirmation({
+      title: 'Delete Thread',
+      message: `Are you sure you want to delete "${thread.name}"? This will permanently remove the thread and all its messages.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel'
+    });
+
+    if (!choice) return;
+
+    const trpc = getTRPCClient();
+
+    try {
+      await trpc.threads.deleteThread.mutate({ threadId: thread.id });
+      toast.success('Thread deleted');
+      setActiveThreadId(undefined);
+    } catch {
+      toast.error('Failed to delete thread');
     }
   }, [thread]);
 
@@ -88,6 +114,14 @@ const ForumThreadView = memo(() => {
                     >
                       <Archive className="w-3.5 h-3.5" />
                       {thread.archived ? 'Unarchive' : 'Archive'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onDelete}
+                      className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent/50 flex items-center gap-2 text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
                     </button>
                   </div>
                 </>

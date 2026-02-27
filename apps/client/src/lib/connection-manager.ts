@@ -57,6 +57,11 @@ class ConnectionManager {
 
     const wsClient = createWSClient({
       url: wsUrl,
+      keepAlive: {
+        enabled: true,
+        intervalMs: 30_000,
+        pongTimeoutMs: 5_000
+      },
       connectionParams: async (): Promise<TConnectionParams> => {
         const conn = this.connections.get(instanceDomain);
         return {

@@ -25,6 +25,11 @@ const initializeTRPC = (host: string) => {
 
   wsClient = createWSClient({
     url: `${protocol}://${host}`,
+    keepAlive: {
+      enabled: true,
+      intervalMs: 30_000,
+      pongTimeoutMs: 5_000
+    },
     // @ts-expect-error - the onclose type is not correct in trpc
     onClose: (cause: CloseEvent) => {
       const code = cause.code;
@@ -128,7 +133,7 @@ const cleanup = (signOut = false) => {
   fullTeardown();
 
   if (signOut) {
-    supabase.auth.signOut();
+    supabase.auth.signOut({ scope: 'local' });
   }
 };
 

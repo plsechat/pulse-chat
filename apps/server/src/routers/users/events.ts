@@ -10,15 +10,15 @@ const onUserLeaveRoute = protectedProcedure.subscription(async ({ ctx }) => {
 });
 
 const onUserUpdateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.USER_UPDATE);
+  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_UPDATE);
 });
 
 const onUserCreateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.USER_CREATE);
+  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_CREATE);
 });
 
 const onUserDeleteRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribe(ServerEvents.USER_DELETE);
+  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_DELETE);
 });
 
 const onUserKickedRoute = protectedProcedure.subscription(async ({ ctx }) => {
