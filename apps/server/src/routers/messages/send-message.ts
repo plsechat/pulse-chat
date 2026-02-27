@@ -187,9 +187,13 @@ const sendMessageRoute = protectedProcedure
                 db.update(messages)
                   .set({ content: updatedContent })
                   .where(eq(messages.id, messageId))
-                  .execute();
-
-                publishMessage(messageId, input.channelId, 'update');
+                  .execute()
+                  .then(() => {
+                    publishMessage(messageId, input.channelId, 'update');
+                  })
+                  .catch((err) => {
+                    console.error('[Plugin] Failed to update command message:', err);
+                  });
               };
 
               pluginManager

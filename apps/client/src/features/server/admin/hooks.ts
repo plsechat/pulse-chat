@@ -177,7 +177,7 @@ export const useAdminUpdates = () => {
     const trpc = getTRPCClient();
 
     try {
-      trpc.others.updateServer.mutate();
+      await trpc.others.updateServer.mutate();
 
       toast.success('Server update initiated');
     } catch (error) {

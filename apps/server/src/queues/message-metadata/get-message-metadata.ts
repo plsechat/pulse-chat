@@ -53,9 +53,9 @@ export const urlMetadataParser = async (
       return metadata;
     });
 
-    const metadata = (await Promise.all(promises)) as TMessageMetadata[]; // TODO: fix these types
+    const metadata = (await Promise.all(promises)).filter(Boolean) as TMessageMetadata[];
 
-    return metadata ?? [];
+    return metadata;
   } catch {
     // ignore
   }
