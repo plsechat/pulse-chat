@@ -133,9 +133,6 @@ const getMessagesRoute = protectedProcedure
 
     const messagesWithFiles: TJoinedDmMessage[] = rows.map((msg) => ({
       ...msg,
-      // For E2EE messages, put ciphertext in content and drop encryptedContent
-      content: msg.e2ee ? msg.encryptedContent : msg.content,
-      encryptedContent: null,
       files: filesByMessage[msg.id] ?? [],
       reactions: reactionsByMessage[msg.id] ?? [],
       replyTo: msg.replyToId ? (replyToMap[msg.replyToId] ?? null) : null

@@ -17,8 +17,7 @@ const sendMessageRoute = protectedProcedure
   .input(
     z.object({
       dmChannelId: z.number(),
-      content: z.string().max(4000).optional(),
-      encryptedContent: z.string().max(16000).optional(),
+      content: z.string().max(16000).optional(),
       e2ee: z.boolean().optional(),
       files: z.array(z.string()).optional(),
       replyToId: z.number().optional()
@@ -34,9 +33,9 @@ const sendMessageRoute = protectedProcedure
 
     const isE2ee = !!input.e2ee;
 
-    invariant(!isE2ee || input.encryptedContent, {
+    invariant(!isE2ee || input.content, {
       code: 'BAD_REQUEST',
-      message: 'E2EE messages must include encryptedContent'
+      message: 'E2EE messages must include content'
     });
 
     invariant(isE2ee || input.content || (input.files && input.files.length > 0), {
@@ -49,8 +48,7 @@ const sendMessageRoute = protectedProcedure
       .values({
         dmChannelId: input.dmChannelId,
         userId: ctx.userId,
-        content: isE2ee ? null : input.content,
-        encryptedContent: isE2ee ? input.encryptedContent : null,
+        content: input.content ?? null,
         e2ee: isE2ee,
         replyToId: input.replyToId,
         createdAt: Date.now()

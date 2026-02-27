@@ -57,7 +57,7 @@ const MessageEditInline = memo(
             );
             await trpc.messages.edit.mutate({
               messageId: message.id,
-              encryptedContent
+              content: encryptedContent
             });
           } else {
             await trpc.messages.edit.mutate({

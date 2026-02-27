@@ -254,7 +254,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         );
 
         await trpc.messages.send.mutate({
-          encryptedContent,
+          content: encryptedContent,
           e2ee: true,
           channelId,
           files: files.map((f) => f.id),
@@ -318,7 +318,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             { content }
           );
           await trpc.messages.send.mutate({
-            encryptedContent,
+            content: encryptedContent,
             e2ee: true,
             channelId
           });

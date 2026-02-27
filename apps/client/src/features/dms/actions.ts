@@ -345,7 +345,7 @@ export const sendDmMessage = async (
       ownSentPlaintextCache.set(encryptedContent, plaintext);
       await trpc.dms.sendMessage.mutate({
         dmChannelId,
-        encryptedContent,
+        content: encryptedContent,
         e2ee: true,
         files,
         replyToId
@@ -387,7 +387,7 @@ export const editDmMessage = async (messageId: number, content: string) => {
       // Cache plaintext so we can display our own edited message when the
       // subscription echo arrives (same as sendDmMessage).
       ownSentPlaintextCache.set(encryptedContent, { content });
-      await trpc.dms.editMessage.mutate({ messageId, encryptedContent });
+      await trpc.dms.editMessage.mutate({ messageId, content: encryptedContent });
       return;
     } catch (err) {
       console.error('[E2EE] Edit encryption failed:', err);

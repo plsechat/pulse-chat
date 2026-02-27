@@ -228,9 +228,6 @@ const getDmMessage = async (
 
   return {
     ...msg,
-    // For E2EE messages, put ciphertext in content and drop encryptedContent
-    content: msg.e2ee ? msg.encryptedContent : msg.content,
-    encryptedContent: null,
     files: fileRows.map((r) => r.file),
     reactions,
     replyTo
