@@ -58,7 +58,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
 
   if (compactMode) {
     return (
-      <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-2 pl-[40px] pr-12 relative py-0.5')}>
+      <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-2 pl-[40px] pr-12 relative py-0.5 group')}>
         <UserContextMenu userId={user.id}>
           <div className="absolute left-3 top-1">
             <UserAvatar userId={user.id} className="h-5 w-5" showUserPopover />
@@ -67,7 +67,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline select-none leading-[1.375rem]">
             <Tooltip content={format(date, fullDateTime())}>
-              <span className="text-muted-foreground/50 text-[10px] shrink-0">
+              <span className="text-muted-foreground/50 text-[10px] shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
                 {format(date, timeOnly())}
               </span>
             </Tooltip>
@@ -110,7 +110,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   }
 
   return (
-    <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5')}>
+    <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5 group')}>
       <UserContextMenu userId={user.id}>
         <div className="absolute left-4 top-1">
           <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
@@ -146,7 +146,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
             </span>
           )}
           <Tooltip content={format(date, fullDateTime())}>
-            <span className="text-muted-foreground/50 text-xs">
+            <span className="text-muted-foreground/50 text-xs opacity-60 group-hover:opacity-100 transition-opacity">
               {timeStr}
             </span>
           </Tooltip>

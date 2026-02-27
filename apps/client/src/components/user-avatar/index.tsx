@@ -44,7 +44,7 @@ const UserAvatar = memo(
 
     const content = (
       <div className="relative w-fit h-fit" onClick={onClick}>
-        <Avatar className={cn('h-8 w-8', className)}>
+        <Avatar className={cn('h-8 w-8 ring-1 ring-border/50 shadow-sm', className)}>
           <AvatarImage src={getFileUrl(user.avatar, activeInstanceDomain ?? undefined)} key={user.avatarId} />
           <AvatarFallback className={cn('text-xs text-white bg-gradient-to-br', avatarGradients[userId % avatarGradients.length])}>
             {getInitialsFromName(user.name)}

@@ -184,7 +184,7 @@ const ItemWrapper = memo(
         className={cn(
           'relative flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground select-none cursor-pointer transition-colors duration-150',
           {
-            'bg-accent text-foreground font-medium': isSelected,
+            'bg-accent text-foreground font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-4 before:w-[3px] before:rounded-full before:bg-primary': isSelected,
             'text-foreground font-semibold': hasUnread && !isSelected,
             'cursor-default opacity-50 hover:bg-transparent hover:text-muted-foreground':
               disabled
