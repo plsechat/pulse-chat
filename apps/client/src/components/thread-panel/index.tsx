@@ -1,13 +1,14 @@
 import { TextChannel } from '@/components/channel-view/text';
 import { Button } from '@/components/ui/button';
+import { requestConfirmation } from '@/features/dialogs/actions';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useActiveThread } from '@/features/server/channels/hooks';
-import { Archive, MessageSquare, X } from 'lucide-react';
+import { Protect } from '@/components/protect';
+import { getTRPCClient } from '@/lib/trpc';
+import { Permission } from '@pulse/shared';
+import { Archive, MessageSquare, Trash2, X } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { getTRPCClient } from '@/lib/trpc';
-import { Protect } from '@/components/protect';
-import { Permission } from '@pulse/shared';
 
 const ThreadPanel = memo(() => {
   const thread = useActiveThread();
@@ -33,6 +34,29 @@ const ThreadPanel = memo(() => {
     }
   }, [thread]);
 
+  const onDelete = useCallback(async () => {
+    if (!thread) return;
+
+    const choice = await requestConfirmation({
+      title: 'Delete Thread',
+      message: `Are you sure you want to delete "${thread.name}"? This will permanently remove the thread and all its messages.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel'
+    });
+
+    if (!choice) return;
+
+    const trpc = getTRPCClient();
+
+    try {
+      await trpc.threads.deleteThread.mutate({ threadId: thread.id });
+      toast.success('Thread deleted');
+      setActiveThreadId(undefined);
+    } catch {
+      toast.error('Failed to delete thread');
+    }
+  }, [thread]);
+
   if (!thread) return null;
 
   return (
@@ -52,6 +76,15 @@ const ThreadPanel = memo(() => {
             title={thread.archived ? 'Unarchive Thread' : 'Archive Thread'}
           >
             <Archive className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="h-7 px-2 text-destructive hover:text-destructive"
+            title="Delete Thread"
+          >
+            <Trash2 className="w-4 h-4" />
           </Button>
         </Protect>
         <Button

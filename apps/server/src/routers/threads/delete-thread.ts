@@ -8,7 +8,7 @@ import { channels, messages } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
-const deleteForumPostRoute = protectedProcedure
+const deleteThreadRoute = protectedProcedure
   .input(z.object({ threadId: z.number() }))
   .mutation(async ({ input, ctx }) => {
     const [thread] = await db
@@ -27,20 +27,7 @@ const deleteForumPostRoute = protectedProcedure
       return ctx.throwValidationError('threadId', 'Thread not found');
     }
 
-    // Verify parent is a FORUM channel
-    if (thread.parentChannelId) {
-      const [parent] = await db
-        .select({ type: channels.type })
-        .from(channels)
-        .where(eq(channels.id, thread.parentChannelId))
-        .limit(1);
-
-      if (!parent || parent.type !== ChannelType.FORUM) {
-        return ctx.throwValidationError('threadId', 'Not a forum post');
-      }
-    }
-
-    // Allow deletion by post creator or users with MANAGE_CHANNELS
+    // Allow deletion by thread creator or users with MANAGE_CHANNELS
     const hasManagePermission = await ctx.hasPermission(Permission.MANAGE_CHANNELS, thread.serverId);
 
     if (!hasManagePermission) {
@@ -65,4 +52,4 @@ const deleteForumPostRoute = protectedProcedure
     pubsub.publishFor(memberIds, ServerEvents.THREAD_DELETE, input.threadId);
   });
 
-export { deleteForumPostRoute };
+export { deleteThreadRoute };
