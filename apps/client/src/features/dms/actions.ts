@@ -13,6 +13,7 @@ import { store } from '../store';
 import { dmsSliceActions } from './slice';
 import {
   getCachedPlaintext,
+  getCachedPlaintextBatch,
   setCachedPlaintext
 } from './plaintext-cache';
 
@@ -247,17 +248,78 @@ export async function decryptDmMessageInPlace(
 
 /**
  * Decrypt an array of E2EE DM messages.
- * Must be sequential — Signal Protocol's Double Ratchet requires messages
- * from the same sender to be decrypted in order (the first PreKeyWhisperMessage
- * establishes the session that subsequent WhisperMessages depend on).
+ *
+ * Signal Protocol's Double Ratchet requires messages from the *same sender*
+ * to be decrypted in order — but messages from different senders are
+ * independent ratchet chains and can be decrypted in parallel.
+ *
+ * We also batch-read the IDB plaintext cache upfront so that cache hits
+ * (the common case on page reload) don't each await a separate IDB get.
  */
 async function decryptDmMessages(
   messages: TJoinedDmMessage[]
 ): Promise<TJoinedDmMessage[]> {
-  const results: TJoinedDmMessage[] = [];
-  for (const msg of messages) {
-    results.push(await decryptDmMessageInPlace(msg));
+  const e2eeMessages = messages.filter((m) => m.e2ee && m.content);
+  if (e2eeMessages.length === 0) return messages;
+
+  // Batch-read IDB cache in a single transaction
+  const cachedMap = await getCachedPlaintextBatch(
+    e2eeMessages.map((m) => m.id)
+  );
+
+  const ownUserId = ownUserIdSelector(store.getState());
+
+  // Group messages by sender to parallelize across senders
+  const bySender = new Map<number, { index: number; msg: TJoinedDmMessage }[]>();
+  const results = [...messages];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg.e2ee || !msg.content) continue;
+
+    // Resolve cache hits immediately (no decryption needed)
+    const cached = cachedMap.get(msg.id);
+    if (cached !== undefined) {
+      setFileKeys(msg.id, cached.fileKeys);
+      results[i] = { ...msg, content: cached.content };
+      continue;
+    }
+
+    // Own messages — check in-memory send cache
+    if (msg.userId === ownUserId) {
+      const sent = ownSentPlaintextCache.get(msg.content);
+      if (sent !== undefined) {
+        setCachedPlaintext(msg.id, sent).catch(() => {});
+        setFileKeys(msg.id, sent.fileKeys);
+        results[i] = { ...msg, content: sent.content };
+      } else {
+        results[i] = { ...msg, content: '[Encrypted message]' };
+      }
+      continue;
+    }
+
+    // Needs actual decryption — group by sender
+    if (!bySender.has(msg.userId)) bySender.set(msg.userId, []);
+    bySender.get(msg.userId)!.push({ index: i, msg });
   }
+
+  // Decrypt each sender's chain sequentially, but all senders in parallel
+  await Promise.all(
+    [...bySender.values()].map(async (chain) => {
+      for (const { index, msg } of chain) {
+        try {
+          const payload = await decryptDmMessage(msg.userId, msg.content!);
+          setCachedPlaintext(msg.id, payload).catch(() => {});
+          setFileKeys(msg.id, payload.fileKeys);
+          results[index] = { ...msg, content: payload.content };
+        } catch (err) {
+          console.error('[E2EE] Failed to decrypt DM message:', err);
+          results[index] = { ...msg, content: '[Unable to decrypt]' };
+        }
+      }
+    })
+  );
+
   return results;
 }
 

@@ -22,9 +22,11 @@ async function decryptE2eeMessages(
       .filter((m) => m.e2ee && m.content)
       .map((m) => m.channelId)
   );
-  for (const channelId of e2eeChannelIds) {
-    await fetchAndProcessPendingSenderKeys(channelId);
-  }
+  await Promise.all(
+    [...e2eeChannelIds].map((channelId) =>
+      fetchAndProcessPendingSenderKeys(channelId)
+    )
+  );
 
   return Promise.all(
     messages.map(async (msg) => {
