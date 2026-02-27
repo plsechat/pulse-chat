@@ -1,6 +1,9 @@
 import { t } from '../../utils/trpc';
 import { changeLogoRoute } from './change-logo';
 import { onServerSettingsUpdateRoute } from './events';
+import { getServerEmojisRoute } from './get-server-emojis';
+import { getServerMembersRoute } from './get-server-members';
+import { getServerVoiceStateRoute } from './get-server-voice-state';
 import { getSettingsRoute } from './get-settings';
 import { getStorageSettingsRoute } from './get-storage-settings';
 import { getUpdateRoute } from './get-update';
@@ -16,6 +19,9 @@ export const othersRouter = t.router({
   updateSettings: updateSettingsRoute,
   changeLogo: changeLogoRoute,
   getSettings: getSettingsRoute,
+  getServerMembers: getServerMembersRoute,
+  getServerEmojis: getServerEmojisRoute,
+  getServerVoiceState: getServerVoiceStateRoute,
   onServerSettingsUpdate: onServerSettingsUpdateRoute,
   useSecretToken: useSecretTokenRoute,
   getStorageSettings: getStorageSettingsRoute,

@@ -520,6 +520,11 @@ const createWsServer = async (server: http.Server) => {
       wss,
       router: appRouter,
       createContext,
+      keepAlive: {
+        enabled: true,
+        pingMs: 30_000,
+        pongWaitMs: 5_000
+      },
       onError: ({ error, path, type, ctx }) => {
         logger.error('[tRPC/onError] path=%s, type=%s, code=%s, message=%s, userId=%s',
           path, type, error.code, error.message, ctx?.userId);

@@ -1,13 +1,14 @@
 import { UserAvatar } from '@/components/user-avatar';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useUserDisplayRole } from '@/features/server/hooks';
+import type { IRootState } from '@/features/store';
 import { usersGroupedByRoleSelector } from '@/features/server/users/selectors';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { TJoinedPublicUser } from '@pulse/shared';
 import { UserStatus } from '@pulse/shared';
-import { Globe } from 'lucide-react';
+import { Globe, Loader2 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { UserPopover } from '../user-popover';
@@ -106,6 +107,7 @@ type TRightSidebarProps = {
 const RightSidebar = memo(
   ({ className, isOpen = true }: TRightSidebarProps) => {
     const { groups, offlineUsers } = useSelector(usersGroupedByRoleSelector);
+    const usersLoaded = useSelector((state: IRootState) => state.server.usersLoaded);
     const selectedChannel = useSelectedChannel();
     const [visibleUserIds, setVisibleUserIds] = useState<Set<number> | null>(
       null
@@ -168,23 +170,29 @@ const RightSidebar = memo(
       >
         {isOpen && (
           <>
-            <div className="flex-1 overflow-y-auto p-2 pt-0">
-              {filteredGroups.map((group) => (
-                <RoleGroupSection
-                  key={group.role?.id ?? 'online'}
-                  label={group.role?.name ?? 'Online'}
-                  color={group.role?.color}
-                  users={group.users}
-                />
-              ))}
-              {filteredOfflineUsers.length > 0 && (
-                <RoleGroupSection
-                  label="Offline"
-                  users={filteredOfflineUsers}
-                  dimmed
-                />
-              )}
-            </div>
+            {!usersLoaded ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-2 pt-0">
+                {filteredGroups.map((group) => (
+                  <RoleGroupSection
+                    key={group.role?.id ?? 'online'}
+                    label={group.role?.name ?? 'Online'}
+                    color={group.role?.color}
+                    users={group.users}
+                  />
+                ))}
+                {filteredOfflineUsers.length > 0 && (
+                  <RoleGroupSection
+                    label="Offline"
+                    users={filteredOfflineUsers}
+                    dimmed
+                  />
+                )}
+              </div>
+            )}
           </>
         )}
       </aside>
