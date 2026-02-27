@@ -39,9 +39,9 @@ const sendMessageRoute = protectedProcedure
       message: 'E2EE messages must include encryptedContent'
     });
 
-    invariant(isE2ee || input.content, {
+    invariant(isE2ee || input.content || (input.files && input.files.length > 0), {
       code: 'BAD_REQUEST',
-      message: 'Non-E2EE messages must include content'
+      message: 'Non-E2EE messages must include content or files'
     });
 
     const [message] = await db

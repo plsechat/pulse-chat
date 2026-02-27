@@ -238,7 +238,7 @@ describe('e2ee messages', () => {
       caller.dms.sendMessage({
         dmChannelId: channel.id
       })
-    ).rejects.toThrow('Non-E2EE messages must include content');
+    ).rejects.toThrow('Non-E2EE messages must include content or files');
   });
 
   test('should edit an E2EE DM message with encryptedContent', async () => {

@@ -66,9 +66,9 @@ const sendMessageRoute = protectedProcedure
         message: 'E2EE messages must include encryptedContent'
       });
     } else {
-      invariant(input.content, {
+      invariant(input.content || (input.files && input.files.length > 0), {
         code: 'BAD_REQUEST',
-        message: 'Non-E2EE messages must include content'
+        message: 'Non-E2EE messages must include content or files'
       });
     }
 
@@ -101,12 +101,12 @@ const sendMessageRoute = protectedProcedure
     }
 
     // Skip automod and plugin processing for E2EE messages
-    const content = input.content!;
+    const content = input.content ?? null;
     let targetContent: string | null = isE2ee ? null : content;
     let editable = true;
     let commandExecutor: ((messageId: number) => void) | undefined = undefined;
 
-    if (!isE2ee) {
+    if (!isE2ee && content) {
       // Automod check
       if (ctx.activeServerId) {
         const automodResult = await checkAutomod(
