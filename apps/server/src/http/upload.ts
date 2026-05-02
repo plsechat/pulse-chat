@@ -109,14 +109,43 @@ const uploadFileRouteHandler = async (
   const safePath = await fileManager.getSafeUploadPath(originalName);
   const fileStream = fs.createWriteStream(safePath);
 
+  // Enforce the size cap on the actual byte stream — the Content-Length
+  // header is a claim the client can lie about. Without this, a client that
+  // sends `Content-Length: 100` but streams gigabytes will fill disk.
+  const sizeLimit = server.storageUploadMaxFileSize;
+  let bytesReceived = 0;
+  let exceeded = false;
+
+  req.on('data', (chunk: Buffer) => {
+    if (exceeded) return;
+    bytesReceived += chunk.length;
+    if (bytesReceived > sizeLimit) {
+      exceeded = true;
+      // Tear down both ends and clean up the partial file. Best-effort —
+      // any unlink/destroy errors are logged at error level downstream.
+      fileStream.destroy();
+      req.destroy();
+      fs.unlink(safePath, () => {});
+      if (!res.headersSent) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: `File ${originalName} exceeds the maximum allowed size`
+          })
+        );
+      }
+    }
+  });
+
   req.pipe(fileStream);
 
   fileStream.on('finish', async () => {
+    if (exceeded || res.headersSent) return;
     try {
       const tempFile = await fileManager.addTemporaryFile({
         originalName,
         filePath: safePath,
-        size: contentLength,
+        size: bytesReceived,
         userId: user.id
       });
 
@@ -124,14 +153,16 @@ const uploadFileRouteHandler = async (
       res.end(JSON.stringify(tempFile));
     } catch (error) {
       logger.error('Error processing uploaded file:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'File processing failed' }));
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'File processing failed' }));
+      }
     }
   });
 
   fileStream.on('error', (err) => {
+    if (exceeded || res.headersSent) return;
     logger.error('Error uploading file:', err);
-
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'File upload failed' }));
   });

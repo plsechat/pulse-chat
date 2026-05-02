@@ -25,7 +25,7 @@ import { provisionRouteHandler } from './provision-user';
 import { registerRouteHandler } from './register';
 import { publicRouteHandler } from './public';
 import { uploadFileRouteHandler } from './upload';
-import { authRateLimit, federationRateLimit, checkRateLimit } from './rate-limit';
+import { authRateLimit, federationRateLimit, uploadRateLimit, checkRateLimit } from './rate-limit';
 import { HttpValidationError } from './utils';
 import { webhookRouteHandler } from './webhook';
 import { isAllowedOrigin } from './cors';
@@ -76,6 +76,7 @@ const createHttpServer = async (port: number = config.server.port) => {
           }
 
           if (req.method === 'POST' && req.url === '/upload') {
+            if (!checkRateLimit(req, res, uploadRateLimit)) return;
             return await uploadFileRouteHandler(req, res);
           }
 
