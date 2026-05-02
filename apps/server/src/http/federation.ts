@@ -16,6 +16,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { findOrCreateShadowUser, syncShadowUserAvatar } from '../db/mutations/federation';
 import { invalidateCorsCache } from './cors';
 import { pubsub } from '../utils/pubsub';
+import { federationFetch } from '../utils/federation-fetch';
 import { validateFederationUrl } from '../utils/validate-url';
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
@@ -117,7 +118,7 @@ const federationRequestHandler = async (
     const protocol = domain.includes('localhost') ? 'http' : 'https';
     const federationInfoUrl = `${protocol}://${domain}/federation/info`;
     const validatedUrl = await validateFederationUrl(federationInfoUrl);
-    const infoRes = await fetch(validatedUrl.href, {
+    const infoRes = await federationFetch(validatedUrl.href, {
       signal: AbortSignal.timeout(10_000)
     });
 
@@ -349,35 +350,37 @@ const federationUserInfoHandler = async (
   }
 
   const body = await parseBody(req);
-  const { userId, publicId, signature } = body as {
+  const { userId, publicId, fromDomain, signature } = body as {
     userId?: number;
     publicId?: string;
+    fromDomain?: string;
     signature: string;
   };
 
-  if ((!userId && !publicId) || !signature) {
-    return jsonResponse(res, 400, { error: 'Missing required fields (publicId or userId + signature)' });
+  if ((!userId && !publicId) || !fromDomain || !signature) {
+    return jsonResponse(res, 400, { error: 'Missing required fields (publicId or userId, fromDomain, signature)' });
   }
 
-  // Verify signature is from a trusted instance
-  // We need to check all active instances since we don't know which one is calling
-  const activeInstances = await db
+  // Look up the claimed source instance and verify ONLY against its pubkey.
+  // The previous "iterate all active instances and accept any match" pattern
+  // let any peer's signature satisfy any peer's request — fixed 2026-05-02.
+  const [instance] = await db
     .select()
     .from(federationInstances)
-    .where(eq(federationInstances.status, 'active'));
+    .where(
+      and(
+        eq(federationInstances.domain, fromDomain),
+        eq(federationInstances.status, 'active')
+      )
+    )
+    .limit(1);
 
-  let verified = false;
-  for (const instance of activeInstances) {
-    if (instance.publicKey) {
-      const isValid = await verifyChallenge(signature, instance.publicKey);
-      if (isValid) {
-        verified = true;
-        break;
-      }
-    }
+  if (!instance || !instance.publicKey) {
+    return jsonResponse(res, 401, { error: 'Unknown or inactive instance' });
   }
 
-  if (!verified) {
+  const isValid = await verifyChallenge(signature, instance.publicKey);
+  if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
 

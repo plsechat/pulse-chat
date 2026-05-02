@@ -7,6 +7,7 @@ import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
 import { protectedProcedure } from '../../utils/trpc';
 import { signChallenge } from '../../utils/federation';
+import { federationFetch } from '../../utils/federation-fetch';
 import { pubsub } from '../../utils/pubsub';
 import { invalidateCorsCache } from '../../http/cors';
 import { logger } from '../../logger';
@@ -51,7 +52,7 @@ const acceptInstanceRoute = protectedProcedure
         const signature = await signChallenge(config.federation.domain);
         const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
 
-        const res = await fetch(`${protocol}://${instance!.domain}/federation/accept`, {
+        const res = await federationFetch(`${protocol}://${instance!.domain}/federation/accept`, {
           method: 'POST',
           signal: AbortSignal.timeout(10_000),
           headers: { 'Content-Type': 'application/json' },

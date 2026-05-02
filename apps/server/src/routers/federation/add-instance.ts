@@ -7,6 +7,7 @@ import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
 import { protectedProcedure } from '../../utils/trpc';
 import { getLocalKeys, signChallenge } from '../../utils/federation';
+import { federationFetch } from '../../utils/federation-fetch';
 import { pubsub } from '../../utils/pubsub';
 import { validateFederationUrl } from '../../utils/validate-url';
 import { logger } from '../../logger';
@@ -62,7 +63,7 @@ const addInstanceRoute = protectedProcedure
     // Step 1: GET remote's /federation/info
     let remoteInfo: TFederationInfo;
     try {
-      const infoRes = await fetch(`${url.origin}/federation/info`, {
+      const infoRes = await federationFetch(`${url.origin}/federation/info`, {
         signal: AbortSignal.timeout(10_000)
       });
       remoteInfo = (await infoRes.json()) as TFederationInfo;
@@ -88,7 +89,7 @@ const addInstanceRoute = protectedProcedure
     );
 
     try {
-      const requestRes = await fetch(`${url.origin}/federation/request`, {
+      const requestRes = await federationFetch(`${url.origin}/federation/request`, {
         method: 'POST',
         signal: AbortSignal.timeout(10_000),
         headers: { 'Content-Type': 'application/json' },

@@ -5,7 +5,9 @@ import path from 'path';
 import { db } from '..';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
+import { config } from '../../config';
 import { signChallenge } from '../../utils/federation';
+import { federationFetch } from '../../utils/federation-fetch';
 import { validateFederationUrl } from '../../utils/validate-url';
 import { publishUser } from '../publishers';
 import { files, users } from '../schema';
@@ -151,7 +153,7 @@ async function syncShadowUserAvatar(
 
     if (shadow?.avatarId) return;
 
-    const response = await fetch(validatedUrl.href, {
+    const response = await federationFetch(validatedUrl.href, {
       signal: AbortSignal.timeout(10_000)
     });
     if (!response.ok) return;
@@ -204,9 +206,9 @@ async function downloadFederatedFile(
   userId: number,
   remoteOriginalName: string
 ): Promise<{ fileId: number; fileName: string } | null> {
-  await validateFederationUrl(remoteUrl);
+  const validatedUrl = await validateFederationUrl(remoteUrl);
 
-  const response = await fetch(remoteUrl, {
+  const response = await federationFetch(validatedUrl.href, {
     signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) return null;
@@ -272,12 +274,16 @@ async function syncShadowUserProfile(
     const protocol = issuerDomain.includes('localhost') ? 'http' : 'https';
     const signature = await signChallenge(JSON.stringify({ publicId }));
 
-    const infoResponse = await fetch(
+    const infoResponse = await federationFetch(
       `${protocol}://${issuerDomain}/federation/user-info`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ publicId, signature }),
+        body: JSON.stringify({
+          publicId,
+          fromDomain: config.federation.domain,
+          signature
+        }),
         signal: AbortSignal.timeout(10_000)
       }
     );

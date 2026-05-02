@@ -12,6 +12,7 @@ import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { db } from '../db';
 import { federationInstances, federationKeys } from '../db/schema';
 import { config } from '../config';
+import { federationFetch } from './federation-fetch';
 import { logger } from '../logger';
 
 async function generateFederationKeys(): Promise<{
@@ -229,10 +230,11 @@ async function relayToInstance(
       signature
     };
 
-    const response = await fetch(`${protocol}://${instanceDomain}${path}`, {
+    const response = await federationFetch(`${protocol}://${instanceDomain}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000)
     });
 
     if (!response.ok) {
