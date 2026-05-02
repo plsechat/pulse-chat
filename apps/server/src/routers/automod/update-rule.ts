@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { automodRules } from '../../db/schema';
 import { protectedProcedure } from '../../utils/trpc';
+import { automodActionsSchema, automodConfigSchema } from './_shared';
 
 const updateAutomodRuleRoute = protectedProcedure
   .input(
@@ -11,29 +12,8 @@ const updateAutomodRuleRoute = protectedProcedure
       ruleId: z.number(),
       name: z.string().min(1).max(100).optional(),
       type: z.nativeEnum(AutomodRuleType).optional(),
-      config: z
-        .object({
-          keywords: z.array(z.string()).optional(),
-          regexPatterns: z.array(z.string()).optional(),
-          maxMentions: z.number().optional(),
-          allowedLinks: z.array(z.string()).optional(),
-          blockedLinks: z.array(z.string()).optional()
-        })
-        .optional(),
-      actions: z
-        .array(
-          z.object({
-            type: z.enum([
-              'delete_message',
-              'alert_channel',
-              'timeout_user',
-              'log'
-            ]),
-            channelId: z.number().optional(),
-            duration: z.number().optional()
-          })
-        )
-        .optional(),
+      config: automodConfigSchema.optional(),
+      actions: automodActionsSchema.optional(),
       exemptRoleIds: z.array(z.number()).optional(),
       exemptChannelIds: z.array(z.number()).optional()
     })

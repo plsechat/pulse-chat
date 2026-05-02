@@ -17,6 +17,13 @@ type TAutomodResult = {
   actions?: TAutomodAction[];
 };
 
+// Defense-in-depth: even though create/update validates patterns via
+// validateSafeRegex, a stored pattern that worked on canonical inputs may
+// still backtrack badly on a specific real-world message. If any single
+// regex test exceeds this budget, log and bail out of further regex checks
+// for this message. Belt-and-braces alongside the create-time validator.
+const REGEX_RUNTIME_BUDGET_MS = 50;
+
 const checkKeywordFilter = (
   content: string,
   config: TAutomodConfig
@@ -35,9 +42,23 @@ const checkKeywordFilter = (
     for (const pattern of config.regexPatterns) {
       try {
         const regex = new RegExp(pattern, 'i');
-        if (regex.test(content)) {
-          return true;
+        const start = performance.now();
+        const matched = regex.test(content);
+        const elapsed = performance.now() - start;
+
+        if (elapsed > REGEX_RUNTIME_BUDGET_MS) {
+          // Pattern is unexpectedly slow on this content. We can't interrupt
+          // a synchronous .test() that's already returned, but we can refuse
+          // to run any further regexes for this message.
+          logger.warn(
+            '[automod] regex pattern took %dms — skipping remaining regexes for this message: %s',
+            elapsed.toFixed(0),
+            pattern.slice(0, 100)
+          );
+          return matched;
         }
+
+        if (matched) return true;
       } catch {
         // Invalid regex, skip
       }
