@@ -10,7 +10,11 @@ const mockFetchAs = (fn: (...args: any[]) => Promise<Response>) =>
   fn as unknown as typeof fetch;
 
 const originalFetch = globalThis.fetch;
-const REMOTE_DOMAIN = 'remote.example.com';
+// Use the IANA-reserved example.com; it resolves to a public IP in CI which
+// the new SSRF validator (validateFederationUrl, fail-closed on DNS failure)
+// requires. The mocked fetch matches by URL substring so the actual domain
+// just needs to resolve.
+const REMOTE_DOMAIN = 'example.com';
 const REMOTE_PUBLIC_ID = 'remote-user-pub-id-001';
 
 let instanceId: number;
