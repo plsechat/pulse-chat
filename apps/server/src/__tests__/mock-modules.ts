@@ -55,7 +55,8 @@ mock.module('../logger', () => ({
 mock.module('../http/rate-limit', () => ({
   checkRateLimit: () => true,
   authRateLimit: { windowMs: 900000, maxRequests: Infinity },
-  federationRateLimit: { windowMs: 60000, maxRequests: Infinity }
+  federationRateLimit: { windowMs: 60000, maxRequests: Infinity },
+  uploadRateLimit: { windowMs: 60000, maxRequests: Infinity }
 }));
 
 // ── Mock env (allows tests to toggle REGISTRATION_DISABLED dynamically) ──
