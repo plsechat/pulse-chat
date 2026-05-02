@@ -37,14 +37,23 @@ export const urlMetadataParser = async (
     const promises = urls.map(async (url) => {
       if (metadataCache.has(url)) return metadataCache.get(url);
 
-      // Validate URL is not targeting internal/private resources
+      // Validate URL is not targeting internal/private resources.
       try {
         await validateFederationUrl(url);
       } catch {
         return;
       }
 
-      const metadata = await getLinkPreview(url);
+      // link-preview-js follows redirects and re-resolves DNS by default.
+      // We've validated `url` above, but a 302 Location to a private IP would
+      // bypass the check. Disable redirects and bound execution time.
+      // DNS rebinding between our validation and the library's connect is a
+      // separate Phase 4 hardening item (would need resolveDNSHost + IP-pin).
+      const metadata = await getLinkPreview(url, {
+        followRedirects: 'manual',
+        handleRedirects: () => false,
+        timeout: 5000
+      });
 
       if (!metadata) return;
 
