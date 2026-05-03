@@ -1,16 +1,17 @@
-import { Protect } from '@/components/protect';
 import { MessageRenderer } from '@/components/channel-view/text/renderer';
+import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
+import { Protect } from '@/components/protect';
+import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
 import { useUserById } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { longDateTime } from '@/helpers/time-format';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
-import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
-import { Pin, PinOff, X } from 'lucide-react';
+import { Pin, PinOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Button } from '../ui/button';
 
 type TPinnedMessagesPanelProps = {
   channelId: number;
@@ -123,34 +124,22 @@ const PinnedMessagesPanel = memo(
     );
 
     return (
-      <div className="absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
-        <div className="flex items-center justify-between p-3 border-b border-border/30 sticky top-0 bg-popover z-10">
-          <div className="flex items-center gap-2">
-            <Pin className="w-4 h-4" />
-            <span className="text-sm font-medium">Pinned Messages</span>
-          </div>
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-        {loading ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            Loading...
-          </div>
-        ) : pinnedMessages.length === 0 ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            No pinned messages in this channel.
-          </div>
-        ) : (
-          pinnedMessages.map((message) => (
-            <PinnedMessageItem
-              key={message.id}
-              message={message}
-              onUnpin={onUnpin}
-            />
-          ))
-        )}
-      </div>
+      <PopoverPanelShell
+        icon={Pin}
+        title="Pinned Messages"
+        onClose={onClose}
+        loading={loading}
+        empty={!loading && pinnedMessages.length === 0}
+        emptyMessage="No pinned messages in this channel."
+      >
+        {pinnedMessages.map((message) => (
+          <PinnedMessageItem
+            key={message.id}
+            message={message}
+            onUnpin={onUnpin}
+          />
+        ))}
+      </PopoverPanelShell>
     );
   }
 );

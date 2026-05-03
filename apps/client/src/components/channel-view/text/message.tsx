@@ -1,15 +1,21 @@
+import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
-import { useCan } from '@/features/server/hooks';
+import type { TEmojiItem } from '@/components/tiptap-input/types';
+import { requestConfirmation } from '@/features/dialogs/actions';
+import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
-import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
+import { useCan } from '@/features/server/hooks';
 import { useIsOwnUser } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
+import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { Pin } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { MessageActions } from './message-actions';
+import { toast } from 'sonner';
 import { MessageContextMenu } from './message-context-menu';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
@@ -23,6 +29,7 @@ type TMessageProps = {
 
 const Message = memo(({ message, onReply }: TMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [creatingThread, setCreatingThread] = useState(false);
   const isFromOwnUser = useIsOwnUser(message.userId);
   const scrollToMessage = useScrollToMessage();
   const can = useCan();
@@ -37,6 +44,12 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
   const canDelete = useMemo(
     () => can(Permission.MANAGE_MESSAGES) || isFromOwnUser,
     [can, isFromOwnUser]
+  );
+  const canPin = useMemo(() => can(Permission.PIN_MESSAGES), [can]);
+  const canReact = useMemo(() => can(Permission.REACT_TO_MESSAGES), [can]);
+  const canCreateThreadPerm = useMemo(
+    () => can(Permission.SEND_MESSAGES),
+    [can]
   );
 
   // Treat messages inside a forum post (THREAD with FORUM parent) as
@@ -59,12 +72,90 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
     [selectionMode, handleSelect, message.id]
   );
 
+  const onEdit = useCallback(() => setIsEditing(true), []);
+
+  const onDelete = useCallback(async () => {
+    const choice = await requestConfirmation({
+      title: 'Delete Message',
+      message:
+        'Are you sure you want to delete this message? This action is irreversible.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel'
+    });
+    if (!choice) return;
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+    try {
+      await trpc.messages.delete.mutate({ messageId: message.id });
+      toast.success('Message deleted');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete message'));
+    }
+  }, [message.id]);
+
+  const onTogglePin = useCallback(async () => {
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+    try {
+      if (message.pinned) {
+        await trpc.messages.unpin.mutate({ messageId: message.id });
+        toast.success('Message unpinned');
+      } else {
+        await trpc.messages.pin.mutate({ messageId: message.id });
+        toast.success('Message pinned');
+      }
+    } catch {
+      toast.error(
+        message.pinned ? 'Failed to unpin message' : 'Failed to pin message'
+      );
+    }
+  }, [message.id, message.pinned]);
+
+  const onCreateThread = useCallback(async () => {
+    if (creatingThread) return;
+    setCreatingThread(true);
+    const trpc = getTRPCClient();
+    if (!trpc) {
+      setCreatingThread(false);
+      return;
+    }
+    try {
+      const result = await trpc.threads.create.mutate({
+        messageId: message.id,
+        name: 'Thread'
+      });
+      setActiveThreadId(result.threadId);
+      toast.success('Thread created');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to create thread'));
+    } finally {
+      setCreatingThread(false);
+    }
+  }, [message.id, creatingThread]);
+
+  const onEmojiReact = useCallback(
+    async (emoji: TEmojiItem) => {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      try {
+        await trpc.messages.toggleReaction.mutate({
+          messageId: message.id,
+          emoji: emoji.name
+        });
+      } catch (error) {
+        toast.error('Failed to add reaction');
+        console.error('Error adding reaction:', error);
+      }
+    },
+    [message.id]
+  );
+
   return (
     <MessageContextMenu
       messageId={message.id}
       messageContent={message.content}
       channelId={message.channelId}
-      onEdit={() => setIsEditing(true)}
+      onEdit={onEdit}
       onReply={onReply}
       canEdit={canEdit}
       canDelete={canDelete}
@@ -107,14 +198,21 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
               <ThreadIndicator threadId={message.threadId} />
             )}
             <MessageActions
-              onEdit={() => setIsEditing(true)}
-              onReply={onReply}
+              pinned={message.pinned ?? false}
+              editable={message.editable ?? false}
+              hasThread={hideCreateThread}
               canEdit={canEdit}
               canDelete={canDelete}
-              messageId={message.id}
-              editable={message.editable ?? false}
-              pinned={message.pinned ?? false}
-              hasThread={hideCreateThread}
+              canPin={canPin}
+              canReact={canReact}
+              canCreateThread={canCreateThreadPerm}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onReply={onReply}
+              onTogglePin={onTogglePin}
+              onCreateThread={onCreateThread}
+              onEmojiReact={onEmojiReact}
+              creatingThread={creatingThread}
             />
           </>
         ) : (

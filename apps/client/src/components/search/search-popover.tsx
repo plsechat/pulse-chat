@@ -1,9 +1,10 @@
+import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
+import { Button } from '@/components/ui/button';
 import { setSelectedChannelId } from '@/features/server/channels/actions';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedMessage } from '@pulse/shared';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Button } from '../ui/button';
 import { SearchFilters, type TSearchFilters } from './search-filters';
 import { SearchResult } from './search-result';
 
@@ -131,59 +132,41 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
     };
   }, []);
 
+  // Cross-channel search needs a wider, taller popover than the
+  // pinned-messages one. Keep the shell's animation + chrome so it
+  // still reads as the same family of surfaces, just sized up.
+  const customHeader = (
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Search messages..."
+        className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+      />
+      {loading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+    </div>
+  );
+
+  const showStartHint = !searched && !loading && results.length === 0;
+  const showNoResults = searched && !loading && results.length === 0;
+
   return (
-    <div className="absolute right-0 top-full mt-1 z-50 w-[28rem] rounded-lg border border-border bg-popover shadow-lg flex flex-col max-h-[32rem] animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
-      {/* Header */}
-      <div className="flex items-center gap-2 p-3 border-b border-border/30">
-        <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Search messages..."
-          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-        />
-        {loading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
-          <X className="w-3 h-3" />
-        </Button>
-      </div>
-
-      {/* Filters */}
-      <div className="p-2 border-b border-border/20">
-        <SearchFilters filters={filters} onFiltersChange={onFiltersChange} />
-      </div>
-
-      {/* Results */}
-      <div className="flex-1 overflow-y-auto">
-        {!searched && !loading && (
-          <div className="p-6 text-center text-sm text-muted-foreground">
-            <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
-            <p>Start typing to search messages</p>
-          </div>
-        )}
-
-        {searched && results.length === 0 && !loading && (
-          <div className="p-6 text-center text-sm text-muted-foreground">
-            <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
-            <p>No messages found</p>
-            <p className="text-xs mt-1">Try a different search term</p>
-          </div>
-        )}
-
-        {results.map((message) => (
-          <SearchResult
-            key={message.id}
-            message={message}
-            query={query}
-            onJump={onJump}
-          />
-        ))}
-
-        {nextCursor && !loading && (
-          <div className="p-2 text-center">
+    <PopoverPanelShell
+      customHeader={customHeader}
+      onClose={onClose}
+      className="w-[28rem] max-h-[32rem]"
+      toolbar={
+        <div className="p-2 border-b border-border/20">
+          <SearchFilters filters={filters} onFiltersChange={onFiltersChange} />
+        </div>
+      }
+      footer={
+        nextCursor && !loading ? (
+          <div className="p-2 text-center border-t border-border/20">
             <Button
               variant="ghost"
               size="sm"
@@ -193,9 +176,33 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
               Load more results
             </Button>
           </div>
-        )}
-      </div>
-    </div>
+        ) : undefined
+      }
+    >
+      {showStartHint && (
+        <div className="p-6 text-center text-sm text-muted-foreground">
+          <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
+          <p>Start typing to search messages</p>
+        </div>
+      )}
+
+      {showNoResults && (
+        <div className="p-6 text-center text-sm text-muted-foreground">
+          <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
+          <p>No messages found</p>
+          <p className="text-xs mt-1">Try a different search term</p>
+        </div>
+      )}
+
+      {results.map((message) => (
+        <SearchResult
+          key={message.id}
+          message={message}
+          query={query}
+          onJump={onJump}
+        />
+      ))}
+    </PopoverPanelShell>
   );
 });
 

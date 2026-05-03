@@ -6,6 +6,8 @@ import {
   MIN_COMPOSER_HEIGHT
 } from '@/components/channel-view/text/composer-expand';
 import { DateDivider } from '@/components/chat-primitives/date-divider';
+import { MessageActions } from '@/components/chat-primitives/message-actions';
+import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { MessageReactions } from '@/components/channel-view/text/message-reactions';
@@ -763,39 +765,22 @@ const DmPinnedMessagesPanel = memo(
     }, []);
 
     return (
-      <div className="absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
-        <div className="flex items-center justify-between p-3 border-b border-border/30 sticky top-0 bg-popover z-10">
-          <div className="flex items-center gap-2">
-            <Pin className="w-4 h-4" />
-            <span className="text-sm font-medium">Pinned Messages</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={onClose}
-          >
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-        {loading ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            Loading...
-          </div>
-        ) : pinnedMessages.length === 0 ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            No pinned messages.
-          </div>
-        ) : (
-          pinnedMessages.map((message) => (
-            <DmPinnedMessageItem
-              key={message.id}
-              message={message}
-              onUnpin={onUnpin}
-            />
-          ))
-        )}
-      </div>
+      <PopoverPanelShell
+        icon={Pin}
+        title="Pinned Messages"
+        onClose={onClose}
+        loading={loading}
+        empty={!loading && pinnedMessages.length === 0}
+        emptyMessage="No pinned messages."
+      >
+        {pinnedMessages.map((message) => (
+          <DmPinnedMessageItem
+            key={message.id}
+            message={message}
+            onUnpin={onUnpin}
+          />
+        ))}
+      </PopoverPanelShell>
     );
   }
 );
@@ -1069,62 +1054,20 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
               onToggle={handleToggleReaction}
             />
           )}
-          <div className="gap-2 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center space-x-1 rounded-lg shadow-lg border border-border p-1 transition-all h-8">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={onReply}
-              title="Reply"
-            >
-              <Reply className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={handlePinToggle}
-              title={message.pinned ? 'Unpin Message' : 'Pin Message'}
-            >
-              {message.pinned ? (
-                <PinOff className="h-3 w-3" />
-              ) : (
-                <Pin className="h-3 w-3" />
-              )}
-            </Button>
-            <EmojiPicker onEmojiSelect={onEmojiSelect}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                title="Add Reaction"
-              >
-                <Smile className="h-3 w-3" />
-              </Button>
-            </EmojiPicker>
-            {isOwnMessage && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setIsEditing(true)}
-                  title="Edit Message"
-                >
-                  <Pencil className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={handleDelete}
-                  title="Delete Message"
-                >
-                  <Trash className="h-3 w-3" />
-                </Button>
-              </>
-            )}
-          </div>
+          <MessageActions
+            pinned={message.pinned ?? false}
+            editable
+            canEdit={isOwnMessage}
+            canDelete={isOwnMessage}
+            canPin
+            canReact
+            canReply
+            onEdit={() => setIsEditing(true)}
+            onDelete={handleDelete}
+            onReply={onReply}
+            onTogglePin={handlePinToggle}
+            onEmojiReact={onEmojiSelect}
+          />
         </>
       ) : (
         <DmMessageEdit
