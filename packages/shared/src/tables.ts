@@ -168,6 +168,10 @@ export type TMessageReplyPreview = {
   // the reply preview shows "Message deleted" for any null content,
   // including legitimate file uploads.
   hasFiles?: boolean;
+  // True when the parent message is E2EE — content is the ciphertext.
+  // The client decrypts during message-decrypt rather than rendering
+  // the raw envelope JSON.
+  e2ee?: boolean;
 };
 
 export type TJoinedMessage = TMessage & {

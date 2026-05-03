@@ -1,6 +1,6 @@
 import { UserAvatar } from '@/components/user-avatar';
 import { useDmChannels } from '@/features/dms/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
@@ -78,7 +78,12 @@ const DmProfilePanel = memo(
 );
 
 const ProfileBody = memo(({ user }: { user: TJoinedPublicUser }) => {
-  const status = user.status ?? UserStatus.OFFLINE;
+  // Read status from Redux rather than the channel-member snapshot.
+  // channel.members is fetched once when DM channels load, so its
+  // user.status field never reflects USER_UPDATE pubsub events. The
+  // avatar's status badge already pulls fresh data via useUserStatus —
+  // matching that here keeps the dot and the text in sync.
+  const status = useUserStatus(user.id) ?? UserStatus.OFFLINE;
   const memberSince = useMemo(() => {
     if (!user.createdAt) return null;
     return format(new Date(user.createdAt), 'MMM d, yyyy');

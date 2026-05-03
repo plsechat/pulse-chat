@@ -17,6 +17,7 @@ import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { TypingDots } from '@/components/typing-dots';
 import Spinner from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/user-avatar';
+import { UserPopover } from '@/components/user-popover';
 import {
   deleteDmMessageAction,
   editDmMessage,
@@ -854,7 +855,16 @@ const DmMessagesGroup = memo(
         <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline pl-1 select-none">
-            <span className={cn(isOwnUser && 'font-bold')}>{user.name}</span>
+            <UserPopover userId={user.id}>
+              <span
+                className={cn(
+                  'cursor-pointer hover:underline',
+                  isOwnUser && 'font-bold'
+                )}
+              >
+                {user.name}
+              </span>
+            </UserPopover>
             <Tooltip content={format(date, fullDateTime())}>
               <span className="text-primary/60 text-xs">
                 {formatDistance(subDays(date, 0), new Date(), {

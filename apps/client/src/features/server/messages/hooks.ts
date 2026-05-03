@@ -28,9 +28,32 @@ async function decryptE2eeMessages(
     )
   );
 
+  // Decrypt the inline reply-preview ciphertext alongside the message
+  // body. Channel sender-key decrypt is idempotent so this is cheap.
+  async function maybeDecryptReplyTo(
+    replyTo: NonNullable<TJoinedMessage['replyTo']> | null | undefined,
+    channelId: number
+  ): Promise<NonNullable<TJoinedMessage['replyTo']> | null | undefined> {
+    if (!replyTo || !replyTo.e2ee || !replyTo.content) return replyTo;
+    try {
+      const payload = await decryptChannelMessage(
+        channelId,
+        replyTo.userId,
+        replyTo.content
+      );
+      return { ...replyTo, content: payload.content };
+    } catch {
+      return { ...replyTo, content: '[Unable to decrypt]' };
+    }
+  }
+
   return Promise.all(
     messages.map(async (msg) => {
-      if (!msg.e2ee || !msg.content) return msg;
+      const replyTo = await maybeDecryptReplyTo(msg.replyTo, msg.channelId);
+
+      if (!msg.e2ee || !msg.content) {
+        return replyTo === msg.replyTo ? msg : { ...msg, replyTo };
+      }
 
       try {
         const payload = await decryptChannelMessage(
@@ -39,10 +62,10 @@ async function decryptE2eeMessages(
           msg.content
         );
         setFileKeys(msg.id, payload.fileKeys);
-        return { ...msg, content: payload.content };
+        return { ...msg, content: payload.content, replyTo };
       } catch (err) {
         console.error('[E2EE] Failed to decrypt channel message:', err);
-        return { ...msg, content: '[Unable to decrypt]' };
+        return { ...msg, content: '[Unable to decrypt]', replyTo };
       }
     })
   );

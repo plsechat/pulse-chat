@@ -169,7 +169,8 @@ const getMessagesRoute = protectedProcedure
         .select({
           id: messages.id,
           content: messages.content,
-          userId: messages.userId
+          userId: messages.userId,
+          e2ee: messages.e2ee
         })
         .from(messages)
         .where(inArray(messages.id, replyToIds));
@@ -191,7 +192,8 @@ const getMessagesRoute = protectedProcedure
             id: r.id,
             content: r.content,
             userId: r.userId,
-            hasFiles: repliesWithFiles.has(r.id)
+            hasFiles: repliesWithFiles.has(r.id),
+            e2ee: r.e2ee
           };
           return acc;
         },

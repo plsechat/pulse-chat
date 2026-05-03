@@ -262,6 +262,53 @@ const ownSentPlaintextCache = new Map<string, E2EEPlaintext>();
  * Generic over the message shape so it can also accept the bare `TDmMessage`
  * that's embedded as `lastMessage` on a DM channel (no `files`/`reactions`).
  */
+type TReplyToShape = {
+  id: number;
+  content: string | null;
+  userId: number;
+  e2ee?: boolean;
+  hasFiles?: boolean;
+};
+
+/**
+ * Decrypt the inline reply-preview content. Server returns the parent
+ * message's ciphertext when e2ee=true, so without this we'd render the
+ * raw Signal envelope JSON in the reply preview.
+ *
+ * - 1:1: pairwise Signal would advance the ratchet on a re-decrypt and
+ *   break the parent message's later decrypt. So we ONLY consult the
+ *   IDB plaintext cache (populated when the parent was first
+ *   decrypted) and fall back to a placeholder on miss.
+ * - Group: AES-GCM sender-key decrypt is idempotent — safe to re-run.
+ */
+async function decryptReplyToInPlace<R extends TReplyToShape>(
+  replyTo: R,
+  dmChannelId: number,
+  isGroup: boolean
+): Promise<R> {
+  if (!replyTo.e2ee || !replyTo.content) return replyTo;
+
+  const cached = await getCachedPlaintext(replyTo.id);
+  if (cached !== undefined) {
+    return { ...replyTo, content: cached.content };
+  }
+
+  if (isGroup) {
+    try {
+      const payload = await decryptDmGroupMessage(
+        dmChannelId,
+        replyTo.userId,
+        replyTo.content
+      );
+      return { ...replyTo, content: payload.content };
+    } catch {
+      return { ...replyTo, content: '[Unable to decrypt]' };
+    }
+  }
+
+  return { ...replyTo, content: '[Encrypted message]' };
+}
+
 export async function decryptDmMessageInPlace<
   T extends {
     id: number;
@@ -269,19 +316,30 @@ export async function decryptDmMessageInPlace<
     dmChannelId: number;
     e2ee: boolean;
     content: string | null;
+    replyTo?: TReplyToShape | null;
   }
 >(message: T): Promise<T> {
-  if (!message.e2ee || !message.content) return message;
+  const state = store.getState();
+  const channel = state.dms.channels.find((c) => c.id === message.dmChannelId);
+  const isGroup = (channel?.members.length ?? 0) > 2;
+
+  // Decrypt the reply-preview ciphertext alongside the main message so
+  // the renderer doesn't have to know about e2ee. Done up front because
+  // some main-message paths rely on cache hits we may have populated
+  // for the parent — looking up the cache is cheap and idempotent.
+  const replyTo = message.replyTo
+    ? await decryptReplyToInPlace(message.replyTo, message.dmChannelId, isGroup)
+    : message.replyTo;
+
+  if (!message.e2ee || !message.content) {
+    return replyTo === message.replyTo ? message : { ...message, replyTo };
+  }
 
   // Group DMs use sender-key encryption — both own and other messages
   // are decryptable locally because we have our own sender key cached
   // and peers' keys arrive via distributeSenderKeys. So no
   // ownSentPlaintextCache trickery is needed for groups; it's a
   // single uniform decrypt path.
-  const state = store.getState();
-  const channel = state.dms.channels.find((c) => c.id === message.dmChannelId);
-  const isGroup = (channel?.members.length ?? 0) > 2;
-
   if (isGroup) {
     try {
       const payload = await decryptDmGroupMessage(
@@ -290,10 +348,10 @@ export async function decryptDmMessageInPlace<
         message.content
       );
       setFileKeys(message.id, payload.fileKeys);
-      return { ...message, content: payload.content };
+      return { ...message, content: payload.content, replyTo };
     } catch (err) {
       console.error('[E2EE/DM] Failed to decrypt group DM message:', err);
-      return { ...message, content: '[Unable to decrypt]' };
+      return { ...message, content: '[Unable to decrypt]', replyTo };
     }
   }
 
@@ -312,7 +370,7 @@ export async function decryptDmMessageInPlace<
       persisted.ciphertext === message.content;
     if (matches) {
       setFileKeys(message.id, persisted.fileKeys);
-      return { ...message, content: persisted.content };
+      return { ...message, content: persisted.content, replyTo };
     }
     // Stale entry from before an edit — drop it before falling through.
     await deleteCachedPlaintext(message.id).catch(() => {});
@@ -334,9 +392,9 @@ export async function decryptDmMessageInPlace<
         ciphertext: message.content
       }).catch(() => {});
       setFileKeys(message.id, cached.fileKeys);
-      return { ...message, content: cached.content };
+      return { ...message, content: cached.content, replyTo };
     }
-    return { ...message, content: '[Encrypted message]' };
+    return { ...message, content: '[Encrypted message]', replyTo };
   }
 
   try {
@@ -350,10 +408,10 @@ export async function decryptDmMessageInPlace<
       ciphertext: message.content
     }).catch(() => {});
     setFileKeys(message.id, payload.fileKeys);
-    return { ...message, content: payload.content };
+    return { ...message, content: payload.content, replyTo };
   } catch (err) {
     console.error('[E2EE] Failed to decrypt DM message:', err);
-    return { ...message, content: '[Unable to decrypt]' };
+    return { ...message, content: '[Unable to decrypt]', replyTo };
   }
 }
 

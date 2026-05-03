@@ -49,7 +49,7 @@ const ReplyPreview = memo(({ replyTo, onJumpTo }: TReplyPreviewProps) => {
         {replyTo.content ? (
           <ReplyContentPreview content={replyTo.content} />
         ) : replyTo.hasFiles ? (
-          'Attachment'
+          'Click to see attachment'
         ) : (
           'Message deleted'
         )}

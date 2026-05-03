@@ -117,7 +117,8 @@ const getMessagesRoute = protectedProcedure
         .select({
           id: dmMessages.id,
           content: dmMessages.content,
-          userId: dmMessages.userId
+          userId: dmMessages.userId,
+          e2ee: dmMessages.e2ee
         })
         .from(dmMessages)
         .where(inArray(dmMessages.id, replyToIds));
@@ -136,7 +137,8 @@ const getMessagesRoute = protectedProcedure
             id: r.id,
             content: r.content,
             userId: r.userId,
-            hasFiles: repliesWithFiles.has(r.id)
+            hasFiles: repliesWithFiles.has(r.id),
+            e2ee: r.e2ee
           };
           return acc;
         },

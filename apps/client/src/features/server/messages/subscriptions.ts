@@ -20,10 +20,36 @@ import {
   updateMessage
 } from './actions';
 
+async function decryptReplyToContent(
+  replyTo: NonNullable<TJoinedMessage['replyTo']>,
+  channelId: number
+): Promise<NonNullable<TJoinedMessage['replyTo']>> {
+  if (!replyTo.e2ee || !replyTo.content) return replyTo;
+  try {
+    const payload = await decryptChannelMessage(
+      channelId,
+      replyTo.userId,
+      replyTo.content
+    );
+    return { ...replyTo, content: payload.content };
+  } catch {
+    return { ...replyTo, content: '[Unable to decrypt]' };
+  }
+}
+
 async function decryptE2eeMessage(
   message: TJoinedMessage
 ): Promise<TJoinedMessage> {
-  if (!message.e2ee || !message.content) return message;
+  // Always pass the replyTo through the decryptor when present —
+  // server returns ciphertext for e2ee parents, and unlike DMs the
+  // channel sender-key scheme is idempotent so this is cheap.
+  const replyTo = message.replyTo
+    ? await decryptReplyToContent(message.replyTo, message.channelId)
+    : message.replyTo;
+
+  if (!message.e2ee || !message.content) {
+    return replyTo === message.replyTo ? message : { ...message, replyTo };
+  }
 
   try {
     const payload = await decryptChannelMessage(
@@ -32,10 +58,10 @@ async function decryptE2eeMessage(
       message.content
     );
     setFileKeys(message.id, payload.fileKeys);
-    return { ...message, content: payload.content };
+    return { ...message, content: payload.content, replyTo };
   } catch (err) {
     console.error('[E2EE] Failed to decrypt channel message:', err);
-    return { ...message, content: '[Unable to decrypt]' };
+    return { ...message, content: '[Unable to decrypt]', replyTo };
   }
 }
 
