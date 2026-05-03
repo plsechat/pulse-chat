@@ -46,7 +46,7 @@
   --radius: 0.5rem;
   --background: #ffffff;
   --foreground: #0a0a0a;
-  --card: #f4f4f5;
+  --card: #e8e8ea;
   --card-foreground: #0a0a0a;
   --popover: #ffffff;
   --popover-foreground: #0a0a0a;
@@ -56,7 +56,7 @@
   --secondary-foreground: #52525b;
   --muted: #f4f4f5;
   --muted-foreground: #71717a;
-  --accent: #e4e4e7;
+  --accent: #d4d4d8;
   --accent-foreground: #0a0a0a;
   --destructive: #dc2626;
   --border: #e4e4e7;
@@ -67,7 +67,7 @@
   --chart-3: #ea580c;
   --chart-4: #db2777;
   --chart-5: #dc2626;
-  --sidebar: #fafafa;
+  --sidebar: #f3f3f4;
   --sidebar-foreground: #0a0a0a;
   --sidebar-primary: #0d9488;
   --sidebar-primary-foreground: #ffffff;
@@ -97,7 +97,7 @@
 .onyx {
   --background: #000000;
   --foreground: #e4e4e7;
-  --card: #0a0a0a;
+  --card: #161618;
   --card-foreground: #e4e4e7;
   --popover: #050505;
   --popover-foreground: #e4e4e7;
@@ -107,10 +107,10 @@
   --secondary-foreground: #d4d4d8;
   --muted: #0f0f0f;
   --muted-foreground: #71717a;
-  --accent: #1a1a1a;
+  --accent: #1f1f22;
   --accent-foreground: #e4e4e7;
   --destructive: #ef4444;
-  --border: #1a1a1a;
+  --border: #1f1f22;
   --input: #141414;
   --ring: #2dd4bf;
   --chart-1: #2dd4bf;
@@ -118,7 +118,7 @@
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #000000;
+  --sidebar: #0a0a0c;
   --sidebar-foreground: #e4e4e7;
   --sidebar-primary: #2dd4bf;
   --sidebar-primary-foreground: #042f2e;
@@ -146,9 +146,9 @@
 }
 
 .dark {
-  --background: #0d0d10;
+  --background: #09090b;
   --foreground: #fafafa;
-  --card: #131316;
+  --card: #1c1c20;
   --card-foreground: #fafafa;
   --popover: #0a0a0c;
   --popover-foreground: #fafafa;
@@ -158,10 +158,10 @@
   --secondary-foreground: #d4d4d8;
   --muted: #18181b;
   --muted-foreground: #a1a1aa;
-  --accent: #1f1f23;
+  --accent: #26262b;
   --accent-foreground: #fafafa;
   --destructive: #ef4444;
-  --border: #1f1f23;
+  --border: #26262b;
   --input: #1c1c1f;
   --ring: #14b8a6;
   --chart-1: #14b8a6;
@@ -169,7 +169,7 @@
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #08080a;
+  --sidebar: #131317;
   --sidebar-foreground: #fafafa;
   --sidebar-primary: #14b8a6;
   --sidebar-primary-foreground: #ffffff;

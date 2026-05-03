@@ -113,7 +113,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   return (
     <aside
       className={cn(
-        'flex w-60 flex-col bg-sidebar h-full overflow-hidden',
+        'flex w-60 flex-col bg-card h-full overflow-hidden',
         className
       )}
     >
