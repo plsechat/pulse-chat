@@ -115,7 +115,7 @@ const getMessage = async (
     file: r.file
   }));
 
-  let replyTo = null;
+  let replyTo: TJoinedMessage['replyTo'] = null;
 
   if (message.replyToId) {
     const [replyRow] = await db
@@ -128,7 +128,18 @@ const getMessage = async (
       .where(eq(messages.id, message.replyToId))
       .limit(1);
 
-    replyTo = replyRow ?? null;
+    if (replyRow) {
+      const [hasFileRow] = await db
+        .select({ messageId: messageFiles.messageId })
+        .from(messageFiles)
+        .where(eq(messageFiles.messageId, message.replyToId))
+        .limit(1);
+
+      replyTo = {
+        ...replyRow,
+        hasFiles: !!hasFileRow
+      };
+    }
   }
 
   return {

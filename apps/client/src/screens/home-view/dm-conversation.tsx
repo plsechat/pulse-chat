@@ -776,11 +776,22 @@ const DmMessagesGroup = memo(
 );
 
 const DmReplyPreview = memo(
-  ({ replyTo }: { replyTo: { id: number; userId: number; content: string | null } }) => {
+  ({
+    replyTo
+  }: {
+    replyTo: {
+      id: number;
+      userId: number;
+      content: string | null;
+      hasFiles?: boolean;
+    };
+  }) => {
     const user = useUserById(replyTo.userId);
     const truncated = replyTo.content
       ? stripToPlainText(replyTo.content).slice(0, 100)
-      : 'Message deleted';
+      : replyTo.hasFiles
+        ? 'Attachment'
+        : 'Message deleted';
 
     const scrollToOriginal = useCallback(() => {
       const el = document.getElementById(`dm-msg-${replyTo.id}`);
@@ -815,9 +826,11 @@ const DmReplyBar = memo(
   }) => {
     const user = useUserById(message.userId);
     const contentPreview = useMemo(() => {
-      if (!message.content) return 'Message deleted';
-      return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
-    }, [message.content]);
+      if (message.content) {
+        return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
+      }
+      return message.files.length > 0 ? 'Attachment' : 'Message deleted';
+    }, [message.content, message.files.length]);
 
     const scrollToMessage = useCallback(() => {
       const el = document.getElementById(`dm-msg-${message.id}`);

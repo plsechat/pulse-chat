@@ -83,9 +83,13 @@ const ReplyBar = memo(
   }) => {
     const user = useUserById(message.userId);
     const contentPreview = useMemo(() => {
-      if (!message.content) return 'Message deleted';
-      return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
-    }, [message.content]);
+      if (message.content) {
+        return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
+      }
+      // No text content. If there are files, the user is replying to a
+      // file-only message — show 'Attachment' rather than 'Message deleted'.
+      return message.files.length > 0 ? 'Attachment' : 'Message deleted';
+    }, [message.content, message.files.length]);
 
     const scrollToTarget = useScrollToMessage();
     const scrollToMessage = useCallback(

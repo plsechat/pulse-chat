@@ -22,11 +22,22 @@ type TMessageProps = {
 };
 
 const ReplyPreview = memo(
-  ({ replyTo }: { replyTo: { id: number; userId: number; content: string | null } }) => {
+  ({
+    replyTo
+  }: {
+    replyTo: {
+      id: number;
+      userId: number;
+      content: string | null;
+      hasFiles?: boolean;
+    };
+  }) => {
     const user = useUserById(replyTo.userId);
     const truncated = replyTo.content
       ? stripToPlainText(replyTo.content).slice(0, 100)
-      : 'Message deleted';
+      : replyTo.hasFiles
+        ? 'Attachment'
+        : 'Message deleted';
 
     const scrollToTarget = useScrollToMessage();
     const scrollToOriginal = useCallback(

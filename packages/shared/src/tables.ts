@@ -163,6 +163,11 @@ export type TMessageReplyPreview = {
   id: number;
   content: string | null;
   userId: number;
+  // Distinguishes a deleted message (no row) from a file-only message
+  // (row exists, content null, attachments present). Without this flag
+  // the reply preview shows "Message deleted" for any null content,
+  // including legitimate file uploads.
+  hasFiles?: boolean;
 };
 
 export type TJoinedMessage = TMessage & {

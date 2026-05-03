@@ -174,9 +174,25 @@ const getMessagesRoute = protectedProcedure
         .from(messages)
         .where(inArray(messages.id, replyToIds));
 
+      // Probe attachments per replied-to message so file-only messages
+      // (content null + attachments present) don't render as "Message
+      // deleted" in the reply preview.
+      const fileRowsForReplies = await db
+        .select({ messageId: messageFiles.messageId })
+        .from(messageFiles)
+        .where(inArray(messageFiles.messageId, replyToIds));
+      const repliesWithFiles = new Set(
+        fileRowsForReplies.map((r) => r.messageId)
+      );
+
       replyToMap = replyRows.reduce<Record<number, TMessageReplyPreview>>(
         (acc, r) => {
-          acc[r.id] = { id: r.id, content: r.content, userId: r.userId };
+          acc[r.id] = {
+            id: r.id,
+            content: r.content,
+            userId: r.userId,
+            hasFiles: repliesWithFiles.has(r.id)
+          };
           return acc;
         },
         {}
