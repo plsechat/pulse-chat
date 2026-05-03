@@ -3,47 +3,29 @@ import { appSliceActions } from '@/features/app/slice';
 import { updateFriend } from '@/features/friends/actions';
 import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
+import { distributeSenderKeysToOnlineMember } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
 import { toast } from 'sonner';
 import { addUser, handleUserJoin, removeUser, updateUser } from './actions';
 
 /**
- * When a user comes online, proactively distribute our sender keys to them
- * for every E2EE channel in the server. This closes the gap between
- * "member joins/reconnects" and "first message send" so the new user can
- * decrypt messages immediately.
+ * Snapshot the inputs needed by lib/e2ee from Redux. Keeping the lookup
+ * here (rather than inside lib/e2ee) avoids a Redux dependency in the
+ * E2EE module — `lib/` stays orchestrator-callable from anywhere.
  */
-async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
+function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
   const state = store.getState();
   const ownUserId = state.server.ownUserId;
-  if (!ownUserId || joinedUserId === ownUserId) return;
-
-  const e2eeChannels = state.server.channels.filter((c) => c.e2ee);
-  if (e2eeChannels.length === 0) return;
-
-  const { ensureChannelSenderKey, clearDistributedMember, hasKeys } =
-    await import('@/lib/e2ee');
-
-  // Don't prompt the user to set up keys — this is a background operation.
-  // If they haven't generated keys yet, silently skip.
-  if (!(await hasKeys())) return;
-
-  // Clear the user from distributedMembers so we don't skip them.
-  // If their identity changed (key reset), ensureSession with
-  // verifyIdentity: true will detect the mismatch and rebuild.
-  clearDistributedMember(joinedUserId);
-
-  for (const channel of e2eeChannels) {
-    try {
-      await ensureChannelSenderKey(channel.id, ownUserId);
-    } catch (err) {
-      console.warn(
-        `[E2EE] Proactive key distribution failed for channel ${channel.id}:`,
-        err
-      );
-    }
-  }
+  if (!ownUserId) return Promise.resolve();
+  const e2eeChannelIds = state.server.channels
+    .filter((c) => c.e2ee)
+    .map((c) => c.id);
+  return distributeSenderKeysToOnlineMember(
+    joinedUserId,
+    ownUserId,
+    e2eeChannelIds
+  );
 }
 
 const subscribeToUsers = () => {

@@ -448,6 +448,43 @@ export async function ensureChannelSenderKey(
 }
 
 /**
+ * Proactively distribute our sender keys to a user that just came online,
+ * for every E2EE channel we're a member of. Closes the gap between
+ * "member joins / reconnects" and "first message send" so the new user
+ * can decrypt messages immediately.
+ *
+ * Pure helper — `e2eeChannelIds` and `ownUserId` are passed in by the
+ * caller (typically the USER_JOIN subscription) so this module stays
+ * decoupled from Redux. No-ops if E2EE keys aren't set up yet (we don't
+ * want a background event to pop the key-setup modal).
+ */
+export async function distributeSenderKeysToOnlineMember(
+  joinedUserId: number,
+  ownUserId: number,
+  e2eeChannelIds: number[]
+): Promise<void> {
+  if (!ownUserId || joinedUserId === ownUserId) return;
+  if (e2eeChannelIds.length === 0) return;
+  if (!(await hasKeys())) return;
+
+  // Clear the user from distributedMembers so we don't skip them.
+  // If their identity changed (key reset), ensureSession with
+  // verifyIdentity: true will detect the mismatch and rebuild.
+  clearDistributedMember(joinedUserId);
+
+  for (const channelId of e2eeChannelIds) {
+    try {
+      await ensureChannelSenderKey(channelId, ownUserId);
+    } catch (err) {
+      console.warn(
+        `[E2EE] Proactive key distribution failed for channel ${channelId}:`,
+        err
+      );
+    }
+  }
+}
+
+/**
  * Process a received sender key distribution message.
  * Decrypts the key using Signal Protocol and stores it.
  * Uses the active instance store.
