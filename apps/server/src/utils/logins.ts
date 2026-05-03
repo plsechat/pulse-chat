@@ -1,5 +1,6 @@
 import type { TIpInfo } from '@pulse/shared';
 import { ipCache } from './ip-cache';
+import { outboundFetch } from './outbound-fetch';
 
 const getIpInfo = async (ip: string) => {
   const isLocalIp =
@@ -15,8 +16,8 @@ const getIpInfo = async (ip: string) => {
     ? 'https://ipinfo.io/json'
     : `https://ipinfo.io/${ip}/json`;
 
-  const response = await fetch(url);
-  const data = (await response.json()) as TIpInfo;
+  const response = await outboundFetch(url);
+  const data = await response.json<TIpInfo>();
 
   ipCache.set(ip, data);
 
