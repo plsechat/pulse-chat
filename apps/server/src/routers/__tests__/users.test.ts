@@ -188,6 +188,49 @@ describe('users router', () => {
     ).rejects.toThrow('New password and confirmation do not match');
   });
 
+  test('getAuthProviders should return identities from supabase', async () => {
+    const { caller } = await initTest();
+
+    const result = await caller.users.getAuthProviders();
+    expect(result.providers).toContain('email');
+  });
+
+  test('updatePassword should reject OAuth-only users (no email identity)', async () => {
+    const { caller } = await initTest();
+
+    // Mutate the seeded auth-store entry to drop the email provider —
+    // simulates a user who signed up via Google/GitHub and never set
+    // a password. Without the gate, signInWithPassword would fail with
+    // "current password incorrect," which is misleading. The gate
+    // should reject earlier with a clear message naming the linked
+    // provider.
+    const store = globalThis.__supabaseAuthStore!;
+    for (const entry of store.values()) {
+      entry.identities = ['google'];
+    }
+
+    await expect(
+      caller.users.updatePassword({
+        currentPassword: 'password123',
+        newPassword: 'newpassword',
+        confirmNewPassword: 'newpassword'
+      })
+    ).rejects.toThrow('signs in through google');
+  });
+
+  test('getAuthProviders should reflect non-email providers', async () => {
+    const { caller } = await initTest();
+
+    const store = globalThis.__supabaseAuthStore!;
+    for (const entry of store.values()) {
+      entry.identities = ['github'];
+    }
+
+    const result = await caller.users.getAuthProviders();
+    expect(result.providers).toEqual(['github']);
+    expect(result.providers).not.toContain('email');
+  });
+
   test('should change avatar', async () => {
     const { caller, mockedToken } = await initTest();
 

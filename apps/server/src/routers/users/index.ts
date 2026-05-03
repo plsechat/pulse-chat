@@ -11,6 +11,7 @@ import {
   onUserLeaveRoute,
   onUserUpdateRoute
 } from './events';
+import { getAuthProvidersRoute } from './get-auth-providers';
 import { getPreferencesRoute } from './get-preferences';
 import { getUserInfoRoute } from './get-user-info';
 import { getUsersRoute } from './get-users';
@@ -45,5 +46,6 @@ export const usersRouter = t.router({
   onDelete: onUserDeleteRoute,
   getPreferences: getPreferencesRoute,
   updatePreferences: updatePreferencesRoute,
+  getAuthProviders: getAuthProvidersRoute,
   onKicked: onUserKickedRoute
 });

@@ -74,15 +74,24 @@ const RoleGroupSection = memo(
     dimmed?: boolean;
   }) => (
     <div className={cn(dimmed && 'opacity-50')}>
-      <h4
-        className={cn(
-          'px-2 pt-4 pb-1 text-[11px] font-bold uppercase tracking-widest',
-          !(color && color !== '#ffffff') && 'text-muted-foreground'
-        )}
-        style={color && color !== '#ffffff' ? { color } : undefined}
-      >
-        {label} — {users.length}
-      </h4>
+      {/* Old shape was bold uppercase tracking-widest with an em-dash
+          before the count — read as a corporate section header. The
+          casual rebuild: sentence-case label, count as a soft chip.
+          More "lived-in," still scannable. */}
+      <div className="flex items-center gap-2 px-2 pt-4 pb-1.5">
+        <h4
+          className={cn(
+            'text-xs font-semibold',
+            !(color && color !== '#ffffff') && 'text-muted-foreground/80'
+          )}
+          style={color && color !== '#ffffff' ? { color } : undefined}
+        >
+          {label}
+        </h4>
+        <span className="text-[10px] tabular-nums font-medium text-muted-foreground/70 px-1.5 py-px rounded-full bg-muted/60 ring-1 ring-border/30">
+          {users.length}
+        </span>
+      </div>
       <div className="space-y-0.5">
         {users.map((user) => (
           <User

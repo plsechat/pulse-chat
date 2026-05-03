@@ -73,8 +73,17 @@ mock.module('../utils/env', () => ({
 
 // ── In-memory auth store for supabase mock ──
 // Shared via globalThis so seed.ts can pre-populate it.
-// Each entry: { supabaseId: string, password: string, email: string }
-type AuthEntry = { supabaseId: string; password: string; email: string };
+// Each entry: { supabaseId: string, password: string, email: string,
+//               identities?: string[] }
+// identities defaults to ['email'] for password-flow users; tests that
+// want to simulate OAuth-only (Google, GitHub, etc) mutate the entry's
+// `identities` after creation.
+type AuthEntry = {
+  supabaseId: string;
+  password: string;
+  email: string;
+  identities?: string[];
+};
 
 declare global {
   // eslint-disable-next-line no-var
@@ -179,8 +188,15 @@ mock.module('../utils/supabase', () => ({
         getUserById: async (id: string) => {
           for (const entry of authStore.values()) {
             if (entry.supabaseId === id) {
+              const providers = entry.identities ?? ['email'];
               return {
-                data: { user: { id: entry.supabaseId, email: entry.email } },
+                data: {
+                  user: {
+                    id: entry.supabaseId,
+                    email: entry.email,
+                    identities: providers.map((p) => ({ provider: p }))
+                  }
+                },
                 error: null
               };
             }

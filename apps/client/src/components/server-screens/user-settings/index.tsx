@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
+import { getTRPCClient } from '@/lib/trpc';
 import { ChevronLeft, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
 import { Devices } from './devices';
@@ -74,6 +75,55 @@ type TUserSettingsProps = TServerScreenBaseProps;
 
 const UserSettings = memo(({ close }: TUserSettingsProps) => {
   const [activeSection, setActiveSection] = useState<Section>('profile');
+  // `null` while loading; once resolved, an empty array means we got
+  // an answer back and the user has no email-password identity.
+  // The Password tab is hidden until we've heard from the server, so a
+  // federated user never sees it flicker into view on slow networks.
+  const [authProviders, setAuthProviders] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+
+    trpc.users.getAuthProviders
+      .query()
+      .then((res) => {
+        if (cancelled) return;
+        setAuthProviders(res.providers);
+      })
+      .catch(() => {
+        // Network/auth failure — fall back to showing the Password tab
+        // rather than hiding it, so a transient error doesn't lock a
+        // local-account user out of changing their password. The
+        // server-side gate is the authoritative reject.
+        if (!cancelled) setAuthProviders(['email']);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hasPasswordAuth = authProviders?.includes('email') ?? false;
+  const visibleNavSections = NAV_SECTIONS.map((cat) => ({
+    ...cat,
+    items: cat.items.filter((item) => item.id !== 'password' || hasPasswordAuth)
+  }));
+
+  // If the user opened the Password section directly (e.g. via deep
+  // link) and we've now learned they don't have password auth, bounce
+  // them back to Profile so they don't sit on a hidden tab's content.
+  useEffect(() => {
+    if (
+      authProviders !== null &&
+      !hasPasswordAuth &&
+      activeSection === 'password'
+    ) {
+      setActiveSection('profile');
+    }
+  }, [authProviders, hasPasswordAuth, activeSection]);
+
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
 
   const handleLogOut = useCallback(async () => {
@@ -101,7 +151,7 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
         <h1 className="text-lg font-semibold">Settings</h1>
       </div>
       <div className="flex overflow-x-auto border-b border-border px-4 md:hidden">
-        {NAV_SECTIONS.flatMap((cat) =>
+        {visibleNavSections.flatMap((cat) =>
           cat.items.map((item) => (
             <button
               key={item.id}
@@ -136,7 +186,7 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
             <h1 className="text-lg font-semibold">Settings</h1>
           </div>
           <nav className="flex-1 overflow-y-auto p-2">
-            {NAV_SECTIONS.map((category) => (
+            {visibleNavSections.map((category) => (
               <div key={category.heading} className="mb-4">
                 <h2 className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {category.heading}

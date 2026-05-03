@@ -6,7 +6,7 @@ import type { IRootState } from '@/features/store';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
-import { Pin, Reply } from 'lucide-react';
+import { Pin } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { MessageActions } from './message-actions';
@@ -41,15 +41,22 @@ const ReplyPreview = memo(
       [scrollToTarget, replyTo.id]
     );
 
+    // The vertical primary-color bar replaces the previous reply-arrow
+    // icon. The bar reads as "this is quoted material" without needing
+    // an icon explaining it — closer to how Slack/Notion treat replies.
+    // `self-stretch` lets the bar match the line height even when the
+    // username + preview wrap on narrow widths.
     return (
       <button
         type="button"
         onClick={scrollToOriginal}
-        className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 pl-1 hover:text-foreground transition-colors cursor-pointer"
+        className="group flex items-center gap-2 text-xs mb-0.5 cursor-pointer text-left"
       >
-        <Reply className="h-3 w-3 rotate-180 shrink-0" />
-        <span className="font-semibold shrink-0">{getDisplayName(user)}</span>
-        <span className="truncate max-w-[300px]">
+        <span className="w-[2px] h-3.5 self-stretch rounded-full bg-primary/40 group-hover:bg-primary/70 shrink-0 transition-colors" />
+        <span className="font-semibold text-muted-foreground/90 group-hover:text-foreground transition-colors shrink-0">
+          {getDisplayName(user)}
+        </span>
+        <span className="truncate text-muted-foreground/70 max-w-[300px]">
           {replyTo.content ? (
             <ReplyContentPreview content={replyTo.content} />
           ) : replyTo.hasFiles ? (
