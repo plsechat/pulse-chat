@@ -458,7 +458,7 @@ describe('cross-server admin action scoping', () => {
     const tdb = getTestDb();
     const now = Date.now();
     const [inv] = await tdb.execute(sql`
-      INSERT INTO invites (code, server_id, created_by, max_uses, uses, created_at)
+      INSERT INTO invites (code, server_id, creator_id, max_uses, uses, created_at)
       VALUES (${`s2-inv-${randomUUIDv7()}`}, ${server2Id}, 2, 10, 0, ${now})
       RETURNING id
     `);

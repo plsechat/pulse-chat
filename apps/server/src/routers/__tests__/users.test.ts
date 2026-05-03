@@ -1,7 +1,9 @@
 import { type TTempFile } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
+import { sql } from 'drizzle-orm';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
+import { getTestDb } from '../../__tests__/mock-db';
 import { appRouter } from '../../routers';
 
 describe('users router', () => {
@@ -316,16 +318,18 @@ describe('users router', () => {
   test('should add role to user', async () => {
     const { caller } = await initTest();
 
+    // roleId 3 is the test seed's "Guest" role. Avoid roleId 1 because
+    // the OWNER_ROLE_ID grant block in add-role.ts now refuses it.
     await caller.users.addRole({
       userId: 2,
-      roleId: 1
+      roleId: 3
     });
 
     const info = await caller.users.getInfo({
       userId: 2
     });
 
-    expect(info.user.roleIds).toContain(1);
+    expect(info.user.roleIds).toContain(3);
   });
 
   test('should throw when adding duplicate role', async () => {
@@ -342,21 +346,22 @@ describe('users router', () => {
   test('should remove role from user', async () => {
     const { caller } = await initTest();
 
+    // roleId 3 is the Guest role (see "should add role to user" comment).
     await caller.users.addRole({
       userId: 2,
-      roleId: 1
+      roleId: 3
     });
 
     await caller.users.removeRole({
       userId: 2,
-      roleId: 1
+      roleId: 3
     });
 
     const info = await caller.users.getInfo({
       userId: 2
     });
 
-    expect(info.user.roleIds).not.toContain(1);
+    expect(info.user.roleIds).not.toContain(3);
   });
 
   test('should throw when removing non-existent role', async () => {
@@ -449,11 +454,25 @@ describe('users router', () => {
   });
 
   test('should handle multiple role operations', async () => {
+    const tdb = getTestDb();
+    const now = Date.now();
+
+    // Need a second non-owner role to test "add multiple, remove one,
+    // verify the other remains". The seed has Owner(1)/Member(2)/Guest(3);
+    // since OWNER_ROLE_ID can no longer be granted via add-role, create
+    // a fresh test role on serverId=1.
+    const [extraRole] = await tdb.execute(sql`
+      INSERT INTO roles (name, color, is_persistent, is_default, server_id, created_at)
+      VALUES ('Test Extra Role', '#abcdef', false, false, 1, ${now})
+      RETURNING id
+    `);
+    const extraRoleId = (extraRole as { id: number }).id;
+
     const { caller } = await initTest();
 
     await caller.users.addRole({
       userId: 2,
-      roleId: 1
+      roleId: extraRoleId
     });
 
     await caller.users.addRole({
@@ -465,19 +484,19 @@ describe('users router', () => {
       userId: 2
     });
 
-    expect(info.user.roleIds).toContain(1);
+    expect(info.user.roleIds).toContain(extraRoleId);
     expect(info.user.roleIds).toContain(3);
 
     await caller.users.removeRole({
       userId: 2,
-      roleId: 1
+      roleId: extraRoleId
     });
 
     const updatedInfo = await caller.users.getInfo({
       userId: 2
     });
 
-    expect(updatedInfo.user.roleIds).not.toContain(1);
+    expect(updatedInfo.user.roleIds).not.toContain(extraRoleId);
     expect(updatedInfo.user.roleIds).toContain(3);
   });
 
