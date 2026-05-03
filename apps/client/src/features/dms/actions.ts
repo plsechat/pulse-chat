@@ -425,7 +425,14 @@ export async function decryptDmMessageInPlace<
  * We also batch-read the IDB plaintext cache upfront so that cache hits
  * (the common case on page reload) don't each await a separate IDB get.
  */
-async function decryptDmMessages(
+/**
+ * Single source of truth for "decrypt a batch of DM messages for
+ * display." Used by every consumer that fetches DM messages from the
+ * server: history pagination, the pin banner, the pinned-panel, etc.
+ * Wiring new fetchers through this avoids the bug class where a path
+ * forgets to decrypt and shows raw Signal envelope JSON.
+ */
+export async function decryptDmMessages(
   messages: TJoinedDmMessage[]
 ): Promise<TJoinedDmMessage[]> {
   const e2eeMessages = messages.filter((m) => m.e2ee && m.content);

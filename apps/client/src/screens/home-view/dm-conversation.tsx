@@ -19,6 +19,7 @@ import Spinner from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
 import {
+  decryptDmMessages,
   deleteDmMessageAction,
   editDmMessage,
   sendDmMessage
@@ -730,7 +731,10 @@ const DmPinnedMessagesPanel = memo(
         const trpc = getTRPCClient();
         if (!trpc) return;
         const messages = await trpc.dms.getPinned.query({ dmChannelId });
-        setPinnedMessages(messages);
+        // Same batch decryptor used by history + live + banner so E2EE
+        // pins land as plaintext and replyTo previews are decrypted.
+        const decrypted = await decryptDmMessages(messages);
+        setPinnedMessages(decrypted);
       } catch (err) {
         toast.error(getTrpcError(err, 'Failed to load pinned messages'));
       } finally {

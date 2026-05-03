@@ -2,15 +2,12 @@ import { saveFederatedServers, setActiveView } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
 import { connectionManager } from '@/lib/connection-manager';
-import { decryptChannelMessage } from '@/lib/e2ee';
-import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import {
   combineUnsubscribes,
   subscribe,
   type Unsubscribe
 } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
-import type { TJoinedMessage } from '@pulse/shared';
 import {
   addMessages,
   addTypingUser,
@@ -19,51 +16,8 @@ import {
   purgeChannelMessages,
   updateMessage
 } from './actions';
+import { decryptChannelMessageForDisplay } from './decrypt';
 
-async function decryptReplyToContent(
-  replyTo: NonNullable<TJoinedMessage['replyTo']>,
-  channelId: number
-): Promise<NonNullable<TJoinedMessage['replyTo']>> {
-  if (!replyTo.e2ee || !replyTo.content) return replyTo;
-  try {
-    const payload = await decryptChannelMessage(
-      channelId,
-      replyTo.userId,
-      replyTo.content
-    );
-    return { ...replyTo, content: payload.content };
-  } catch {
-    return { ...replyTo, content: '[Unable to decrypt]' };
-  }
-}
-
-async function decryptE2eeMessage(
-  message: TJoinedMessage
-): Promise<TJoinedMessage> {
-  // Always pass the replyTo through the decryptor when present —
-  // server returns ciphertext for e2ee parents, and unlike DMs the
-  // channel sender-key scheme is idempotent so this is cheap.
-  const replyTo = message.replyTo
-    ? await decryptReplyToContent(message.replyTo, message.channelId)
-    : message.replyTo;
-
-  if (!message.e2ee || !message.content) {
-    return replyTo === message.replyTo ? message : { ...message, replyTo };
-  }
-
-  try {
-    const payload = await decryptChannelMessage(
-      message.channelId,
-      message.userId,
-      message.content
-    );
-    setFileKeys(message.id, payload.fileKeys);
-    return { ...message, content: payload.content, replyTo };
-  } catch (err) {
-    console.error('[E2EE] Failed to decrypt channel message:', err);
-    return { ...message, content: '[Unable to decrypt]', replyTo };
-  }
-}
 
 const subscribeToMessages = () => {
   const trpc = getTRPCClient();
@@ -77,11 +31,11 @@ const subscribeToMessages = () => {
   // to prevent.
   const subs: Unsubscribe[] = [
     subscribe('onMessage', trpc.messages.onNew, async (message) => {
-      const decrypted = await decryptE2eeMessage(message);
+      const decrypted = await decryptChannelMessageForDisplay(message);
       addMessages(decrypted.channelId, [decrypted], {}, true);
     }),
     subscribe('onMessageUpdate', trpc.messages.onUpdate, async (message) => {
-      const decrypted = await decryptE2eeMessage(message);
+      const decrypted = await decryptChannelMessageForDisplay(message);
       updateMessage(decrypted.channelId, decrypted);
     }),
     subscribe(

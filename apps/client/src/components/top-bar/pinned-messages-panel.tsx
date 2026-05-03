@@ -3,6 +3,7 @@ import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-sh
 import { Protect } from '@/components/protect';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
+import { decryptChannelMessages } from '@/features/server/messages/decrypt';
 import { useUserById } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { longDateTime } from '@/helpers/time-format';
@@ -80,8 +81,11 @@ const PinnedMessagesPanel = memo(
         const trpc = getTRPCClient();
         if (!trpc) return;
         const messages = await trpc.messages.getPinned.query({ channelId });
-
-        setPinnedMessages(messages);
+        // Run pinned messages through the same decrypt path as history
+        // and live messages so E2EE pins render as plaintext, not as
+        // raw sender-key ciphertext.
+        const decrypted = await decryptChannelMessages(messages);
+        setPinnedMessages(decrypted);
       } catch (err) {
         toast.error(getTrpcError(err, 'Failed to load pinned messages'));
       } finally {

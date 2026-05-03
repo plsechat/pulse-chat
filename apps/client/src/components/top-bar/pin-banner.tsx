@@ -1,6 +1,7 @@
 import { MessageRenderer } from '@/components/channel-view/text/renderer';
 import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
+import { decryptChannelMessages } from '@/features/server/messages/decrypt';
 import { useUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getTRPCClient } from '@/lib/trpc';
@@ -32,9 +33,13 @@ const PinBanner = memo(() => {
         setLatest(null);
         return;
       }
+      // Decrypt before display so E2EE pins don't render as raw
+      // sender-key ciphertext. The shared decryptor also handles the
+      // replyTo preview and is the single path used by history + live.
+      const decrypted = await decryptChannelMessages(messages);
       // Server returns pinned messages in createdAt order — pick the
       // newest by id so a manually-resorted backfill doesn't fool us.
-      const newest = [...messages].sort((a, b) => b.id - a.id)[0];
+      const newest = [...decrypted].sort((a, b) => b.id - a.id)[0];
       setLatest(newest);
     } catch {
       setLatest(null);

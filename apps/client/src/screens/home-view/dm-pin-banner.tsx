@@ -1,5 +1,6 @@
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
+import { decryptDmMessages } from '@/features/dms/actions';
 import { useUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getTRPCClient } from '@/lib/trpc';
@@ -28,7 +29,10 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
         setLatest(null);
         return;
       }
-      const newest = [...messages].sort((a, b) => b.id - a.id)[0];
+      // Decrypt before display via the same batch helper used by
+      // history + live so an E2EE pin doesn't show the raw envelope.
+      const decrypted = await decryptDmMessages(messages);
+      const newest = [...decrypted].sort((a, b) => b.id - a.id)[0];
       setLatest(newest);
     } catch {
       setLatest(null);

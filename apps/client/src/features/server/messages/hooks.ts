@@ -1,75 +1,11 @@
 import type { IRootState } from '@/features/store';
-import {
-  decryptChannelMessage,
-  fetchAndProcessPendingSenderKeys
-} from '@/lib/e2ee';
-import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { addMessages } from './actions';
+import { decryptChannelMessages } from './decrypt';
 import { messagesByChannelIdSelector } from './selectors';
-
-async function decryptE2eeMessages(
-  messages: TJoinedMessage[]
-): Promise<TJoinedMessage[]> {
-  // Pre-fetch all pending sender keys for channels in this batch so that
-  // the per-message decryptChannelMessage calls hit the in-memory cache
-  // instead of each independently fetching from the server.
-  const e2eeChannelIds = new Set(
-    messages
-      .filter((m) => m.e2ee && m.content)
-      .map((m) => m.channelId)
-  );
-  await Promise.all(
-    [...e2eeChannelIds].map((channelId) =>
-      fetchAndProcessPendingSenderKeys(channelId)
-    )
-  );
-
-  // Decrypt the inline reply-preview ciphertext alongside the message
-  // body. Channel sender-key decrypt is idempotent so this is cheap.
-  async function maybeDecryptReplyTo(
-    replyTo: NonNullable<TJoinedMessage['replyTo']> | null | undefined,
-    channelId: number
-  ): Promise<NonNullable<TJoinedMessage['replyTo']> | null | undefined> {
-    if (!replyTo || !replyTo.e2ee || !replyTo.content) return replyTo;
-    try {
-      const payload = await decryptChannelMessage(
-        channelId,
-        replyTo.userId,
-        replyTo.content
-      );
-      return { ...replyTo, content: payload.content };
-    } catch {
-      return { ...replyTo, content: '[Unable to decrypt]' };
-    }
-  }
-
-  return Promise.all(
-    messages.map(async (msg) => {
-      const replyTo = await maybeDecryptReplyTo(msg.replyTo, msg.channelId);
-
-      if (!msg.e2ee || !msg.content) {
-        return replyTo === msg.replyTo ? msg : { ...msg, replyTo };
-      }
-
-      try {
-        const payload = await decryptChannelMessage(
-          msg.channelId,
-          msg.userId,
-          msg.content
-        );
-        setFileKeys(msg.id, payload.fileKeys);
-        return { ...msg, content: payload.content, replyTo };
-      } catch (err) {
-        console.error('[E2EE] Failed to decrypt channel message:', err);
-        return { ...msg, content: '[Unable to decrypt]', replyTo };
-      }
-    })
-  );
-}
 
 export const useMessagesByChannelId = (channelId: number) =>
   useSelector((state: IRootState) =>
@@ -99,7 +35,7 @@ export const useMessages = (channelId: number) => {
             limit: DEFAULT_MESSAGES_LIMIT
           });
 
-        const decryptedPage = await decryptE2eeMessages(rawPage);
+        const decryptedPage = await decryptChannelMessages(rawPage);
         const page = [...decryptedPage].reverse();
         const existingIds = new Set(messages.map((m) => m.id));
         const filtered = page.filter((m) => !existingIds.has(m.id));
