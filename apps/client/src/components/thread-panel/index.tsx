@@ -3,16 +3,43 @@ import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useActiveThread } from '@/features/server/channels/hooks';
+import { useCan } from '@/features/server/hooks';
+import { useMessagesByChannelId } from '@/features/server/messages/hooks';
+import { useOwnUserId } from '@/features/server/users/hooks';
 import { Protect } from '@/components/protect';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { Archive, MessageSquare, Trash2, X } from 'lucide-react';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 
 const ThreadPanel = memo(() => {
   const thread = useActiveThread();
+  const ownUserId = useOwnUserId();
+  const can = useCan();
+  // The thread's messages live under the thread-channel id. The thread
+  // creator is whoever sent the first message in the thread (true for
+  // both forum threads, where the creator authored the post itself,
+  // and inline threads, which copy the source message in as the first
+  // message). The hooks return [] until messages load — falling back
+  // to "not creator" in that window is fine; the button just stays
+  // hidden until we know.
+  const threadMessages = useMessagesByChannelId(thread?.id ?? -1);
+  const isCreator =
+    !!thread &&
+    threadMessages.length > 0 &&
+    threadMessages[0].userId === ownUserId;
+  // Only the creator can delete *while no foreign user has posted*.
+  // Once anyone else posts, the thread is shared and only an admin
+  // (MANAGE_CHANNELS) can remove it. Mirrors the server-side gate in
+  // delete-thread.ts so the UI stays honest about what will succeed.
+  const hasForeignMessage = useMemo(
+    () => threadMessages.some((m) => m.userId !== ownUserId),
+    [threadMessages, ownUserId]
+  );
+  const canDeleteAsCreator = isCreator && !hasForeignMessage;
+  const canDelete = canDeleteAsCreator || can(Permission.MANAGE_CHANNELS);
 
   const onClose = useCallback(() => {
     setActiveThreadId(undefined);
@@ -80,16 +107,31 @@ const ThreadPanel = memo(() => {
           >
             <Archive className="w-4 h-4" />
           </Button>
+        </Protect>
+        {/*
+          Delete is shown to admins (MANAGE_CHANNELS) AND to the thread
+          creator while nobody else has posted. Wrapping in <Protect>
+          alone hid the button from creators of empty threads — which
+          was the whole point of the create-thread-by-accident escape
+          hatch. The server's delete-thread route enforces the same
+          two cases so the toast still surfaces if they're somehow
+          allowed by the UI but not by the server.
+        */}
+        {canDelete && (
           <Button
             variant="ghost"
             size="sm"
             onClick={onDelete}
             className="h-7 px-2 text-destructive hover:text-destructive"
-            title="Delete Thread"
+            title={
+              canDeleteAsCreator
+                ? 'Delete (only while empty)'
+                : 'Delete Thread'
+            }
           >
             <Trash2 className="w-4 h-4" />
           </Button>
-        </Protect>
+        )}
         <Button
           variant="ghost"
           size="sm"
