@@ -1,9 +1,9 @@
+import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import { useCan } from '@/features/server/hooks';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
-import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
+import { useIsOwnUser } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
-import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { Pin } from 'lucide-react';
@@ -13,7 +13,6 @@ import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
-import { ReplyContentPreview } from './reply-content-preview';
 import { useSelection } from './selection-context';
 import { ThreadIndicator } from './thread-indicator';
 
@@ -22,57 +21,10 @@ type TMessageProps = {
   onReply: () => void;
 };
 
-const ReplyPreview = memo(
-  ({
-    replyTo
-  }: {
-    replyTo: {
-      id: number;
-      userId: number;
-      content: string | null;
-      hasFiles?: boolean;
-    };
-  }) => {
-    const user = useUserById(replyTo.userId);
-
-    const scrollToTarget = useScrollToMessage();
-    const scrollToOriginal = useCallback(
-      () => scrollToTarget(replyTo.id),
-      [scrollToTarget, replyTo.id]
-    );
-
-    // The vertical primary-color bar replaces the previous reply-arrow
-    // icon. The bar reads as "this is quoted material" without needing
-    // an icon explaining it — closer to how Slack/Notion treat replies.
-    // `self-stretch` lets the bar match the line height even when the
-    // username + preview wrap on narrow widths.
-    return (
-      <button
-        type="button"
-        onClick={scrollToOriginal}
-        className="group flex items-center gap-2 text-xs mb-0.5 cursor-pointer text-left"
-      >
-        <span className="w-[2px] h-3.5 self-stretch rounded-full bg-primary/40 group-hover:bg-primary/70 shrink-0 transition-colors" />
-        <span className="font-semibold text-muted-foreground/90 group-hover:text-foreground transition-colors shrink-0">
-          {getDisplayName(user)}
-        </span>
-        <span className="truncate text-muted-foreground/70 max-w-[300px]">
-          {replyTo.content ? (
-            <ReplyContentPreview content={replyTo.content} />
-          ) : replyTo.hasFiles ? (
-            'Attachment'
-          ) : (
-            'Message deleted'
-          )}
-        </span>
-      </button>
-    );
-  }
-);
-
 const Message = memo(({ message, onReply }: TMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const isFromOwnUser = useIsOwnUser(message.userId);
+  const scrollToMessage = useScrollToMessage();
   const can = useCan();
   const { selectionMode, selectedIds, handleSelect } = useSelection();
   const highlightedId = useSelector(
@@ -145,7 +97,9 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
             <span>Pinned</span>
           </div>
         )}
-        {message.replyTo && <ReplyPreview replyTo={message.replyTo} />}
+        {message.replyTo && (
+          <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToMessage} />
+        )}
         {!isEditing ? (
           <>
             <MessageRenderer message={message} />

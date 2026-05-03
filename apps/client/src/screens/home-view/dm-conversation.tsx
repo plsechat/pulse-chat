@@ -5,6 +5,8 @@ import {
   ComposerResizer,
   MIN_COMPOSER_HEIGHT
 } from '@/components/channel-view/text/composer-expand';
+import { DateDivider } from '@/components/chat-primitives/date-divider';
+import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { MessageReactions } from '@/components/channel-view/text/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
@@ -346,17 +348,41 @@ const DmConversation = memo(
       >
         <div className="space-y-4">
           {groupedMessages.map((group, index) => {
-            if (group[0].type === 'system') {
-              return <SystemMessage key={index} message={group[0]} />;
-            }
-            return <DmMessagesGroup key={index} group={group} onReply={handleReply} />;
+            // Day-divider logic mirrors the channel view exactly —
+            // see channel-view/text/index.tsx for the same shape.
+            const currentDay = new Date(group[0].createdAt).toDateString();
+            const prevDay =
+              index > 0
+                ? new Date(groupedMessages[index - 1][0].createdAt).toDateString()
+                : null;
+            const showDateDivider = prevDay !== null && currentDay !== prevDay;
+
+            return (
+              <div key={index}>
+                {showDateDivider && (
+                  <DateDivider timestamp={group[0].createdAt} />
+                )}
+                {group[0].type === 'system' ? (
+                  <SystemMessage message={group[0]} />
+                ) : (
+                  <DmMessagesGroup group={group} onReply={handleReply} />
+                )}
+              </div>
+            );
           })}
         </div>
       </div>
 
       <DmUsersTyping dmChannelId={dmChannelId} />
 
-      <div className="flex flex-col gap-2 border-t border-border p-2">
+      {/* Outer wrapper now matches the channel composer exactly:
+          `flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0` — same padding
+          shape, no border-top (the messages area's spacing handles
+          visual separation). Without this, the DM input box's
+          horizontal position differed from the channel's by ~8px,
+          making it look misaligned with the user-control box below
+          the sidebar. */}
+      <div className="flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
         {replyingTo && (
           <DmReplyBar
             message={replyingTo}
@@ -861,49 +887,16 @@ const DmMessagesGroup = memo(
   }
 );
 
-const DmReplyPreview = memo(
-  ({
-    replyTo
-  }: {
-    replyTo: {
-      id: number;
-      userId: number;
-      content: string | null;
-      hasFiles?: boolean;
-    };
-  }) => {
-    const user = useUserById(replyTo.userId);
-
-    const scrollToOriginal = useCallback(() => {
-      const el = document.getElementById(`dm-msg-${replyTo.id}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('animate-msg-highlight');
-        setTimeout(() => el.classList.remove('animate-msg-highlight'), 2500);
-      }
-    }, [replyTo.id]);
-
-    return (
-      <button
-        type="button"
-        onClick={scrollToOriginal}
-        className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 pl-1 hover:text-foreground transition-colors cursor-pointer"
-      >
-        <Reply className="h-3 w-3 rotate-180 shrink-0" />
-        <span className="font-semibold shrink-0">{user?.name ?? 'Unknown'}</span>
-        <span className="truncate max-w-[300px]">
-          {replyTo.content ? (
-            <ReplyContentPreview content={replyTo.content} />
-          ) : replyTo.hasFiles ? (
-            'Attachment'
-          ) : (
-            'Message deleted'
-          )}
-        </span>
-      </button>
-    );
-  }
-);
+// Reply jump for DMs uses local DOM ids since there's no centralized
+// scroll controller. Same shape the old DmReplyPreview used; just
+// hoisted out so it can pair with the shared <ReplyPreview>.
+const scrollToDmMessage = (messageId: number) => {
+  const el = document.getElementById(`dm-msg-${messageId}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('animate-msg-highlight');
+  setTimeout(() => el.classList.remove('animate-msg-highlight'), 2500);
+};
 
 const DmReplyBar = memo(
   ({
@@ -1063,7 +1056,9 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
     <ContextMenu>
       <ContextMenuTrigger asChild>
     <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 ml-1 relative hover:bg-secondary/50 rounded-md px-1 py-0.5 group">
-      {message.replyTo && <DmReplyPreview replyTo={message.replyTo} />}
+      {message.replyTo && (
+        <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToDmMessage} />
+      )}
       {!isEditing ? (
         <>
           <DmMessageContent message={message} />
