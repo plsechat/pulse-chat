@@ -27,13 +27,37 @@ beforeAll(async () => {
   testsBaseUrl = 'http://localhost:9999';
 });
 
+// Retry helper for deadlocks during beforeEach. The HTTP test server
+// and the `tdb` client share a postgres-js pool (mock-db.ts forwards
+// `db` -> `tdb`), so a TRUNCATE in beforeEach can collide with a still-
+// in-flight HTTP-handler query from the previous test. Postgres rolls
+// back one side; retrying almost always succeeds on the second try.
+const POSTGRES_DEADLOCK_CODE = '40P01';
+
+async function executeWithDeadlockRetry(
+  fn: () => Promise<void>,
+  retries = 3
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await fn();
+      return;
+    } catch (err: unknown) {
+      const code = (err as { code?: string } | undefined)?.code;
+      if (code !== POSTGRES_DEADLOCK_CODE || attempt >= retries) throw err;
+      // backoff between retries to let the other transaction finish
+      await new Promise((r) => setTimeout(r, 50 * attempt));
+    }
+  }
+}
+
 beforeEach(async () => {
   const tdb = getTestDb();
 
   // Truncate all tables in reverse dependency order. Keep this list in
   // sync with the schema — leftover rows in tables that aren't truncated
   // here lengthen CASCADE chains and widen deadlock windows.
-  await tdb.execute(sql`TRUNCATE TABLE
+  await executeWithDeadlockRetry(() => tdb.execute(sql`TRUNCATE TABLE
     e2ee_sender_keys,
     user_key_backups,
     user_one_time_pre_keys,
@@ -79,7 +103,7 @@ beforeEach(async () => {
     categories,
     servers,
     settings
-    RESTART IDENTITY CASCADE`);
+    RESTART IDENTITY CASCADE`).then(() => undefined));
 
   await seedDatabase(tdb);
 
