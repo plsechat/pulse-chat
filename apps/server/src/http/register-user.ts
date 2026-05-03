@@ -155,7 +155,12 @@ const registerUser = async (
     );
   }
 
-  publishUser(registeredUser.id, 'create');
+  // Fire-and-forget: any error escapes as an unhandled rejection in the
+  // shared postgres pool, which CI surfaces as an unrelated test failure
+  // when a stale handler races the next test's TRUNCATE.
+  publishUser(registeredUser.id, 'create').catch((err) =>
+    logger.warn(`[register] publishUser failed for ${registeredUser.id}:`, err)
+  );
 
   if (inviteCode) {
     enqueueActivityLog({
