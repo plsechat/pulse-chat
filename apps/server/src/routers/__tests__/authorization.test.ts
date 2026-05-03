@@ -2,8 +2,16 @@ import { Permission } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
 import { sql } from 'drizzle-orm';
-import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
+import {
+  createTestCategory,
+  createTestChannel,
+  createTestRole,
+  createTestServer,
+  createTestServerMember,
+  grantTestUserRole
+} from '../../__tests__/fixtures';
+import { getTestDb } from '../../__tests__/mock-db';
 
 /**
  * Creates a second server with its own category, channel, and roles.
@@ -11,69 +19,25 @@ import { initTest } from '../../__tests__/helpers';
  * User 2 (regular member of server 1) becomes the owner of server 2.
  */
 async function createSecondServer() {
-  const tdb = getTestDb();
-  const now = Date.now();
-
-  const [server2] = await tdb.execute(sql`
-    INSERT INTO servers (name, description, password, public_id, secret_token,
-      allow_new_users, storage_uploads_enabled, storage_quota,
-      storage_upload_max_file_size, storage_space_quota_by_user,
-      storage_overflow_action, enable_plugins, owner_id, created_at)
-    VALUES ('Server 2', 'Second test server', '', ${randomUUIDv7()},
-      ${randomUUIDv7()}, true, true, 10737418240, 26214400, 104857600, 'reject', false,
-      2, ${now})
-    RETURNING id
-  `);
-
-  const server2Id = (server2 as { id: number }).id;
-
-  // Create category in server 2
-  const [cat2] = await tdb.execute(sql`
-    INSERT INTO categories (name, position, server_id, created_at)
-    VALUES ('Server 2 Category', 1, ${server2Id}, ${now})
-    RETURNING id
-  `);
-
-  const category2Id = (cat2 as { id: number }).id;
-
-  // Create channel in server 2
-  const [ch2] = await tdb.execute(sql`
-    INSERT INTO channels (type, name, position, file_access_token,
-      file_access_token_updated_at, category_id, server_id, created_at)
-    VALUES ('text', 'server2-general', 0, ${randomUUIDv7()}, ${now},
-      ${category2Id}, ${server2Id}, ${now})
-    RETURNING id
-  `);
-
-  const channel2Id = (ch2 as { id: number }).id;
-
-  // Create owner role for server 2 with all permissions
-  const [role2] = await tdb.execute(sql`
-    INSERT INTO roles (name, color, is_persistent, is_default, server_id, created_at)
-    VALUES ('Server2 Owner', '#ff0000', true, false, ${server2Id}, ${now})
-    RETURNING id
-  `);
-
-  const role2Id = (role2 as { id: number }).id;
-
-  // Grant all permissions to server 2 owner role
-  for (const perm of Object.values(Permission)) {
-    await tdb.execute(sql`
-      INSERT INTO role_permissions (role_id, permission, created_at)
-      VALUES (${role2Id}, ${perm}, ${now})
-    `);
-  }
-
-  // Make user 2 a member and owner of server 2
-  await tdb.execute(sql`
-    INSERT INTO server_members (server_id, user_id, joined_at, position)
-    VALUES (${server2Id}, 2, ${now}, 0)
-  `);
-
-  await tdb.execute(sql`
-    INSERT INTO user_roles (user_id, role_id, created_at)
-    VALUES (2, ${role2Id}, ${now})
-  `);
+  const server2Id = await createTestServer({ name: 'Server 2', ownerId: 2 });
+  const category2Id = await createTestCategory({
+    serverId: server2Id,
+    name: 'Server 2 Category',
+    position: 1
+  });
+  const channel2Id = await createTestChannel({
+    serverId: server2Id,
+    categoryId: category2Id,
+    name: 'server2-general'
+  });
+  const role2Id = await createTestRole({
+    serverId: server2Id,
+    name: 'Server2 Owner',
+    isPersistent: true,
+    permissions: Object.values(Permission)
+  });
+  await createTestServerMember({ serverId: server2Id, userId: 2 });
+  await grantTestUserRole(2, role2Id);
 
   return { server2Id, category2Id, channel2Id, role2Id };
 }

@@ -1,24 +1,18 @@
-import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
-import { sql } from 'drizzle-orm';
-import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
+import {
+  createTestCategory,
+  createTestChannel,
+  createTestServer,
+  createTestUser
+} from '../../__tests__/fixtures';
 
 /**
  * Creates a user that does NOT share any server with user 1.
  * Returns the new user's ID.
  */
 async function createIsolatedUser(name: string) {
-  const tdb = getTestDb();
-  const now = Date.now();
-
-  const [user] = await tdb.execute(sql`
-    INSERT INTO users (name, supabase_id, public_id, created_at, last_login_at)
-    VALUES (${name}, ${`isolated-${randomUUIDv7()}`}, ${randomUUIDv7()}, ${now}, ${now})
-    RETURNING id
-  `);
-
-  return (user as { id: number }).id;
+  return createTestUser({ name });
 }
 
 describe('DM creation access control', () => {
@@ -64,40 +58,19 @@ describe('friend request access control', () => {
 
 describe('get visible users access control', () => {
   test('should deny querying visible users for a channel in another server', async () => {
-    const tdb = getTestDb();
-    const now = Date.now();
-
-    // Create another server with a channel
-    const [server2] = await tdb.execute(sql`
-      INSERT INTO servers (name, description, password, public_id, secret_token,
-        allow_new_users, storage_uploads_enabled, storage_quota,
-        storage_upload_max_file_size, storage_space_quota_by_user,
-        storage_overflow_action, enable_plugins, owner_id, created_at)
-      VALUES ('Isolated Server', '', '', ${randomUUIDv7()},
-        ${randomUUIDv7()}, true, true, 10737418240, 26214400, 104857600, 'reject', false,
-        2, ${now})
-      RETURNING id
-    `);
-
-    const server2Id = (server2 as { id: number }).id;
-
-    const [cat] = await tdb.execute(sql`
-      INSERT INTO categories (name, position, server_id, created_at)
-      VALUES ('Cat', 0, ${server2Id}, ${now})
-      RETURNING id
-    `);
-
-    const catId = (cat as { id: number }).id;
-
-    const [ch] = await tdb.execute(sql`
-      INSERT INTO channels (type, name, position, file_access_token,
-        file_access_token_updated_at, category_id, server_id, created_at)
-      VALUES ('text', 'isolated-channel', 0, ${randomUUIDv7()}, ${now},
-        ${catId}, ${server2Id}, ${now})
-      RETURNING id
-    `);
-
-    const channelId = (ch as { id: number }).id;
+    const server2Id = await createTestServer({
+      name: 'Isolated Server',
+      ownerId: 2
+    });
+    const catId = await createTestCategory({
+      serverId: server2Id,
+      name: 'Cat'
+    });
+    const channelId = await createTestChannel({
+      serverId: server2Id,
+      categoryId: catId,
+      name: 'isolated-channel'
+    });
 
     // User 1 is NOT a member of server2
     const { caller } = await initTest(1);
