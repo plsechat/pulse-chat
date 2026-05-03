@@ -123,7 +123,7 @@ const PinnedMessagesPanel = memo(
     );
 
     return (
-      <div className="absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
+      <div className="absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
         <div className="flex items-center justify-between p-3 border-b border-border/30 sticky top-0 bg-popover z-10">
           <div className="flex items-center gap-2">
             <Pin className="w-4 h-4" />

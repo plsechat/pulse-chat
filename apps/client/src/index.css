@@ -207,6 +207,23 @@
   button {
     cursor: pointer;
   }
+  /*
+   * Default keyboard-focus ring for any interactive element that opted
+   * out of the browser's chunky blue outline (via `outline-none`) but
+   * never set its own focus-visible style. The Button primitive in
+   * components/ui/button.tsx already paints its own ring; this layer
+   * is the floor for ad-hoc <button>s, anchors, and role="button"
+   * divs scattered through the app so keyboard users always see where
+   * focus is. Mouse users get nothing (it's `:focus-visible`, not
+   * `:focus`).
+   */
+  button:focus-visible,
+  a:focus-visible,
+  [role='button']:focus-visible,
+  [role='menuitem']:focus-visible,
+  [tabindex]:focus-visible {
+    @apply outline-none ring-2 ring-ring/60 ring-offset-2 ring-offset-background;
+  }
 }
 
 html,

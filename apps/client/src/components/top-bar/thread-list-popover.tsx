@@ -102,7 +102,7 @@ const ThreadListPopover = memo(
     );
 
     return (
-      <div className="absolute right-0 top-full mt-1 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+      <div className="absolute right-0 top-full mt-1 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
           <span className="text-sm font-medium">Threads</span>
           <Button

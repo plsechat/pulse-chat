@@ -132,7 +132,7 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
   }, []);
 
   return (
-    <div className="absolute right-0 top-full mt-1 z-50 w-[28rem] rounded-lg border border-border bg-popover shadow-lg flex flex-col max-h-[32rem]">
+    <div className="absolute right-0 top-full mt-1 z-50 w-[28rem] rounded-lg border border-border bg-popover shadow-lg flex flex-col max-h-[32rem] animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
       {/* Header */}
       <div className="flex items-center gap-2 p-3 border-b border-border/30">
         <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />

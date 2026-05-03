@@ -106,8 +106,8 @@ const ServerIcon = memo(
           className={cn(
             'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
             isActive
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
           )}
           title={server.name}
         >
@@ -179,8 +179,8 @@ const FederatedServerIcon = memo(
           className={cn(
             'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
             isActive
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl',
+              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20',
             isOffline && 'opacity-50'
           )}
           title={`${entry.server.name} (${entry.instanceDomain})${statusSuffix}`}
@@ -475,8 +475,8 @@ const ServerStrip = memo(() => {
               className={cn(
                 'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
                 activeView === 'home'
-                  ? 'bg-primary text-primary-foreground rounded-xl'
-                  : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+                  ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+                  : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
               )}
               title="Home"
             >
@@ -681,7 +681,7 @@ const ServerStrip = memo(() => {
 
       <button
         onClick={handleCreateServer}
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:rounded-xl"
+        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20"
         title="Create Server"
       >
         <Plus className="h-6 w-6" />
@@ -697,8 +697,8 @@ const ServerStrip = memo(() => {
           className={cn(
             'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
             activeView === 'discover'
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+              : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
           )}
           title="Discover Servers"
         >

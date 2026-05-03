@@ -110,7 +110,7 @@ const MessageActions = memo(
     );
 
     return (
-      <div className="gap-0.5 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center rounded-md shadow-md border border-border bg-card/90 backdrop-blur-sm p-0.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-150 h-8">
+      <div className="gap-0.5 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center rounded-md shadow-md border border-border bg-card/90 backdrop-blur-sm p-0.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-150 h-8 [&_button[data-slot=icon-button]]:rounded [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60">
         {canEdit && (
           <IconButton
             size="sm"
