@@ -34,11 +34,20 @@ const registerUser = async (
 
   const now = Date.now();
 
-  // Wrapped in a transaction so the owner-claim race is decided by the
-  // atomic UPDATE on servers.owner_id below — only one concurrent registrar
-  // can flip the row from NULL to a userId.
-  const becameOwner = await db.transaction(async (tx) => {
-    const [user] = await tx
+  // Probe the owner-claim flag outside the heavy path. Once the bootstrap
+  // server has an owner the value never goes back to NULL in normal
+  // operation, so most registrations skip the transaction below and avoid
+  // any lock on `servers[id=1]` — important because the test setup
+  // TRUNCATE in beforeEach contends with this row and produced a deadlock.
+  const [bootstrap] = await db
+    .select({ ownerId: servers.ownerId })
+    .from(servers)
+    .where(eq(servers.id, BOOTSTRAP_SERVER_ID))
+    .limit(1);
+  const ownerSlotIsOpen = !!bootstrap && bootstrap.ownerId == null;
+
+  if (!ownerSlotIsOpen) {
+    const [user] = await db
       .insert(users)
       .values({
         name,
@@ -55,7 +64,7 @@ const registerUser = async (
 
     const defaultRole = await getDefaultRole();
     if (defaultRole) {
-      await tx
+      await db
         .insert(userRoles)
         .values({
           userId: user.id,
@@ -64,42 +73,75 @@ const registerUser = async (
         })
         .onConflictDoNothing();
     }
+  }
 
-    // Atomic owner claim: only succeeds if servers[id=1].owner_id is still
-    // NULL. The first transaction to commit wins; subsequent registrations
-    // get 0 rows back and proceed as a regular user.
-    const claim = await tx
-      .update(servers)
-      .set({ ownerId: user.id, updatedAt: now })
-      .where(
-        and(eq(servers.id, BOOTSTRAP_SERVER_ID), isNull(servers.ownerId))
-      )
-      .returning({ id: servers.id });
+  // First-user path: serialize through a transaction so concurrent
+  // registrations are decided by the atomic UPDATE on servers.owner_id.
+  // The probe above can lose the race (two callers see NULL simultaneously)
+  // — the WHERE-isNull guard is the actual safety; the probe is just a
+  // fast path for the common case.
+  const becameOwner = ownerSlotIsOpen
+    ? await db.transaction(async (tx) => {
+        const [user] = await tx
+          .insert(users)
+          .values({
+            name,
+            supabaseId: supabaseUserId,
+            publicId: randomUUIDv7(),
+            createdAt: now
+          })
+          .returning();
 
-    if (claim.length === 0) return false;
+        invariant(user, {
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'User registration failed'
+        });
 
-    await tx
-      .insert(serverMembers)
-      .values({
-        serverId: BOOTSTRAP_SERVER_ID,
-        userId: user.id,
-        joinedAt: now
+        const defaultRole = await getDefaultRole();
+        if (defaultRole) {
+          await tx
+            .insert(userRoles)
+            .values({
+              userId: user.id,
+              roleId: defaultRole.id,
+              createdAt: now
+            })
+            .onConflictDoNothing();
+        }
+
+        const claim = await tx
+          .update(servers)
+          .set({ ownerId: user.id, updatedAt: now })
+          .where(
+            and(eq(servers.id, BOOTSTRAP_SERVER_ID), isNull(servers.ownerId))
+          )
+          .returning({ id: servers.id });
+
+        if (claim.length === 0) return false;
+
+        await tx
+          .insert(serverMembers)
+          .values({
+            serverId: BOOTSTRAP_SERVER_ID,
+            userId: user.id,
+            joinedAt: now
+          })
+          .onConflictDoNothing();
+
+        // Lockstep with servers.ownerId — keeps the legacy role-based owner
+        // path consistent for downstream code that still inspects roleIds.
+        await tx
+          .insert(userRoles)
+          .values({
+            userId: user.id,
+            roleId: OWNER_ROLE_ID,
+            createdAt: now
+          })
+          .onConflictDoNothing();
+
+        return true;
       })
-      .onConflictDoNothing();
-
-    // Lockstep with servers.ownerId — keeps the legacy role-based owner
-    // path consistent for downstream code that still inspects roleIds.
-    await tx
-      .insert(userRoles)
-      .values({
-        userId: user.id,
-        roleId: OWNER_ROLE_ID,
-        createdAt: now
-      })
-      .onConflictDoNothing();
-
-    return true;
-  });
+    : false;
 
   const registeredUser = await getUserBySupabaseId(supabaseUserId);
 
