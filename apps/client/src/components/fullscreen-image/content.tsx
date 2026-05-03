@@ -1,3 +1,4 @@
+import { useEscapeKey } from '@/hooks/use-escape-key';
 import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
@@ -71,27 +72,21 @@ const FullScreenImage = memo((props: TFullScreenImageProps) => {
     }
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCloseClick();
-      }
-    };
+  useEscapeKey(onCloseClick, open);
 
-    if (open) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('wheel', handleScroll, { passive: false });
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
+  useEffect(() => {
+    if (!open) return;
+
+    document.addEventListener('wheel', handleScroll, { passive: false });
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('wheel', handleScroll);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [onCloseClick, open, handleScroll, handleMouseMove, handleMouseUp]);
+  }, [open, handleScroll, handleMouseMove, handleMouseUp]);
 
   useEffect(() => {
     if (isDragging) {

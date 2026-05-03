@@ -1,8 +1,9 @@
 import { useModViewOpen } from '@/features/app/hooks';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useServerScreenInfo } from '@/features/server-screens/hooks';
+import { useEscapeKey } from '@/hooks/use-escape-key';
 import { X } from 'lucide-react';
-import { createElement, memo, useCallback, useEffect, type JSX } from 'react';
+import { createElement, memo, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { CategorySettings } from './category-settings';
 import { ChannelSettings } from './channel-settings';
@@ -26,25 +27,9 @@ type TComponentWrapperProps = {
 const ComponentWrapper = ({ children }: TComponentWrapperProps) => {
   const { isOpen } = useModViewOpen();
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      // when mod view is open, do not close server screens
-      if (isOpen) return;
-
-      if (e.key === 'Escape') {
-        closeServerScreens();
-      }
-    },
-    [isOpen]
-  );
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [handleKeyDown]);
+  // When mod view is open, do not close server screens — the mod
+  // view sheet has its own escape-handler.
+  useEscapeKey(closeServerScreens, !isOpen);
 
   return (
     <>

@@ -1,6 +1,6 @@
-import { getAccessToken } from '@/lib/supabase';
 import { store } from '@/features/store';
 import { encryptFile } from '@/lib/e2ee/file-crypto';
+import { getAccessToken } from '@/lib/supabase';
 import { UploadHeaders, type TTempFile } from '@pulse/shared';
 import { toast } from 'sonner';
 import { getUrlFromServer } from './get-file-url';
@@ -12,68 +12,79 @@ export type TEncryptedUploadResult = {
   mimeType: string;
 };
 
-const uploadFile = async (file: File) => {
+/**
+ * Resolve the upload endpoint and auth headers for the active server
+ * (home vs federated). Both `uploadFile` and `uploadEncryptedFile`
+ * shared the exact same 30-line "if active federated → federation
+ * token, else → access token" branch — drift-prone, since each path
+ * also chose its own MIME type and content-length, easy to update
+ * one and forget the other.
+ */
+const buildUploadRequest = async (params: {
+  type: string;
+  contentLength: number;
+  originalName: string;
+}): Promise<{ url: string; headers: Record<string, string> } | null> => {
   const state = store.getState();
   const activeInstanceDomain = state.app.activeInstanceDomain;
 
-  let url: string;
   const headers: Record<string, string> = {
     'Content-Type': 'application/octet-stream',
-    [UploadHeaders.TYPE]: file.type,
-    [UploadHeaders.CONTENT_LENGTH]: file.size.toString(),
-    [UploadHeaders.ORIGINAL_NAME]: file.name
+    [UploadHeaders.TYPE]: params.type,
+    [UploadHeaders.CONTENT_LENGTH]: params.contentLength.toString(),
+    [UploadHeaders.ORIGINAL_NAME]: params.originalName
   };
 
   if (activeInstanceDomain) {
-    // On a federated server — upload to the remote instance
+    // On a federated server — upload to the remote instance.
     const entry = state.app.federatedServers.find(
       (s) => s.instanceDomain === activeInstanceDomain
     );
-
     if (!entry) {
       toast.error('Federated server connection not found');
-      return undefined;
+      return null;
     }
-
-    url = entry.remoteUrl;
     headers[UploadHeaders.TOKEN] = '';
     headers['x-federation-token'] = entry.federationToken;
-  } else {
-    // Local server — upload to home
-    url = getUrlFromServer();
-    headers[UploadHeaders.TOKEN] = (await getAccessToken()) ?? '';
+    return { url: entry.remoteUrl, headers };
   }
 
-  const res = await fetch(`${url}/upload`, {
+  // Local server — upload to home.
+  headers[UploadHeaders.TOKEN] = (await getAccessToken()) ?? '';
+  return { url: getUrlFromServer(), headers };
+};
+
+const uploadFile = async (file: File) => {
+  const req = await buildUploadRequest({
+    type: file.type,
+    contentLength: file.size,
+    originalName: file.name
+  });
+  if (!req) return undefined;
+
+  const res = await fetch(`${req.url}/upload`, {
     method: 'POST',
-    headers,
+    headers: req.headers,
     body: file
   });
 
   if (!res.ok) {
     const errorData = await res.json();
-
     toast.error(errorData.error || res.statusText);
-
     return undefined;
   }
 
   const tempFile: TTempFile = await res.json();
-
   return tempFile;
 };
 
 const uploadFiles = async (files: File[]) => {
   const uploadedFiles: TTempFile[] = [];
-
   for (const file of files) {
     const uploadedFile = await uploadFile(file);
-
     if (!uploadedFile) continue;
-
     uploadedFiles.push(uploadedFile);
   }
-
   return uploadedFiles;
 };
 
@@ -89,38 +100,16 @@ const uploadEncryptedFile = async (
     type: 'application/octet-stream'
   });
 
-  const state = store.getState();
-  const activeInstanceDomain = state.app.activeInstanceDomain;
+  const req = await buildUploadRequest({
+    type: 'application/octet-stream',
+    contentLength: encryptedFile.size,
+    originalName: file.name
+  });
+  if (!req) return undefined;
 
-  let url: string;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/octet-stream',
-    [UploadHeaders.TYPE]: 'application/octet-stream',
-    [UploadHeaders.CONTENT_LENGTH]: encryptedFile.size.toString(),
-    [UploadHeaders.ORIGINAL_NAME]: file.name
-  };
-
-  if (activeInstanceDomain) {
-    const entry = state.app.federatedServers.find(
-      (s) => s.instanceDomain === activeInstanceDomain
-    );
-
-    if (!entry) {
-      toast.error('Federated server connection not found');
-      return undefined;
-    }
-
-    url = entry.remoteUrl;
-    headers[UploadHeaders.TOKEN] = '';
-    headers['x-federation-token'] = entry.federationToken;
-  } else {
-    url = getUrlFromServer();
-    headers[UploadHeaders.TOKEN] = (await getAccessToken()) ?? '';
-  }
-
-  const res = await fetch(`${url}/upload`, {
+  const res = await fetch(`${req.url}/upload`, {
     method: 'POST',
-    headers,
+    headers: req.headers,
     body: encryptedFile
   });
 
@@ -136,13 +125,11 @@ const uploadEncryptedFile = async (
 
 const uploadEncryptedFiles = async (files: File[]) => {
   const results: TEncryptedUploadResult[] = [];
-
   for (const file of files) {
     const result = await uploadEncryptedFile(file);
     if (!result) continue;
     results.push(result);
   }
-
   return results;
 };
 

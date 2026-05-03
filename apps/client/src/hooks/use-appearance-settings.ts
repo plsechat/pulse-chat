@@ -1,9 +1,5 @@
-import {
-  getLocalStorageItemAsJSON,
-  LocalStorageKey,
-  setLocalStorageItemAsJSON
-} from '@/helpers/storage';
-import { syncPreference } from '@/lib/preferences-sync';
+import { LocalStorageKey } from '@/helpers/storage';
+import { createPreferenceStore } from '@/lib/preference-store';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type MessageSpacing = 'tight' | 'normal' | 'relaxed';
@@ -27,40 +23,6 @@ const defaultSettings: AppearanceSettings = {
   showFormattingHints: false
 };
 
-let listeners: Array<() => void> = [];
-let currentSettings: AppearanceSettings | null = null;
-
-const getSettings = (): AppearanceSettings => {
-  if (currentSettings === null) {
-    currentSettings =
-      getLocalStorageItemAsJSON<AppearanceSettings>(
-        LocalStorageKey.APPEARANCE_SETTINGS,
-        defaultSettings
-      ) ?? defaultSettings;
-  }
-  return currentSettings;
-};
-
-const subscribe = (listener: () => void) => {
-  listeners = [...listeners, listener];
-  return () => {
-    listeners = listeners.filter((l) => l !== listener);
-  };
-};
-
-const updateSettings = (partial: Partial<AppearanceSettings>) => {
-  currentSettings = { ...getSettings(), ...partial };
-  setLocalStorageItemAsJSON(
-    LocalStorageKey.APPEARANCE_SETTINGS,
-    currentSettings
-  );
-  applySettingsToDOM(currentSettings);
-  syncPreference({ appearance: partial });
-  for (const listener of listeners) {
-    listener();
-  }
-};
-
 const applySettingsToDOM = (settings: AppearanceSettings) => {
   const root = document.documentElement;
   root.style.setProperty('--font-scale', `${settings.fontScale / 100}`);
@@ -70,60 +32,55 @@ const applySettingsToDOM = (settings: AppearanceSettings) => {
   document.body.style.transformOrigin =
     settings.zoomLevel !== 100 ? 'top left' : '';
   document.body.style.width =
-    settings.zoomLevel !== 100
-      ? `${10000 / settings.zoomLevel}%`
-      : '';
+    settings.zoomLevel !== 100 ? `${10000 / settings.zoomLevel}%` : '';
   document.body.style.height =
-    settings.zoomLevel !== 100
-      ? `${10000 / settings.zoomLevel}%`
-      : '';
+    settings.zoomLevel !== 100 ? `${10000 / settings.zoomLevel}%` : '';
 };
 
-// Apply on load
-applySettingsToDOM(getSettings());
+const store = createPreferenceStore<AppearanceSettings>({
+  storageKey: LocalStorageKey.APPEARANCE_SETTINGS,
+  defaults: defaultSettings,
+  syncKey: 'appearance',
+  onChange: applySettingsToDOM
+});
 
-// Re-read from localStorage when server preferences are applied
-if (typeof window !== 'undefined') {
-  window.addEventListener('pulse-preferences-loaded', () => {
-    currentSettings = null;
-    const fresh = getSettings();
-    applySettingsToDOM(fresh);
-    for (const listener of listeners) {
-      listener();
-    }
-  });
-}
+// Apply on initial module load.
+applySettingsToDOM(store.getSettings());
 
 export const useAppearanceSettings = () => {
-  const settings = useSyncExternalStore(subscribe, getSettings);
+  const settings = useSyncExternalStore(store.subscribe, store.getSettings);
 
+  // Re-apply DOM side-effects on every mount; the store fires onChange
+  // on update, but a fresh component should also see the current state
+  // reflected on the DOM (e.g. after route changes).
   useEffect(() => {
     applySettingsToDOM(settings);
   }, [settings]);
 
-  const setCompactMode = useCallback((value: boolean) => {
-    updateSettings({ compactMode: value });
-  }, []);
-
-  const setMessageSpacing = useCallback((value: MessageSpacing) => {
-    updateSettings({ messageSpacing: value });
-  }, []);
-
-  const setFontScale = useCallback((value: number) => {
-    updateSettings({ fontScale: value });
-  }, []);
-
-  const setZoomLevel = useCallback((value: number) => {
-    updateSettings({ zoomLevel: value });
-  }, []);
-
-  const setTimeFormat = useCallback((value: TimeFormat) => {
-    updateSettings({ timeFormat: value });
-  }, []);
-
-  const setShowFormattingHints = useCallback((value: boolean) => {
-    updateSettings({ showFormattingHints: value });
-  }, []);
+  const setCompactMode = useCallback(
+    (value: boolean) => store.updateSettings({ compactMode: value }),
+    []
+  );
+  const setMessageSpacing = useCallback(
+    (value: MessageSpacing) => store.updateSettings({ messageSpacing: value }),
+    []
+  );
+  const setFontScale = useCallback(
+    (value: number) => store.updateSettings({ fontScale: value }),
+    []
+  );
+  const setZoomLevel = useCallback(
+    (value: number) => store.updateSettings({ zoomLevel: value }),
+    []
+  );
+  const setTimeFormat = useCallback(
+    (value: TimeFormat) => store.updateSettings({ timeFormat: value }),
+    []
+  );
+  const setShowFormattingHints = useCallback(
+    (value: boolean) => store.updateSettings({ showFormattingHints: value }),
+    []
+  );
 
   return {
     settings,
@@ -137,4 +94,4 @@ export const useAppearanceSettings = () => {
 };
 
 /** Non-React getter for current time format preference */
-export const getTimeFormat = (): TimeFormat => getSettings().timeFormat;
+export const getTimeFormat = (): TimeFormat => store.getSettings().timeFormat;
