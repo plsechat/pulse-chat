@@ -1,5 +1,5 @@
 import { useCan } from '@/features/server/hooks';
-import { setHighlightedMessageId } from '@/features/server/channels/actions';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
 import { getDisplayName } from '@/helpers/get-display-name';
@@ -28,16 +28,11 @@ const ReplyPreview = memo(
       ? stripToPlainText(replyTo.content).slice(0, 100)
       : 'Message deleted';
 
-    const scrollToOriginal = useCallback(() => {
-      setHighlightedMessageId(replyTo.id);
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`msg-${replyTo.id}`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      });
-      setTimeout(() => setHighlightedMessageId(undefined), 2500);
-    }, [replyTo.id]);
+    const scrollToTarget = useScrollToMessage();
+    const scrollToOriginal = useCallback(
+      () => scrollToTarget(replyTo.id),
+      [scrollToTarget, replyTo.id]
+    );
 
     return (
       <button

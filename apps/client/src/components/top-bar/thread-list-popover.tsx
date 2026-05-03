@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
-import { setActiveThreadId, setHighlightedMessageId } from '@/features/server/channels/actions';
+import { setActiveThreadId } from '@/features/server/channels/actions';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { useThreadsByParentChannelId } from '@/features/server/channels/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Archive, MessageSquare } from 'lucide-react';
@@ -85,28 +86,19 @@ const ThreadListPopover = memo(
       sourceMessageId: null
     }));
 
+    const scrollToMessage = useScrollToMessage();
     const onThreadClick = useCallback(
       (threadId: number, sourceMessageId?: number | null) => {
         setActiveThreadId(threadId);
 
         // Scroll the main channel to the source message and highlight it
         if (sourceMessageId) {
-          setHighlightedMessageId(sourceMessageId);
-
-          requestAnimationFrame(() => {
-            const el = document.getElementById(`msg-${sourceMessageId}`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          });
-
-          // Clear highlight after animation
-          setTimeout(() => setHighlightedMessageId(undefined), 2500);
+          scrollToMessage(sourceMessageId);
         }
 
         onClose();
       },
-      [onClose]
+      [onClose, scrollToMessage]
     );
 
     return (

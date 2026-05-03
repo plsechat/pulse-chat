@@ -22,7 +22,7 @@ import {
 } from '@pulse/shared';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { setHighlightedMessageId } from '@/features/server/channels/actions';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -87,16 +87,11 @@ const ReplyBar = memo(
       return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
     }, [message.content]);
 
-    const scrollToMessage = useCallback(() => {
-      setHighlightedMessageId(message.id);
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`msg-${message.id}`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      });
-      setTimeout(() => setHighlightedMessageId(undefined), 2500);
-    }, [message.id]);
+    const scrollToTarget = useScrollToMessage();
+    const scrollToMessage = useCallback(
+      () => scrollToTarget(message.id),
+      [scrollToTarget, message.id]
+    );
 
     return (
       <div className="flex items-center gap-2 rounded-t-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
