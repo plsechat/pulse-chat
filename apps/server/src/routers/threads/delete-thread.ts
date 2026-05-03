@@ -1,16 +1,22 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
 import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, messages } from '../../db/schema';
+import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const deleteThreadRoute = protectedProcedure
   .input(z.object({ threadId: z.number() }))
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [thread] = await db
       .select({
         id: channels.id,
@@ -20,7 +26,12 @@ const deleteThreadRoute = protectedProcedure
         parentChannelId: channels.parentChannelId
       })
       .from(channels)
-      .where(eq(channels.id, input.threadId))
+      .where(
+        and(
+          eq(channels.id, input.threadId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!thread || thread.type !== ChannelType.THREAD) {

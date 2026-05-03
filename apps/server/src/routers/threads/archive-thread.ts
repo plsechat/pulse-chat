@@ -1,10 +1,11 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { count, eq, max } from 'drizzle-orm';
+import { and, count, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
 import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, messages } from '../../db/schema';
+import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -16,10 +17,23 @@ const archiveThreadRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Scope to active server so a user with MANAGE_CHANNELS in server B
+    // can't archive a thread in server A (audit recurring rule:
+    // pulse-rule-cross-server-scope).
     const [thread] = await db
       .select()
       .from(channels)
-      .where(eq(channels.id, input.threadId))
+      .where(
+        and(
+          eq(channels.id, input.threadId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!thread || thread.type !== ChannelType.THREAD) {

@@ -1,6 +1,6 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
@@ -15,6 +15,7 @@ import {
 } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { fileManager } from '../../utils/file-manager';
+import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -29,7 +30,12 @@ const createForumPostRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    // Verify the channel exists and is a FORUM type
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Verify the channel exists, is a FORUM type, and is in the active server
     const [forumChannel] = await db
       .select({
         id: channels.id,
@@ -37,7 +43,12 @@ const createForumPostRoute = protectedProcedure
         serverId: channels.serverId
       })
       .from(channels)
-      .where(eq(channels.id, input.channelId))
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!forumChannel || forumChannel.type !== ChannelType.FORUM) {
