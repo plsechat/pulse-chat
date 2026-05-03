@@ -40,6 +40,20 @@ beforeAll(async () => {
 // HTTP-handler tail.
 const POSTGRES_DEADLOCK_CODE = '40P01';
 
+// Drizzle wraps the underlying postgres-js error in a DrizzleQueryError
+// whose `.code` is undefined — the postgres `code` lives on `.cause`.
+// Walk the cause chain so we catch deadlocks regardless of how many
+// layers wrap them.
+function isDeadlockError(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let depth = 0; cur && depth < 4; depth++) {
+    const code = (cur as { code?: string }).code;
+    if (code === POSTGRES_DEADLOCK_CODE) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 async function executeWithDeadlockRetry(
   fn: () => Promise<void>,
   retries = 6
@@ -49,8 +63,7 @@ async function executeWithDeadlockRetry(
       await fn();
       return;
     } catch (err: unknown) {
-      const code = (err as { code?: string } | undefined)?.code;
-      if (code !== POSTGRES_DEADLOCK_CODE || attempt >= retries) throw err;
+      if (!isDeadlockError(err) || attempt >= retries) throw err;
       // Exponential backoff: 100, 200, 400, 800, 1600 ms — gives the
       // colliding transaction enough time to finish before we retry.
       await new Promise((r) => setTimeout(r, 100 * 2 ** (attempt - 1)));
