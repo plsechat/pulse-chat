@@ -1,45 +1,13 @@
 import { ServerEvents } from '@pulse/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { userSubscription } from '../../utils/trpc';
 
-const onMessageDeleteRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_DELETE);
-  }
-);
-
-const onMessageBulkDeleteRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_BULK_DELETE);
-  }
-);
-
-const onMessageUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_UPDATE);
-  }
-);
-
-const onMessageRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.NEW_MESSAGE);
-});
-
-const onMessageTypingRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_TYPING);
-  }
-);
-
-const onMessagePinRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_PIN);
-  }
-);
-
-const onMessageUnpinRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.MESSAGE_UNPIN);
-  }
-);
+const onMessageDeleteRoute = userSubscription(ServerEvents.MESSAGE_DELETE);
+const onMessageBulkDeleteRoute = userSubscription(ServerEvents.MESSAGE_BULK_DELETE);
+const onMessageUpdateRoute = userSubscription(ServerEvents.MESSAGE_UPDATE);
+const onMessageRoute = userSubscription(ServerEvents.NEW_MESSAGE);
+const onMessageTypingRoute = userSubscription(ServerEvents.MESSAGE_TYPING);
+const onMessagePinRoute = userSubscription(ServerEvents.MESSAGE_PIN);
+const onMessageUnpinRoute = userSubscription(ServerEvents.MESSAGE_UNPIN);
 
 export {
   onMessageBulkDeleteRoute,
