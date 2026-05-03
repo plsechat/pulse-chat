@@ -81,6 +81,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { DmCallBanner } from '@/components/dm-call/call-banner';
 import { DmVoicePanel } from '@/components/dm-call/dm-voice-panel';
+import { DmPinBanner } from './dm-pin-banner';
 import { useDmCall, useOwnDmCallChannelId } from '@/features/dms/hooks';
 import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
 import { useVoice } from '@/features/server/voice/hooks';
@@ -326,6 +327,7 @@ const DmConversation = memo(
         profilePanelAvailable={profilePanelAvailable}
         onToggleProfilePanel={onToggleProfilePanel}
       />
+      <DmPinBanner dmChannelId={dmChannelId} />
       {isInThisCall ? (
         <DmVoicePanel dmChannelId={dmChannelId} />
       ) : (
