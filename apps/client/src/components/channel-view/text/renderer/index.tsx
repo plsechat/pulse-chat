@@ -26,6 +26,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Tooltip } from '../../../ui/tooltip';
 import { FileCard } from '../file-card';
+import { ImageContextMenu } from '../image-context-menu';
 import { MessageReactions } from '../message-reactions';
 import { AudioPlayer } from '../overrides/audio-player';
 import { ImageOverride } from '../overrides/image';
@@ -59,7 +60,11 @@ const MediaFile = memo(({
   }
 
   if (imageExtensions.includes(file.extension)) {
-    return <ImageOverride src={url} />;
+    return (
+      <ImageContextMenu src={url} filename={file.originalName}>
+        <ImageOverride src={url} />
+      </ImageContextMenu>
+    );
   }
   if (videoExtensions.includes(file.extension)) {
     return <VideoPlayer src={url} name={file.originalName} />;
@@ -256,7 +261,11 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       {/* Inline media from message HTML (links, embeds) */}
       {foundMedia.map((media, index) => {
         if (media.type === 'image') {
-          return <ImageOverride src={media.url} key={`inline-${index}`} />;
+          return (
+            <ImageContextMenu src={media.url} key={`inline-${index}`}>
+              <ImageOverride src={media.url} />
+            </ImageContextMenu>
+          );
         }
         if (media.type === 'video') {
           return <VideoPlayer src={media.url} name={media.name} key={`inline-${index}`} />;

@@ -1,4 +1,5 @@
 import { FileCard } from '@/components/channel-view/text/file-card';
+import { FormattingHints } from '@/components/channel-view/text/formatting-hints';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { MessageReactions } from '@/components/channel-view/text/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
@@ -38,6 +39,7 @@ import {
 } from '@pulse/shared';
 import { AudioPlayer } from '@/components/channel-view/text/overrides/audio-player';
 import { ImageOverride } from '@/components/channel-view/text/overrides/image';
+import { ImageContextMenu } from '@/components/channel-view/text/image-context-menu';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
@@ -361,6 +363,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             ))}
           </div>
         )}
+        <FormattingHints />
         <div ref={inputAreaRef} className="flex items-center gap-2 rounded-lg">
           <input
             ref={fileInputRef}
@@ -1115,7 +1118,11 @@ const DmMediaFile = memo(({
   }
 
   if (imageExtensions.includes(file.extension)) {
-    return <ImageOverride src={url} />;
+    return (
+      <ImageContextMenu src={url} filename={file.originalName}>
+        <ImageOverride src={url} />
+      </ImageContextMenu>
+    );
   }
   if (videoExtensions.includes(file.extension)) {
     return <VideoPlayer src={url} name={file.originalName} />;
@@ -1232,7 +1239,11 @@ const DmMessageContent = memo(
         {/* Inline media from message HTML */}
         {foundMedia.map((media, index) => {
           if (media.type === 'image') {
-            return <ImageOverride src={media.url} key={`inline-${index}`} />;
+            return (
+              <ImageContextMenu src={media.url} key={`inline-${index}`}>
+                <ImageOverride src={media.url} />
+              </ImageContextMenu>
+            );
           }
           if (media.type === 'video') {
             return <VideoPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
