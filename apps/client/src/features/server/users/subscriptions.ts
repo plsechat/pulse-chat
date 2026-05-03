@@ -87,7 +87,13 @@ const subscribeToUsers = () => {
   });
 
   const onUserDeleteSub = trpc.users.onDelete.subscribe(undefined, {
-    onData: (userId: number) => {
+    onData: ({ serverId, userId }: { serverId: number; userId: number }) => {
+      // Server-scoped delete (kick/ban/leave from `serverId`). Only mutate
+      // the local roster when we're actually viewing that server, otherwise
+      // we'd corrupt the active server's user list (audit H1, same shape as
+      // the USER_JOIN scope fix).
+      const activeServerId = store.getState().app.activeServerId;
+      if (serverId !== activeServerId) return;
       removeUser(userId);
     },
     onError: (err) => console.error('onUserDelete subscription error:', err)

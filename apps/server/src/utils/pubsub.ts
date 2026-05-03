@@ -43,7 +43,10 @@ type Events = {
   [ServerEvents.USER_LEAVE]: number;
   [ServerEvents.USER_CREATE]: TJoinedPublicUser;
   [ServerEvents.USER_UPDATE]: TJoinedPublicUser;
-  [ServerEvents.USER_DELETE]: number;
+  // Server-scoped: serverId is the server the user was removed from. Clients
+  // ignore the event when serverId !== activeServerId so a kick in server A
+  // doesn't corrupt the local roster of server B.
+  [ServerEvents.USER_DELETE]: { serverId: number; userId: number };
 
   [ServerEvents.CHANNEL_CREATE]: TChannel;
   [ServerEvents.CHANNEL_UPDATE]: TChannel;

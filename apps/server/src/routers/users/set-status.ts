@@ -19,7 +19,7 @@ const setStatusRoute = protectedProcedure
 
     // Broadcast the status change to all connected users (include the
     // runtime status since it's not stored in the database)
-    publishUser(ctx.userId, 'update', input.status);
+    publishUser(ctx.userId, 'update', { statusOverride: input.status });
   });
 
 export { setStatusRoute };

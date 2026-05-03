@@ -53,8 +53,11 @@ const kickRoute = protectedProcedure
       userId: input.userId
     });
 
-    // Notify other members to remove the user from the member list
-    publishUser(input.userId, 'delete');
+    // Notify the active server's members to drop the user from the roster.
+    // Note: this fires AFTER `removeServerMember`, so getServerMemberIds
+    // (inside publishUser) returns the remaining members — the kicked user
+    // already received USER_KICKED above and doesn't need USER_DELETE.
+    publishUser(input.userId, 'delete', { scopeServerId: ctx.activeServerId });
 
     enqueueActivityLog({
       type: ActivityLogType.USER_KICKED,

@@ -49,7 +49,12 @@ const banRoute = protectedProcedure
       })
       .where(eq(users.id, input.userId));
 
+    // Two events: a global 'update' so co-members across every shared server
+    // see the banned flag flip (e.g. for "this user is banned" indicators),
+    // and a server-scoped 'delete' so the active server's user list drops
+    // them — same UX as kick.
     publishUser(input.userId, 'update');
+    publishUser(input.userId, 'delete', { scopeServerId: ctx.activeServerId! });
 
     enqueueActivityLog({
       type: ActivityLogType.USER_BANNED,
