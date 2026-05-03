@@ -15,6 +15,7 @@ export type AppearanceSettings = {
   fontScale: number;
   zoomLevel: number;
   timeFormat: TimeFormat;
+  showFormattingHints: boolean;
 };
 
 const defaultSettings: AppearanceSettings = {
@@ -22,7 +23,8 @@ const defaultSettings: AppearanceSettings = {
   messageSpacing: 'normal',
   fontScale: 100,
   zoomLevel: 100,
-  timeFormat: '12h'
+  timeFormat: '12h',
+  showFormattingHints: false
 };
 
 let listeners: Array<() => void> = [];
@@ -119,13 +121,18 @@ export const useAppearanceSettings = () => {
     updateSettings({ timeFormat: value });
   }, []);
 
+  const setShowFormattingHints = useCallback((value: boolean) => {
+    updateSettings({ showFormattingHints: value });
+  }, []);
+
   return {
     settings,
     setCompactMode,
     setMessageSpacing,
     setFontScale,
     setZoomLevel,
-    setTimeFormat
+    setTimeFormat,
+    setShowFormattingHints
   };
 };
 

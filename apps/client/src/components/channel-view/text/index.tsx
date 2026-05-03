@@ -28,6 +28,7 @@ import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { ReplyContentPreview } from './reply-content-preview';
+import { FormattingHints } from './formatting-hints';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
@@ -472,6 +473,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             <span>Slow mode: {slowModeRemaining}s remaining</span>
           </div>
         )}
+        <FormattingHints />
         <div
           ref={inputAreaRef}
           className="flex items-center gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-all duration-200 cursor-text"
