@@ -65,7 +65,7 @@ import { fullDateTime, longDateTime } from '@/helpers/time-format';
 import { format, formatDistance, subDays } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Copy, Loader2, Lock, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Copy, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -85,9 +85,18 @@ import { DmSearchPopover } from './dm-search-popover';
 
 type TDmConversationProps = {
   dmChannelId: number;
+  isProfilePanelOpen?: boolean;
+  profilePanelAvailable?: boolean;
+  onToggleProfilePanel?: () => void;
 };
 
-const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
+const DmConversation = memo(
+  ({
+    dmChannelId,
+    isProfilePanelOpen,
+    profilePanelAvailable,
+    onToggleProfilePanel
+  }: TDmConversationProps) => {
   const { messages, loading, fetching, hasMore, loadMore, groupedMessages } =
     useDmMessages(dmChannelId);
   const [newMessage, setNewMessage] = useState('');
@@ -307,7 +316,12 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
 
   return (
     <>
-      <DmHeader dmChannelId={dmChannelId} />
+      <DmHeader
+        dmChannelId={dmChannelId}
+        isProfilePanelOpen={isProfilePanelOpen}
+        profilePanelAvailable={profilePanelAvailable}
+        onToggleProfilePanel={onToggleProfilePanel}
+      />
       {isInThisCall ? (
         <DmVoicePanel dmChannelId={dmChannelId} />
       ) : (
@@ -436,7 +450,8 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
       </div>
     </>
   );
-});
+  }
+);
 
 const DmUsersTyping = memo(({ dmChannelId }: { dmChannelId: number }) => {
   const typingUserIds = useDmTypingUsers(dmChannelId);
@@ -482,7 +497,17 @@ const DmTypingNames = memo(({ userIds }: { userIds: number[] }) => {
   );
 });
 
-const DmHeader = memo(({ dmChannelId }: { dmChannelId: number }) => {
+const DmHeader = memo(({
+  dmChannelId,
+  isProfilePanelOpen,
+  profilePanelAvailable,
+  onToggleProfilePanel
+}: {
+  dmChannelId: number;
+  isProfilePanelOpen?: boolean;
+  profilePanelAvailable?: boolean;
+  onToggleProfilePanel?: () => void;
+}) => {
   const channels = useDmChannels();
   const ownUserId = useOwnUserId();
   const call = useDmCall(dmChannelId);
@@ -601,6 +626,31 @@ const DmHeader = memo(({ dmChannelId }: { dmChannelId: number }) => {
           title={hasActiveCall ? 'Join Call' : 'Start Call'}
         >
           <Phone className="h-4 w-4" />
+        </Button>
+      )}
+      {onToggleProfilePanel && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'h-8 w-8',
+            !profilePanelAvailable && 'opacity-50 cursor-not-allowed'
+          )}
+          onClick={profilePanelAvailable ? onToggleProfilePanel : undefined}
+          disabled={!profilePanelAvailable}
+          title={
+            !profilePanelAvailable
+              ? 'Profile panel (unavailable — make the window wider)'
+              : isProfilePanelOpen
+                ? 'Close Profile Panel'
+                : 'Open Profile Panel'
+          }
+        >
+          {isProfilePanelOpen ? (
+            <PanelRightClose className="h-4 w-4" />
+          ) : (
+            <PanelRight className="h-4 w-4" />
+          )}
         </Button>
       )}
       {showPinned && (
