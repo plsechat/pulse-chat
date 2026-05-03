@@ -105,13 +105,39 @@ export const setDmsLoading = (loading: boolean) =>
 export const resetDmsState = () =>
   store.dispatch(dmsSliceActions.resetState());
 
+/**
+ * Decrypt the embedded `lastMessage` for E2EE channels.
+ *
+ * The server returns the libsignal envelope JSON in `content` for E2EE
+ * messages. Without this pass, the sidebar preview shows the raw
+ * `{"type":1,"body":"..."}` blob instead of the readable plaintext.
+ *
+ * Mirrors the per-message decrypt path used by `fetchDmMessages` /
+ * `decryptDmMessageInPlace`, including the persistent IDB cache and the
+ * own-message fallback (own ciphertext can't be self-decrypted via Signal —
+ * we rely on the cache populated at send time).
+ */
+async function decryptDmChannelLastMessages(
+  channels: TJoinedDmChannel[]
+): Promise<TJoinedDmChannel[]> {
+  return Promise.all(
+    channels.map(async (channel) => {
+      if (!channel.lastMessage) return channel;
+      const decryptedLast = await decryptDmMessageInPlace(channel.lastMessage);
+      if (decryptedLast === channel.lastMessage) return channel;
+      return { ...channel, lastMessage: decryptedLast };
+    })
+  );
+}
+
 export const fetchDmChannels = async () => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
   setDmsLoading(true);
   try {
     const channels = await trpc.dms.getChannels.query();
-    setDmChannels(channels);
+    const decrypted = await decryptDmChannelLastMessages(channels);
+    setDmChannels(decrypted);
   } catch (err) {
     console.error('Failed to fetch DM channels:', err);
   } finally {
@@ -154,8 +180,9 @@ export const getOrCreateDmChannel = async (
   if (!trpc) return undefined;
   try {
     const channel = await trpc.dms.getOrCreateChannel.mutate({ userId });
-    addOrUpdateDmChannel(channel);
-    return channel;
+    const [decrypted] = await decryptDmChannelLastMessages([channel]);
+    addOrUpdateDmChannel(decrypted);
+    return decrypted;
   } catch (err) {
     console.error('Failed to get or create DM channel:', err);
   }
@@ -211,10 +238,18 @@ const ownSentPlaintextCache = new Map<string, E2EEPlaintext>();
  * Decrypt an E2EE DM message in-place, replacing content with decrypted plaintext.
  * The server puts the ciphertext in the `content` field for E2EE messages
  * (the `e2ee` flag indicates whether decryption is needed).
+ *
+ * Generic over the message shape so it can also accept the bare `TDmMessage`
+ * that's embedded as `lastMessage` on a DM channel (no `files`/`reactions`).
  */
-export async function decryptDmMessageInPlace(
-  message: TJoinedDmMessage
-): Promise<TJoinedDmMessage> {
+export async function decryptDmMessageInPlace<
+  T extends {
+    id: number;
+    userId: number;
+    e2ee: boolean;
+    content: string | null;
+  }
+>(message: T): Promise<T> {
   if (!message.e2ee || !message.content) return message;
 
   // Check persistent cache first (works for both own and others' messages)
