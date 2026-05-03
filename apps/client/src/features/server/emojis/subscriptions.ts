@@ -4,6 +4,7 @@ import { addEmoji, removeEmoji, updateEmoji } from './actions';
 
 const subscribeToEmojis = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onEmojiCreateSub = trpc.emojis.onCreate.subscribe(undefined, {
     onData: (emoji: TJoinedEmoji) => addEmoji(emoji),

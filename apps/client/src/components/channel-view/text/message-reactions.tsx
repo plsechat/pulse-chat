@@ -53,6 +53,7 @@ const MessageReactions = memo(
         }
 
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.toggleReaction.mutate({

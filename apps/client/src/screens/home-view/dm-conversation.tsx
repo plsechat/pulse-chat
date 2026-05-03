@@ -137,6 +137,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
     () =>
       throttle(async () => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         try {
           await trpc.dms.signalTyping.mutate({ dmChannelId });
         } catch {
@@ -610,6 +611,7 @@ const DmPinnedMessagesPanel = memo(
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const messages = await trpc.dms.getPinned.query({ dmChannelId });
         setPinnedMessages(messages);
       } catch (err) {
@@ -637,6 +639,7 @@ const DmPinnedMessagesPanel = memo(
 
     const onUnpin = useCallback(async (dmMessageId: number) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.dms.unpinMessage.mutate({ dmMessageId });
@@ -895,6 +898,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   const handleToggleReaction = useCallback(
     async (emoji: string) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.dms.toggleReaction.mutate({
@@ -910,6 +914,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 
   const handlePinToggle = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       if (message.pinned) {
@@ -929,6 +934,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   const onEmojiSelect = useCallback(
     async (emoji: TEmojiItem) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.dms.toggleReaction.mutate({

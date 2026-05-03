@@ -121,6 +121,7 @@ const RightSidebar = memo(
 
       let cancelled = false;
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       trpc.channels.getVisibleUsers
         .query({ channelId: selectedChannel.id })

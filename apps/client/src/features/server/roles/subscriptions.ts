@@ -4,6 +4,7 @@ import { addRole, removeRole, updateRole } from './actions';
 
 const subscribeToRoles = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onRoleCreateSub = trpc.roles.onCreate.subscribe(undefined, {
     onData: (role: TJoinedRole) => addRole(role),

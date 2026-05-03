@@ -38,6 +38,7 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const result = await trpc.search.messages.query({
           query: searchQuery.trim(),
           channelId: searchFilters.channelId,

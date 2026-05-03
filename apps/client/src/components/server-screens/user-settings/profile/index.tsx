@@ -22,6 +22,7 @@ const Profile = memo(() => {
 
   const onUpdateUser = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.update.mutate(values);

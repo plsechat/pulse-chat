@@ -74,6 +74,7 @@ const useSubscribeToPluginLogs = (pluginId: string) => {
 
   const setupSubscription = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       if (!loadedFirstLogs.current) {

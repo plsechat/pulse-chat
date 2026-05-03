@@ -36,6 +36,7 @@ async function decryptE2eeMessage(
 
 const subscribeToMessages = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onMessageSub = trpc.messages.onNew.subscribe(undefined, {
     onData: async (message: TJoinedMessage) => {
@@ -211,6 +212,25 @@ const subscribeToMessages = () => {
 
   // Subscribe to federation instance updates for real-time cleanup
   const homeTrpc = getHomeTRPCClient();
+  if (!homeTrpc) {
+    return () => {
+      onMessageSub.unsubscribe();
+      onMessageUpdateSub.unsubscribe();
+      onMessageDeleteSub.unsubscribe();
+      onMessageBulkDeleteSub.unsubscribe();
+      onMessageTypingSub.unsubscribe();
+      onMessagePinSub.unsubscribe();
+      onMessageUnpinSub.unsubscribe();
+      onSenderKeyDistSub.unsubscribe();
+      onIdentityResetSub.unsubscribe();
+      onThreadCreateSub.unsubscribe();
+      onThreadUpdateSub.unsubscribe();
+      onThreadDeleteSub.unsubscribe();
+      onInviteCreateSub.unsubscribe();
+      onInviteDeleteSub.unsubscribe();
+      onNoteUpdateSub.unsubscribe();
+    };
+  }
   const onFederationInstanceUpdateSub =
     homeTrpc.federation.onInstanceUpdate.subscribe(undefined, {
       onData: (event: { status: string; domain?: string }) => {

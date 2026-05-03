@@ -40,6 +40,7 @@ const ManageTagsDialog = memo(
 
     const fetchTags = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         const result = await trpc.threads.getForumTags.query({ channelId });
@@ -59,6 +60,10 @@ const ManageTagsDialog = memo(
       setLoading(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setLoading(false);
+        return;
+      }
 
       try {
         await trpc.threads.createForumTag.mutate({
@@ -83,6 +88,10 @@ const ManageTagsDialog = memo(
         setLoading(true);
 
         const trpc = getTRPCClient();
+        if (!trpc) {
+          setLoading(false);
+          return;
+        }
 
         try {
           await trpc.threads.updateForumTag.mutate({
@@ -104,6 +113,7 @@ const ManageTagsDialog = memo(
     const onDeleteTag = useCallback(
       async (tagId: number) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.threads.deleteForumTag.mutate({ tagId });

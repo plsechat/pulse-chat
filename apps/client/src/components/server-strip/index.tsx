@@ -339,6 +339,7 @@ const ServerStrip = memo(() => {
     async (serverId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notifications.markServerAsRead.mutate({ serverId });
         // Optimistically reset server-level unread and mention counts
         store.dispatch(
@@ -368,6 +369,7 @@ const ServerStrip = memo(() => {
     try {
       store.dispatch(dmsSliceActions.clearAllUnread());
       const trpc = getHomeTRPCClient();
+      if (!trpc) return;
       await trpc.dms.markAllAsRead.mutate();
       toast.success('Marked as read');
     } catch (err) {
@@ -379,6 +381,7 @@ const ServerStrip = memo(() => {
     async (serverId: number, muted: boolean) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notifications.setServerMute.mutate({ serverId, muted });
         setServerMuted(muted);
       } catch (err) {
@@ -392,6 +395,7 @@ const ServerStrip = memo(() => {
     async (serverId: number, level: string) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notifications.setServerNotificationLevel.mutate({
           serverId,
           level: level as 'all' | 'mentions' | 'nothing' | 'default'
@@ -409,6 +413,7 @@ const ServerStrip = memo(() => {
       if (open) {
         try {
           const trpc = getTRPCClient();
+          if (!trpc) return;
           const settings = await trpc.notifications.getServerSettings.query({
             serverId
           });
@@ -445,6 +450,7 @@ const ServerStrip = memo(() => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.servers.reorder.mutate({ serverIds: reorderedIds });
       } catch (err) {
         toast.error(getTrpcError(err, 'Failed to reorder servers'));

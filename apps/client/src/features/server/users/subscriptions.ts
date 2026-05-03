@@ -48,6 +48,7 @@ async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
 
 const subscribeToUsers = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onUserJoinSub = trpc.users.onJoin.subscribe(undefined, {
     onData: (payload: { serverId: number; user: TJoinedPublicUser }) => {

@@ -4,6 +4,7 @@ import { addCategory, removeCategory, updateCategory } from './actions';
 
 const subscribeToCategories = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onCategoryCreateSub = trpc.categories.onCreate.subscribe(undefined, {
     onData: (category: TCategory) => addCategory(category),

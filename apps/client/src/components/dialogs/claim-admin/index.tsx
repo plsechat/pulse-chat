@@ -21,6 +21,7 @@ const ClaimAdminDialog = memo(({ isOpen, close }: TDialogBaseProps) => {
 
   const onSubmit = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     setLoading(true);
 

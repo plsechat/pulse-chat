@@ -36,6 +36,10 @@ const CreateGroupDmDialog = memo(
       setCreating(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreating(false);
+        return;
+      }
 
       try {
         const channel = await trpc.dms.createGroup.mutate({

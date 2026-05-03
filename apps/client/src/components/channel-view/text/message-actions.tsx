@@ -37,6 +37,7 @@ const MessageActions = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.messages.delete.mutate({ messageId });
@@ -48,6 +49,7 @@ const MessageActions = memo(
 
     const onPinToggle = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         if (pinned) {
@@ -68,6 +70,10 @@ const MessageActions = memo(
       setCreatingThread(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreatingThread(false);
+        return;
+      }
 
       try {
         const result = await trpc.threads.create.mutate({
@@ -87,6 +93,7 @@ const MessageActions = memo(
     const onEmojiSelect = useCallback(
       async (emoji: TEmojiItem) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.toggleReaction.mutate({

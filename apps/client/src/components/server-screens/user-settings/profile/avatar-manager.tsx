@@ -19,6 +19,7 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
 
   const removeAvatar = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.changeAvatar.mutate({ fileId: undefined });
@@ -31,6 +32,7 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
 
   const onAvatarClick = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const [file] = await openFilePicker('image/*');

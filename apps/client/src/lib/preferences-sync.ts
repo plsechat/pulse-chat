@@ -35,6 +35,7 @@ const flush = async () => {
 
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return;
     await trpc.users.updatePreferences.mutate(update as Parameters<typeof trpc.users.updatePreferences.mutate>[0]);
   } catch {
     // Silent failure — localStorage is the immediate cache,

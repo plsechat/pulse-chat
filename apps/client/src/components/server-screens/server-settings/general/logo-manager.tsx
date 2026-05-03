@@ -20,6 +20,7 @@ const LogoManager = memo(({ logo, serverId, refetch }: TLogoManagerProps) => {
   const removeLogo = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.others.changeLogo.mutate({ serverId, fileId: undefined });
@@ -35,6 +36,7 @@ const LogoManager = memo(({ logo, serverId, refetch }: TLogoManagerProps) => {
   const onLogoClick = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const [file] = await openFilePicker('image/*');

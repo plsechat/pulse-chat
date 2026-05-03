@@ -208,6 +208,7 @@ const Plugins = memo(() => {
   const handleToggle = useCallback(
     async (pluginId: string, enabled: boolean) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.plugins.toggle.mutate({ pluginId, enabled });

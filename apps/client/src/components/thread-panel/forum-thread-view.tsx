@@ -26,6 +26,7 @@ const ForumThreadView = memo(() => {
     if (!thread) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.threads.archive.mutate({
@@ -57,6 +58,7 @@ const ForumThreadView = memo(() => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.threads.deleteThread.mutate({ threadId: thread.id });

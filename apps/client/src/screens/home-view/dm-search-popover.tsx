@@ -71,6 +71,10 @@ const DmSearchPopover = memo(
 
         try {
           const trpc = getTRPCClient();
+          if (!trpc) {
+            setLoading(false);
+            return;
+          }
           const result = await trpc.dms.searchMessages.query({
             query: searchQuery.trim(),
             dmChannelId,

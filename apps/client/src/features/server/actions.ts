@@ -91,6 +91,7 @@ export const fetchDeferredServerData = (
   trpc: ReturnType<typeof getHomeTRPCClient>,
   expectedServerId: string
 ) => {
+  if (!trpc) return;
   const isStale = () => store.getState().server.serverId !== expectedServerId;
 
   trpc.others.getServerMembers.query().then((users) => {
@@ -116,6 +117,7 @@ export const joinServer = async (
   serverId?: number
 ) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   const data = await trpc.others.joinServer.query({
     handshakeHash,
     serverId

@@ -23,6 +23,7 @@ export const setDmChannels = (channels: TJoinedDmChannel[]) =>
 /** Mark a single DM channel as read on the server (fire-and-forget). */
 const markDmChannelAsRead = (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   trpc.dms.markChannelAsRead.mutate({ dmChannelId }).catch(() => {
     // ignore errors — this is a best-effort background update
   });
@@ -106,6 +107,7 @@ export const resetDmsState = () =>
 
 export const fetchDmChannels = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   setDmsLoading(true);
   try {
     const channels = await trpc.dms.getChannels.query();
@@ -119,6 +121,7 @@ export const fetchDmChannels = async () => {
 
 export const fetchActiveDmCalls = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   try {
     const activeCalls = await trpc.dms.getActiveCalls.query();
     for (const call of activeCalls) {
@@ -148,6 +151,7 @@ export const getOrCreateDmChannel = async (
   userId: number
 ): Promise<TJoinedDmChannel | undefined> => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return undefined;
   try {
     const channel = await trpc.dms.getOrCreateChannel.mutate({ userId });
     addOrUpdateDmChannel(channel);
@@ -162,6 +166,7 @@ export const fetchDmMessages = async (
   cursor?: number | null
 ) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return undefined;
   try {
     const result = await trpc.dms.getMessages.query({ dmChannelId, cursor });
 
@@ -331,6 +336,7 @@ export const sendDmMessage = async (
   fileKeys?: E2EEPlaintext['fileKeys']
 ) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   const state = store.getState();
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   const recipientUserId = getDmRecipientUserId(dmChannelId);
@@ -362,6 +368,7 @@ export const sendDmMessage = async (
 
 export const editDmMessage = async (messageId: number, content: string) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
 
   // Check if the original message was E2EE
   const state = store.getState();
@@ -399,6 +406,7 @@ export const editDmMessage = async (messageId: number, content: string) => {
 
 export const deleteDmMessageAction = async (messageId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.deleteMessage.mutate({ messageId });
 };
 
@@ -407,12 +415,14 @@ export const removeDmChannel = (dmChannelId: number) =>
 
 export const deleteDmChannel = async (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.deleteChannel.mutate({ dmChannelId });
   removeDmChannel(dmChannelId);
 };
 
 export const enableDmEncryption = async (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.enableEncryption.mutate({ dmChannelId });
 };
 
@@ -436,6 +446,7 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
   }
 
   const trpc = getHomeTRPCClient();
+  if (!trpc) return undefined;
   const result = await trpc.dms.voiceJoin.mutate({
     dmChannelId,
     state: { micMuted: false, soundMuted: false }
@@ -448,6 +459,7 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
 
 export const leaveDmVoiceCall = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.voiceLeave.mutate();
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(undefined));
   setCurrentVoiceChannelId(undefined);

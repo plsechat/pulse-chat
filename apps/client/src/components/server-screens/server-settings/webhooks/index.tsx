@@ -22,6 +22,10 @@ const Webhooks = memo(() => {
 
   const fetchWebhooks = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      return;
+    }
     try {
       const result = await trpc.webhooks.list.query({});
       setWebhooks(result);
@@ -39,6 +43,7 @@ const Webhooks = memo(() => {
   const handleDelete = useCallback(
     async (webhookId: number) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       try {
         await trpc.webhooks.delete.mutate({ webhookId });
         setWebhooks((prev) => prev.filter((w) => w.id !== webhookId));
@@ -163,6 +168,10 @@ const CreateWebhookForm = memo(
       if (!name.trim() || !channelId || creating) return;
       setCreating(true);
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreating(false);
+        return;
+      }
       try {
         const webhook = await trpc.webhooks.create.mutate({
           name: name.trim(),

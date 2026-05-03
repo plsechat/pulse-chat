@@ -20,6 +20,10 @@ const AutoMod = memo(() => {
 
   const fetchRules = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      return;
+    }
     try {
       const result = await trpc.automod.listRules.query();
       setRules(result as TAutomodRule[]);
@@ -37,6 +41,7 @@ const AutoMod = memo(() => {
   const handleToggle = useCallback(
     async (ruleId: number, enabled: boolean) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       try {
         await trpc.automod.toggleRule.mutate({ ruleId, enabled });
         setRules((prev) =>
@@ -51,6 +56,7 @@ const AutoMod = memo(() => {
 
   const handleDelete = useCallback(async (ruleId: number) => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
     try {
       await trpc.automod.deleteRule.mutate({ ruleId });
       setRules((prev) => prev.filter((r) => r.id !== ruleId));
@@ -168,6 +174,10 @@ const CreateAutomodRuleForm = memo(
       if (!name.trim() || creating) return;
       setCreating(true);
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreating(false);
+        return;
+      }
 
       const config: Record<string, unknown> = {};
       if (type === AutomodRuleType.KEYWORD_FILTER) {

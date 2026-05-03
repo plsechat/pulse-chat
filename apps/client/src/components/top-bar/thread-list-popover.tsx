@@ -34,6 +34,10 @@ const ThreadListPopover = memo(
 
     const fetchThreads = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setLoading(false);
+        return;
+      }
 
       try {
         const threads = await trpc.threads.getAll.query({

@@ -50,6 +50,7 @@ const CreateForumPostDialog = memo(
     useEffect(() => {
       const fetchTags = async () => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           const result = await trpc.threads.getForumTags.query({ channelId });
@@ -121,6 +122,10 @@ const CreateForumPostDialog = memo(
       setSubmitting(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setSubmitting(false);
+        return;
+      }
 
       try {
         const result = await trpc.threads.createForumPost.mutate({

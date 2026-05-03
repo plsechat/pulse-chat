@@ -26,6 +26,7 @@ const EditPostTagsDialog = memo(
 
     useEffect(() => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       trpc.threads.getForumTags
         .query({ channelId })
         .then(setTags)
@@ -43,6 +44,10 @@ const EditPostTagsDialog = memo(
     const onSave = useCallback(async () => {
       setSaving(true);
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setSaving(false);
+        return;
+      }
 
       try {
         await trpc.threads.updatePostTags.mutate({

@@ -16,6 +16,7 @@ const Password = memo(() => {
 
   const updatePassword = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.updatePassword.mutate(values);

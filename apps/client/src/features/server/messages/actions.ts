@@ -71,6 +71,7 @@ export const addMessages = (
     if (isViewingChannel && !isFromOwnUser) {
       // user is viewing this channel - mark messages as read
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         trpc.channels.markAsRead.mutate({ channelId });

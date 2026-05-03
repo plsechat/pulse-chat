@@ -34,6 +34,7 @@ const UpdateEmoji = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.emojis.delete.mutate({ emojiId: selectedEmoji.id });
@@ -47,6 +48,7 @@ const UpdateEmoji = memo(
 
     const onUpdateEmoji = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.emojis.update.mutate({ emojiId: selectedEmoji.id, name });

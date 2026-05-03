@@ -35,6 +35,7 @@ const CategoryContextMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.categories.delete.mutate({ categoryId });

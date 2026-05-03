@@ -20,6 +20,7 @@ import {
 
 const subscribeToDms = () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return () => {};
 
   const onNewMessageSub = trpc.dms.onNewMessage.subscribe(undefined, {
     onData: async (message: TJoinedDmMessage) => {

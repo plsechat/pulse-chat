@@ -61,6 +61,10 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   const fetchData = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      return;
+    }
 
     try {
       const [threadsResult, tagsResult] = await Promise.all([

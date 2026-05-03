@@ -338,6 +338,7 @@ const Channels = memo(({ categoryId }: TChannelsProps) => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         await trpc.channels.reorder.mutate({
           categoryId,

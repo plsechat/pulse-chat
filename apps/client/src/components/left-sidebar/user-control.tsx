@@ -55,6 +55,7 @@ const UserControl = memo(() => {
 
   const handleStatusChange = useCallback(async (status: (typeof statusOptions)[number]) => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
     await trpc.users.setStatus.mutate({ status });
   }, []);
 

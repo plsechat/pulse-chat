@@ -54,6 +54,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
 
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       await trpc.servers.delete.mutate({ serverId: activeServerId });
       await fetchJoinedServers();
       toast.success('Server deleted');

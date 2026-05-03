@@ -10,6 +10,7 @@ import {
 
 const subscribeToVoice = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onUserJoinVoiceSub = trpc.voice.onJoin.subscribe(undefined, {
     onData: ({ channelId, userId, state, startedAt }) => {

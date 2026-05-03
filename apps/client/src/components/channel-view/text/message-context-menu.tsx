@@ -74,6 +74,7 @@ const MessageContextMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.messages.delete.mutate({ messageId });
@@ -85,6 +86,7 @@ const MessageContextMenu = memo(
 
     const onPinToggle = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         if (pinned) {
@@ -105,6 +107,10 @@ const MessageContextMenu = memo(
       setCreatingThread(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreatingThread(false);
+        return;
+      }
 
       try {
         const result = await trpc.threads.create.mutate({
@@ -124,6 +130,7 @@ const MessageContextMenu = memo(
     const onEmojiSelect = useCallback(
       async (emoji: TEmojiItem) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.toggleReaction.mutate({

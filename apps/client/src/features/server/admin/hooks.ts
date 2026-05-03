@@ -74,6 +74,7 @@ export const useAdminGeneral = (serverId: number | undefined) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const result = await trpc.others.getSettings.query({ serverId });
 
     setSettings({
@@ -92,6 +93,7 @@ export const useAdminGeneral = (serverId: number | undefined) => {
   const submit = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.others.updateSettings.mutate({
@@ -146,6 +148,7 @@ export const useAdminUpdates = () => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const { hasUpdate, latestVersion, canUpdate, currentVersion } =
@@ -175,6 +178,7 @@ export const useAdminUpdates = () => {
     if (!answer) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.others.updateServer.mutate();
@@ -211,6 +215,7 @@ export const useAdminPlugins = () => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const { plugins } = await trpc.plugins.get.query();
@@ -246,6 +251,7 @@ export const useHasUpdates = () => {
     if (!can(Permission.MANAGE_UPDATES)) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const { hasUpdate } = await trpc.others.getUpdate.query();
@@ -272,6 +278,7 @@ export const useAdminChannelGeneral = (channelId: number) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const channel = await trpc.channels.get.query({ channelId });
 
     setChannel(channel);
@@ -280,6 +287,7 @@ export const useAdminChannelGeneral = (channelId: number) => {
 
   const submit = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.channels.update.mutate({
@@ -331,6 +339,7 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const category = await trpc.categories.get.query({ categoryId });
 
     setCategory(category);
@@ -339,6 +348,7 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
 
   const submit = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.categories.update.mutate({
@@ -388,6 +398,7 @@ export const useAdminEmojis = (serverId: number | undefined) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const emojis = await trpc.emojis.getAll.query({ serverId });
 
     setEmojis(emojis);
@@ -429,6 +440,7 @@ export const useAdminRoles = (serverId: number | undefined) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const roles = await trpc.roles.getAll.query({ serverId });
 
     setRoles(roles);
@@ -479,6 +491,7 @@ export const useAdminStorage = (serverId: number | undefined) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const { storageSettings, diskMetrics } =
       await trpc.others.getStorageSettings.query({ serverId });
 
@@ -490,6 +503,7 @@ export const useAdminStorage = (serverId: number | undefined) => {
   const submit = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.others.updateSettings.mutate({
@@ -556,6 +570,7 @@ export const useAdminUsers = () => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const users = await trpc.users.getAll.query();
 
     setUsers(users);
@@ -588,6 +603,7 @@ export const useAdminChannelPermissions = (channelId: number) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const { rolePermissions, userPermissions } =
       await trpc.channels.getPermissions.mutate({ channelId });
 
@@ -621,6 +637,7 @@ export const useAdminUserInfo = (userId: number) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const { user, logins, files, messages } = await trpc.users.getInfo.query({
       userId
     });
@@ -655,6 +672,7 @@ export const useAdminInvites = (serverId: number | undefined) => {
     setLoading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const invites = await trpc.invites.getAll.query({ serverId });
 
     setInvites(invites);

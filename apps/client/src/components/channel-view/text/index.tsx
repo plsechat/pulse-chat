@@ -233,6 +233,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     () =>
       throttle(async () => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.signalTyping.mutate({ channelId });
@@ -249,6 +250,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     sendTypingSignal.cancel();
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const content = tiptapHtmlToTokens(newMessage);
@@ -326,6 +328,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const content = gifUrl;
 
       try {
@@ -358,6 +361,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       removeFile(fileId);
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         trpc.files.deleteTemporary.mutate({ fileId });

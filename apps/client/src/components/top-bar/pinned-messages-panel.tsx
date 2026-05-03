@@ -67,6 +67,7 @@ const PinnedMessagesPanel = memo(
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const messages = await trpc.messages.getPinned.query({ channelId });
 
         setPinnedMessages(messages);
@@ -98,6 +99,7 @@ const PinnedMessagesPanel = memo(
     const onUnpin = useCallback(
       async (messageId: number) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.unpin.mutate({ messageId });

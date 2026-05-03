@@ -22,6 +22,7 @@ const ThreadPanel = memo(() => {
     if (!thread) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.threads.archive.mutate({
@@ -48,6 +49,7 @@ const ThreadPanel = memo(() => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.threads.deleteThread.mutate({ threadId: thread.id });

@@ -234,6 +234,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
           logVoice('Audio producer closed');
 
           const trpc = getTRPCClient();
+          if (!trpc) return;
 
           try {
             await trpc.voice.closeProducer.mutate({
@@ -306,6 +307,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
           logVoice('Video producer closed');
 
           const trpc = getTRPCClient();
+          if (!trpc) return;
 
           try {
             await trpc.voice.closeProducer.mutate({
@@ -459,6 +461,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
           logVoice('Screen share producer closed');
 
           const trpc = getTRPCClient();
+          if (!trpc) return;
 
           try {
             await trpc.voice.closeProducer.mutate({
@@ -614,6 +617,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
             logVoice('Screen share audio producer closed');
 
             const trpc = getTRPCClient();
+            if (!trpc) return;
 
             try {
               await trpc.voice.closeProducer.mutate({

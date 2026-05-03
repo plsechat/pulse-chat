@@ -73,6 +73,7 @@ const Override = memo(
 
     const onDeleteOverride = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         const payload = {};
@@ -101,6 +102,7 @@ const Override = memo(
 
     const onUpdateOverride = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         const payload = { channelId };

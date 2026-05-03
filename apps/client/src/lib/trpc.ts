@@ -83,7 +83,17 @@ const connectToTRPC = (host: string) => {
   return initializeTRPC(host);
 };
 
-const getTRPCClient = () => {
+/**
+ * Returns the active tRPC client, or `null` if the WS connection has been
+ * torn down (mid-reconnect or before initial connect). Callers MUST handle
+ * the null case — typically by returning early. Previously this threw,
+ * which produced uncaught console errors during reconnect when render-
+ * driven hooks (e.g. useDmMessages) called fetch actions before the new
+ * client was ready.
+ */
+const getTRPCClient = ():
+  | ReturnType<typeof createTRPCProxyClient<AppRouter>>
+  | null => {
   // When viewing a federated server, route calls to the remote instance
   const state = store.getState();
   const instanceDomain = state.app.activeInstanceDomain;
@@ -93,20 +103,15 @@ const getTRPCClient = () => {
     if (remote) return remote;
   }
 
-  if (!trpc) {
-    throw new Error('TRPC client is not initialized');
-  }
-
   return trpc;
 };
 
 // Always returns the home instance client — use for friends, DMs, auth, and
-// other operations that must never target a remote federated instance
-const getHomeTRPCClient = () => {
-  if (!trpc) {
-    throw new Error('TRPC client is not initialized');
-  }
-
+// other operations that must never target a remote federated instance.
+// Returns null during reconnect/before-init; callers must guard.
+const getHomeTRPCClient = ():
+  | ReturnType<typeof createTRPCProxyClient<AppRouter>>
+  | null => {
   return trpc;
 };
 

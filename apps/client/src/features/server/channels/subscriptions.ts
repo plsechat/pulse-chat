@@ -12,6 +12,7 @@ import {
 
 const subscribeToChannels = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onChannelCreateSub = trpc.channels.onCreate.subscribe(undefined, {
     onData: (channel) => {

@@ -31,6 +31,7 @@ const NotificationDropdown = memo(({ channelId }: TNotificationDropdownProps) =>
     const fetchLevel = async () => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const result = await trpc.notifications.getSetting.query({ channelId });
 
         setLevel(result.level);
@@ -45,6 +46,7 @@ const NotificationDropdown = memo(({ channelId }: TNotificationDropdownProps) =>
   const onSetLevel = useCallback(
     async (newLevel: NotificationLevel) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.notifications.setSetting.mutate({

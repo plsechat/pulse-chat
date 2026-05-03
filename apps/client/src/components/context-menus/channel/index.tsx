@@ -41,6 +41,7 @@ const ChannelContextMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.channels.delete.mutate({ channelId });
@@ -72,6 +73,7 @@ const ChannelContextMenu = memo(
       }
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.messages.purge.mutate({

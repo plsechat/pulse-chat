@@ -182,6 +182,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.files.delete.mutate({

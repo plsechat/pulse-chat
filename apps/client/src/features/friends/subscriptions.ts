@@ -12,6 +12,7 @@ import { fetchDmChannels } from '@/features/dms/actions';
 
 const subscribeToFriends = () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return () => {};
 
   const onRequestReceivedSub = trpc.friends.onRequestReceived.subscribe(
     undefined,

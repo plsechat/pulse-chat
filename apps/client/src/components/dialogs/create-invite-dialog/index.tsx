@@ -34,6 +34,7 @@ const CreateInviteDialog = memo(
     const handleCreate = useCallback(async () => {
       if (!activeServerId) return;
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.invites.add.mutate({

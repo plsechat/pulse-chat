@@ -41,6 +41,7 @@ async function getChannelMemberIds(channelId: number): Promise<number[]> {
   if (cached) return cached;
 
   const trpc = getTRPCClient();
+  if (!trpc) return [];
   const memberIds = await trpc.channels.getVisibleUsers.query({ channelId });
   channelMemberCache.set(channelId, memberIds);
   return memberIds;
@@ -84,6 +85,7 @@ export async function setupE2EEKeys(
     await replenishOTPsIfNeeded();
   } else {
     const trpc = getHomeTRPCClient();
+    if (!trpc) throw new Error('Not connected');
     const keys = await generateKeys(OTP_REPLENISH_COUNT);
     await trpc.e2ee.registerKeys.mutate(keys);
   }
@@ -165,6 +167,7 @@ export async function initE2EEForInstance(domain: string): Promise<void> {
 
     // getTRPCClient() routes to remote when activeInstanceDomain is set
     const trpc = getTRPCClient();
+    if (!trpc) return;
     await trpc.e2ee.registerKeys.mutate({
       identityPublicKey: identityPubKey!,
       registrationId: registrationId!,
@@ -201,6 +204,7 @@ async function replenishOTPsIfNeeded(
   trpc?: ReturnType<typeof getHomeTRPCClient>
 ): Promise<void> {
   const t = trpc ?? getHomeTRPCClient();
+  if (!t) return;
   const count = await t.e2ee.getPreKeyCount.query();
 
   if (count < OTP_REPLENISH_THRESHOLD) {
@@ -235,6 +239,7 @@ async function ensureSession(
 ): Promise<void> {
   const s = opts?.store ?? signalStore;
   const trpc = opts?.trpc ?? getHomeTRPCClient();
+  if (!trpc) throw new Error('Not connected');
 
   if (await hasSession(userId, s)) {
     if (opts?.verifyIdentity) {
@@ -402,6 +407,7 @@ export async function ensureChannelSenderKey(
   // Encrypt in parallel (batches of 10 to avoid overwhelming the server),
   // then send all distributions in a single batch API call.
   const trpc = getTRPCClient();
+  if (!trpc) return;
   const CONCURRENCY = 10;
   const distributions: { toUserId: number; distributionMessage: string }[] = [];
 
@@ -493,6 +499,7 @@ async function doFetchAndProcessPendingSenderKeys(
 ): Promise<void> {
   const store = getActiveStore();
   const trpc = getTRPCClient();
+  if (!trpc) return;
   const pending = await trpc.e2ee.getPendingSenderKeys.query({
     channelId
   });

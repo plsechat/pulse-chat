@@ -223,6 +223,7 @@ const DiscoverView = memo(() => {
     const fetchServers = async () => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const data = await trpc.servers.discover.query();
         setServers(data);
       } catch (error) {
@@ -242,6 +243,7 @@ const DiscoverView = memo(() => {
         setFedLoading(true);
         try {
           const trpc = getTRPCClient();
+          if (!trpc) return;
           const fedInstances = await trpc.federation.listInstances.query();
           const active = fedInstances.filter((i) => i.status === 'active');
           setInstances(active);
@@ -290,6 +292,7 @@ const DiscoverView = memo(() => {
 
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const summary = await trpc.servers.joinDiscover.mutate({ serverId, password });
 
       // Add to Redux state
@@ -340,6 +343,7 @@ const DiscoverView = memo(() => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         // Find the instance
         const instance = instances.find(

@@ -247,6 +247,7 @@ export async function uploadBackupToServer(
   const storeData = await readAllStores(dbName);
   const payload = await encryptBackupData(storeData, passphrase);
   const trpc = getHomeTRPCClient();
+  if (!trpc) throw new Error('Not connected');
   await trpc.e2ee.uploadKeyBackup.mutate({
     encryptedData: JSON.stringify(payload)
   });
@@ -262,6 +263,7 @@ export async function restoreBackupFromServer(
 ): Promise<void> {
   const { getHomeTRPCClient } = await import('@/lib/trpc');
   const trpc = getHomeTRPCClient();
+  if (!trpc) throw new Error('Not connected');
   const backup = await trpc.e2ee.getKeyBackup.query();
 
   if (!backup) {

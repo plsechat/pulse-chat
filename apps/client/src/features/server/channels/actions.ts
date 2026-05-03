@@ -39,7 +39,9 @@ export const setSelectedChannelId = (channelId: number | undefined) => {
     const unreadCount = channelReadStateByIdSelector(state, channelId);
     if (unreadCount > 0) {
       const trpc = getTRPCClient();
-      trpc.channels.markAsRead.mutate({ channelId }).catch(() => {});
+      if (trpc) {
+        trpc.channels.markAsRead.mutate({ channelId }).catch(() => {});
+      }
     }
     persistChannelForServer(channelId);
   }

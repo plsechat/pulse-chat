@@ -91,6 +91,7 @@ const useVoiceEvents = ({
     }
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     let isCleaningUp = false;
 

@@ -16,6 +16,7 @@ import { subscribeToVoice } from './voice/subscriptions';
 
 const subscribeToServer = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onSettingsUpdateSub = trpc.others.onServerSettingsUpdate.subscribe(
     undefined,

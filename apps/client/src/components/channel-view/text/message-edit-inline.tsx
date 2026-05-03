@@ -39,6 +39,10 @@ const MessageEditInline = memo(
         }
 
         const trpc = getTRPCClient();
+        if (!trpc) {
+          onBlur();
+          return;
+        }
 
         try {
           const content = tiptapHtmlToTokens(newValue);

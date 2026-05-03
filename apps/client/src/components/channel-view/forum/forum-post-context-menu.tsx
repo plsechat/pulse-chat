@@ -58,6 +58,7 @@ const ForumPostMenu = memo(
       if (!menuOpen) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
       trpc.threads.getFollowStatus
         .query({ threadId })
         .then((result) => setFollowing(result.following))
@@ -70,6 +71,7 @@ const ForumPostMenu = memo(
 
     const onToggleFollow = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const newState = !following;
 
       try {
@@ -100,6 +102,7 @@ const ForumPostMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.threads.deleteThread.mutate({ threadId });

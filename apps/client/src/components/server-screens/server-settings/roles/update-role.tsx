@@ -40,6 +40,7 @@ const UpdateRole = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.roles.delete.mutate({ roleId: selectedRole.id });
@@ -53,6 +54,7 @@ const UpdateRole = memo(
 
     const onUpdateRole = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.roles.update.mutate({
@@ -77,6 +79,7 @@ const UpdateRole = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.roles.setDefault.mutate({ roleId: selectedRole.id });

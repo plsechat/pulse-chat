@@ -20,6 +20,7 @@ const BannerManager = memo(({ user }: TBannerManagerProps) => {
 
   const removeBanner = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.changeBanner.mutate({ fileId: undefined });
@@ -32,6 +33,7 @@ const BannerManager = memo(({ user }: TBannerManagerProps) => {
 
   const onBannerClick = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const [file] = await openFilePicker('image/*');

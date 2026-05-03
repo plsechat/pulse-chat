@@ -22,6 +22,7 @@ const RolesList = memo(
     const onAddRole = useCallback(async () => {
       if (!activeServerId) return;
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         const newRoleId = await trpc.roles.add.mutate({ serverId: activeServerId });

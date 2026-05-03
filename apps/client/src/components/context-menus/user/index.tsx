@@ -82,6 +82,7 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     if (text) {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
       } catch (err) {
@@ -94,6 +95,7 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     async (roleId: number, hasRole: boolean) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         if (hasRole) {
           await trpc.users.removeRole.mutate({ userId, roleId });
         } else {

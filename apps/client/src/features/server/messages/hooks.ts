@@ -64,6 +64,7 @@ export const useMessages = (channelId: number) => {
   const fetchMessages = useCallback(
     async (cursorToFetch: number | null) => {
       const trpcClient = getTRPCClient();
+      if (!trpcClient) return;
 
       setFetching(true);
 

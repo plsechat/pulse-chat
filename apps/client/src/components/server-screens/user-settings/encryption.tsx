@@ -49,8 +49,12 @@ const Encryption = memo(() => {
 
   useEffect(() => {
     hasKeys().then(setHasE2eeKeys);
-    getHomeTRPCClient()
-      .e2ee.hasKeyBackup.query()
+    const trpc = getHomeTRPCClient();
+    if (!trpc) {
+      setBackupStatus({ exists: false });
+      return;
+    }
+    trpc.e2ee.hasKeyBackup.query()
       .then(setBackupStatus)
       .catch(() => setBackupStatus({ exists: false }));
   }, []);

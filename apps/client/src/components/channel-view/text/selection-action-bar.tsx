@@ -22,6 +22,7 @@ const SelectionActionBar = memo(() => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const ids = Array.from(selectedIds);
 
     try {

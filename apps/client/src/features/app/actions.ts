@@ -43,6 +43,7 @@ export const fetchServerInfo = async (): Promise<TServerInfo | undefined> => {
 export const fetchJoinedServers = async () => {
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return [];
     const servers = await trpc.servers.getAll.query();
     store.dispatch(appSliceActions.setJoinedServers(servers));
     return servers;
@@ -55,6 +56,7 @@ export const fetchJoinedServers = async () => {
 export const fetchServerUnreadCounts = async () => {
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return;
     const { unreadCounts, mentionCounts } = await trpc.servers.getUnreadCounts.query();
     store.dispatch(appSliceActions.setServerUnreadCounts(unreadCounts));
     store.dispatch(appSliceActions.setServerMentionCounts(mentionCounts));
@@ -98,6 +100,7 @@ export const createServer = async (
 ): Promise<TServerSummary | undefined> => {
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return undefined;
     const server = await trpc.servers.create.mutate({ name, description });
     store.dispatch(appSliceActions.addJoinedServer(server));
     return server;
@@ -112,6 +115,7 @@ export const joinServerByInvite = async (
 ): Promise<TServerSummary | undefined> => {
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return undefined;
     const server = await trpc.servers.join.mutate({ inviteCode });
     store.dispatch(appSliceActions.addJoinedServer(server));
     return server;
@@ -124,6 +128,7 @@ export const joinServerByInvite = async (
 export const leaveServer = async (serverId: number) => {
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return;
     await trpc.servers.leave.mutate({ serverId });
     store.dispatch(appSliceActions.removeJoinedServer(serverId));
     setActiveView('home');
@@ -137,6 +142,7 @@ export const leaveServer = async (serverId: number) => {
 export const deleteServer = async (serverId: number) => {
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return;
     await trpc.servers.delete.mutate({ serverId });
     store.dispatch(appSliceActions.removeJoinedServer(serverId));
     setActiveView('home');
@@ -341,6 +347,11 @@ export const joinFederatedServer = async (
 
     // Persist membership on home server (fire-and-forget)
     const homeTrpc = getHomeTRPCClient();
+    if (!homeTrpc) {
+      toast.success(`Joined ${server.name} on ${instanceName}`);
+      await switchToFederatedServer(instanceDomain, server.id);
+      return entry;
+    }
     homeTrpc.federation.confirmJoin
       .mutate({
         instanceDomain,
@@ -385,11 +396,13 @@ export const leaveFederatedServer = async (
 
   // Remove membership from home server (fire-and-forget)
   const homeTrpc = getHomeTRPCClient();
-  homeTrpc.federation.leaveRemote
+  if (homeTrpc) {
+    homeTrpc.federation.leaveRemote
     .mutate({ instanceDomain, remoteServerId: serverId })
     .catch((err) =>
       console.error('Failed to remove federation membership:', err)
     );
+  }
 
   // Check if any servers remain on this instance
   const state = store.getState();
@@ -465,6 +478,7 @@ export const switchToFederatedServer = async (
   if (entry.tokenExpiresAt - Date.now() < 60 * 60 * 1000) {
     try {
       const trpc = getHomeTRPCClient();
+      if (!trpc) return;
       const { token, expiresAt } =
         await trpc.federation.requestToken.mutate({
           targetDomain: instanceDomain
@@ -630,6 +644,7 @@ export const loadFederatedServers = async () => {
 
   try {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return;
     const memberships = await trpc.federation.getJoined.query();
 
     if (memberships.length === 0) {

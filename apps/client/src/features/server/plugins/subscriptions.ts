@@ -3,6 +3,7 @@ import { setPluginCommands } from './actions';
 
 const subscribeToPlugins = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
   const onCommandsChangeSub = trpc.plugins.onCommandsChange.subscribe(
     undefined,

@@ -75,6 +75,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
   const fetchNotes = useCallback(async () => {
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const result = await trpc.notes.getAll.query({ targetUserId: userId });
       setNotes(result.notes);
       setNotesLoaded(true);
@@ -116,6 +117,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     if (text) {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
         fetchNotes();
@@ -129,6 +131,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     async (noteId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notes.delete.mutate({ noteId });
         setNotes((prev) => prev.filter((n) => n.id !== noteId));
         toast.success('Note deleted');
@@ -148,6 +151,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     }
 
     const trpc = getHomeTRPCClient();
+    if (!trpc) return userId;
     const result = await trpc.federation.ensureShadowUser.mutate({
       instanceDomain: activeInstanceDomain,
       remoteUserId: userId,
@@ -205,6 +209,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     if (text !== null && text !== undefined) {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const nickname = text.trim() || null;
         if (isOwnUser) {
           await trpc.users.setNickname.mutate({ nickname });
