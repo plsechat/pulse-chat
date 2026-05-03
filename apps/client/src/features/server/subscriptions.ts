@@ -1,7 +1,7 @@
 import { subscribeToDms } from '@/features/dms/subscriptions';
 import { subscribeToFriends } from '@/features/friends/subscriptions';
+import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TPublicServerSettings, TServerSummary } from '@pulse/shared';
 import { appSliceActions } from '../app/slice';
 import { store } from '../store';
 import { setPublicServerSettings } from './actions';
@@ -18,59 +18,31 @@ const subscribeToServer = () => {
   const trpc = getTRPCClient();
   if (!trpc) return () => {};
 
-  const onSettingsUpdateSub = trpc.others.onServerSettingsUpdate.subscribe(
-    undefined,
-    {
-      onData: (settings: TPublicServerSettings) =>
-        setPublicServerSettings(settings),
-      onError: (err) =>
-        console.error('onSettingsUpdate subscription error:', err)
-    }
+  return combineUnsubscribes(
+    subscribe(
+      'onSettingsUpdate',
+      trpc.others.onServerSettingsUpdate,
+      (settings) => setPublicServerSettings(settings)
+    ),
+    subscribe('onServerMemberJoin', trpc.servers.onMemberJoin, ({ server }) =>
+      store.dispatch(appSliceActions.addJoinedServer(server))
+    ),
+    subscribe(
+      'onServerMemberLeave',
+      trpc.servers.onMemberLeave,
+      ({ serverId }) =>
+        store.dispatch(appSliceActions.removeJoinedServer(serverId))
+    ),
+    subscribe('onUnreadCountUpdate', trpc.servers.onUnreadCountUpdate, (data) =>
+      store.dispatch(
+        appSliceActions.setServerUnreadCount({
+          serverId: data.serverId,
+          count: data.count,
+          mentionCount: data.mentionCount
+        })
+      )
+    )
   );
-
-  const onMemberJoinSub = trpc.servers.onMemberJoin.subscribe(undefined, {
-    onData: ({
-      server
-    }: {
-      serverId: number;
-      userId: number;
-      server: TServerSummary;
-    }) => {
-      store.dispatch(appSliceActions.addJoinedServer(server));
-    },
-    onError: (err) =>
-      console.error('onServerMemberJoin subscription error:', err)
-  });
-
-  const onMemberLeaveSub = trpc.servers.onMemberLeave.subscribe(undefined, {
-    onData: ({ serverId }: { serverId: number; userId: number }) => {
-      store.dispatch(appSliceActions.removeJoinedServer(serverId));
-    },
-    onError: (err) =>
-      console.error('onServerMemberLeave subscription error:', err)
-  });
-
-  const onUnreadCountUpdateSub =
-    trpc.servers.onUnreadCountUpdate.subscribe(undefined, {
-      onData: (data: { serverId: number; count: number; mentionCount: number }) => {
-        store.dispatch(
-          appSliceActions.setServerUnreadCount({
-            serverId: data.serverId,
-            count: data.count,
-            mentionCount: data.mentionCount
-          })
-        );
-      },
-      onError: (err) =>
-        console.error('onUnreadCountUpdate subscription error:', err)
-    });
-
-  return () => {
-    onSettingsUpdateSub.unsubscribe();
-    onMemberJoinSub.unsubscribe();
-    onMemberLeaveSub.unsubscribe();
-    onUnreadCountUpdateSub.unsubscribe();
-  };
 };
 
 const initSubscriptions = () => {
