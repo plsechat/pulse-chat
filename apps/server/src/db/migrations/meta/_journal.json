@@ -78,6 +78,13 @@
       "when": 1772165074367,
       "tag": "0010_sour_trish_tilby",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777777767907,
+      "tag": "0011_supreme_loki",
+      "breakpoints": true
     }
   ]
 }

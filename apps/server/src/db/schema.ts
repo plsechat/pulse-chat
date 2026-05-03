@@ -46,7 +46,6 @@ const settings = pgTable(
     description: text('description'),
     password: text('password'),
     serverId: text('server_id').notNull(),
-    secretToken: text('secret_token'),
     logoId: integer('logo_id').references(() => files.id, {
       onDelete: 'set null'
     }),

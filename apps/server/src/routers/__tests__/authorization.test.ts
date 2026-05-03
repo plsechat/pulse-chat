@@ -20,7 +20,7 @@ async function createSecondServer() {
       storage_upload_max_file_size, storage_space_quota_by_user,
       storage_overflow_action, enable_plugins, owner_id, created_at)
     VALUES ('Server 2', 'Second test server', '', ${randomUUIDv7()},
-      'secret', true, true, 10737418240, 26214400, 104857600, 'reject', false,
+      ${randomUUIDv7()}, true, true, 10737418240, 26214400, 104857600, 'reject', false,
       2, ${now})
     RETURNING id
   `);
