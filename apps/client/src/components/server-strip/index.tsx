@@ -22,7 +22,7 @@ import {
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { appSliceActions } from '@/features/app/slice';
 import { getHandshakeHash } from '@/features/server/actions';
-import { useFriendRequests } from '@/features/friends/hooks';
+import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { openDialog } from '@/features/dialogs/actions';
 import { Dialog } from '@/components/dialogs/dialogs';
@@ -250,11 +250,8 @@ const SortableServerItem = memo(
 
 const ServerStrip = memo(() => {
   const activeView = useActiveView();
-  const friendRequests = useFriendRequests();
+  const pendingCount = useIncomingFriendRequestCount();
   const ownUserId = useOwnUserId();
-  const pendingCount = friendRequests.filter(
-    (r) => r.receiverId === ownUserId
-  ).length;
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
   const serverUnreadCounts = useServerUnreadCounts();

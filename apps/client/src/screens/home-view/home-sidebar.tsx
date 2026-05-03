@@ -10,7 +10,7 @@ import { UserStatusBadge } from '@/components/user-status';
 import { deleteDmChannel, enableDmEncryption } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
-import { useFriendRequests } from '@/features/friends/hooks';
+import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -40,9 +40,8 @@ const HomeSidebar = memo(
     onFriendsClick,
     onCreateGroupDm
   }: THomeSidebarProps) => {
-    const friendRequests = useFriendRequests();
+    const pendingCount = useIncomingFriendRequestCount();
     const dmChannels = useDmChannels();
-    const pendingCount = friendRequests.length;
 
     return (
       <>

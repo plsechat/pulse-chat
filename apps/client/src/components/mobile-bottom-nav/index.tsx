@@ -4,8 +4,7 @@ import {
   useActiveView,
   useJoinedServers
 } from '@/features/app/hooks';
-import { useFriendRequests } from '@/features/friends/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { getHandshakeHash } from '@/features/server/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -23,11 +22,7 @@ import {
 
 const MobileBottomNav = memo(() => {
   const activeView = useActiveView();
-  const friendRequests = useFriendRequests();
-  const ownUserId = useOwnUserId();
-  const pendingCount = friendRequests.filter(
-    (r) => r.receiverId === ownUserId
-  ).length;
+  const pendingCount = useIncomingFriendRequestCount();
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
   const [showServerSheet, setShowServerSheet] = useState(false);
