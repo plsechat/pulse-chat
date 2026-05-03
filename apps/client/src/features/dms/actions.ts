@@ -12,9 +12,12 @@ import { addUserToVoiceChannel } from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
 import {
+  deleteCachedPlaintext,
   getCachedPlaintext,
   getCachedPlaintextBatch,
-  setCachedPlaintext
+  setCachedPlaintext,
+  setCachedPlaintextBatch,
+  type CachedDmPlaintext
 } from './plaintext-cache';
 
 export const setDmChannels = (channels: TJoinedDmChannel[]) =>
@@ -252,11 +255,22 @@ export async function decryptDmMessageInPlace<
 >(message: T): Promise<T> {
   if (!message.e2ee || !message.content) return message;
 
-  // Check persistent cache first (works for both own and others' messages)
+  // Check persistent cache first (works for both own and others' messages).
+  // The cached entry stores the ciphertext it came from — when a message
+  // is edited the server replaces content with a fresh ciphertext under
+  // the same id, and we must re-decrypt the new ciphertext rather than
+  // return the stale plaintext.
   const persisted = await getCachedPlaintext(message.id);
   if (persisted !== undefined) {
-    setFileKeys(message.id, persisted.fileKeys);
-    return { ...message, content: persisted.content };
+    const matches =
+      persisted.ciphertext === undefined ||
+      persisted.ciphertext === message.content;
+    if (matches) {
+      setFileKeys(message.id, persisted.fileKeys);
+      return { ...message, content: persisted.content };
+    }
+    // Stale entry from before an edit — drop it before falling through.
+    await deleteCachedPlaintext(message.id).catch(() => {});
   }
 
   const ownUserId = ownUserIdSelector(store.getState());
@@ -266,8 +280,14 @@ export async function decryptDmMessageInPlace<
   if (message.userId === ownUserId) {
     const cached = ownSentPlaintextCache.get(message.content);
     if (cached !== undefined) {
-      // Persist so it survives page refresh
-      setCachedPlaintext(message.id, cached).catch(() => {});
+      // AWAIT the persist so the entry survives a refresh that races
+      // the subscription echo. Without this, the user can refresh in
+      // the ~1ms window after decrypt and lose the plaintext for any
+      // own message that hasn't yet been decrypted by the recipient.
+      await setCachedPlaintext(message.id, {
+        ...cached,
+        ciphertext: message.content
+      }).catch(() => {});
       setFileKeys(message.id, cached.fileKeys);
       return { ...message, content: cached.content };
     }
@@ -276,8 +296,14 @@ export async function decryptDmMessageInPlace<
 
   try {
     const payload = await decryptDmMessage(message.userId, message.content);
-    // Persist the decrypted plaintext — the ratchet key is now consumed
-    setCachedPlaintext(message.id, payload).catch(() => {});
+    // Persist the decrypted plaintext — the ratchet key is now consumed,
+    // so a refresh-without-cache would force a libsignal call on a key
+    // that no longer exists. Await keeps the IDB write inside the
+    // subscription handler's lifetime.
+    await setCachedPlaintext(message.id, {
+      ...payload,
+      ciphertext: message.content
+    }).catch(() => {});
     setFileKeys(message.id, payload.fileKeys);
     return { ...message, content: payload.content };
   } catch (err) {
@@ -312,14 +338,26 @@ async function decryptDmMessages(
   // Group messages by sender to parallelize across senders
   const bySender = new Map<number, { index: number; msg: TJoinedDmMessage }[]>();
   const results = [...messages];
+  // Cache writes accumulated across all senders, flushed once at the end so
+  // a refresh that interrupts the loop still has every per-message plaintext
+  // pinned to its ciphertext on disk.
+  const pendingCacheWrites: {
+    messageId: number;
+    plaintext: CachedDmPlaintext;
+  }[] = [];
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (!msg.e2ee || !msg.content) continue;
 
-    // Resolve cache hits immediately (no decryption needed)
+    // Resolve cache hits immediately (no decryption needed). Stale entries
+    // from before an edit (cached.ciphertext mismatch) fall through to
+    // the decrypt path below.
     const cached = cachedMap.get(msg.id);
-    if (cached !== undefined) {
+    if (
+      cached !== undefined &&
+      (cached.ciphertext === undefined || cached.ciphertext === msg.content)
+    ) {
       setFileKeys(msg.id, cached.fileKeys);
       results[i] = { ...msg, content: cached.content };
       continue;
@@ -329,7 +367,10 @@ async function decryptDmMessages(
     if (msg.userId === ownUserId) {
       const sent = ownSentPlaintextCache.get(msg.content);
       if (sent !== undefined) {
-        setCachedPlaintext(msg.id, sent).catch(() => {});
+        pendingCacheWrites.push({
+          messageId: msg.id,
+          plaintext: { ...sent, ciphertext: msg.content }
+        });
         setFileKeys(msg.id, sent.fileKeys);
         results[i] = { ...msg, content: sent.content };
       } else {
@@ -349,7 +390,10 @@ async function decryptDmMessages(
       for (const { index, msg } of chain) {
         try {
           const payload = await decryptDmMessage(msg.userId, msg.content!);
-          setCachedPlaintext(msg.id, payload).catch(() => {});
+          pendingCacheWrites.push({
+            messageId: msg.id,
+            plaintext: { ...payload, ciphertext: msg.content! }
+          });
           setFileKeys(msg.id, payload.fileKeys);
           results[index] = { ...msg, content: payload.content };
         } catch (err) {
@@ -359,6 +403,13 @@ async function decryptDmMessages(
       }
     })
   );
+
+  // Flush all decrypted plaintexts to IDB before returning so a refresh
+  // immediately after this call can re-hydrate without re-running the
+  // (now-consumed) Signal Protocol decryption.
+  if (pendingCacheWrites.length > 0) {
+    await setCachedPlaintextBatch(pendingCacheWrites).catch(() => {});
+  }
 
   return results;
 }

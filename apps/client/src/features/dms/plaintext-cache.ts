@@ -5,6 +5,23 @@ const DB_NAME = 'pulse-dm-plaintext';
 const DB_VERSION = 2;
 const STORE_NAME = 'plaintexts';
 
+/**
+ * Persisted shape: the decrypted plaintext + the ciphertext it came from.
+ * The ciphertext lets `decryptDmMessageInPlace` detect when a message has
+ * been edited (server replaces content with a new ciphertext under the same
+ * id) so we don't keep returning the stale plaintext from cache. Edits go
+ * through libsignal as a fresh ratchet step, so the post-edit ciphertext
+ * IS replayable as long as we drop the stale cache entry first.
+ *
+ * Legacy v2 entries (no ciphertext field) still load successfully and are
+ * treated as cache hits unconditionally — there's no on-disk migration
+ * since the ratchet keys for those messages are already consumed and we
+ * can't re-derive the ciphertext anyway.
+ */
+export type CachedDmPlaintext = E2EEPlaintext & {
+  ciphertext?: string;
+};
+
 let dbInstance: IDBPDatabase | null = null;
 
 async function getDb(): Promise<IDBPDatabase> {
@@ -36,26 +53,31 @@ async function getDb(): Promise<IDBPDatabase> {
  */
 export async function getCachedPlaintext(
   messageId: number
-): Promise<E2EEPlaintext | undefined> {
+): Promise<CachedDmPlaintext | undefined> {
   const db = await getDb();
   return db.get(STORE_NAME, String(messageId));
 }
 
 export async function setCachedPlaintext(
   messageId: number,
-  plaintext: E2EEPlaintext
+  plaintext: CachedDmPlaintext
 ): Promise<void> {
   const db = await getDb();
   await db.put(STORE_NAME, plaintext, String(messageId));
 }
 
+export async function deleteCachedPlaintext(messageId: number): Promise<void> {
+  const db = await getDb();
+  await db.delete(STORE_NAME, String(messageId));
+}
+
 export async function getCachedPlaintextBatch(
   messageIds: number[]
-): Promise<Map<number, E2EEPlaintext>> {
+): Promise<Map<number, CachedDmPlaintext>> {
   if (messageIds.length === 0) return new Map();
   const db = await getDb();
   const tx = db.transaction(STORE_NAME, 'readonly');
-  const results = new Map<number, E2EEPlaintext>();
+  const results = new Map<number, CachedDmPlaintext>();
   const gets = messageIds.map(async (id) => {
     const val = await tx.store.get(String(id));
     if (val !== undefined) results.set(id, val);
@@ -66,7 +88,7 @@ export async function getCachedPlaintextBatch(
 }
 
 export async function setCachedPlaintextBatch(
-  entries: { messageId: number; plaintext: E2EEPlaintext }[]
+  entries: { messageId: number; plaintext: CachedDmPlaintext }[]
 ): Promise<void> {
   if (entries.length === 0) return;
   const db = await getDb();
