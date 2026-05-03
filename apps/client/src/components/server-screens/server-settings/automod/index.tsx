@@ -12,6 +12,26 @@ const RULE_TYPE_LABELS: Record<string, string> = {
   [AutomodRuleType.LINK_FILTER]: 'Link Filter'
 };
 
+/**
+ * Pull a useful error message out of a tRPC client error. Zod validation
+ * errors arrive with `message` as a JSON-stringified array of issues; we
+ * surface the first issue's message instead of the raw JSON.
+ */
+const extractErrorMessage = (err: unknown): string | undefined => {
+  if (!err || typeof err !== 'object') return undefined;
+  const msg = (err as { message?: unknown }).message;
+  if (typeof msg !== 'string') return undefined;
+  try {
+    const parsed = JSON.parse(msg);
+    if (Array.isArray(parsed) && parsed[0]?.message) {
+      return String(parsed[0].message);
+    }
+  } catch {
+    // not JSON — fall through to the raw message
+  }
+  return msg;
+};
+
 const AutoMod = memo(() => {
   const [rules, setRules] = useState<TAutomodRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,6 +178,7 @@ const CreateAutomodRuleForm = memo(
       AutomodRuleType.KEYWORD_FILTER
     );
     const [keywords, setKeywords] = useState('');
+    const [regexPatterns, setRegexPatterns] = useState('');
     const [maxMentions, setMaxMentions] = useState(10);
     const [blockedLinks, setBlockedLinks] = useState('');
     const [creating, setCreating] = useState(false);
@@ -169,10 +190,16 @@ const CreateAutomodRuleForm = memo(
 
       const config: Record<string, unknown> = {};
       if (type === AutomodRuleType.KEYWORD_FILTER) {
-        config.keywords = keywords
+        const kws = keywords
           .split('\n')
           .map((k) => k.trim())
           .filter(Boolean);
+        const rxs = regexPatterns
+          .split('\n')
+          .map((r) => r.trim())
+          .filter(Boolean);
+        if (kws.length > 0) config.keywords = kws;
+        if (rxs.length > 0) config.regexPatterns = rxs;
       } else if (type === AutomodRuleType.MENTION_SPAM) {
         config.maxMentions = maxMentions;
       } else if (type === AutomodRuleType.LINK_FILTER) {
@@ -191,12 +218,26 @@ const CreateAutomodRuleForm = memo(
         });
         onCreated(rule as TAutomodRule);
         toast.success('Rule created');
-      } catch {
-        toast.error('Failed to create rule');
+      } catch (err) {
+        // tRPC Zod errors come through as TRPCClientError with the zod issues
+        // serialised in `message` (a JSON-stringified array). Extract the first
+        // useful message so the user sees the actual validator reason
+        // (e.g. "nested quantifier") instead of a generic "Failed to create".
+        const reason = extractErrorMessage(err);
+        toast.error(reason ?? 'Failed to create rule');
       } finally {
         setCreating(false);
       }
-    }, [name, type, keywords, maxMentions, blockedLinks, creating, onCreated]);
+    }, [
+      name,
+      type,
+      keywords,
+      regexPatterns,
+      maxMentions,
+      blockedLinks,
+      creating,
+      onCreated
+    ]);
 
     return (
       <div className="rounded-lg border border-border p-4 space-y-3">
@@ -222,13 +263,33 @@ const CreateAutomodRuleForm = memo(
         </select>
 
         {type === AutomodRuleType.KEYWORD_FILTER && (
-          <textarea
-            value={keywords}
-            onChange={(e) => setKeywords(e.target.value)}
-            placeholder="Keywords (one per line)"
-            rows={4}
-            className="w-full px-3 py-2 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
-          />
+          <>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Keywords (literal substring match, one per line)
+              </label>
+              <textarea
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="hello world"
+                rows={3}
+                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Regex patterns (one per line; case-insensitive)
+              </label>
+              <textarea
+                value={regexPatterns}
+                onChange={(e) => setRegexPatterns(e.target.value)}
+                placeholder={'\\b(badword)\\b\nhttps?://bad\\.example\\.com'}
+                rows={3}
+                spellCheck={false}
+                className="w-full px-3 py-2 text-sm font-mono bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
+              />
+            </div>
+          </>
         )}
 
         {type === AutomodRuleType.MENTION_SPAM && (
