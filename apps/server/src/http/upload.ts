@@ -3,12 +3,10 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import z from 'zod';
-import { findOrCreateShadowUser } from '../db/mutations/federation';
 import { getFirstServer } from '../db/queries/servers';
-import { getUserByToken } from '../db/queries/users';
 import { logger } from '../logger';
-import { verifyFederationToken } from '../utils/federation';
 import { fileManager } from '../utils/file-manager';
+import { resolveAuthenticatedUser } from '../utils/resolve-auth';
 
 const BLOCKED_EXTENSIONS = new Set([
   '.html', '.htm', '.xhtml', '.xml', '.svg',
@@ -37,26 +35,19 @@ const uploadFileRouteHandler = async (
 
   // Authenticate via standard token or federation token (both are validated)
   const federationToken = req.headers['x-federation-token'] as string | undefined;
-  const user = federationToken
-    ? await (async () => {
-        const fedResult = await verifyFederationToken(federationToken);
-        if (!fedResult) return undefined;
-        return findOrCreateShadowUser(
-          fedResult.instanceId,
-          fedResult.userId,
-          fedResult.username,
-          undefined,
-          fedResult.publicId
-        );
-      })()
-    : await getUserByToken(token);
+  const auth = await resolveAuthenticatedUser({
+    accessToken: token,
+    federationToken
+  });
 
-  if (!user) {
+  if (!auth) {
     req.resume();
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized' }));
     return;
   }
+
+  const user = auth.user;
 
   const server = await getFirstServer();
 
