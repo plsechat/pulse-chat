@@ -10,7 +10,7 @@ permissions:
 jobs:
   lint:
     name: Lint & Type Check
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -32,7 +32,7 @@ jobs:
 
   test:
     name: Run Tests
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     services:
       postgres:

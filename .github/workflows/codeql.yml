@@ -14,7 +14,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
