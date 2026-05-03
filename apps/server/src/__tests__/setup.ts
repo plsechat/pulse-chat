@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import fs from 'node:fs/promises';
-import { getSecretToken } from '../db/queries/server';
+import { warmFileHmacSecret } from '../db/queries/server';
 import { DATA_PATH } from '../helpers/paths';
 import { createHttpServer } from '../http';
 import { loadMediasoup } from '../utils/mediasoup';
@@ -107,13 +107,13 @@ beforeEach(async () => {
 
   await seedDatabase(tdb);
 
-  // Warm the file-token cache. Production code never calls getSecretToken()
-  // explicitly either; tests that exercised generateFileToken used to depend
-  // on cross-file mock leakage from files-crypto.test.ts. With more test
-  // files in the suite that order is no longer deterministic, so we warm
-  // it here. Cache is module-scoped and persists across tests, so this is
-  // a one-time cost on first call.
-  await getSecretToken();
+  // Warm the file-HMAC cache. Production never calls this explicitly either;
+  // tests that exercised generateFileToken used to depend on cross-file mock
+  // leakage from files-crypto.test.ts. With more test files in the suite
+  // that order is no longer deterministic, so we warm it here. Cache is
+  // module-scoped and persists across tests, so this is a one-time cost
+  // on first call.
+  await warmFileHmacSecret();
 });
 
 afterEach(() => {
