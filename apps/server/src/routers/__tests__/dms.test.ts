@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { and, eq } from 'drizzle-orm';
 import { getTestDb } from '../../__tests__/mock-db';
+import { createTestUser } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import {
   dmChannelMembers,
@@ -235,15 +236,18 @@ describe('DM group sender-key distribution', () => {
   });
 
   test('rejects distribute when caller is not a group member', async () => {
-    const { caller: caller1 } = await initTest(1);
+    await initTest(1);
     await initTest(2);
     await initTest(3);
-    const { caller: caller4 } = await initTest(4);
+    // Seed only creates users 1-3. Insert a fourth so initTest(outsiderId)
+    // can build a caller context for them.
+    const outsiderId = await createTestUser({ name: 'Outsider' });
+    const { caller: outsider } = await initTest(outsiderId);
 
     const groupId = await makeGroup(1, [1, 2, 3]);
 
     await expect(
-      caller4.dms.distributeSenderKeys({
+      outsider.dms.distributeSenderKeys({
         dmChannelId: groupId,
         distributions: [
           { toUserId: 2, distributionMessage: 'should not land' }
@@ -256,16 +260,19 @@ describe('DM group sender-key distribution', () => {
     const { caller: caller1 } = await initTest(1);
     await initTest(2);
     await initTest(3);
-    await initTest(4);
+    const outsiderId = await createTestUser({ name: 'Outsider' });
 
     const groupId = await makeGroup(1, [1, 2, 3]);
 
-    // User 4 is not in the group — distribution to them must reject
+    // outsiderId is not in the group — distribution to them must reject.
+    // (The route's membership check fires before the insert, so the user
+    // existing or not is irrelevant; we create the user anyway for
+    // realism since FK would reject otherwise on a successful path.)
     await expect(
       caller1.dms.distributeSenderKeys({
         dmChannelId: groupId,
         distributions: [
-          { toUserId: 4, distributionMessage: 'leaked-cipher' }
+          { toUserId: outsiderId, distributionMessage: 'leaked-cipher' }
         ]
       })
     ).rejects.toThrow();
