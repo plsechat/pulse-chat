@@ -12,7 +12,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { Smile } from 'lucide-react';
 import { MENTION_USER_EVENT } from '@/lib/events';
-import { memo, useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
 import {
   MarkdownUnderline,
@@ -54,6 +54,12 @@ type TTiptapInputProps = {
   commands?: TCommandInfo[];
   /** When set, only these users appear in @mention (no roles, no @all) */
   dmMembers?: TMentionableUser[];
+  /**
+   * When true, swap Enter and Shift+Enter: plain Enter inserts a newline,
+   * Shift+Enter sends. Used by the expanded-composer mode so the user can
+   * draft multi-line messages without each Enter sending early.
+   */
+  multilineMode?: boolean;
 };
 
 const TiptapInput = memo(
@@ -66,7 +72,8 @@ const TiptapInput = memo(
     onTyping,
     disabled,
     commands,
-    dmMembers
+    dmMembers,
+    multilineMode
   }: TTiptapInputProps) => {
     const customEmojis = useCustomEmojis();
     const users = useUsers();
@@ -74,6 +81,15 @@ const TiptapInput = memo(
     const channels = useChannels();
     const ownUserId = useOwnUserId();
     const isDm = !!dmMembers;
+
+    // The TipTap editor instance only binds `editorProps.handleKeyDown` once
+    // (the closure captures the prop at editor-creation time). Mirror the
+    // current multiline flag through a ref so the handler always reads the
+    // latest value without rebuilding the editor.
+    const multilineModeRef = useRef(multilineMode);
+    useEffect(() => {
+      multilineModeRef.current = multilineMode;
+    }, [multilineMode]);
 
     const mentionUsers = useMemo(
       () =>
@@ -217,6 +233,26 @@ const TiptapInput = memo(
             suggestionElement && document.body.contains(suggestionElement);
 
           if (event.key === 'Enter') {
+            const isMultiline = !!multilineModeRef.current;
+
+            // Multiline mode: Shift+Enter sends, plain Enter inserts a
+            // newline (which is the inverse of the default). Suggestions
+            // and lists still need their special-case handling.
+            if (isMultiline) {
+              if (event.shiftKey) {
+                if (hasSuggestions) return false;
+                const { $from } = view.state.selection;
+                if ($from.parent.type.name === 'codeBlock') return false;
+                event.preventDefault();
+                onSubmit?.();
+                return true;
+              }
+              // Plain Enter — defer to TipTap's list/codeBlock handling
+              // (splitListItem etc.) and otherwise insert a newline. We
+              // return false to let the default keymap take over.
+              return false;
+            }
+
             if (event.shiftKey) {
               // Inside a list, repurpose Shift+Enter to advance to the next
               // list item — plain Enter is reserved for sending. An empty
@@ -376,7 +412,9 @@ const TiptapInput = memo(
 
     return (
       <div
-        className={`flex flex-1 items-center gap-2 ${disabled ? '' : 'cursor-text'}`}
+        className={`flex flex-1 gap-2 ${
+          multilineMode ? 'items-start h-full overflow-y-auto' : 'items-center'
+        } ${disabled ? '' : 'cursor-text'}`}
         onClick={(e) => {
           if (disabled) return;
           if ((e.target as HTMLElement).closest('button')) return;

@@ -1,5 +1,10 @@
 import { FileCard } from '@/components/channel-view/text/file-card';
 import { FormattingHints } from '@/components/channel-view/text/formatting-hints';
+import {
+  ComposerExpandToggle,
+  ComposerResizer,
+  MIN_COMPOSER_HEIGHT
+} from '@/components/channel-view/text/composer-expand';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { MessageReactions } from '@/components/channel-view/text/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
@@ -116,6 +121,8 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
   }, [dmChannels, dmChannelId, ownUserId]);
 
   const inputAreaRef = useRef<HTMLDivElement>(null);
+  const [multilineMode, setMultilineMode] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
 
   const focusEditor = useCallback(() => {
     requestAnimationFrame(() => {
@@ -364,7 +371,21 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
           </div>
         )}
         <FormattingHints />
-        <div ref={inputAreaRef} className="flex items-center gap-2 rounded-lg">
+        {multilineMode && (
+          <ComposerResizer
+            height={composerHeight}
+            onHeightChange={setComposerHeight}
+          />
+        )}
+        <ComposerExpandToggle
+          expanded={multilineMode}
+          onToggle={() => setMultilineMode((m) => !m)}
+        />
+        <div
+          ref={inputAreaRef}
+          className="flex items-start gap-2 rounded-lg overflow-hidden"
+          style={multilineMode ? { height: composerHeight } : undefined}
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -389,6 +410,7 @@ const DmConversation = memo(({ dmChannelId }: TDmConversationProps) => {
             onTyping={sendTypingSignal}
             disabled={uploading}
             dmMembers={dmMembers}
+            multilineMode={multilineMode}
           />
           {isGiphyEnabled() && (
             <GifPicker onSelect={onGifSelect}>

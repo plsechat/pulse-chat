@@ -29,6 +29,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { ReplyContentPreview } from './reply-content-preview';
 import { FormattingHints } from './formatting-hints';
+import {
+  ComposerExpandToggle,
+  ComposerResizer,
+  MIN_COMPOSER_HEIGHT
+} from './composer-expand';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
@@ -209,6 +214,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
+  const [multilineMode, setMultilineMode] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
 
   const focusEditor = useCallback(() => {
     requestAnimationFrame(() => {
@@ -474,9 +481,20 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           </div>
         )}
         <FormattingHints />
+        {multilineMode && (
+          <ComposerResizer
+            height={composerHeight}
+            onHeightChange={setComposerHeight}
+          />
+        )}
+        <ComposerExpandToggle
+          expanded={multilineMode}
+          onToggle={() => setMultilineMode((m) => !m)}
+        />
         <div
           ref={inputAreaRef}
-          className="flex items-center gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-all duration-200 cursor-text"
+          className="flex items-start gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-all duration-200 cursor-text overflow-hidden"
+          style={multilineMode ? { height: composerHeight } : undefined}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;
             const pm = e.currentTarget.querySelector('.ProseMirror');
@@ -509,6 +527,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             onTyping={sendTypingSignal}
             disabled={uploading || !canSendMessages || slowModeRemaining > 0}
             commands={pluginCommands}
+            multilineMode={multilineMode}
           />
           {isGiphyEnabled() && (
             <GifPicker onSelect={onGifSelect}>
