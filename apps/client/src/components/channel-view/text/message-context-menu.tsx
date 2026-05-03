@@ -152,8 +152,13 @@ const MessageContextMenu = memo(
     }, [messageContent]);
 
     const onCopyMessageLink = useCallback(() => {
+      // Emits the deep-link token (`<#msg:channelId/messageId>`) that the
+      // renderer recognizes. Pasting it produces a clickable badge that
+      // jumps to the message via the existing scroll-to-message pulse.
+      // Falls back to a bare `messageId` when channelId is unknown
+      // (vanishingly rare — only legacy code paths drop the channel).
       const link = channelId
-        ? `${channelId}/${messageId}`
+        ? `<#msg:${channelId}/${messageId}>`
         : String(messageId);
       navigator.clipboard.writeText(link);
       toast.success('Message link copied');
@@ -207,7 +212,7 @@ const MessageContextMenu = memo(
 
           <ContextMenuItem onClick={onCopyMessageLink}>
             <ClipboardCopy className="h-4 w-4" />
-            Copy Message ID
+            Copy Message Link
           </ContextMenuItem>
 
           {!selectionMode && can(Permission.MANAGE_MESSAGES) && (

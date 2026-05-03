@@ -1,4 +1,5 @@
 import { useCan } from '@/features/server/hooks';
+import { useChannelById } from '@/features/server/channels/hooks';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
@@ -79,6 +80,15 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
     [can, isFromOwnUser]
   );
 
+  // Treat messages inside a forum post (THREAD with FORUM parent) as
+  // already-threaded for menu purposes — Pulse doesn't support nested
+  // threads inside forum posts, so we hide the Create Thread affordance
+  // in both the right-click menu and the hover action bar.
+  const messageChannel = useChannelById(message.channelId);
+  const isInsideForumPost =
+    messageChannel?.type === 'THREAD' && !!messageChannel.parentChannelId;
+  const hideCreateThread = !!message.threadId || isInsideForumPost;
+
   const onSelectionClick = useCallback(
     (e: React.MouseEvent) => {
       if (!selectionMode) return;
@@ -101,7 +111,7 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
       canDelete={canDelete}
       editable={message.editable ?? false}
       pinned={message.pinned ?? false}
-      hasThread={!!message.threadId}
+      hasThread={hideCreateThread}
     >
       <div
         id={`msg-${message.id}`}
@@ -143,7 +153,7 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
               messageId={message.id}
               editable={message.editable ?? false}
               pinned={message.pinned ?? false}
-              hasThread={!!message.threadId}
+              hasThread={hideCreateThread}
             />
           </>
         ) : (

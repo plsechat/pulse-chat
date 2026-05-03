@@ -1,6 +1,7 @@
 import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
+import { isBlockBetween } from '../../db/queries/blocks';
 import { findDmChannelBetween, getDmChannelsForUser } from '../../db/queries/dms';
 import { areFriends } from '../../db/queries/friends';
 import { sharesServerWith } from '../../db/queries/servers';
@@ -14,6 +15,15 @@ const getOrCreateChannelRoute = protectedProcedure
     invariant(input.userId !== ctx.userId, {
       code: 'BAD_REQUEST',
       message: 'You cannot create a DM with yourself'
+    });
+
+    // Don't surface the block direction to the caller — a deliberately
+    // generic 404-style message keeps the blocker's identity private to
+    // them. This still prevents DM creation from either side.
+    const blocked = await isBlockBetween(ctx.userId, input.userId);
+    invariant(!blocked, {
+      code: 'NOT_FOUND',
+      message: 'Cannot start a DM with this user.'
     });
 
     // Require shared server or existing friendship to create a DM

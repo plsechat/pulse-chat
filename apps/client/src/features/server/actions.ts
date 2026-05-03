@@ -7,7 +7,11 @@ import {
   setActiveView
 } from '@/features/app/actions';
 import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
-import { fetchFriendRequests, fetchFriends } from '@/features/friends/actions';
+import {
+  fetchBlockedUsers,
+  fetchFriendRequests,
+  fetchFriends
+} from '@/features/friends/actions';
 import { logDebug } from '@/helpers/browser-logger';
 import { getHostFromServer } from '@/helpers/get-file-url';
 import { applyServerPreferences } from '@/lib/preferences-apply';
@@ -161,6 +165,7 @@ export const joinServer = async (
   // Fetch friends, DM data, joined servers, and unread counts in parallel
   fetchFriends();
   fetchFriendRequests();
+  fetchBlockedUsers();
   fetchDmChannels();
   fetchActiveDmCalls();
   fetchServerUnreadCounts();

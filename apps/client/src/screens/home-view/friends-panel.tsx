@@ -5,19 +5,26 @@ import {
   acceptFriendRequest,
   rejectFriendRequest,
   removeFriendAction,
-  sendFriendRequest
+  sendFriendRequest,
+  unblockUser
 } from '@/features/friends/actions';
-import { useFriendRequests, useFriends } from '@/features/friends/hooks';
+import {
+  useBlockedUsers,
+  useFriendRequests,
+  useFriends
+} from '@/features/friends/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
 import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
 import {
+  Ban,
   Check,
   Globe,
   MessageSquare,
   Search,
+  UserCheck,
   UserMinus,
   UserPlus,
   X
@@ -29,7 +36,7 @@ type TFriendsPanelProps = {
   onDmSelect: (dmChannelId: number) => void;
 };
 
-type TFriendsTab = 'all' | 'pending' | 'add';
+type TFriendsTab = 'all' | 'pending' | 'blocked' | 'add';
 
 const FriendsPanel = memo(({ onDmSelect }: TFriendsPanelProps) => {
   const [tab, setTab] = useState<TFriendsTab>('all');
@@ -39,7 +46,7 @@ const FriendsPanel = memo(({ onDmSelect }: TFriendsPanelProps) => {
       <div className="flex h-12 items-center gap-4 border-b border-border px-4">
         <span className="font-semibold text-foreground">Friends</span>
         <div className="flex gap-1">
-          {(['all', 'pending', 'add'] as const).map((t) => (
+          {(['all', 'pending', 'blocked', 'add'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -59,8 +66,70 @@ const FriendsPanel = memo(({ onDmSelect }: TFriendsPanelProps) => {
       <div className="flex-1 overflow-y-auto p-4">
         {tab === 'all' && <AllFriends onDmSelect={onDmSelect} />}
         {tab === 'pending' && <PendingRequests />}
+        {tab === 'blocked' && <BlockedUsers />}
         {tab === 'add' && <AddFriend />}
       </div>
+    </div>
+  );
+});
+
+const BlockedUsers = memo(() => {
+  const blocked = useBlockedUsers();
+
+  const handleUnblock = useCallback(async (userId: number, name: string) => {
+    try {
+      await unblockUser(userId);
+      toast.success(`Unblocked ${name}`);
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to unblock user'));
+    }
+  }, []);
+
+  if (blocked.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+          <Ban className="h-8 w-8" />
+        </div>
+        <p className="text-lg font-medium">No blocked users</p>
+        <p className="text-sm">
+          People you block will appear here. They won&apos;t be able to message
+          you or send friend requests.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="px-2 pb-2 text-xs font-semibold uppercase text-muted-foreground">
+        Blocked — {blocked.length}
+      </p>
+      {blocked.map((user) => (
+        <div
+          key={user.id}
+          className="flex items-center gap-3 rounded-md p-2 hover:bg-muted/50"
+        >
+          <UserAvatar userId={user.id} className="h-9 w-9 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="font-medium truncate block">{user.name}</span>
+            {user._identity && user._identity !== user.name && (
+              <span className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                <Globe className="h-3 w-3" />
+                {user._identity}
+              </span>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleUnblock(user.id, user.name)}
+          >
+            <UserCheck className="h-4 w-4 mr-1" />
+            Unblock
+          </Button>
+        </div>
+      ))}
     </div>
   );
 });

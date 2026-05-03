@@ -22,7 +22,9 @@ import { Fragment, memo, useMemo } from 'react';
 import { CodeBlockOverride } from '@/components/channel-view/text/overrides/code-block';
 import {
   ChannelMention,
-  MentionOverride
+  ForumPostLink,
+  MentionOverride,
+  MessageLink
 } from '@/components/channel-view/text/overrides/mention';
 import { TwitterOverride } from '@/components/channel-view/text/overrides/twitter';
 import { YoutubeOverride } from '@/components/channel-view/text/overrides/youtube';
@@ -37,6 +39,8 @@ type Token =
   | { type: 'role_mention'; id: number }
   | { type: 'all_mention' }
   | { type: 'channel_mention'; id: number }
+  | { type: 'forum_post_link'; channelId: number; threadId: number }
+  | { type: 'message_link'; channelId: number; messageId: number }
   | { type: 'custom_emoji'; name: string; id: number }
   | { type: 'code_block'; lang: string; code: string }
   | { type: 'inline_code'; code: string }
@@ -92,6 +96,30 @@ function tokenizeInline(text: string): Token[] {
     best = tryMatch(remaining, /@everyone/, () => ({
       type: 'all_mention'
     }), best);
+
+    // Forum post link: <#post:channelId/threadId>
+    best = tryMatch(
+      remaining,
+      /<#post:(\d+)\/(\d+)>/,
+      (m) => ({
+        type: 'forum_post_link',
+        channelId: Number(m[1]),
+        threadId: Number(m[2])
+      }),
+      best
+    );
+
+    // Message link: <#msg:channelId/messageId>
+    best = tryMatch(
+      remaining,
+      /<#msg:(\d+)\/(\d+)>/,
+      (m) => ({
+        type: 'message_link',
+        channelId: Number(m[1]),
+        messageId: Number(m[2])
+      }),
+      best
+    );
 
     // Channel mention: <#123>
     best = tryMatch(remaining, /<#(\d+)>/, (m) => ({
@@ -306,6 +334,26 @@ function renderTokens(
       case 'channel_mention':
         elements.push(
           <ChannelMention key={`cm-${i}`} id={token.id} name="" />
+        );
+        break;
+
+      case 'forum_post_link':
+        elements.push(
+          <ForumPostLink
+            key={`fpl-${i}`}
+            channelId={token.channelId}
+            threadId={token.threadId}
+          />
+        );
+        break;
+
+      case 'message_link':
+        elements.push(
+          <MessageLink
+            key={`ml-${i}`}
+            channelId={token.channelId}
+            messageId={token.messageId}
+          />
         );
         break;
 

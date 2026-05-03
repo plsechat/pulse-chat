@@ -85,6 +85,8 @@ export enum ServerEvents {
   USER_NOTE_UPDATE = "userNoteUpdate",
 
   USER_KICKED = "userKicked",
+
+  USER_BLOCK_CHANGED = "userBlockChanged",
 }
 
 export type TNewMessage = {

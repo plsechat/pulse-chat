@@ -28,15 +28,25 @@ const PinnedMessageItem = memo(
     const user = useUserById(message.userId);
 
     return (
-      <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
-        <div className="flex items-center gap-2 mb-1">
-          <UserAvatar userId={message.userId} className="h-5 w-5" />
-          <span className="text-sm font-medium">{user?.name ?? 'Unknown'}</span>
-          <span className="text-xs text-muted-foreground">
+      <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30 overflow-hidden">
+        <div className="flex items-center gap-2 mb-1 min-w-0">
+          <UserAvatar userId={message.userId} className="h-5 w-5 shrink-0" />
+          <span className="text-sm font-medium truncate">
+            {user?.name ?? 'Unknown'}
+          </span>
+          <span className="text-xs text-muted-foreground shrink-0">
             {format(new Date(message.createdAt), longDateTime())}
           </span>
         </div>
-        <div className="pl-7 text-sm">
+        {/*
+          The renderer fans out attached images, link-preview embeds and
+          YouTube thumbnails at full source width; the parent panel is
+          fixed at w-96, so without these constraints a wide image
+          overflowed horizontally and the panel grew its own scrollbar
+          along the X axis. Constrain everything inside the renderer to
+          the panel's width and force images to scale.
+        */}
+        <div className="pl-7 text-sm min-w-0 max-w-full overflow-x-hidden [&_img]:max-w-full [&_img]:h-auto [&_video]:max-w-full">
           <MessageRenderer message={message} />
         </div>
         <div className="flex justify-end mt-1">

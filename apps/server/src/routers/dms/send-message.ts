@@ -2,6 +2,7 @@ import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { isBlockBetween } from '../../db/queries/blocks';
 import { getDmChannelMemberIds, getDmMessage } from '../../db/queries/dms';
 import { getUserById } from '../../db/queries/users';
 import { dmMessageFiles, dmMessages, federationInstances } from '../../db/schema';
@@ -30,6 +31,22 @@ const sendMessageRoute = protectedProcedure
       code: 'FORBIDDEN',
       message: 'You are not a member of this DM channel'
     });
+
+    // Refuse the send outright when there's a block between the sender
+    // and any other channel member — this surfaces the block to the
+    // sender as a clear error rather than letting them shout into a
+    // void the recipient can't see. For 1:1 DMs only one peer matters;
+    // for group DMs we block on any pair so a blocked-by user can't
+    // be circumvented by the group fanout.
+    for (const memberId of memberIds) {
+      if (memberId === ctx.userId) continue;
+      const blocked = await isBlockBetween(ctx.userId, memberId);
+      invariant(!blocked, {
+        code: 'FORBIDDEN',
+        message:
+          'You can no longer send messages to one of these members.'
+      });
+    }
 
     const isE2ee = !!input.e2ee;
 

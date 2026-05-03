@@ -1,11 +1,19 @@
 import { setActiveView, setModViewOpen } from '@/features/app/actions';
-import { useActiveInstanceDomain } from '@/features/app/hooks';
-import { requestTextInput } from '@/features/dialogs/actions';
-import { getOrCreateDmChannel, sendDmMessage } from '@/features/dms/actions';
-import { useFriends } from '@/features/friends/hooks';
 import {
+  useActiveInstanceDomain,
+  useActiveServerId
+} from '@/features/app/hooks';
+import {
+  requestConfirmation,
+  requestTextInput
+} from '@/features/dialogs/actions';
+import { getOrCreateDmChannel, sendDmMessage } from '@/features/dms/actions';
+import { useFriends, useIsUserBlocked } from '@/features/friends/hooks';
+import {
+  blockUser,
   removeFriendAction,
-  sendFriendRequest
+  sendFriendRequest,
+  unblockUser
 } from '@/features/friends/actions';
 import { useUserRoles } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
@@ -15,6 +23,7 @@ import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { Permission, UserStatus } from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
+  Ban,
   Copy,
   Ellipsis,
   Globe,
@@ -22,6 +31,7 @@ import {
   Plus,
   ShieldCheck,
   StickyNote,
+  UserCheck,
   UserCog,
   UserMinus,
   UserPlus,
@@ -61,7 +71,12 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
   const ownUserId = useOwnUserId();
   const friends = useFriends();
   const activeInstanceDomain = useActiveInstanceDomain();
+  const activeServerId = useActiveServerId();
   const isOwnUser = !activeInstanceDomain && userId === ownUserId;
+  // Moderation View is a per-server tool — hide it whenever the popover
+  // is opened from a context with no active local server (e.g. the
+  // home/DMs Friends panel, where there's no shared server to moderate).
+  const inSharedServer = !activeInstanceDomain && activeServerId !== undefined;
 
   const [notes, setNotes] = useState<TNote[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
@@ -71,6 +86,34 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     () => friends.some((f) => f.id === userId),
     [friends, userId]
   );
+  const isBlocked = useIsUserBlocked(userId);
+
+  const handleBlockToggle = useCallback(async () => {
+    if (!user) return;
+    if (isBlocked) {
+      try {
+        await unblockUser(userId);
+        toast.success(`Unblocked ${user.name}`);
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to unblock user'));
+      }
+      return;
+    }
+    const confirmed = await requestConfirmation({
+      title: `Block ${user.name}?`,
+      message:
+        'They won’t be able to message you, send you friend requests, or open a DM with you. Any current friendship will be removed.',
+      confirmLabel: 'Block',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    try {
+      await blockUser(userId);
+      toast.success(`Blocked ${user.name}`);
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to block user'));
+    }
+  }, [isBlocked, user, userId]);
 
   const fetchNotes = useCallback(async () => {
     try {
@@ -256,7 +299,10 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
 
           {/* Action buttons on banner */}
           <div className="absolute right-2 top-2 flex items-center gap-1.5">
-            {!isOwnUser && (
+            {/* Hide the add/remove-friend toggle when this user is
+                blocked — sending the request would 404 server-side
+                and a friendship can't exist alongside a block anyway. */}
+            {!isOwnUser && !isBlocked && (
               <button
                 type="button"
                 className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
@@ -309,15 +355,33 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
                     Copy User ID
                   </DropdownMenuItem>
                 )}
-                <Protect permission={Permission.MANAGE_USERS}>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setModViewOpen(true, user.id)}
-                  >
-                    <UserCog className="h-4 w-4" />
-                    Moderation View
-                  </DropdownMenuItem>
-                </Protect>
+                {!isOwnUser && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handleBlockToggle}
+                      variant={isBlocked ? undefined : 'destructive'}
+                    >
+                      {isBlocked ? (
+                        <UserCheck className="h-4 w-4" />
+                      ) : (
+                        <Ban className="h-4 w-4" />
+                      )}
+                      {isBlocked ? 'Unblock User' : 'Block User'}
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {inSharedServer && !isOwnUser && (
+                  <Protect permission={Permission.MANAGE_USERS}>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setModViewOpen(true, user.id)}
+                    >
+                      <UserCog className="h-4 w-4" />
+                      Moderation View
+                    </DropdownMenuItem>
+                  </Protect>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -443,7 +507,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         </div>
 
         {/* === Zone 4: Message Input === */}
-        {!isOwnUser && (
+        {!isOwnUser && !isBlocked && (
           <div className="px-4 pb-4 pt-2 border-t border-border">
             <div className="flex items-center gap-2 rounded-md bg-muted/50 border border-border px-3 py-1.5 cursor-text"
               onClick={(e) => {
@@ -459,6 +523,13 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
                 onSubmit={handleSendPopoverMessage}
               />
             </div>
+          </div>
+        )}
+        {!isOwnUser && isBlocked && (
+          <div className="px-4 pb-4 pt-2 border-t border-border">
+            <p className="text-xs text-muted-foreground italic">
+              You blocked this user. Unblock to send messages.
+            </p>
           </div>
         )}
       </PopoverContent>

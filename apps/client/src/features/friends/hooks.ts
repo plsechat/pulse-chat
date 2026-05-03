@@ -1,6 +1,8 @@
 import { useSelector } from 'react-redux';
+import { useMemo } from 'react';
 import { ownUserIdSelector } from '../server/users/selectors';
 import {
+  blockedUsersSelector,
   friendRequestsSelector,
   friendsLoadingSelector,
   friendsSelector
@@ -11,6 +13,17 @@ export const useFriends = () => useSelector(friendsSelector);
 export const useFriendRequests = () => useSelector(friendRequestsSelector);
 
 export const useFriendsLoading = () => useSelector(friendsLoadingSelector);
+
+export const useBlockedUsers = () => useSelector(blockedUsersSelector);
+
+/** Whether the current user has blocked this target user. */
+export const useIsUserBlocked = (userId: number | undefined) => {
+  const blocked = useBlockedUsers();
+  return useMemo(
+    () => (userId == null ? false : blocked.some((b) => b.id === userId)),
+    [blocked, userId]
+  );
+};
 
 /**
  * Count of pending requests addressed TO the current user.

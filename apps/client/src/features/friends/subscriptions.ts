@@ -5,6 +5,7 @@ import type { TJoinedFriendRequest } from '@pulse/shared';
 import {
   addFriend,
   addRequest,
+  fetchBlockedUsers,
   removeFriend,
   removeRequest
 } from './actions';
@@ -60,11 +61,26 @@ const subscribeToFriends = () => {
     onError: (err) => console.error('onFriendRemoved subscription error:', err)
   });
 
+  // The block events stream is mounted alongside friends because the
+  // two state machines are coupled (block → drop friendship + reject
+  // pending request) and the UI surfaces are colocated.
+  const onBlockChangedSub = trpc.blocks.onBlockChanged.subscribe(undefined, {
+    onData: () => {
+      // Always refetch the canonical list rather than tracking add/remove
+      // separately — block lists are tiny and the refetch keeps the
+      // friends slice and the blocked list in sync after a block tears
+      // down a friendship.
+      fetchBlockedUsers();
+    },
+    onError: (err) => console.error('onBlockChanged subscription error:', err)
+  });
+
   return () => {
     onRequestReceivedSub.unsubscribe();
     onRequestAcceptedSub.unsubscribe();
     onRequestRejectedSub.unsubscribe();
     onRemovedSub.unsubscribe();
+    onBlockChangedSub.unsubscribe();
   };
 };
 

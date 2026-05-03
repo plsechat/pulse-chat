@@ -228,6 +228,15 @@ type Events = {
     serverId: number;
     reason?: string;
   };
+
+  // Sent only to the blocker so their client can refresh the blocked list
+  // and any cached state for the affected user. The blocked user receives
+  // no notification — block disclosure is intentional only on the
+  // outbound (DM/friend-request) error path.
+  [ServerEvents.USER_BLOCK_CHANGED]: {
+    blockedUserId: number;
+    blocked: boolean;
+  };
 };
 
 class PubSub {

@@ -593,6 +593,33 @@ const friendships = pgTable(
   ]
 );
 
+/**
+ * One-way edge: blockerId has chosen to block blockedUserId. Both
+ * federated users (which are stored as local shadow users) and local
+ * users use the same shape — the shadow-user pattern means a federated
+ * identity always has a row in `users` we can reference. A symmetric
+ * effect (blocked user can't reach blocker either) is enforced by
+ * checking either direction at message/DM/friend-request time.
+ */
+const userBlocks = pgTable(
+  'user_blocks',
+  {
+    id: serial('id').primaryKey(),
+    blockerId: integer('blocker_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    blockedUserId: integer('blocked_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('user_blocks_blocker_idx').on(t.blockerId),
+    index('user_blocks_blocked_idx').on(t.blockedUserId),
+    uniqueIndex('user_blocks_pair_idx').on(t.blockerId, t.blockedUserId)
+  ]
+);
+
 const friendRequests = pgTable(
   'friend_requests',
   {
@@ -1070,6 +1097,7 @@ export {
   servers,
   settings,
   threadFollowers,
+  userBlocks,
   userIdentityKeys,
   userKeyBackups,
   userNotes,

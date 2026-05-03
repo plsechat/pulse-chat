@@ -2,6 +2,7 @@ import { ServerEvents } from '@pulse/shared';
 import { and, eq, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { isBlockBetween } from '../../db/queries/blocks';
 import { areFriends, getJoinedFriendRequest } from '../../db/queries/friends';
 import { sharesServerWith } from '../../db/queries/servers';
 import { getUserById } from '../../db/queries/users';
@@ -18,6 +19,12 @@ const sendRequestRoute = protectedProcedure
     invariant(input.userId !== ctx.userId, {
       code: 'BAD_REQUEST',
       message: 'You cannot send a friend request to yourself'
+    });
+
+    const blocked = await isBlockBetween(ctx.userId, input.userId);
+    invariant(!blocked, {
+      code: 'NOT_FOUND',
+      message: 'Cannot send a friend request to this user.'
     });
 
     const alreadyFriends = await areFriends(ctx.userId, input.userId);

@@ -85,6 +85,13 @@
       "when": 1777777767907,
       "tag": "0011_supreme_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1778976000000,
+      "tag": "0012_user_blocks",
+      "breakpoints": true
     }
   ]
 }
