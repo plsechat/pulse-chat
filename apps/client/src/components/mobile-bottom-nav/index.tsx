@@ -55,7 +55,7 @@ const MobileBottomNav = memo(() => {
   return (
     <>
       <nav className={cn(
-        'flex sm:hidden h-14 w-full border-t border-border bg-sidebar items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] transition-all duration-200',
+        'flex min-[480px]:hidden h-14 w-full border-t border-border bg-sidebar items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] transition-all duration-200',
         isKeyboardVisible && 'h-0 overflow-hidden border-t-0 opacity-0 pointer-events-none'
       )}>
         <button
