@@ -26,6 +26,7 @@ import { registerRouteHandler } from './register';
 import { publicRouteHandler } from './public';
 import { uploadFileRouteHandler } from './upload';
 import { authRateLimit, federationRateLimit, uploadRateLimit, checkRateLimit } from './rate-limit';
+import { JsonBodyTooLargeError } from './helpers';
 import { HttpValidationError } from './utils';
 import { webhookRouteHandler } from './webhook';
 import { isAllowedOrigin } from './cors';
@@ -186,6 +187,10 @@ const createHttpServer = async (port: number = config.server.port) => {
 
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ errors: errorsMap }));
+            return;
+          } else if (error instanceof JsonBodyTooLargeError) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: error.message }));
             return;
           }
 

@@ -4,6 +4,12 @@ import { db } from '../db';
 import { messages, webhooks } from '../db/schema';
 import { publishMessage } from '../db/publishers';
 import { logger } from '../logger';
+import { getJsonBody, JsonBodyTooLargeError } from './helpers';
+
+// Webhook payloads can include a longer content blob (4 KB cap on the
+// content field below) plus username/avatar — 32 KB is a comfortable
+// upper bound for the wrapping JSON.
+const WEBHOOK_BODY_LIMIT_BYTES = 32 * 1024;
 
 const webhookRouteHandler = async (
   req: http.IncomingMessage,
@@ -24,15 +30,6 @@ const webhookRouteHandler = async (
     return;
   }
 
-  // Parse body
-  const body = await new Promise<string>((resolve) => {
-    let data = '';
-    req.on('data', (chunk) => {
-      data += chunk;
-    });
-    req.on('end', () => resolve(data));
-  });
-
   let parsed: {
     content?: string;
     username?: string;
@@ -40,8 +37,13 @@ const webhookRouteHandler = async (
   };
 
   try {
-    parsed = JSON.parse(body);
-  } catch {
+    parsed = await getJsonBody(req, { maxBytes: WEBHOOK_BODY_LIMIT_BYTES });
+  } catch (err) {
+    if (err instanceof JsonBodyTooLargeError) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+      return;
+    }
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid JSON body' }));
     return;
