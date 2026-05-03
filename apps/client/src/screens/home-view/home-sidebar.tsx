@@ -227,12 +227,13 @@ const DmChannelItem = memo(
         <ContextMenuContent>
           {!channel.e2ee && (
             <>
-              {channel.isGroup ? (
-                // Group DM E2EE needs sender-key distribution wired into
-                // the DM router; today the send path can only encrypt
-                // pairwise (1:1). Shipping the toggle without that would
-                // silently send plaintext, so disable it until the
-                // group-encryption feature lands.
+              {channel.members.length > 2 ? (
+                // True groups (3+ members) need sender-key distribution
+                // wired into the DM router; pairwise Signal can't address
+                // multiple recipients with one ciphertext. Disable until
+                // group-encryption lands. A 2-person channel — even one
+                // created via the "Create Group" flow — encrypts fine
+                // pairwise, so it falls through to the normal toggle.
                 <ContextMenuItem disabled>
                   <Lock className="mr-2 h-4 w-4" />
                   Group encryption coming soon

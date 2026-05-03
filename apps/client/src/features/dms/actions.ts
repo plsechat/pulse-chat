@@ -223,16 +223,20 @@ export const fetchDmMessages = async (
 };
 
 /**
- * Get the other user's ID in a 1-on-1 DM channel.
+ * Get the sole other member's id when the channel has exactly one recipient.
+ * Returns null for true groups (3+ members) where pairwise Signal can't be
+ * used. Works regardless of `channel.isGroup` — a 2-person channel created
+ * via the "Create Group DM" flow is still a 1:1 from a crypto standpoint.
  */
 function getDmRecipientUserId(dmChannelId: number): number | null {
   const state = store.getState();
   const ownUserId = ownUserIdSelector(state);
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
-  if (!channel || channel.isGroup) return null;
+  if (!channel) return null;
 
-  const otherMember = channel.members.find((m) => m.id !== ownUserId);
-  return otherMember?.id ?? null;
+  const otherMembers = channel.members.filter((m) => m.id !== ownUserId);
+  if (otherMembers.length !== 1) return null;
+  return otherMembers[0].id;
 }
 
 /**

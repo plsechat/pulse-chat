@@ -622,7 +622,7 @@ const DmHeader = memo(({
       )}
       <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
         {displayName}
-        {channel && !channel.isGroup && channel.e2ee && (
+        {channel?.e2ee && (
           <Tooltip content="End-to-end encrypted">
             <Lock className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
           </Tooltip>
