@@ -514,11 +514,18 @@ const ServerStrip = memo(() => {
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          {totalDmUnreadCount > 0 && (
-            <ContextMenuItem onClick={handleMarkAllDmsAsRead}>
-              Mark as Read
-            </ContextMenuItem>
-          )}
+          {/*
+            Always render Mark as Read so right-clicking the home button
+            doesn't open an empty popover when there are no unreads —
+            disabled state is more honest than absent. Click is gated by
+            `disabled` so the no-op case stays a no-op.
+          */}
+          <ContextMenuItem
+            onClick={handleMarkAllDmsAsRead}
+            disabled={totalDmUnreadCount === 0}
+          >
+            Mark as Read
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
 

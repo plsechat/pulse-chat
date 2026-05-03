@@ -5,6 +5,7 @@ import {
   useSelectedChannel
 } from '@/features/server/channels/hooks';
 import { useDismissOnOutsideClick } from '@/hooks/use-dismiss-on-outside-click';
+import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { cn } from '@/lib/utils';
 import { Hash, LayoutList, List, Lock, MessageSquare, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
@@ -32,6 +33,13 @@ const TopBar = memo(
     const isCurrentVoiceChannelSelected = useIsCurrentVoiceChannelSelected();
     const currentVoiceChannelId = useCurrentVoiceChannelId();
     const selectedChannel = useSelectedChannel();
+    // The members sidebar uses lg:relative — below 1024px it slides
+    // off the right edge regardless of the user's preference. The
+    // toggle button stays in the top bar though, so without this flag
+    // it'd silently lie about the state. Track the breakpoint and
+    // grey out the button + clarify the tooltip when sidebar is
+    // unavailable.
+    const sidebarAvailable = useViewportAtLeast(1024);
     const [showPinned, setShowPinned] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [showThreads, setShowThreads] = useState(false);
@@ -195,9 +203,19 @@ const TopBar = memo(
             variant="ghost"
             size="sm"
             onClick={onToggleRightSidebar}
-            className="h-7 px-2 transition-all duration-200 ease-in-out"
+            disabled={!sidebarAvailable}
+            className={cn(
+              'h-7 px-2 transition-all duration-200 ease-in-out',
+              !sidebarAvailable && 'opacity-50 cursor-not-allowed'
+            )}
           >
-            {isOpen ? (
+            {!sidebarAvailable ? (
+              <Tooltip content="Members panel (unavailable — make the window wider)">
+                <div>
+                  <PanelRight className="w-4 h-4" />
+                </div>
+              </Tooltip>
+            ) : isOpen ? (
               <Tooltip content="Close Members Sidebar">
                 <div>
                   <PanelRightClose className="w-4 h-4" />

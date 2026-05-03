@@ -36,7 +36,16 @@ const MainViewInner = memo(() => {
     <>
       <PersistentAudioStreams />
       <div className="flex h-dvh bg-background text-foreground">
-        <div className="hidden md:flex">
+        {/*
+          Was `hidden md:flex` (≥ 768px). At desktop widths between
+          640–768px the strip vanished even though there's plenty of
+          room for its 72px column — and MobileBottomNav was designed
+          for true-mobile (< 640px) where the screen is genuinely too
+          narrow for both the strip and the channel list. Lower the
+          breakpoint to `sm:` so resizing a desktop window keeps the
+          strip visible until you really cross into mobile territory.
+        */}
+        <div className="hidden sm:flex">
           <ServerStrip />
         </div>
         <div className="flex flex-1 flex-col overflow-hidden">

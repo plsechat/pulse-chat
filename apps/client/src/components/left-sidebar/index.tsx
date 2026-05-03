@@ -177,7 +177,15 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
               )}
             </DropdownMenuContent>
       </DropdownMenu>
-      <div className="flex-1 overflow-y-auto">
+      {/*
+        `pt-2` here matches the visual gap between the bottom of the
+        channel list and the floating user-control bar (which sits over
+        the 5.5rem spacer below). Without it, the server-name border
+        sat directly against the first category header — visibly tighter
+        than the bottom — and the sidebar looked top-heavy. The mobile
+        branch doesn't get a floating bar, so it doesn't need symmetry.
+      */}
+      <div className="flex-1 overflow-y-auto md:pt-2">
         <Categories />
       </div>
       <div className="md:hidden">
