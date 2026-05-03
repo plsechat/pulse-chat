@@ -74,7 +74,7 @@ const TopBar = memo(
     }, []);
 
     return (
-      <div className="hidden md:flex h-12 w-full border-b border-border items-center px-4 transition-all duration-300 ease-in-out gap-3 shadow-[0_1px_0_rgba(0,0,0,0.2)]">
+      <div className="hidden md:flex h-12 w-full border-b border-border/60 items-center px-4 transition-all duration-300 ease-in-out gap-3">
         {/* Channel info on left */}
         {selectedChannel && (
           <div className="flex items-center gap-2 flex-1 min-w-0">

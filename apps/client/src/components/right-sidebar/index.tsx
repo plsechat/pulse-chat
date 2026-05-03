@@ -161,7 +161,7 @@ const RightSidebar = memo(
     return (
       <aside
         className={cn(
-          'flex flex-col bg-card h-full transition-all duration-300 ease-out overflow-hidden',
+          'flex flex-col bg-sidebar h-full transition-all duration-300 ease-out overflow-hidden',
           isOpen ? 'w-60' : 'w-0',
           className
         )}

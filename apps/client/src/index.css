@@ -146,11 +146,11 @@
 }
 
 .dark {
-  --background: #09090b;
+  --background: #0d0d10;
   --foreground: #fafafa;
-  --card: #111113;
+  --card: #131316;
   --card-foreground: #fafafa;
-  --popover: #0c0c0e;
+  --popover: #0a0a0c;
   --popover-foreground: #fafafa;
   --primary: #14b8a6;
   --primary-foreground: #ffffff;
@@ -169,7 +169,7 @@
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #0a0a0b;
+  --sidebar: #08080a;
   --sidebar-foreground: #fafafa;
   --sidebar-primary: #14b8a6;
   --sidebar-primary-foreground: #ffffff;
@@ -216,12 +216,17 @@
    * divs scattered through the app so keyboard users always see where
    * focus is. Mouse users get nothing (it's `:focus-visible`, not
    * `:focus`).
+   *
+   * `[contenteditable]` and `.ProseMirror` are explicitly excluded —
+   * they paint a misaligned ring around the inner editor content box
+   * which doesn't match the visible composer border. The composer
+   * wrapper paints its own `:focus-within` state instead.
    */
   button:focus-visible,
   a:focus-visible,
   [role='button']:focus-visible,
   [role='menuitem']:focus-visible,
-  [tabindex]:focus-visible {
+  [tabindex]:focus-visible:not([contenteditable]):not(.ProseMirror) {
     @apply outline-none ring-2 ring-ring/60 ring-offset-2 ring-offset-background;
   }
 }

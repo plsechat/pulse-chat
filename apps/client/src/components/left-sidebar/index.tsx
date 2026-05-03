@@ -113,13 +113,13 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   return (
     <aside
       className={cn(
-        'flex w-60 flex-col bg-card h-full overflow-hidden',
+        'flex w-60 flex-col bg-sidebar h-full overflow-hidden',
         className
       )}
     >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex w-full justify-between h-12 items-center border-b border-border px-4 hover:bg-accent transition-colors cursor-pointer">
+          <button className="flex w-full justify-between h-12 items-center border-b border-border/60 px-4 hover:bg-accent transition-colors cursor-pointer">
             <h2 className="text-[15px] font-semibold text-foreground tracking-tight truncate">{serverName}</h2>
             <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           </button>

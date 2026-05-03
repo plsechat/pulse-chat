@@ -493,7 +493,13 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         />
         <div
           ref={inputAreaRef}
-          className="flex items-start gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-all duration-200 cursor-text overflow-hidden"
+          // `transition-[border-color,box-shadow]` rather than
+          // `transition-all`: the multiline mode binds `height` to a
+          // drag handle, and `transition-all` would animate every
+          // frame of the drag (200ms behind the cursor) — extremely
+          // laggy. Scoping the transition to focus-affordances keeps
+          // height instant while the focus glow still fades smoothly.
+          className="flex items-start gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]"
           style={multilineMode ? { height: composerHeight } : undefined}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;
