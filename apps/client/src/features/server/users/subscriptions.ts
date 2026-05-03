@@ -50,12 +50,12 @@ const subscribeToUsers = () => {
   const trpc = getTRPCClient();
 
   const onUserJoinSub = trpc.users.onJoin.subscribe(undefined, {
-    onData: (user: TJoinedPublicUser) => {
-      handleUserJoin(user);
-      updateFriend(user.id, user);
+    onData: (payload: { serverId: number; user: TJoinedPublicUser }) => {
+      handleUserJoin(payload.serverId, payload.user);
+      updateFriend(payload.user.id, payload.user);
 
       // Fire-and-forget: distribute sender keys to the newly online user
-      distributeE2eeKeysToUser(user.id).catch((err) =>
+      distributeE2eeKeysToUser(payload.user.id).catch((err) =>
         console.warn('[E2EE] Proactive key distribution error:', err)
       );
     },
