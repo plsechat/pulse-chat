@@ -47,8 +47,29 @@ export const addDmMessages = (
   if (isSubscription && messages.length > 0) {
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);
+    const selectedId = state.dms.selectedChannelId;
+    const channelInState = state.dms.channels.find((c) => c.id === dmChannelId);
+    // TEMP DIAG — group-DM pubsub regression. Remove after diagnosis.
+    console.log('[DM-DIAG] addDmMessages', {
+      dmChannelId,
+      isSubscription,
+      ownUserId,
+      messageUserId: messages[0]?.userId,
+      selectedDmChannelId: selectedId,
+      isViewingThisChannel: selectedId === dmChannelId,
+      channelInState: channelInState
+        ? { id: channelInState.id, isGroup: channelInState.isGroup }
+        : null,
+      dispatchPath:
+        ownUserId == null
+          ? 'skipped: no ownUserId'
+          : messages[0]?.userId === ownUserId
+            ? 'skipped: own message'
+            : selectedId === dmChannelId
+              ? 'markAsRead path'
+              : 'notify path (sound + badge)'
+    });
     if (ownUserId != null && messages[0].userId !== ownUserId) {
-      const selectedId = state.dms.selectedChannelId;
       const isViewingThisChannel = selectedId === dmChannelId;
 
       if (!isViewingThisChannel) {

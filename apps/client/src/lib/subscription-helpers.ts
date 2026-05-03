@@ -74,6 +74,10 @@ const subscribe = <TData>(
 ): Unsubscribe => {
   const sub = source.subscribe(undefined, {
     onData: async (data) => {
+      // TEMP DIAG — pubsub regression. Remove after diagnosis.
+      if (name.startsWith('onDm')) {
+        console.log(`[DM-DIAG] subscribe.onData ${name}`, data);
+      }
       // Await in case the caller returns a promise (e.g. async
       // decryption before dispatch). Errors propagate to onError via
       // the async wrapper.
