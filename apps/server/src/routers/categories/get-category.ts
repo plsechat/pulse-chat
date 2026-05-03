@@ -1,5 +1,5 @@
 import { Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { categories } from '../../db/schema';
@@ -15,10 +15,17 @@ const getCategoryRoute = protectedProcedure
   .query(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
 
+    // Scope to the caller's active server so MANAGE_CATEGORIES in server A
+    // can't read categories belonging to server B.
     const [category] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, input.categoryId))
+      .where(
+        and(
+          eq(categories.id, input.categoryId),
+          eq(categories.serverId, ctx.activeServerId!)
+        )
+      )
       .limit(1);
 
     invariant(category, {

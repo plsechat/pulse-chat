@@ -27,6 +27,17 @@ const deleteChannelRoute = protectedProcedure
       ctx.throwValidationError('dmChannelId', 'Not a member of this channel');
     }
 
+    // For group DMs, only the owner may delete the channel for everyone.
+    // Without this, any member could nuke the entire group's history.
+    // 1:1 DMs (isGroup=false) keep the existing "either party can delete"
+    // semantics since deletion there is effectively a mutual leave.
+    if (channel.isGroup && channel.ownerId !== ctx.userId) {
+      return ctx.throwValidationError(
+        'dmChannelId',
+        'Only the group owner can delete this channel'
+      );
+    }
+
     // Destroy any active voice runtime for this DM channel
     const voiceRuntime = VoiceRuntime.findById(input.dmChannelId);
     if (voiceRuntime) {

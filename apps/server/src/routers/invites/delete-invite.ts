@@ -1,5 +1,5 @@
 import { ActivityLogType, Permission, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { getServerMemberIds } from '../../db/queries/servers';
@@ -17,9 +17,16 @@ const deleteInviteRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_INVITES);
 
+    // Scope the delete to the caller's active server. Without this,
+    // MANAGE_INVITES in server A could delete invites belonging to server B.
     const [removedInvite] = await db
       .delete(invites)
-      .where(eq(invites.id, input.inviteId))
+      .where(
+        and(
+          eq(invites.id, input.inviteId),
+          eq(invites.serverId, ctx.activeServerId!)
+        )
+      )
       .returning();
 
     invariant(removedInvite, {
