@@ -19,15 +19,16 @@ const YoutubeOverride = memo(({ videoId }: TYoutubeOverrideProps) => {
       <ImageContextMenu src={thumbnailSrc} filename={`${videoId}.jpg`}>
         {/*
           The previous shape was `w-[600px]` — a hard pixel width that
-          punched through the message column on narrow viewports and
-          forced a horizontal scrollbar (or pushed the right sidebar
-          off screen). `max-w-[600px] w-full` keeps the desktop look
-          (still 600px when there's room) but lets the embed shrink
-          with the column. The 16/9 aspect ratio is now driven by
-          `aspect-video` so the height tracks the width as it
-          compresses.
+          punched through the message column on narrow viewports.
+          `w-full max-w-[600px]` keeps the desktop look (still 600px
+          when there's room) but lets the embed shrink with the
+          column. The 16:9 aspect ratio is owned by LiteYouTubeEmbed
+          itself (it injects `padding-bottom: 56.25%` on .lty); adding
+          our own `aspect-video` on the wrapper fought with that and
+          collapsed the iframe to zero height — so we just give it a
+          width and let the library handle the rest.
         */}
-        <div className="w-full max-w-[600px] aspect-video">
+        <div className="w-full max-w-[600px]">
           <LiteYouTubeEmbed
             id={videoId}
             title="What’s new in Material Design for the web (Chrome Dev Summit 2019)"
