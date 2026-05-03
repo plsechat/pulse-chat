@@ -1,6 +1,6 @@
-import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
@@ -40,12 +40,10 @@ const Password = memo(() => {
           <Input {...r('confirmNewPassword', 'password')} />
         </Group>
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={updatePassword}>Save Changes</Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={updatePassword}
+        />
     </div>
   );
 });

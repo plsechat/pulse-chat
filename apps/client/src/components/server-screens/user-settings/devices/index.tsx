@@ -2,6 +2,7 @@ import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { LoadingCard } from '@/components/ui/loading-card';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import {
   Select,
   SelectContent,
@@ -167,12 +168,10 @@ const Devices = memo(() => {
         {/* macOS Audio Driver — only shown in Electron on macOS */}
         <MacOSAudioDriverSection />
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={saveDeviceSettings}>Save Changes</Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={saveDeviceSettings}
+        />
     </div>
   );
 });

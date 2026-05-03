@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { UserAvatar } from '@/components/user-avatar';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
@@ -168,15 +169,10 @@ const Override = memo(
             onTogglePermission={onTogglePermission}
           />
 
-          <div className="flex justify-end gap-2 pt-4">
-            <Button
-              variant="outline"
-              onClick={() => setSelectedOverrideId(undefined)}
-            >
-              Cancel
-            </Button>
-            <Button onClick={onUpdateOverride}>Save Changes</Button>
-          </div>
+          <SettingsFormFooter
+            onCancel={() => setSelectedOverrideId(undefined)}
+            onSave={onUpdateOverride}
+          />
         </CardContent>
       </Card>
     );

@@ -1,5 +1,6 @@
 import { UserAvatar } from '@/components/user-avatar';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { getOrCreateDmChannel } from '@/features/dms/actions';
 import {
   acceptFriendRequest,
@@ -87,16 +88,11 @@ const BlockedUsers = memo(() => {
 
   if (blocked.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-          <Ban className="h-8 w-8" />
-        </div>
-        <p className="text-lg font-medium">No blocked users</p>
-        <p className="text-sm">
-          People you block will appear here. They won&apos;t be able to message
-          you or send friend requests.
-        </p>
-      </div>
+      <EmptyState
+        icon={Ban}
+        title="No blocked users"
+        description="People you block will appear here. They won't be able to message you or send friend requests."
+      />
     );
   }
 

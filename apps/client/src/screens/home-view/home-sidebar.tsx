@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -98,13 +99,12 @@ const HomeSidebar = memo(
             ))}
 
             {dmChannels.length === 0 && (
-              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                  <MessageSquare className="h-6 w-6" />
-                </div>
-                <p className="font-medium">No conversations yet</p>
-                <p className="text-xs mt-1">Start a DM to begin chatting</p>
-              </div>
+              <EmptyState
+                icon={MessageSquare}
+                title="No conversations yet"
+                description="Start a DM to begin chatting"
+                size="sm"
+              />
             )}
           </div>
         </div>

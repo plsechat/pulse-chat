@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Select,
   SelectContent,
@@ -10,7 +11,7 @@ import { useChannels } from '@/features/server/channels/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TWebhook } from '@pulse/shared';
-import { Copy, Plus, Trash } from 'lucide-react';
+import { Copy, Plus, Trash, Webhook } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -100,9 +101,12 @@ const Webhooks = memo(() => {
       )}
 
       {webhooks.length === 0 && !showCreate && (
-        <div className="text-center py-8 text-sm text-muted-foreground">
-          No webhooks yet. Create one to get started.
-        </div>
+        <EmptyState
+          icon={Webhook}
+          title="No webhooks yet"
+          description="Create one to start posting to a channel from an external service."
+          size="sm"
+        />
       )}
 
       <div className="space-y-2">

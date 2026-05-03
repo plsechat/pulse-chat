@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -15,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { closeServerScreens } from '@/features/server-screens/actions';
@@ -89,14 +89,11 @@ const General = memo(({ channelId }: TGeneralProps) => {
           </Select>
         </Group>
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={loading}>
-            Save Changes
-          </Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={submit}
+          saving={loading}
+        />
       </CardContent>
     </Card>
   );
