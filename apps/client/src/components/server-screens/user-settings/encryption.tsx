@@ -6,7 +6,13 @@ import {
   restoreBackupFromServer,
   uploadBackupToServer
 } from '@/lib/e2ee/key-backup';
-import { hasKeys, signalStore, setupE2EEKeys, initE2EE } from '@/lib/e2ee';
+import {
+  hasKeys,
+  signalStore,
+  setupE2EEKeys,
+  initE2EE,
+  finalizeRestoredKeys
+} from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import {
@@ -162,6 +168,11 @@ const Encryption = memo(() => {
     setImporting(true);
     try {
       await importKeys(importFile, importPassphrase);
+      // Re-register the restored identity + redistribute sender keys to
+      // peers. Without this the server keeps whatever identity was
+      // registered last (typically the throwaway from a prior regen),
+      // and peers can't decrypt anything we send.
+      await finalizeRestoredKeys();
       await initE2EE();
 
       setImportFile(null);
@@ -219,6 +230,9 @@ const Encryption = memo(() => {
     setRestoring(true);
     try {
       await restoreBackupFromServer(restorePassphrase);
+      // Same post-restore reconciliation as importKeys — server identity
+      // flip + sender-key redistribute. See finalizeRestoredKeys().
+      await finalizeRestoredKeys();
       await initE2EE();
 
       setRestorePassphrase('');

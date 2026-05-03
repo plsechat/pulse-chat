@@ -313,6 +313,18 @@ export class SignalProtocolStore implements StorageType {
     }
     await tx.done;
   }
+
+  /**
+   * Wipe every Signal session in IDB. Used after a key restore: the
+   * restored sessions describe a ratchet state that no peer agrees with
+   * anymore (peers rebuilt theirs in response to the regen broadcast that
+   * the restore is undoing). Forcing rebuild via X3DH on next encrypt is
+   * the only way to get back in sync.
+   */
+  async clearAllSessions(): Promise<void> {
+    const db = await this.getDb();
+    await db.clear(STORES.SESSIONS);
+  }
 }
 
 // Home instance store (singleton, backward compatible)

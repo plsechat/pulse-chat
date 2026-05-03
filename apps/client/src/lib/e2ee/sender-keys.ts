@@ -60,6 +60,16 @@ export async function storeSenderKeyForUser(
 const cryptoKeyCache = new Map<string, CryptoKey>();
 
 /**
+ * Drop all cached CryptoKey objects. Call this when IDB has been
+ * rewritten wholesale (e.g. on key restore) — anything that captured
+ * a base64 string before the rewrite would otherwise still resolve to
+ * a CryptoKey derived from stale bytes.
+ */
+export function clearCryptoKeyCache(): void {
+  cryptoKeyCache.clear();
+}
+
+/**
  * Import a base64 key string as a CryptoKey (cached).
  */
 async function importKey(keyBase64: string): Promise<CryptoKey> {

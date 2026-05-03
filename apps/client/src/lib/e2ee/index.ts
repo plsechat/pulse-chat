@@ -12,6 +12,7 @@ import {
   hasSession
 } from './signal-protocol';
 import {
+  clearCryptoKeyCache,
   decryptWithSenderKey,
   encryptWithSenderKey,
   generateSenderKey,
@@ -82,12 +83,87 @@ export async function setupE2EEKeys(
     if (!passphrase) throw new Error('Passphrase required for restore');
     const { restoreBackupFromServer } = await import('./key-backup');
     await restoreBackupFromServer(passphrase);
-    await replenishOTPsIfNeeded();
+    await finalizeRestoredKeys();
   } else {
     const trpc = getHomeTRPCClient();
     if (!trpc) throw new Error('Not connected');
     const keys = await generateKeys(OTP_REPLENISH_COUNT);
     await trpc.e2ee.registerKeys.mutate(keys);
+  }
+}
+
+/**
+ * Post-restore reconciliation. Must run after IDB has been written from
+ * a backup blob (server backup OR local file import). Without this the
+ * server keeps the identity registered by whatever ran *between* the
+ * backup and the restore — typically a regen — which leaves peers and
+ * server out of sync with our restored IDB:
+ *
+ *  - Peers store the regen-era sender key for us; we encrypt with the
+ *    backup-era one. AES-GCM tag mismatch.
+ *  - Peers fetching getPreKeyBundle(us) get the regen prekey-bundle and
+ *    encrypt distributions to it; we try to open them with the restored
+ *    identity. X3DH agreement fails.
+ *  - The decrypt-failure retry path (fetchAndProcessPendingSenderKeys)
+ *    keeps grabbing rows that were encrypted to the wrong identity.
+ *
+ * Steps:
+ *  1. Drop in-memory caches that may hold pre-restore bytes.
+ *  2. Wipe all Signal sessions — restored sessions describe a ratchet
+ *     state peers no longer agree with, so we have to rebuild via X3DH
+ *     next encrypt.
+ *  3. Re-register the restored identity with a fresh signed-prekey + OTP
+ *     batch signed under it. Server flips back to the restored identity,
+ *     clears stale e2ee_sender_keys rows, and broadcasts
+ *     E2EE_IDENTITY_RESET to peers (who run handlePeerIdentityReset and
+ *     re-distribute their sender keys to our restored prekey-bundle).
+ *  4. Push our (restored) sender keys back to peers, overwriting whatever
+ *     they had from the regen-era distribution. Sessions rebuild lazily
+ *     in ensureSession because step 2 cleared them.
+ *
+ * Suppresses our own tab from auto-reloading on the E2EE_IDENTITY_RESET
+ * broadcast we trigger here.
+ */
+export async function finalizeRestoredKeys(): Promise<void> {
+  clearCryptoKeyCache();
+  await signalStore.clearAllSessions();
+
+  const trpc = getHomeTRPCClient();
+  if (!trpc) {
+    // No connection — restore wrote IDB but we can't sync the server now.
+    // Whatever runs initE2EE later will at least replenish OTPs against
+    // the (still-stale) server identity, which is no worse than today.
+    return;
+  }
+
+  const identityPubKey = await getIdentityPublicKey();
+  const registrationId = await signalStore.getLocalRegistrationId();
+  if (!identityPubKey || registrationId === undefined) {
+    throw new Error('Restored backup is missing an identity key');
+  }
+
+  // Fresh signed prekey + OTPs signed under the restored identity.
+  // registerKeys server-side replaces signedPreKeys + OTPs unconditionally,
+  // so reusing the backup's prekeys would be redundant work.
+  const signedPreKey = await generateSignedPreKey(1);
+  const oneTimePreKeys = await generateOneTimePreKeys(
+    nextOtpKeyId,
+    OTP_REPLENISH_COUNT
+  );
+  nextOtpKeyId += OTP_REPLENISH_COUNT;
+
+  setLocalResetFlag(true);
+  try {
+    await trpc.e2ee.registerKeys.mutate({
+      identityPublicKey: identityPubKey,
+      registrationId,
+      signedPreKey,
+      oneTimePreKeys
+    });
+
+    await redistributeOwnSenderKeys();
+  } finally {
+    setLocalResetFlag(false);
   }
 }
 

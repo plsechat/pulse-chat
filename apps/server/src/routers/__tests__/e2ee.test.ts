@@ -549,6 +549,69 @@ describe('e2ee router', () => {
     expect(pending1After.length).toBe(0);
   });
 
+  test('backup→regen→restore cycle leaves server matching restored identity', async () => {
+    // Reproduces the QA bug: a user backs up keys, regenerates (server
+    // gets a throwaway identity), then restores from backup. The fix is
+    // that finalizeRestoredKeys() re-registers the *original* identity
+    // server-side, which should trigger the same cleanup as a regen so
+    // peers re-distribute their sender keys to the restored prekeys.
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    // Initial state: user 1 registers identity K_A1.
+    const k1 = mockKeys;
+    await caller1.e2ee.registerKeys(k1);
+
+    // Pre-backup: a sender-key distribution exists in either direction.
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      distributionMessage: 'k_a1-distribution'
+    });
+    await caller2.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 1,
+      distributionMessage: 'b-distribution-encrypted-to-k_a1'
+    });
+
+    // Step 2: user 1 regenerates → identity flips to K_A2.
+    await caller1.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'K_A2-regen-throwaway'
+    });
+
+    // Server cleared all sender-key distributions involving user 1,
+    // matching the existing 'should delete stale sender key distributions'
+    // test. Confirm:
+    expect((await caller1.e2ee.getPendingSenderKeys({})).length).toBe(0);
+    expect((await caller2.e2ee.getPendingSenderKeys({})).length).toBe(0);
+
+    // Post-regen, peers (via handlePeerIdentityReset) re-distribute their
+    // sender keys to user 1's K_A2 prekey-bundle. Simulate that.
+    await caller2.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 1,
+      distributionMessage: 'b-distribution-encrypted-to-k_a2'
+    });
+    expect((await caller1.e2ee.getPendingSenderKeys({})).length).toBe(1);
+
+    // Step 3: user 1 restores from backup → finalizeRestoredKeys() calls
+    // registerKeys with the original K_A1 again. This is the path the
+    // pre-fix bug missed entirely (server kept K_A2). With the fix the
+    // server detects another identity change and clears stale rows.
+    await caller1.e2ee.registerKeys(k1);
+
+    // Server's identity row matches the restored backup (K_A1).
+    const serverIdentity = await caller2.e2ee.getIdentityPublicKey({
+      userId: 1
+    });
+    expect(serverIdentity).toBe(k1.identityPublicKey);
+
+    // The post-regen distribution to K_A2 was cleared again — peers must
+    // re-distribute fresh to K_A1 prekeys instead.
+    expect((await caller1.e2ee.getPendingSenderKeys({})).length).toBe(0);
+  });
+
   test('should not delete distributions when re-registering with same identity', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
