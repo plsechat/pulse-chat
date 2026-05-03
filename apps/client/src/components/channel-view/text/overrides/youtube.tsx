@@ -18,16 +18,17 @@ const YoutubeOverride = memo(({ videoId }: TYoutubeOverrideProps) => {
     <OverrideLayout>
       <ImageContextMenu src={thumbnailSrc} filename={`${videoId}.jpg`}>
         {/*
-          `w-full max-w-[600px]` lets the embed shrink with the message
-          column and caps at 600px on desktop. The library's own
-          .yt-lite element doesn't ship a `width: 100%` rule — its
-          aspect-ratio hack (`::after { padding-bottom: 56.25% }`) is
-          proportional to .yt-lite's width, so without forcing it to
-          fill the wrapper it collapses to the intrinsic ~70px play
-          button. The `[&_.yt-lite]:w-full` descendant selector injects
-          that missing rule so the iframe sizes correctly.
+          Fixed `w-[600px]` is deliberate. TokenContentRenderer wraps
+          its output in a <span> (inline), so percentage widths on a
+          block descendant don't resolve against the message column —
+          `w-full` collapsed to ~0 width and the library's
+          padding-bottom aspect-ratio hack on .yt-lite computed near-0
+          height, hiding the player. A pixel width sidesteps the
+          containing-block ambiguity entirely. If this overflows on
+          narrow viewports, the message column's overflow handling
+          is the right place to address it — not here.
         */}
-        <div className="w-full max-w-[600px] [&_.yt-lite]:w-full">
+        <div className="w-[600px]">
           <LiteYouTubeEmbed
             id={videoId}
             title="What’s new in Material Design for the web (Chrome Dev Summit 2019)"
