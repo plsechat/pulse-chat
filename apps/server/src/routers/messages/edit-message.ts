@@ -1,9 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { channels, messages } from '../../db/schema';
+import { getMessageInActiveServer } from '../../db/queries/messages';
+import { messages } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
@@ -18,25 +19,15 @@ const editMessageRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    // Join channels so message is scoped to the caller's active server.
-    // Without this, an author kicked from a server could still edit their
-    // old messages there.
-    const [message] = await db
-      .select({
-        userId: messages.userId,
-        channelId: messages.channelId,
-        editable: messages.editable,
-        e2ee: messages.e2ee
-      })
-      .from(messages)
-      .innerJoin(channels, eq(channels.id, messages.channelId))
-      .where(
-        and(
-          eq(messages.id, input.messageId),
-          eq(channels.serverId, ctx.activeServerId!)
-        )
-      )
-      .limit(1);
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    const message = await getMessageInActiveServer(
+      input.messageId,
+      ctx.activeServerId
+    );
 
     invariant(message, {
       code: 'NOT_FOUND',

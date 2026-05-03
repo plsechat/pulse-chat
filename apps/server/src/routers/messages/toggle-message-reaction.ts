@@ -4,8 +4,11 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getEmojiFileIdByEmojiName } from '../../db/queries/emojis';
-import { getReaction } from '../../db/queries/messages';
-import { channels, messageReactions, messages } from '../../db/schema';
+import {
+  getMessageInActiveServer,
+  getReaction
+} from '../../db/queries/messages';
+import { messageReactions } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -24,12 +27,10 @@ const toggleMessageReactionRoute = protectedProcedure
       message: 'No active server'
     });
 
-    const [message] = await db
-      .select()
-      .from(messages)
-      .innerJoin(channels, eq(messages.channelId, channels.id))
-      .where(and(eq(messages.id, input.messageId), eq(channels.serverId, ctx.activeServerId)))
-      .limit(1);
+    const message = await getMessageInActiveServer(
+      input.messageId,
+      ctx.activeServerId
+    );
 
     invariant(message, {
       code: 'NOT_FOUND',
@@ -64,7 +65,7 @@ const toggleMessageReactionRoute = protectedProcedure
         );
     }
 
-    publishMessage(input.messageId, message.messages.channelId, 'update');
+    publishMessage(input.messageId, message.channelId, 'update');
   });
 
 export { toggleMessageReactionRoute };

@@ -1,10 +1,11 @@
 import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { channels, messages } from '../../db/schema';
+import { getMessageInActiveServer } from '../../db/queries/messages';
+import { messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -22,16 +23,10 @@ const pinMessageRoute = protectedProcedure
       message: 'No active server'
     });
 
-    const [message] = await db
-      .select({
-        id: messages.id,
-        channelId: messages.channelId,
-        pinned: messages.pinned
-      })
-      .from(messages)
-      .innerJoin(channels, eq(messages.channelId, channels.id))
-      .where(and(eq(messages.id, input.messageId), eq(channels.serverId, ctx.activeServerId)))
-      .limit(1);
+    const message = await getMessageInActiveServer(
+      input.messageId,
+      ctx.activeServerId
+    );
 
     invariant(message, {
       code: 'NOT_FOUND',
