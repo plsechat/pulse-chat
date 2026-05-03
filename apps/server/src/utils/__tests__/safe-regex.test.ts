@@ -15,7 +15,16 @@ describe('validateSafeRegex', () => {
   test('rejects the canonical ReDoS pattern (a+)+', () => {
     const r = validateSafeRegex('^(a+)+$');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason.toLowerCase()).toContain('redos');
+    if (!r.ok) expect(r.reason.toLowerCase()).toMatch(/redos|backtracking/);
+  });
+
+  test('rejects unanchored (a+)+ via static detection', () => {
+    // The unanchored form is fast in many engines (the engine short-
+    // circuits as soon as it finds a partial match), so the timing-based
+    // detector misses it. The static shape detector still catches it.
+    const r = validateSafeRegex('(a+)+');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason.toLowerCase()).toContain('backtracking');
   });
 
   test('rejects (a*)*', () => {
@@ -25,6 +34,16 @@ describe('validateSafeRegex', () => {
 
   test('rejects (.+)+', () => {
     const r = validateSafeRegex('(.+)+!');
+    expect(r.ok).toBe(false);
+  });
+
+  test('rejects (.+)* via static detection', () => {
+    const r = validateSafeRegex('(.+)*x');
+    expect(r.ok).toBe(false);
+  });
+
+  test('rejects (\\w+)+ via static detection', () => {
+    const r = validateSafeRegex('(\\w+)+!');
     expect(r.ok).toBe(false);
   });
 
@@ -44,5 +63,11 @@ describe('validateSafeRegex', () => {
     const r = validateSafeRegex('([a-z');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason.toLowerCase()).toContain('invalid');
+  });
+
+  test('does not reject simple alternation (foo|bar|baz)+', () => {
+    // Simple alternation without overlap is generally safe; should not be
+    // false-positive'd by the static detector.
+    expect(validateSafeRegex('(foo|bar|baz)+').ok).toBe(true);
   });
 });

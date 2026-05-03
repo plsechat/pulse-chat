@@ -4,18 +4,19 @@
  * adversarial input. Real fix is RE2 (linear-time), tracked as a Phase 6
  * follow-up; this is the Phase 1 lockdown.
  *
- * Strategy:
- *   1. Cap pattern length (long patterns are rarely benign automod rules
- *      and give attackers more room to construct catastrophic backtracking).
- *   2. Compile-check.
- *   3. Time the pattern against a small set of canonical adversarial inputs.
- *      Any input that takes longer than `BUDGET_MS` indicates the pattern
- *      backtracks badly — reject it.
+ * Strategy (defense in depth):
+ *   1. Cap pattern length.
+ *   2. Static pattern check — scan the regex source for known catastrophic
+ *      shapes (nested quantifiers). Reliable across engines.
+ *   3. Compile-check.
+ *   4. Time against canonical adversarial inputs. Catches what static
+ *      detection misses, but is engine-dependent: modern JSC short-circuits
+ *      some catastrophic patterns at runtime, which means a fast result
+ *      here doesn't always mean the pattern is safe in another runtime.
  *
- * This catches the well-known shapes (`(a+)+`, `(a*)*`, `(.+)*`, etc.) without
- * needing to parse the regex AST. It is NOT exhaustive; a determined attacker
- * who studies these inputs could craft a pattern that's slow only on different
- * inputs. RE2 is the proper defense.
+ * Static detection added 2026-05-02 after the timing-only heuristic accepted
+ * `^(a+)+$` on the live server (faster CPU + JSC anti-backtracking than
+ * the local test env).
  */
 
 const MAX_PATTERN_LENGTH = 256;
@@ -23,13 +24,37 @@ const BUDGET_MS = 50;
 
 const ADVERSARIAL_INPUTS = [
   // Prefix attacks: long run of a single char followed by a non-match
-  'a'.repeat(50) + '!',
   'a'.repeat(100) + '!',
-  // Alternating chars
-  'aA'.repeat(50),
-  'ab'.repeat(50) + '!',
+  'a'.repeat(500) + '!',
+  // Alternating chars (defeats some short-circuit heuristics)
+  'aA'.repeat(100),
+  'ab'.repeat(100) + '!',
   // Common word followed by junk
-  'word'.repeat(25) + '!'
+  'word'.repeat(50) + '!'
+];
+
+// Regex shapes that are known to cause catastrophic backtracking in any
+// backtracking engine. We match these against the user's regex source text
+// directly — independent of any timing measurement.
+const STATIC_REDOS_SHAPES: ReadonlyArray<{ name: string; re: RegExp }> = [
+  // (X+)+ / (X*)* / (X+)* / (X*)+ — nested quantifier on a group whose
+  // contents themselves already contain a quantifier. Covers (a+)+ etc.
+  {
+    name: 'nested quantifier',
+    re: /\([^()]*[*+?][^()]*\)\s*[*+?{]/
+  },
+  // (.+)+ / (.*)* — wildcard with double quantifier. Subsumed by the rule
+  // above for many cases but explicit for clarity in error messages.
+  {
+    name: 'wildcard with nested quantifier',
+    re: /\(\.[*+?]\)\s*[*+?{]/
+  },
+  // (\w+)+ / (\d*)* / (\s+)+ etc — character-class shorthand with double
+  // quantifier.
+  {
+    name: 'character-class shorthand with nested quantifier',
+    re: /\(\\[wdsWDS][*+?]\)\s*[*+?{]/
+  }
 ];
 
 export type SafeRegexResult =
@@ -39,6 +64,15 @@ export type SafeRegexResult =
 export function validateSafeRegex(pattern: string): SafeRegexResult {
   if (pattern.length > MAX_PATTERN_LENGTH) {
     return { ok: false, reason: `Pattern exceeds max length (${MAX_PATTERN_LENGTH})` };
+  }
+
+  for (const shape of STATIC_REDOS_SHAPES) {
+    if (shape.re.test(pattern)) {
+      return {
+        ok: false,
+        reason: `Pattern contains a known catastrophic backtracking shape (${shape.name})`
+      };
+    }
   }
 
   let regex: RegExp;
