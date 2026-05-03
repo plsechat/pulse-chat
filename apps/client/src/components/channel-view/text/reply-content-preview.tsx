@@ -21,6 +21,17 @@ import { Fragment, memo, type ReactNode } from 'react';
 const URL_ONLY_RE = /^https?:\/\/\S+$/;
 const PREVIEW_CHAR_BUDGET = 120;
 
+// tokenize() in token-content-renderer.tsx wraps blockquote bodies in
+// these NUL-delimited synthetic markers. Built from char codes so the
+// no-control-regex lint rule doesn't trip on a regex literal containing
+// \x00 — split/join on a string literal is fine.
+const NUL = String.fromCharCode(0);
+const BLOCKQUOTE_START = `${NUL}BLOCKQUOTE_START${NUL}`;
+const BLOCKQUOTE_END = `${NUL}BLOCKQUOTE_END${NUL}`;
+
+const stripBlockquoteMarkers = (s: string): string =>
+  s.split(BLOCKQUOTE_START).join('').split(BLOCKQUOTE_END).join('');
+
 const ReplyContentPreview = memo(({ content }: { content: string }) => {
   const trimmed = content.trim();
 
@@ -48,16 +59,13 @@ const ReplyContentPreview = memo(({ content }: { content: string }) => {
       out.push(<CustomEmoji key={i} name={tok.name} id={tok.id} />);
       charsUsed += 2;
     } else if (tok.type === 'text') {
-      // Skip the synthetic blockquote markers tokenize() injects.
-      const cleaned = tok.value
-        .replace(/\x00BLOCKQUOTE_START\x00/g, '')
-        .replace(/\x00BLOCKQUOTE_END\x00/g, '');
+      const cleaned = stripBlockquoteMarkers(tok.value);
       if (!cleaned) continue;
       const slice = cleaned.slice(0, remaining);
       out.push(<Fragment key={i}>{slice}</Fragment>);
       charsUsed += slice.length;
     } else if (tok.type === 'url') {
-      // Inline URLs (alongside other text) — show "link" rather than
+      // Inline URL alongside other text: render a placeholder rather than
       // dumping the full href into the preview budget.
       out.push(
         <span key={i} className="text-muted-foreground">
@@ -91,12 +99,10 @@ const ReplyContentPreview = memo(({ content }: { content: string }) => {
       out.push(<Fragment key={i}>@everyone</Fragment>);
       charsUsed += 9;
     } else if ('children' in tok) {
-      // bold / italic / strikethrough / underline: flatten to plain
+      // bold / italic / strikethrough / underline — flatten to plain.
       for (const child of tok.children) {
         if (child.type === 'text') {
-          const cleaned = child.value
-            .replace(/\x00BLOCKQUOTE_START\x00/g, '')
-            .replace(/\x00BLOCKQUOTE_END\x00/g, '');
+          const cleaned = stripBlockquoteMarkers(child.value);
           const slice = cleaned.slice(0, PREVIEW_CHAR_BUDGET - charsUsed);
           out.push(<Fragment key={`${i}-${out.length}`}>{slice}</Fragment>);
           charsUsed += slice.length;
