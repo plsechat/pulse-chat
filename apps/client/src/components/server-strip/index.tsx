@@ -457,7 +457,12 @@ const ServerStrip = memo(() => {
   );
 
   return (
-    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3 md:pb-[5.5rem] overflow-y-auto">
+    // `overflow-x-clip` keeps the voice/mention badges that sit at
+    // `-bottom-1 -right-1` on each 48px server icon from forcing a
+    // horizontal scrollbar on the 72px strip — the badges still render
+    // slightly past the strip's right edge as designed, but the browser
+    // doesn't expose them through scroll.
+    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3 md:pb-[5.5rem] overflow-y-auto overflow-x-clip">
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="relative flex w-full items-center justify-center group">

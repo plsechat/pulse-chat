@@ -4,9 +4,10 @@ import {
   useIsCurrentVoiceChannelSelected,
   useSelectedChannel
 } from '@/features/server/channels/hooks';
+import { useDismissOnOutsideClick } from '@/hooks/use-dismiss-on-outside-click';
 import { cn } from '@/lib/utils';
 import { Hash, LayoutList, List, Lock, MessageSquare, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SearchPopover } from '../search/search-popover';
 import { Tooltip } from '../ui/tooltip';
 import { NotificationDropdown } from './notification-dropdown';
@@ -34,6 +35,22 @@ const TopBar = memo(
     const [showPinned, setShowPinned] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [showThreads, setShowThreads] = useState(false);
+
+    // Dismiss-on-outside-click is anchored to each popover's containing
+    // wrapper div (which holds both the toggle button and the popover
+    // content). Clicks anywhere inside the wrapper — including the
+    // trigger button — don't dismiss; clicks outside do. This avoids
+    // the trigger-button-toggling-itself-back-on race we'd hit if the
+    // boundary were just the popover content.
+    const searchWrapperRef = useRef<HTMLDivElement>(null);
+    const pinnedWrapperRef = useRef<HTMLDivElement>(null);
+    const threadsWrapperRef = useRef<HTMLDivElement>(null);
+    const closeSearch = useCallback(() => setShowSearch(false), []);
+    const closePinned = useCallback(() => setShowPinned(false), []);
+    const closeThreads = useCallback(() => setShowThreads(false), []);
+    useDismissOnOutsideClick(showSearch, searchWrapperRef, closeSearch);
+    useDismissOnOutsideClick(showPinned, pinnedWrapperRef, closePinned);
+    useDismissOnOutsideClick(showThreads, threadsWrapperRef, closeThreads);
 
     useEffect(() => {
       const handler = (e: KeyboardEvent) => {
@@ -113,7 +130,7 @@ const TopBar = memo(
 
           {selectedChannel && selectedChannel.type === 'TEXT' && (
             <>
-              <div className="relative">
+              <div className="relative" ref={searchWrapperRef}>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -130,7 +147,7 @@ const TopBar = memo(
                   <SearchPopover onClose={() => setShowSearch(false)} />
                 )}
               </div>
-              <div className="relative">
+              <div className="relative" ref={pinnedWrapperRef}>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -150,7 +167,7 @@ const TopBar = memo(
                   />
                 )}
               </div>
-              <div className="relative">
+              <div className="relative" ref={threadsWrapperRef}>
                 <Button
                   variant="ghost"
                   size="sm"
