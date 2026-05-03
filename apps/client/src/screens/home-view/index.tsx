@@ -4,6 +4,7 @@ import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
 import { MobileHeader } from '@/components/mobile-header';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
+import { useDmChannels } from '@/features/dms/hooks';
 import {
   getLocalStorageItem,
   LocalStorageKey,
@@ -72,6 +73,25 @@ const HomeView = memo(() => {
     // Intentionally mount-only: sync initial saved state to Redux once
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When the active DM disappears from the channel list (self-delete,
+  // peer delete pushed via DM_CHANNEL_DELETE, leave-group, or being
+  // removed from a group), bounce back to Friends. Without this the
+  // <DmConversation> would keep rendering against a non-existent channel
+  // and trigger FORBIDDEN polls for the now-deleted channel.
+  const dmChannels = useDmChannels();
+  useEffect(() => {
+    if (
+      localSelectedDmChannelId !== undefined &&
+      !dmChannels.some((c) => c.id === localSelectedDmChannelId)
+    ) {
+      setLocalSelectedDmChannelId(undefined);
+      setSelectedDmChannelId(undefined);
+      removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+      setActiveTab('friends');
+      setLocalStorageItem(LocalStorageKey.HOME_TAB, 'friends');
+    }
+  }, [localSelectedDmChannelId, dmChannels]);
 
   const handleDmSelect = useCallback((dmChannelId: number) => {
     setLocalSelectedDmChannelId(dmChannelId);

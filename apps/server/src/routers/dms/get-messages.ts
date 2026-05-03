@@ -20,15 +20,6 @@ const getMessagesRoute = protectedProcedure
   .query(async ({ ctx, input }) => {
     const memberIds = await getDmChannelMemberIds(input.dmChannelId);
 
-    if (!memberIds.includes(ctx.userId)) {
-      // TEMP DIAG — group-DM membership regression
-      console.log('[DM-DIAG/getMessages]', {
-        dmChannelId: input.dmChannelId,
-        callerUserId: ctx.userId,
-        recordedMemberIds: memberIds
-      });
-    }
-
     invariant(memberIds.includes(ctx.userId), {
       code: 'FORBIDDEN',
       message: 'You are not a member of this DM channel'

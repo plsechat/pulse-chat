@@ -227,10 +227,22 @@ const DmChannelItem = memo(
         <ContextMenuContent>
           {!channel.e2ee && (
             <>
-              <ContextMenuItem onClick={handleEnableEncryption}>
-                <Lock className="mr-2 h-4 w-4" />
-                Enable Encryption
-              </ContextMenuItem>
+              {channel.isGroup ? (
+                // Group DM E2EE needs sender-key distribution wired into
+                // the DM router; today the send path can only encrypt
+                // pairwise (1:1). Shipping the toggle without that would
+                // silently send plaintext, so disable it until the
+                // group-encryption feature lands.
+                <ContextMenuItem disabled>
+                  <Lock className="mr-2 h-4 w-4" />
+                  Group encryption coming soon
+                </ContextMenuItem>
+              ) : (
+                <ContextMenuItem onClick={handleEnableEncryption}>
+                  <Lock className="mr-2 h-4 w-4" />
+                  Enable Encryption
+                </ContextMenuItem>
+              )}
               <ContextMenuSeparator />
             </>
           )}

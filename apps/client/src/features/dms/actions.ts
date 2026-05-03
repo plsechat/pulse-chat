@@ -48,27 +48,6 @@ export const addDmMessages = (
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);
     const selectedId = state.dms.selectedChannelId;
-    const channelInState = state.dms.channels.find((c) => c.id === dmChannelId);
-    // TEMP DIAG — group-DM pubsub regression. Remove after diagnosis.
-    console.log('[DM-DIAG] addDmMessages', {
-      dmChannelId,
-      isSubscription,
-      ownUserId,
-      messageUserId: messages[0]?.userId,
-      selectedDmChannelId: selectedId,
-      isViewingThisChannel: selectedId === dmChannelId,
-      channelInState: channelInState
-        ? { id: channelInState.id, isGroup: channelInState.isGroup }
-        : null,
-      dispatchPath:
-        ownUserId == null
-          ? 'skipped: no ownUserId'
-          : messages[0]?.userId === ownUserId
-            ? 'skipped: own message'
-            : selectedId === dmChannelId
-              ? 'markAsRead path'
-              : 'notify path (sound + badge)'
-    });
     if (ownUserId != null && messages[0].userId !== ownUserId) {
       const isViewingThisChannel = selectedId === dmChannelId;
 
@@ -531,6 +510,10 @@ export const enableDmEncryption = async (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
   await trpc.dms.enableEncryption.mutate({ dmChannelId });
+  // Refresh local state so `channel.e2ee` flips to true immediately.
+  // Without this we'd rely on the DM_CHANNEL_UPDATE pubsub round-trip,
+  // and any send() before that arrives would go out as plaintext.
+  await fetchDmChannels();
 };
 
 export const joinDmVoiceCall = async (dmChannelId: number) => {
