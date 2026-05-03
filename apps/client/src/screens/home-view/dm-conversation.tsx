@@ -41,6 +41,7 @@ import { ImageOverride } from '@/components/channel-view/text/overrides/image';
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import { ReplyContentPreview } from '@/components/channel-view/text/reply-content-preview';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
@@ -787,11 +788,6 @@ const DmReplyPreview = memo(
     };
   }) => {
     const user = useUserById(replyTo.userId);
-    const truncated = replyTo.content
-      ? stripToPlainText(replyTo.content).slice(0, 100)
-      : replyTo.hasFiles
-        ? 'Attachment'
-        : 'Message deleted';
 
     const scrollToOriginal = useCallback(() => {
       const el = document.getElementById(`dm-msg-${replyTo.id}`);
@@ -810,7 +806,15 @@ const DmReplyPreview = memo(
       >
         <Reply className="h-3 w-3 rotate-180 shrink-0" />
         <span className="font-semibold shrink-0">{user?.name ?? 'Unknown'}</span>
-        <span className="truncate max-w-[300px]">{truncated}</span>
+        <span className="truncate max-w-[300px]">
+          {replyTo.content ? (
+            <ReplyContentPreview content={replyTo.content} />
+          ) : replyTo.hasFiles ? (
+            'Attachment'
+          ) : (
+            'Message deleted'
+          )}
+        </span>
       </button>
     );
   }
@@ -825,12 +829,6 @@ const DmReplyBar = memo(
     onDismiss: () => void;
   }) => {
     const user = useUserById(message.userId);
-    const contentPreview = useMemo(() => {
-      if (message.content) {
-        return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
-      }
-      return message.files.length > 0 ? 'Attachment' : 'Message deleted';
-    }, [message.content, message.files.length]);
 
     const scrollToMessage = useCallback(() => {
       const el = document.getElementById(`dm-msg-${message.id}`);
@@ -852,7 +850,15 @@ const DmReplyBar = memo(
           <span className="font-semibold text-primary shrink-0">
             {user?.name ?? 'Unknown'}
           </span>
-          <span className="truncate text-muted-foreground">{contentPreview}</span>
+          <span className="truncate text-muted-foreground">
+            {message.content ? (
+              <ReplyContentPreview content={message.content} />
+            ) : message.files.length > 0 ? (
+              'Attachment'
+            ) : (
+              'Message deleted'
+            )}
+          </span>
         </button>
         <button
           type="button"

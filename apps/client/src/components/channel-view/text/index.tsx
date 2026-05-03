@@ -27,7 +27,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import { stripToPlainText } from '@/helpers/strip-to-plain-text';
+import { ReplyContentPreview } from './reply-content-preview';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
@@ -82,14 +82,6 @@ const ReplyBar = memo(
     onDismiss: () => void;
   }) => {
     const user = useUserById(message.userId);
-    const contentPreview = useMemo(() => {
-      if (message.content) {
-        return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
-      }
-      // No text content. If there are files, the user is replying to a
-      // file-only message — show 'Attachment' rather than 'Message deleted'.
-      return message.files.length > 0 ? 'Attachment' : 'Message deleted';
-    }, [message.content, message.files.length]);
 
     const scrollToTarget = useScrollToMessage();
     const scrollToMessage = useCallback(
@@ -108,7 +100,15 @@ const ReplyBar = memo(
           <span className="font-semibold text-primary shrink-0">
             {getDisplayName(user)}
           </span>
-          <span className="truncate text-muted-foreground">{contentPreview}</span>
+          <span className="truncate text-muted-foreground">
+            {message.content ? (
+              <ReplyContentPreview content={message.content} />
+            ) : message.files.length > 0 ? (
+              'Attachment'
+            ) : (
+              'Message deleted'
+            )}
+          </span>
         </button>
         <button
           type="button"

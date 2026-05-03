@@ -499,7 +499,11 @@ const ServerStrip = memo(() => {
               {pendingCount > 0 && (
                 <span
                   title={`${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`}
-                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground"
+                  // Amber, not bg-primary — when the home button is the
+                  // active view it's already painted in primary, and a
+                  // primary-on-primary indicator vanishes against it. Amber
+                  // contrasts with both the active and inactive home button.
+                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white"
                 >
                   {pendingCount > 99 ? '99+' : pendingCount}
                 </span>

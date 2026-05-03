@@ -3,7 +3,6 @@ import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { useIsOwnUser, useUserById } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
 import { getDisplayName } from '@/helpers/get-display-name';
-import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { Pin, Reply } from 'lucide-react';
@@ -13,6 +12,7 @@ import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
+import { ReplyContentPreview } from './reply-content-preview';
 import { useSelection } from './selection-context';
 import { ThreadIndicator } from './thread-indicator';
 
@@ -33,11 +33,6 @@ const ReplyPreview = memo(
     };
   }) => {
     const user = useUserById(replyTo.userId);
-    const truncated = replyTo.content
-      ? stripToPlainText(replyTo.content).slice(0, 100)
-      : replyTo.hasFiles
-        ? 'Attachment'
-        : 'Message deleted';
 
     const scrollToTarget = useScrollToMessage();
     const scrollToOriginal = useCallback(
@@ -53,7 +48,15 @@ const ReplyPreview = memo(
       >
         <Reply className="h-3 w-3 rotate-180 shrink-0" />
         <span className="font-semibold shrink-0">{getDisplayName(user)}</span>
-        <span className="truncate max-w-[300px]">{truncated}</span>
+        <span className="truncate max-w-[300px]">
+          {replyTo.content ? (
+            <ReplyContentPreview content={replyTo.content} />
+          ) : replyTo.hasFiles ? (
+            'Attachment'
+          ) : (
+            'Message deleted'
+          )}
+        </span>
       </button>
     );
   }

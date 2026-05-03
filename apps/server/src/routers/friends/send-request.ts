@@ -60,6 +60,22 @@ const sendRequestRoute = protectedProcedure
       message: 'A pending friend request already exists'
     });
 
+    // The unique index on friend_requests(sender_id, receiver_id) is
+    // status-agnostic, but reject/remove-friend leave terminal rows
+    // ('rejected' or 'accepted') in place — so a re-request from the
+    // same sender after a rejection/unfriend hits the unique constraint
+    // and surfaces the raw DB error as a toast. Clear out the historical
+    // sender→receiver row so the INSERT has a clean slot. The check
+    // above already excluded the pending-in-either-direction case.
+    await db
+      .delete(friendRequests)
+      .where(
+        and(
+          eq(friendRequests.senderId, ctx.userId),
+          eq(friendRequests.receiverId, input.userId)
+        )
+      );
+
     const [request] = await db
       .insert(friendRequests)
       .values({
