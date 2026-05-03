@@ -1,6 +1,6 @@
 import { OWNER_ROLE_ID } from '@pulse/shared';
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { login } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { serverMembers, servers, userRoles, users } from '../../db/schema';
@@ -9,25 +9,28 @@ const BOOTSTRAP_SERVER_ID = 1;
 
 /**
  * Reset the bootstrap server back to "no owner" state so the next-registered
- * user qualifies as the first user. The `beforeEach` test seed creates a Test
- * Owner already, so we wipe it here to exercise the unclaimed-server path.
+ * user qualifies as the first user. The setup.ts beforeEach has already
+ * truncated everything and reseeded a Test Owner — we leave seeded rows
+ * alone (truncating users with CASCADE would blow away the bootstrap
+ * server itself via the owner_id FK), and only clear the owner-claim
+ * markers so the unclaimed-server path is exercised.
  */
 async function unclaimBootstrapServer() {
   const tdb = getTestDb();
 
-  // Wipe everything that references users/roles for server 1 so the FKs
-  // don't block the users TRUNCATE below. The setup.ts beforeEach has
-  // already truncated and re-seeded; this is per-test surgical cleanup.
-  await tdb.execute(sql`TRUNCATE TABLE
-    server_members,
-    user_roles,
-    users
-    RESTART IDENTITY CASCADE`);
+  await tdb.update(servers).set({ ownerId: null }).where(eq(servers.id, BOOTSTRAP_SERVER_ID));
+  await tdb.delete(userRoles).where(eq(userRoles.roleId, OWNER_ROLE_ID));
+}
 
-  await tdb
-    .update(servers)
-    .set({ ownerId: null })
-    .where(eq(servers.id, BOOTSTRAP_SERVER_ID));
+/**
+ * Snapshot the highest existing user id so test assertions can ignore
+ * seeded users (TestOwner, TestUser, TestUser2) and only reason about
+ * the users created by the test's own `login` calls.
+ */
+async function maxExistingUserId(): Promise<number> {
+  const tdb = getTestDb();
+  const rows = await tdb.select({ id: users.id }).from(users);
+  return rows.reduce((m, r) => (r.id > m ? r.id : m), 0);
 }
 
 describe('first-user-becomes-owner registration', () => {
@@ -37,6 +40,7 @@ describe('first-user-becomes-owner registration', () => {
 
   test('first registered user is granted ownership of server 1', async () => {
     const tdb = getTestDb();
+    const baseline = await maxExistingUserId();
 
     const response = await login('firstuser@pulse.local', 'password123');
     expect(response.status).toBe(200);
@@ -47,6 +51,7 @@ describe('first-user-becomes-owner registration', () => {
       .where(eq(users.name, 'firstuser'))
       .limit(1);
     expect(user).toBeDefined();
+    expect(user!.id).toBeGreaterThan(baseline);
 
     const [server] = await tdb
       .select({ ownerId: servers.ownerId })
@@ -137,6 +142,7 @@ describe('first-user-becomes-owner registration', () => {
 
   test('concurrent first registrations: only one wins ownership', async () => {
     const tdb = getTestDb();
+    const baseline = await maxExistingUserId();
 
     const [a, b, c] = await Promise.all([
       login('racea@pulse.local', 'password123'),
@@ -153,12 +159,18 @@ describe('first-user-becomes-owner registration', () => {
       .where(eq(servers.id, BOOTSTRAP_SERVER_ID))
       .limit(1);
     expect(server?.ownerId).toBeDefined();
+    expect(server!.ownerId).toBeGreaterThan(baseline);
 
-    const owners = await tdb
+    // Only the user that won the race should hold OWNER_ROLE_ID. Filter
+    // by id > baseline so seeded users are excluded — `unclaimBootstrapServer`
+    // already cleared seeded OWNER_ROLE_ID grants, but be explicit.
+    const newOwners = await tdb
       .select()
       .from(userRoles)
-      .where(eq(userRoles.roleId, OWNER_ROLE_ID));
-    expect(owners.length).toBe(1);
-    expect(owners[0]!.userId).toBe(server!.ownerId!);
+      .where(
+        and(eq(userRoles.roleId, OWNER_ROLE_ID), gt(userRoles.userId, baseline))
+      );
+    expect(newOwners.length).toBe(1);
+    expect(newOwners[0]!.userId).toBe(server!.ownerId!);
   });
 });
