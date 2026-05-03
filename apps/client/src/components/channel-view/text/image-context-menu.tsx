@@ -47,20 +47,42 @@ const ImageContextMenu = memo(
       try {
         const res = await fetch(src);
         const blob = await res.blob();
-        // Prefer the original MIME type so animated GIFs / WebP keep
-        // their semantics; fall back to PNG for browsers that only
-        // accept image/png in the clipboard (Safari).
+        // First try: write the blob with its native MIME. This is the
+        // happy path for PNG/JPEG/WebP — browsers accept those in the
+        // clipboard and the user gets a true binary copy.
         try {
           await navigator.clipboard.write([
             new ClipboardItem({ [blob.type]: blob })
           ]);
+          toast.success('Image copied');
+          return;
         } catch {
-          const png = await convertBlobToPng(blob);
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': png })
-          ]);
+          // Browser rejected the MIME (notably image/gif — every major
+          // browser disallows GIF in ClipboardItem). Fall through.
         }
-        toast.success('Image copied');
+        // GIF (and other animated/non-allowlisted formats) special case:
+        // when the source is an external URL, copy the URL as text/plain
+        // instead of rasterizing. Pasting the URL into another chat app
+        // produces a real animated GIF; rasterizing would lose every
+        // frame after the first. For blob: URLs (E2EE-decrypted in
+        // memory) the URL is only valid in this tab, so we still have
+        // to rasterize and explain the limitation.
+        const isAnimated = blob.type === 'image/gif';
+        const isExternalUrl = /^https?:/i.test(src);
+        if (isAnimated && isExternalUrl) {
+          await navigator.clipboard.writeText(src);
+          toast.success('GIF link copied — paste to share the animation');
+          return;
+        }
+        const png = await convertBlobToPng(blob);
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': png })
+        ]);
+        toast.success(
+          isAnimated
+            ? 'Copied as static image (browser can’t place GIFs on the clipboard)'
+            : 'Image copied'
+        );
       } catch (err) {
         console.error('[ImageContextMenu] copy failed:', err);
         toast.error('Could not copy image');
