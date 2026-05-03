@@ -56,6 +56,8 @@ function isPrivateIp(ip: string): boolean {
   return ip.includes(':') ? isPrivateIpv6(ip) : isPrivateIpv4(ip);
 }
 
+export { isPrivateIp };
+
 /**
  * Validate that a URL is safe to fetch. Rejects:
  *   - non-HTTP(S) schemes
