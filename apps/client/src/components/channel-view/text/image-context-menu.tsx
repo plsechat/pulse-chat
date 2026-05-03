@@ -90,23 +90,29 @@ const ImageContextMenu = memo(
     }, [src]);
 
     return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={onCopy}>
-            <Copy className="h-4 w-4" />
-            Copy Image
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onSave}>
-            <Download className="h-4 w-4" />
-            Save Image
-          </ContextMenuItem>
-          <ContextMenuItem onClick={onOpenNewTab}>
-            <ExternalLink className="h-4 w-4" />
-            Open in New Tab
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+      // Stop the contextmenu from bubbling to the message-level
+      // ContextMenuTrigger that wraps the whole message. Without this both
+      // menus race; the outer one usually wins because radix doesn't
+      // automatically stop propagation across nested triggers in v1.
+      <div onContextMenu={(e) => e.stopPropagation()} className="contents">
+        <ContextMenu>
+          <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={onCopy}>
+              <Copy className="h-4 w-4" />
+              Copy Image
+            </ContextMenuItem>
+            <ContextMenuItem onClick={onSave}>
+              <Download className="h-4 w-4" />
+              Save Image
+            </ContextMenuItem>
+            <ContextMenuItem onClick={onOpenNewTab}>
+              <ExternalLink className="h-4 w-4" />
+              Open in New Tab
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      </div>
     );
   }
 );
