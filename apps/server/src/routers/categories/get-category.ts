@@ -15,6 +15,11 @@ const getCategoryRoute = protectedProcedure
   .query(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     // Scope to the caller's active server so MANAGE_CATEGORIES in server A
     // can't read categories belonging to server B.
     const [category] = await db
@@ -23,7 +28,7 @@ const getCategoryRoute = protectedProcedure
       .where(
         and(
           eq(categories.id, input.categoryId),
-          eq(categories.serverId, ctx.activeServerId!)
+          eq(categories.serverId, ctx.activeServerId)
         )
       )
       .limit(1);

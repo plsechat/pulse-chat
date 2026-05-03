@@ -1,4 +1,4 @@
-import type { TJoinedServer, TServerSummary } from '@pulse/shared';
+import { OWNER_ROLE_ID, type TJoinedServer, type TServerSummary } from '@pulse/shared';
 import { and, asc, count, eq, inArray, max, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
@@ -6,8 +6,10 @@ import {
   channels,
   files,
   messages,
+  roles,
   serverMembers,
-  servers
+  servers,
+  userRoles
 } from '../schema';
 
 const getServerById = async (
@@ -371,6 +373,50 @@ const getCoMemberIds = async (userId: number): Promise<number[]> => {
   return rows.map((r) => r.userId).filter((id) => id !== userId);
 };
 
+/**
+ * True if `userId` owns `serverId`. Considers both:
+ *   - servers.owner_id (canonical, set by Phase 3 first-user-claim and
+ *     servers/create), and
+ *   - the per-server Owner role (legacy fallback for the seeded server
+ *     which had owner_id = null pre-Phase-3 and was claimed via the now-
+ *     removed secret-token route, plus servers created via servers/create
+ *     that grant the owner role in lockstep).
+ *
+ * Either signal is sufficient — the audit's owner-protection rule
+ * (pulse-rule-owner-protection.md) treats them as equivalent.
+ */
+const isServerOwner = async (
+  serverId: number,
+  userId: number
+): Promise<boolean> => {
+  const [server] = await db
+    .select({ ownerId: servers.ownerId })
+    .from(servers)
+    .where(eq(servers.id, serverId))
+    .limit(1);
+  if (server?.ownerId === userId) return true;
+
+  // Server-scoped owner-role check: a userRole row for this user pointing
+  // at the *Owner* role of *this* server. Joining roles to filter by
+  // serverId guards against role.id=OWNER_ROLE_ID being interpreted as
+  // global — OWNER_ROLE_ID just happens to be 1 because it's the bootstrap
+  // server's owner role.
+  const [match] = await db
+    .select({ id: userRoles.userId })
+    .from(userRoles)
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(
+      and(
+        eq(userRoles.userId, userId),
+        eq(roles.serverId, serverId),
+        eq(userRoles.roleId, OWNER_ROLE_ID)
+      )
+    )
+    .limit(1);
+
+  return !!match;
+};
+
 const sharesServerWith = async (
   userId1: number,
   userId2: number
@@ -403,6 +449,7 @@ export {
   getServerUnreadCounts,
   getServersByUserId,
   isServerMember,
+  isServerOwner,
   removeServerMember,
   sharesServerWith
 };

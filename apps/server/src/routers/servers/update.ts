@@ -2,7 +2,11 @@ import { StorageOverflowAction } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getServerById, getServerMemberIds } from '../../db/queries/servers';
+import {
+  getServerById,
+  getServerMemberIds,
+  isServerOwner
+} from '../../db/queries/servers';
 import { getServerPublicSettings } from '../../db/queries/server';
 import { servers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
@@ -34,7 +38,7 @@ const updateServerRoute = protectedProcedure
     });
 
     // Only owner can update server settings
-    invariant(server.ownerId === ctx.userId, {
+    invariant(await isServerOwner(input.serverId, ctx.userId), {
       code: 'FORBIDDEN',
       message: 'Only the server owner can update settings'
     });
