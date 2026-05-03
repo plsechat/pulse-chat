@@ -45,6 +45,7 @@ type Token =
   | { type: 'strikethrough'; children: Token[] }
   | { type: 'underline'; children: Token[] }
   | { type: 'url'; href: string }
+  | { type: 'markdown_link'; href: string; text: string }
   | { type: 'newline' };
 
 // ── Tokenizer ────────────────────────────────────────────────
@@ -126,6 +127,17 @@ function tokenizeInline(text: string): Token[] {
     best = tryMatch(remaining, /__(.+?)__/, (m) => ({
       type: 'underline', children: tokenizeInline(m[1])
     }), best);
+
+    // Markdown link: [text](https://url) — must run before bare URL_RE so
+    // we don't render the URL twice (once as the link, once as text inside
+    // the brackets). tryMatch picks the earliest-starting match; the `[`
+    // sits before the embedded URL so this wins for well-formed syntax.
+    best = tryMatch(
+      remaining,
+      /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/,
+      (m) => ({ type: 'markdown_link', text: m[1], href: m[2] }),
+      best
+    );
 
     // URL
     best = tryMatch(remaining, URL_RE, (m) => ({
@@ -346,6 +358,19 @@ function renderTokens(
           <u key={`u-${i}`}>
             {renderTokens(token.children, pushMedia)}
           </u>
+        );
+        break;
+
+      case 'markdown_link':
+        elements.push(
+          <a
+            key={`ml-${i}`}
+            href={token.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {token.text}
+          </a>
         );
         break;
 

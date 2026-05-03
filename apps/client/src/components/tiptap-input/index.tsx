@@ -9,10 +9,15 @@ import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import Placeholder from '@tiptap/extension-placeholder';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { Smile } from 'lucide-react';
 import { MENTION_USER_EVENT } from '@/lib/events';
 import { memo, useEffect, useMemo } from 'react';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
+import {
+  MarkdownUnderline,
+  StarOnlyBold
+} from './plugins/markdown-extensions';
 import {
   CHANNEL_MENTION_STORAGE_KEY,
   ChannelMentionSuggestion
@@ -105,12 +110,20 @@ const TiptapInput = memo(
     const extensions = useMemo(() => {
       const exts = [
         StarterKit.configure({
+          // Use our customized Bold (`**` only) and Underline (`__`) so the
+          // markdown shortcuts in the formatting hint bar match what the
+          // renderer parses. StarterKit's default Bold owns both `**` and
+          // `__`, which silently masked the Underline mark.
+          bold: false,
+          underline: false,
           hardBreak: {
             HTMLAttributes: {
               class: 'hard-break'
             }
           }
         }),
+        StarOnlyBold,
+        MarkdownUnderline,
         Placeholder.configure({
           placeholder: placeholder ?? 'Message...'
         }),
@@ -205,6 +218,29 @@ const TiptapInput = memo(
 
           if (event.key === 'Enter') {
             if (event.shiftKey) {
+              // Inside a list, repurpose Shift+Enter to advance to the next
+              // list item — plain Enter is reserved for sending. An empty
+              // list item under Shift+Enter exits the list, matching what
+              // most markdown editors do for plain Enter inside a list.
+              const { $from: shiftFrom } = view.state.selection;
+              let inListItem = false;
+              for (let depth = shiftFrom.depth; depth > 0; depth--) {
+                if (shiftFrom.node(depth).type.name === 'listItem') {
+                  inListItem = true;
+                  break;
+                }
+              }
+              if (inListItem) {
+                event.preventDefault();
+                const listItemType = view.state.schema.nodes.listItem;
+                const split = splitListItem(listItemType);
+                const lift = liftListItem(listItemType);
+                if (!split(view.state, view.dispatch)) {
+                  lift(view.state, view.dispatch);
+                }
+                return true;
+              }
+              // Outside lists, fall through to TipTap's default hardBreak.
               return false;
             }
 
