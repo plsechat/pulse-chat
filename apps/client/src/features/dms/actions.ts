@@ -49,7 +49,13 @@ export const addDmMessages = (
     const ownUserId = ownUserIdSelector(state);
     const selectedId = state.dms.selectedChannelId;
     if (ownUserId != null && messages[0].userId !== ownUserId) {
-      const isViewingThisChannel = selectedId === dmChannelId;
+      // selectedChannelId is sticky across navigation (kept so the user
+      // returns to the same DM next time), so it alone can't tell us
+      // whether the DM is *currently on screen*. Gate on activeView too:
+      // if the user clicked into a server, home isn't the active view
+      // and they should still get the notification.
+      const isViewingThisChannel =
+        state.app.activeView === 'home' && selectedId === dmChannelId;
 
       if (!isViewingThisChannel) {
         playSound(SoundType.MESSAGE_RECEIVED);
