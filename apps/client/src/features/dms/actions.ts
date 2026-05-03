@@ -437,26 +437,25 @@ export const sendDmMessage = async (
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   const recipientUserId = getDmRecipientUserId(dmChannelId);
 
-  // Only encrypt when E2EE is explicitly enabled on the channel
+  // Encrypt when E2EE is explicitly enabled on the channel. Errors
+  // propagate to the caller (toast) — silently falling back to plaintext
+  // would land cleartext in the DB on a conversation the user believes
+  // is encrypted, and the server-side e2ee enforcement would reject it
+  // anyway. Surface the failure so the user knows.
   if (recipientUserId && channel?.e2ee) {
-    try {
-      const plaintext: E2EEPlaintext = { content, fileKeys };
-      const encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
-      // Cache plaintext so we can display our own message when the
-      // subscription echo arrives (own messages can't be self-decrypted).
-      ownSentPlaintextCache.set(encryptedContent, plaintext);
-      await trpc.dms.sendMessage.mutate({
-        dmChannelId,
-        content: encryptedContent,
-        e2ee: true,
-        files,
-        replyToId
-      });
-      return;
-    } catch (err) {
-      console.error('[E2EE] Encryption failed, sending plaintext:', err);
-      // Fall through to plaintext if encryption fails
-    }
+    const plaintext: E2EEPlaintext = { content, fileKeys };
+    const encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
+    // Cache plaintext so we can display our own message when the
+    // subscription echo arrives (own messages can't be self-decrypted).
+    ownSentPlaintextCache.set(encryptedContent, plaintext);
+    await trpc.dms.sendMessage.mutate({
+      dmChannelId,
+      content: encryptedContent,
+      e2ee: true,
+      files,
+      replyToId
+    });
+    return;
   }
 
   await trpc.dms.sendMessage.mutate({ dmChannelId, content, files, replyToId });

@@ -107,4 +107,47 @@ describe('DM enable encryption', () => {
       caller3.dms.enableEncryption({ dmChannelId: channel.id })
     ).rejects.toThrow();
   });
+
+  test('rejects plaintext send on encrypted channel', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    await caller1.dms.enableEncryption({ dmChannelId: channel.id });
+
+    // Plaintext send (e2ee flag missing or false) must be rejected.
+    // This is the safety net that closed the silent-plaintext bug class:
+    // any client sending without e2ee=true on an encrypted channel
+    // gets a loud error rather than landing cleartext in the DB.
+    await expect(
+      caller1.dms.sendMessage({
+        dmChannelId: channel.id,
+        content: 'plaintext'
+      })
+    ).rejects.toThrow();
+
+    // Verify the DB has no leaked plaintext row.
+    const tdb = getTestDb();
+    const rows = await tdb
+      .select()
+      .from(dmMessages)
+      .where(eq(dmMessages.dmChannelId, channel.id));
+    expect(rows.length).toBe(0);
+  });
+
+  test('rejects encrypted send on unencrypted channel', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    // Channel was never encrypted (e2ee=false). Sending with e2ee=true
+    // is a contract violation — reject so the client surfaces it.
+    await expect(
+      caller1.dms.sendMessage({
+        dmChannelId: channel.id,
+        content: 'fake-ciphertext',
+        e2ee: true
+      })
+    ).rejects.toThrow();
+  });
 });

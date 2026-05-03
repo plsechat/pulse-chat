@@ -5,7 +5,7 @@ import { db } from '../../db';
 import { isBlockBetween } from '../../db/queries/blocks';
 import { getDmChannelMemberIds, getDmMessage } from '../../db/queries/dms';
 import { getUserById } from '../../db/queries/users';
-import { dmMessageFiles, dmMessages, federationInstances } from '../../db/schema';
+import { dmChannels, dmMessageFiles, dmMessages, federationInstances } from '../../db/schema';
 import { enqueueProcessDmMetadata } from '../../queues/dm-message-metadata';
 import { relayToInstance } from '../../utils/federation';
 import { invariant } from '../../utils/invariant';
@@ -49,6 +49,28 @@ const sendMessageRoute = protectedProcedure
     }
 
     const isE2ee = !!input.e2ee;
+
+    // Enforce the channel's e2ee flag on every send. Without this the
+    // server trusted whatever the client put in `input.e2ee`, so any
+    // client-side bug (sticky state, missing recipient, encryption
+    // throw silently caught) would land plaintext in the DB on a
+    // channel the user believes is encrypted. Make those failures
+    // loud — the client surfaces BAD_REQUEST as a toast.
+    const [channel] = await db
+      .select({ e2ee: dmChannels.e2ee })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, input.dmChannelId))
+      .limit(1);
+    invariant(channel, {
+      code: 'NOT_FOUND',
+      message: 'DM channel not found'
+    });
+    invariant(channel.e2ee === isE2ee, {
+      code: 'BAD_REQUEST',
+      message: channel.e2ee
+        ? 'This conversation is encrypted — plaintext sends are not allowed.'
+        : 'This conversation is not encrypted — encrypted sends are not allowed.'
+    });
 
     invariant(!isE2ee || input.content, {
       code: 'BAD_REQUEST',
