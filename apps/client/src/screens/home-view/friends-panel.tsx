@@ -10,6 +10,7 @@ import {
 import { useFriendRequests, useFriends } from '@/features/friends/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
 import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
 import {
@@ -91,8 +92,8 @@ const AllFriends = memo(
       try {
         await removeFriendAction(userId);
         toast.success('Friend removed');
-      } catch {
-        toast.error('Failed to remove friend');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to remove friend'));
       }
     }, []);
 
@@ -189,8 +190,8 @@ const PendingRequests = memo(() => {
     try {
       await acceptFriendRequest(requestId);
       toast.success('Friend request accepted');
-    } catch {
-      toast.error('Failed to accept request');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to accept request'));
     }
   }, []);
 
@@ -198,8 +199,8 @@ const PendingRequests = memo(() => {
     try {
       await rejectFriendRequest(requestId);
       toast.success('Friend request rejected');
-    } catch {
-      toast.error('Failed to reject request');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to reject request'));
     }
   }, []);
 
@@ -319,8 +320,8 @@ const AddFriend = memo(() => {
     try {
       await sendFriendRequest(userId);
       toast.success('Friend request sent');
-    } catch {
-      toast.error('Failed to send friend request');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to send friend request'));
     }
   }, []);
 

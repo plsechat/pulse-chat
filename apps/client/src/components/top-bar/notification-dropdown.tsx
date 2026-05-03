@@ -1,3 +1,4 @@
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { NotificationLevel } from '@pulse/shared';
 import { Bell, BellOff, BellRing, Check } from 'lucide-react';
@@ -52,8 +53,8 @@ const NotificationDropdown = memo(({ channelId }: TNotificationDropdownProps) =>
         });
         setLevel(newLevel);
         toast.success('Notification preference updated');
-      } catch {
-        toast.error('Failed to update notification preference');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update notification preference'));
       }
     },
     [channelId]

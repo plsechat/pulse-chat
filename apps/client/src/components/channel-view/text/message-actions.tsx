@@ -3,6 +3,7 @@ import { Protect } from '@/components/protect';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { IconButton } from '@/components/ui/icon-button';
 import { requestConfirmation } from '@/features/dialogs/actions';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { Permission } from '@pulse/shared';
@@ -40,8 +41,8 @@ const MessageActions = memo(
       try {
         await trpc.messages.delete.mutate({ messageId });
         toast.success('Message deleted');
-      } catch {
-        toast.error('Failed to delete message');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete message'));
       }
     }, [messageId]);
 
@@ -76,8 +77,8 @@ const MessageActions = memo(
 
         setActiveThreadId(result.threadId);
         toast.success('Thread created');
-      } catch {
-        toast.error('Failed to create thread');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create thread'));
       } finally {
         setCreatingThread(false);
       }

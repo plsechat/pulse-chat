@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { UserAvatar } from '@/components/user-avatar';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getTRPCClient } from '@/lib/trpc';
@@ -23,8 +24,8 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
       await trpc.users.changeAvatar.mutate({ fileId: undefined });
 
       toast.success('Avatar removed successfully!');
-    } catch {
-      toast.error('Could not remove avatar. Please try again.');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Could not remove avatar. Please try again.'));
     }
   }, []);
 
@@ -44,8 +45,8 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
       await trpc.users.changeAvatar.mutate({ fileId: temporaryFile.id });
 
       toast.success('Avatar updated successfully!');
-    } catch {
-      toast.error('Could not update avatar. Please try again.');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Could not update avatar. Please try again.'));
     }
   }, [openFilePicker]);
 

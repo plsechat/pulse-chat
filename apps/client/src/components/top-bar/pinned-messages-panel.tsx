@@ -2,6 +2,7 @@ import { Protect } from '@/components/protect';
 import { MessageRenderer } from '@/components/channel-view/text/renderer';
 import { UserAvatar } from '@/components/user-avatar';
 import { useUserById } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
 import { longDateTime } from '@/helpers/time-format';
@@ -69,8 +70,8 @@ const PinnedMessagesPanel = memo(
         const messages = await trpc.messages.getPinned.query({ channelId });
 
         setPinnedMessages(messages);
-      } catch {
-        toast.error('Failed to load pinned messages');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to load pinned messages'));
       } finally {
         setLoading(false);
       }
@@ -102,8 +103,8 @@ const PinnedMessagesPanel = memo(
           await trpc.messages.unpin.mutate({ messageId });
           setPinnedMessages((prev) => prev.filter((m) => m.id !== messageId));
           toast.success('Message unpinned');
-        } catch {
-          toast.error('Failed to unpin message');
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to unpin message'));
         }
       },
       []

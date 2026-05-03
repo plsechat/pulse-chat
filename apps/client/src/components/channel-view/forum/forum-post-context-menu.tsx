@@ -9,6 +9,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { useCan } from '@/features/server/hooks';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import {
@@ -78,8 +79,8 @@ const ForumPostMenu = memo(
         });
         setFollowing(newState);
         toast.success(newState ? 'Following post' : 'Unfollowed post');
-      } catch {
-        toast.error('Failed to update follow status');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update follow status'));
       }
     }, [threadId, following]);
 
@@ -104,8 +105,8 @@ const ForumPostMenu = memo(
         await trpc.threads.deleteThread.mutate({ threadId });
         toast.success('Post deleted');
         onPostDeleted();
-      } catch {
-        toast.error('Failed to delete post');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete post'));
       }
     }, [threadId, threadName, onPostDeleted]);
 

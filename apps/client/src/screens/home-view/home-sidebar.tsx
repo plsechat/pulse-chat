@@ -13,6 +13,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { useFriendRequests } from '@/features/friends/hooks';
 import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
@@ -150,8 +151,8 @@ const DmChannelItem = memo(
       try {
         await deleteDmChannel(channel.id);
         toast.success('Conversation deleted');
-      } catch {
-        toast.error('Failed to delete conversation');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete conversation'));
       }
     }, [channel.id]);
 
@@ -167,8 +168,8 @@ const DmChannelItem = memo(
       try {
         await enableDmEncryption(channel.id);
         toast.success('Encryption enabled');
-      } catch {
-        toast.error('Failed to enable encryption');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to enable encryption'));
       }
     }, [channel.id]);
 

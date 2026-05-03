@@ -7,6 +7,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useChannels } from '@/features/server/channels/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TWebhook } from '@pulse/shared';
 import { Copy, Plus, Trash } from 'lucide-react';
@@ -24,8 +25,8 @@ const Webhooks = memo(() => {
     try {
       const result = await trpc.webhooks.list.query({});
       setWebhooks(result);
-    } catch {
-      toast.error('Failed to load webhooks');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to load webhooks'));
     } finally {
       setLoading(false);
     }
@@ -42,8 +43,8 @@ const Webhooks = memo(() => {
         await trpc.webhooks.delete.mutate({ webhookId });
         setWebhooks((prev) => prev.filter((w) => w.id !== webhookId));
         toast.success('Webhook deleted');
-      } catch {
-        toast.error('Failed to delete webhook');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete webhook'));
       }
     },
     []
@@ -169,8 +170,8 @@ const CreateWebhookForm = memo(
         });
         onCreated(webhook);
         toast.success('Webhook created');
-      } catch {
-        toast.error('Failed to create webhook');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create webhook'));
       } finally {
         setCreating(false);
       }

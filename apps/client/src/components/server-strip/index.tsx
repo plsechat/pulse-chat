@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useCurrentVoiceServerId } from '@/features/server/channels/hooks';
 import { useHasAnyVoiceUsers } from '@/features/server/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -356,8 +357,8 @@ const ServerStrip = memo(() => {
           }
         }
         toast.success('Marked as read');
-      } catch {
-        toast.error('Failed to mark as read');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to mark as read'));
       }
     },
     []
@@ -369,8 +370,8 @@ const ServerStrip = memo(() => {
       const trpc = getHomeTRPCClient();
       await trpc.dms.markAllAsRead.mutate();
       toast.success('Marked as read');
-    } catch {
-      toast.error('Failed to mark as read');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to mark as read'));
     }
   }, []);
 
@@ -380,8 +381,8 @@ const ServerStrip = memo(() => {
         const trpc = getTRPCClient();
         await trpc.notifications.setServerMute.mutate({ serverId, muted });
         setServerMuted(muted);
-      } catch {
-        toast.error('Failed to update mute setting');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update mute setting'));
       }
     },
     []
@@ -396,8 +397,8 @@ const ServerStrip = memo(() => {
           level: level as 'all' | 'mentions' | 'nothing' | 'default'
         });
         setServerNotifLevel(level);
-      } catch {
-        toast.error('Failed to update notification setting');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update notification setting'));
       }
     },
     []
@@ -445,8 +446,8 @@ const ServerStrip = memo(() => {
       try {
         const trpc = getTRPCClient();
         await trpc.servers.reorder.mutate({ serverIds: reorderedIds });
-      } catch {
-        toast.error('Failed to reorder servers');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to reorder servers'));
       }
     },
     [serverIds]

@@ -1,6 +1,7 @@
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import {
   isLegacyHtml,
@@ -188,8 +189,8 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       });
 
       toast.success('File deleted');
-    } catch {
-      toast.error('Failed to delete file');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete file'));
     }
   }, []);
 

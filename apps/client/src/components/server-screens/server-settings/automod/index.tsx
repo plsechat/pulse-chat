@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { AutomodRuleType, type TAutomodRule } from '@pulse/shared';
 import { Plus, Shield, Trash } from 'lucide-react';
@@ -12,26 +13,6 @@ const RULE_TYPE_LABELS: Record<string, string> = {
   [AutomodRuleType.LINK_FILTER]: 'Link Filter'
 };
 
-/**
- * Pull a useful error message out of a tRPC client error. Zod validation
- * errors arrive with `message` as a JSON-stringified array of issues; we
- * surface the first issue's message instead of the raw JSON.
- */
-const extractErrorMessage = (err: unknown): string | undefined => {
-  if (!err || typeof err !== 'object') return undefined;
-  const msg = (err as { message?: unknown }).message;
-  if (typeof msg !== 'string') return undefined;
-  try {
-    const parsed = JSON.parse(msg);
-    if (Array.isArray(parsed) && parsed[0]?.message) {
-      return String(parsed[0].message);
-    }
-  } catch {
-    // not JSON — fall through to the raw message
-  }
-  return msg;
-};
-
 const AutoMod = memo(() => {
   const [rules, setRules] = useState<TAutomodRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,8 +23,8 @@ const AutoMod = memo(() => {
     try {
       const result = await trpc.automod.listRules.query();
       setRules(result as TAutomodRule[]);
-    } catch {
-      toast.error('Failed to load auto-mod rules');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to load auto-mod rules'));
     } finally {
       setLoading(false);
     }
@@ -61,8 +42,8 @@ const AutoMod = memo(() => {
         setRules((prev) =>
           prev.map((r) => (r.id === ruleId ? { ...r, enabled } : r))
         );
-      } catch {
-        toast.error('Failed to toggle rule');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to toggle rule'));
       }
     },
     []
@@ -74,8 +55,8 @@ const AutoMod = memo(() => {
       await trpc.automod.deleteRule.mutate({ ruleId });
       setRules((prev) => prev.filter((r) => r.id !== ruleId));
       toast.success('Rule deleted');
-    } catch {
-      toast.error('Failed to delete rule');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete rule'));
     }
   }, []);
 
@@ -219,12 +200,7 @@ const CreateAutomodRuleForm = memo(
         onCreated(rule as TAutomodRule);
         toast.success('Rule created');
       } catch (err) {
-        // tRPC Zod errors come through as TRPCClientError with the zod issues
-        // serialised in `message` (a JSON-stringified array). Extract the first
-        // useful message so the user sees the actual validator reason
-        // (e.g. "nested quantifier") instead of a generic "Failed to create".
-        const reason = extractErrorMessage(err);
-        toast.error(reason ?? 'Failed to create rule');
+        toast.error(getTrpcError(err, 'Failed to create rule'));
       } finally {
         setCreating(false);
       }

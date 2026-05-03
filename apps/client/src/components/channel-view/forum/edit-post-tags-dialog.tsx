@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { X } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
@@ -50,8 +51,8 @@ const EditPostTagsDialog = memo(
         });
         toast.success('Tags updated');
         onClose();
-      } catch {
-        toast.error('Failed to update tags');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update tags'));
       } finally {
         setSaving(false);
       }

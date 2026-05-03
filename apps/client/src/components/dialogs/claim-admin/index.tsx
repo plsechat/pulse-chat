@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
@@ -27,8 +28,8 @@ const ClaimAdminDialog = memo(({ isOpen, close }: TDialogBaseProps) => {
       await trpc.others.useSecretToken.mutate({ token });
       toast.success('You are now an owner of this server');
       close();
-    } catch {
-      toast.error('Invalid access token');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Invalid access token'));
     } finally {
       setLoading(false);
     }

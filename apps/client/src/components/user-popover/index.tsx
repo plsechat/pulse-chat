@@ -10,6 +10,7 @@ import {
 import { useUserRoles } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { Permission, UserStatus } from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -118,8 +119,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
         fetchNotes();
-      } catch {
-        toast.error('Failed to save note');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
   }, [userId, user, fetchNotes]);
@@ -131,8 +132,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         await trpc.notes.delete.mutate({ noteId });
         setNotes((prev) => prev.filter((n) => n.id !== noteId));
         toast.success('Note deleted');
-      } catch {
-        toast.error('Failed to delete note');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete note'));
       }
     },
     []
@@ -166,8 +167,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         setPopoverMessage('');
         setActiveView('home');
       }
-    } catch {
-      toast.error('Failed to send message');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to send message'));
     }
   }, [resolveLocalUserId, popoverMessage]);
 
@@ -176,8 +177,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       const localId = await resolveLocalUserId();
       await sendFriendRequest(localId);
       toast.success('Friend request sent');
-    } catch {
-      toast.error('Failed to send friend request');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to send friend request'));
     }
   }, [resolveLocalUserId]);
 
@@ -186,8 +187,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       const localId = await resolveLocalUserId();
       await removeFriendAction(localId);
       toast.success('Friend removed');
-    } catch {
-      toast.error('Failed to remove friend');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to remove friend'));
     }
   }, [resolveLocalUserId]);
 
@@ -211,8 +212,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
           await trpc.users.setUserNickname.mutate({ userId, nickname });
         }
         toast.success(nickname ? 'Nickname updated' : 'Nickname cleared');
-      } catch {
-        toast.error('Failed to update nickname');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update nickname'));
       }
     }
   }, [userId, user, isOwnUser]);

@@ -46,8 +46,8 @@ const UpdateRole = memo(
         toast.success('Role deleted');
         refetch();
         setSelectedRoleId(undefined);
-      } catch {
-        toast.error('Failed to delete role');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete role'));
       }
     }, [selectedRole.id, refetch, setSelectedRoleId]);
 

@@ -490,16 +490,16 @@ const DmHeader = memo(({ dmChannelId }: { dmChannelId: number }) => {
       if (result) {
         await init(result.routerRtpCapabilities, dmChannelId);
       }
-    } catch {
-      toast.error('Failed to start call');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to start call'));
     }
   }, [dmChannelId, init]);
 
   const handleEndCall = useCallback(async () => {
     try {
       await leaveDmVoiceCall();
-    } catch {
-      toast.error('Failed to leave call');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to leave call'));
     }
   }, []);
 
@@ -612,8 +612,8 @@ const DmPinnedMessagesPanel = memo(
         const trpc = getTRPCClient();
         const messages = await trpc.dms.getPinned.query({ dmChannelId });
         setPinnedMessages(messages);
-      } catch {
-        toast.error('Failed to load pinned messages');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to load pinned messages'));
       } finally {
         setLoading(false);
       }
@@ -642,8 +642,8 @@ const DmPinnedMessagesPanel = memo(
         await trpc.dms.unpinMessage.mutate({ dmMessageId });
         setPinnedMessages((prev) => prev.filter((m) => m.id !== dmMessageId));
         toast.success('Message unpinned');
-      } catch {
-        toast.error('Failed to unpin message');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to unpin message'));
       }
     }, []);
 
@@ -868,8 +868,8 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
     try {
       await deleteDmMessageAction(message.id);
       toast.success('Message deleted');
-    } catch {
-      toast.error('Failed to delete message');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete message'));
     }
   }, [message.id]);
 
@@ -885,8 +885,8 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           await editDmMessage(message.id, content);
         }
         setIsEditing(false);
-      } catch {
-        toast.error('Failed to edit message');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to edit message'));
       }
     },
     [message.id]
@@ -901,8 +901,8 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           dmMessageId: message.id,
           emoji
         });
-      } catch {
-        toast.error('Failed to toggle reaction');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to toggle reaction'));
       }
     },
     [message.id]
@@ -935,8 +935,8 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           dmMessageId: message.id,
           emoji: emoji.name
         });
-      } catch {
-        toast.error('Failed to add reaction');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to add reaction'));
       }
     },
     [message.id]

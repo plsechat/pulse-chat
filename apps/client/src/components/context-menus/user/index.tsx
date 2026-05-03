@@ -17,6 +17,7 @@ import { useCan, useUserRoles } from '@/features/server/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { voiceMapSelector } from '@/features/server/voice/selectors';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { dispatchMentionUser } from '@/lib/events';
 import { getTRPCClient } from '@/lib/trpc';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
@@ -83,8 +84,8 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
         const trpc = getTRPCClient();
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
-      } catch {
-        toast.error('Failed to save note');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
   }, [userId, user]);
@@ -98,8 +99,8 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
         } else {
           await trpc.users.addRole.mutate({ userId, roleId });
         }
-      } catch {
-        toast.error('Failed to update role');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update role'));
       }
     },
     [userId]

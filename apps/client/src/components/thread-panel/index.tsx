@@ -4,6 +4,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useActiveThread } from '@/features/server/channels/hooks';
 import { Protect } from '@/components/protect';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { Archive, MessageSquare, Trash2, X } from 'lucide-react';
@@ -29,8 +30,8 @@ const ThreadPanel = memo(() => {
       });
 
       toast.success(thread.archived ? 'Thread unarchived' : 'Thread archived');
-    } catch {
-      toast.error('Failed to update thread');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to update thread'));
     }
   }, [thread]);
 
@@ -52,8 +53,8 @@ const ThreadPanel = memo(() => {
       await trpc.threads.deleteThread.mutate({ threadId: thread.id });
       toast.success('Thread deleted');
       setActiveThreadId(undefined);
-    } catch {
-      toast.error('Failed to delete thread');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete thread'));
     }
   }, [thread]);
 

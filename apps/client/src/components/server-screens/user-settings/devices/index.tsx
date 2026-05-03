@@ -13,6 +13,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { Resolution } from '@/types';
 import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
@@ -211,8 +212,8 @@ const MacOSAudioDriverSection = memo(() => {
       } else if (result.error) {
         toast.error(result.error);
       }
-    } catch {
-      toast.error('Failed to install audio driver');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to install audio driver'));
     } finally {
       setLoading(false);
       refreshStatus();
@@ -228,8 +229,8 @@ const MacOSAudioDriverSection = memo(() => {
       } else if (result.error) {
         toast.error(result.error);
       }
-    } catch {
-      toast.error('Failed to uninstall audio driver');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to uninstall audio driver'));
     } finally {
       setLoading(false);
       refreshStatus();

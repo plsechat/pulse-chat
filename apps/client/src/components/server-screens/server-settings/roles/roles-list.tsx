@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useActiveServerId } from '@/features/app/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedRole } from '@pulse/shared';
 import { Plus } from 'lucide-react';
@@ -29,8 +30,8 @@ const RolesList = memo(
 
         setSelectedRoleId(newRoleId);
         toast.success('Role created');
-      } catch {
-        toast.error('Could not create role');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Could not create role'));
       }
     }, [refetch, setSelectedRoleId, activeServerId]);
 
