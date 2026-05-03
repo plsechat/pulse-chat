@@ -32,11 +32,17 @@ beforeAll(async () => {
 // `db` -> `tdb`), so a TRUNCATE in beforeEach can collide with a still-
 // in-flight HTTP-handler query from the previous test. Postgres rolls
 // back one side; retrying almost always succeeds on the second try.
+//
+// As the suite has grown, the contention window has too — three retries
+// with linear backoff ran out for runs that happened to land mid-query.
+// Bumped to six attempts with exponential backoff (100, 200, 400, 800,
+// 1600 ms) so the cumulative wait covers any reasonable in-flight
+// HTTP-handler tail.
 const POSTGRES_DEADLOCK_CODE = '40P01';
 
 async function executeWithDeadlockRetry(
   fn: () => Promise<void>,
-  retries = 3
+  retries = 6
 ): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -45,8 +51,9 @@ async function executeWithDeadlockRetry(
     } catch (err: unknown) {
       const code = (err as { code?: string } | undefined)?.code;
       if (code !== POSTGRES_DEADLOCK_CODE || attempt >= retries) throw err;
-      // backoff between retries to let the other transaction finish
-      await new Promise((r) => setTimeout(r, 50 * attempt));
+      // Exponential backoff: 100, 200, 400, 800, 1600 ms — gives the
+      // colliding transaction enough time to finish before we retry.
+      await new Promise((r) => setTimeout(r, 100 * 2 ** (attempt - 1)));
     }
   }
 }
