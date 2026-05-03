@@ -6,7 +6,7 @@ import {
 } from '@/helpers/storage';
 import { syncPreference } from '@/lib/preferences-sync';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TChannel, TChannelUserPermissionsMap } from '@pulse/shared';
+import { ChannelType, type TChannel, type TChannelUserPermissionsMap } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
 import { channelByIdSelector, channelReadStateByIdSelector, selectedChannelIdSelector } from './selectors';
 
@@ -110,13 +110,18 @@ export const setChannelReadState = (
 
   let actualCount = count;
 
-  // if the channel is currently selected, set the read count to 0
+  // Suppress the badge when the user is actively viewing the channel —
+  // EXCEPT for forums. A forum's "selected" state means the user is on
+  // the post-list view; messages arrive in *thread children*, and the
+  // forum's aggregated unread is what surfaces "this thread has new
+  // posts". Suppressing it here was the cause of the QA report:
+  // posts to threads showed no badge while the forum was open, only
+  // appearing after navigating away and back.
   if (selectedChannel === channelId) {
-    actualCount = 0;
-
-    // we also need to notify the server that the channel has been read
-    // otherwise the count will be wrong when the user joins the server again
-    // we can't do it here to avoid infinite loops
+    const channel = state.server.channels.find((c) => c.id === channelId);
+    if (channel?.type !== ChannelType.FORUM) {
+      actualCount = 0;
+    }
   }
 
   store.dispatch(
@@ -134,7 +139,10 @@ export const setChannelMentionState = (
   let actualCount = count;
 
   if (selectedChannel === channelId) {
-    actualCount = 0;
+    const channel = state.server.channels.find((c) => c.id === channelId);
+    if (channel?.type !== ChannelType.FORUM) {
+      actualCount = 0;
+    }
   }
 
   store.dispatch(

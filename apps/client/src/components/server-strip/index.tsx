@@ -479,9 +479,29 @@ const ServerStrip = memo(() => {
               title="Home"
             >
               <Home className="h-6 w-6" />
-              {(pendingCount > 0 || totalDmUnreadCount > 0) && (
-                <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                  {pendingCount + totalDmUnreadCount > 99 ? '99+' : pendingCount + totalDmUnreadCount}
+              {/*
+                Two separate badges so a stuck "1" can't ambiguously
+                mean either a DM or a pending friend request — that
+                forced a false-positive search through the DM list in
+                QA. DM count gets the red destructive badge bottom-
+                right; friend requests get a smaller primary indicator
+                top-right that lines up with the Friends tab inside
+                the home view.
+              */}
+              {totalDmUnreadCount > 0 && (
+                <span
+                  title={`${totalDmUnreadCount} unread DM${totalDmUnreadCount === 1 ? '' : 's'}`}
+                  className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground"
+                >
+                  {totalDmUnreadCount > 99 ? '99+' : totalDmUnreadCount}
+                </span>
+              )}
+              {pendingCount > 0 && (
+                <span
+                  title={`${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`}
+                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground"
+                >
+                  {pendingCount > 99 ? '99+' : pendingCount}
                 </span>
               )}
             </button>
