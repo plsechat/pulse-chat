@@ -11,12 +11,7 @@ const dmVoiceLeaveRoute = protectedProcedure.mutation(async ({ ctx }) => {
     message: 'Not in a DM voice call'
   });
 
-  const runtime = VoiceRuntime.findById(ctx.currentDmVoiceChannelId);
-
-  invariant(runtime, {
-    code: 'INTERNAL_SERVER_ERROR',
-    message: 'Voice runtime not found for this DM channel'
-  });
+  const runtime = VoiceRuntime.requireById(ctx.currentDmVoiceChannelId);
 
   const dmChannelId = ctx.currentDmVoiceChannelId;
   const memberIds = await getDmChannelMemberIds(dmChannelId);
