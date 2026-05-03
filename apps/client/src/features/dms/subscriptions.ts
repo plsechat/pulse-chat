@@ -1,3 +1,4 @@
+import { fetchAndProcessPendingDmSenderKeys } from '@/lib/e2ee';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import {
@@ -15,6 +16,8 @@ import {
   dmCallUserLeft,
   fetchDmChannels,
   removeDmChannel,
+  syncDmGroupSenderKeysOnMemberAdd,
+  syncDmGroupSenderKeysOnMemberRemove,
   updateDmMessage
 } from './actions';
 
@@ -80,9 +83,40 @@ const subscribeToDms = () => {
         removeDmChannel(dmChannelId);
       }
     ),
-    subscribe('onDmMemberAdd', trpc.dms.onMemberAdd, () => fetchDmChannels()),
-    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, () =>
-      fetchDmChannels()
+    subscribe('onDmMemberAdd', trpc.dms.onMemberAdd, async (data) => {
+      const { dmChannelId, userId } = data as {
+        dmChannelId: number;
+        userId: number;
+      };
+      await fetchDmChannels();
+      // If we already have a sender key for this DM (it's encrypted),
+      // distribute it to the new joiner.
+      await syncDmGroupSenderKeysOnMemberAdd(dmChannelId, userId);
+    }),
+    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, async (data) => {
+      const { dmChannelId, userId } = data as {
+        dmChannelId: number;
+        userId: number;
+      };
+      await fetchDmChannels();
+      // Forward secrecy: rotate our sender key so the leaver can't
+      // decrypt new messages with the cached old key. If we *are* the
+      // leaver, do nothing — we're out of the channel.
+      await syncDmGroupSenderKeysOnMemberRemove(dmChannelId, userId);
+    }),
+    subscribe(
+      'onDmSenderKeyDistribution',
+      trpc.dms.onSenderKeyDistribution,
+      async ({ dmChannelId }) => {
+        try {
+          await fetchAndProcessPendingDmSenderKeys(dmChannelId);
+        } catch (err) {
+          console.error(
+            '[E2EE/DM] Failed to process pending sender keys:',
+            err
+          );
+        }
+      }
     )
   );
 };

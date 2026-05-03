@@ -20,6 +20,13 @@ import {
   storeSenderKeyForUser
 } from './sender-keys';
 import {
+  decryptWithDmSenderKey,
+  encryptWithDmSenderKey,
+  generateDmSenderKey,
+  hasDmSenderKey,
+  storeDmSenderKeyForUser
+} from './dm-sender-keys';
+import {
   getActiveStore,
   getStoreForInstance,
   signalStore,
@@ -806,6 +813,243 @@ export async function redistributeOwnSenderKeys(): Promise<void> {
         err
       );
     }
+  }
+}
+
+// --- DM Group E2EE (Sender Keys) ---
+//
+// Mirrors the channel sender-key flow but routes everything through
+// the home tRPC client + home signalStore (DMs always live on home).
+// IDB keying is namespaced via `dm:${id}` in store.ts so DM sender
+// keys can't collide with server-channel sender keys for the same
+// numeric id.
+
+const dmDistributedMembers = new Map<number, Set<number>>();
+
+async function loadDmDistributedMembers(
+  dmChannelId: number
+): Promise<Set<number>> {
+  const cached = dmDistributedMembers.get(dmChannelId);
+  if (cached) return cached;
+  const persisted = await signalStore.getDmDistributedMembers(dmChannelId);
+  const set = new Set(persisted);
+  dmDistributedMembers.set(dmChannelId, set);
+  return set;
+}
+
+async function saveDmDistributedMembers(
+  dmChannelId: number,
+  members: Set<number>
+): Promise<void> {
+  dmDistributedMembers.set(dmChannelId, members);
+  await signalStore.setDmDistributedMembers(dmChannelId, [...members]);
+}
+
+/**
+ * Forget that we've distributed our sender key to `userId` in any
+ * DM. The next ensureDmGroupSenderKey call will redistribute. Used
+ * after identity reset for that user, or when they're re-added to a
+ * group after a remove.
+ */
+export function clearDmDistributedMember(userId: number): void {
+  for (const set of dmDistributedMembers.values()) set.delete(userId);
+}
+
+/**
+ * Ensure we have a sender key for this DM group and that every other
+ * member has received it. Generates on first call, redistributes to
+ * any members not already covered (new joiner, prior failure).
+ *
+ * `memberIds` is supplied by the caller — we don't have a DM
+ * equivalent of `getVisibleUsers` since DMs use the channel's
+ * member list directly. Pass the full member list including self;
+ * we'll filter ourselves out.
+ */
+export async function ensureDmGroupSenderKey(
+  dmChannelId: number,
+  ownUserId: number,
+  memberIds: number[]
+): Promise<void> {
+  if (!(await hasKeys())) return;
+
+  const hasOwnKey = await hasDmSenderKey(dmChannelId, ownUserId);
+  let keyBase64: string | undefined;
+
+  if (!hasOwnKey) {
+    keyBase64 = await generateDmSenderKey(dmChannelId, ownUserId);
+    dmDistributedMembers.set(dmChannelId, new Set());
+  }
+
+  const distributed = await loadDmDistributedMembers(dmChannelId);
+  const targets = memberIds.filter(
+    (id) => id !== ownUserId && !distributed.has(id)
+  );
+  if (targets.length === 0) return;
+
+  if (!keyBase64) {
+    keyBase64 = await signalStore.getDmSenderKey(dmChannelId, ownUserId);
+    if (!keyBase64) {
+      throw new Error(`Sender key missing for DM channel ${dmChannelId}`);
+    }
+  }
+
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+
+  const CONCURRENCY = 10;
+  const distributions: { toUserId: number; distributionMessage: string }[] = [];
+
+  for (let i = 0; i < targets.length; i += CONCURRENCY) {
+    const chunk = targets.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(async (memberId) => {
+        await ensureSession(memberId, { verifyIdentity: true });
+        const encrypted = await encryptMessage(memberId, keyBase64!);
+        return { toUserId: memberId, distributionMessage: encrypted };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') distributions.push(r.value);
+      else console.warn('[E2EE/DM] Failed to encrypt sender key:', r.reason);
+    }
+  }
+
+  if (distributions.length === 0) return;
+
+  try {
+    await trpc.dms.distributeSenderKeys.mutate({
+      dmChannelId,
+      distributions
+    });
+    for (const d of distributions) distributed.add(d.toUserId);
+  } catch (err) {
+    console.warn('[E2EE/DM] Distribute mutation failed:', err);
+    return;
+  }
+
+  await saveDmDistributedMembers(dmChannelId, distributed);
+}
+
+/**
+ * Rotate the caller's sender key for this DM group: drop the old
+ * key + distribution tracking and force a fresh generate+distribute
+ * to remaining members on next ensure. Called when a member is
+ * removed so the leaver can no longer decrypt new messages with the
+ * cached old key.
+ */
+export async function rotateDmGroupSenderKey(
+  dmChannelId: number,
+  ownUserId: number,
+  remainingMemberIds: number[]
+): Promise<void> {
+  // Drop our key locally — the next encrypt path generates fresh.
+  await signalStore.storeDmSenderKey(dmChannelId, ownUserId, '');
+  dmDistributedMembers.set(dmChannelId, new Set());
+  await signalStore.setDmDistributedMembers(dmChannelId, []);
+  // Distribute the regenerated key to remaining members.
+  await ensureDmGroupSenderKey(dmChannelId, ownUserId, remainingMemberIds);
+}
+
+const activeDmSenderKeyFetches = new Map<
+  number | undefined,
+  Promise<void>
+>();
+
+export function fetchAndProcessPendingDmSenderKeys(
+  dmChannelId?: number
+): Promise<void> {
+  const existing = activeDmSenderKeyFetches.get(dmChannelId);
+  if (existing) return existing;
+  const promise = doFetchAndProcessPendingDmSenderKeys(dmChannelId).finally(
+    () => activeDmSenderKeyFetches.delete(dmChannelId)
+  );
+  activeDmSenderKeyFetches.set(dmChannelId, promise);
+  return promise;
+}
+
+async function doFetchAndProcessPendingDmSenderKeys(
+  dmChannelId?: number
+): Promise<void> {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  const pending = await trpc.dms.getPendingSenderKeys.query({ dmChannelId });
+
+  const processedIds: number[] = [];
+  for (const key of pending) {
+    try {
+      const keyBase64 = await decryptMessage(
+        key.fromUserId,
+        key.distributionMessage
+      );
+      await storeDmSenderKeyForUser(
+        key.dmChannelId,
+        key.fromUserId,
+        keyBase64
+      );
+      processedIds.push(key.id);
+    } catch (err) {
+      console.warn(
+        `[E2EE/DM] Failed to process sender key from user ${key.fromUserId}:`,
+        err
+      );
+    }
+  }
+
+  if (processedIds.length > 0) {
+    try {
+      await trpc.dms.acknowledgeSenderKeys.mutate({ ids: processedIds });
+    } catch {
+      // Non-fatal — keys will redeliver and dedupe on next pull.
+    }
+  }
+}
+
+export async function encryptDmGroupMessage(
+  dmChannelId: number,
+  ownUserId: number,
+  payload: E2EEPlaintext
+): Promise<string> {
+  await ensureE2EEKeys();
+  return encryptWithDmSenderKey(
+    dmChannelId,
+    ownUserId,
+    JSON.stringify(payload)
+  );
+}
+
+export async function decryptDmGroupMessage(
+  dmChannelId: number,
+  fromUserId: number,
+  encryptedContent: string
+): Promise<E2EEPlaintext> {
+  const MAX_RETRIES = 3;
+  const BASE_DELAY = 500;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (await hasDmSenderKey(dmChannelId, fromUserId)) break;
+    await fetchAndProcessPendingDmSenderKeys(dmChannelId);
+    if (await hasDmSenderKey(dmChannelId, fromUserId)) break;
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) =>
+        setTimeout(r, BASE_DELAY * Math.pow(2, attempt))
+      );
+    }
+  }
+
+  try {
+    const plaintext = await decryptWithDmSenderKey(
+      dmChannelId,
+      fromUserId,
+      encryptedContent
+    );
+    return JSON.parse(plaintext) as E2EEPlaintext;
+  } catch {
+    await fetchAndProcessPendingDmSenderKeys(dmChannelId);
+    const plaintext = await decryptWithDmSenderKey(
+      dmChannelId,
+      fromUserId,
+      encryptedContent
+    );
+    return JSON.parse(plaintext) as E2EEPlaintext;
   }
 }
 

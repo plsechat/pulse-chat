@@ -239,6 +239,48 @@ export class SignalProtocolStore implements StorageType {
     await db.put(STORES.SENDER_KEYS, key, cacheKey);
   }
 
+  // DM-channel sender keys are stored in the same IDB object store but
+  // keyed with a `dm:` prefix so they can't collide with server-channel
+  // ids (server channel 5 and dm channel 5 are different things).
+  async getDmSenderKey(
+    dmChannelId: number,
+    userId: number
+  ): Promise<string | undefined> {
+    const cacheKey = `dm:${dmChannelId}:${userId}`;
+    const cached = this.senderKeyCache.get(cacheKey);
+    if (cached) return cached;
+
+    const db = await this.getDb();
+    const value = await db.get(STORES.SENDER_KEYS, cacheKey);
+    if (value) this.senderKeyCache.set(cacheKey, value);
+    return value;
+  }
+
+  async storeDmSenderKey(
+    dmChannelId: number,
+    userId: number,
+    key: string
+  ): Promise<void> {
+    const cacheKey = `dm:${dmChannelId}:${userId}`;
+    this.senderKeyCache.set(cacheKey, key);
+    const db = await this.getDb();
+    await db.put(STORES.SENDER_KEYS, key, cacheKey);
+  }
+
+  async getDmDistributedMembers(dmChannelId: number): Promise<number[]> {
+    const db = await this.getDb();
+    const value = await db.get(STORES.DISTRIBUTED_MEMBERS, `dm:${dmChannelId}`);
+    return value ?? [];
+  }
+
+  async setDmDistributedMembers(
+    dmChannelId: number,
+    memberIds: number[]
+  ): Promise<void> {
+    const db = await this.getDb();
+    await db.put(STORES.DISTRIBUTED_MEMBERS, memberIds, `dm:${dmChannelId}`);
+  }
+
   async getStoredIdentityKey(userId: number): Promise<string | undefined> {
     const db = await this.getDb();
     return db.get(STORES.IDENTITIES, `${userId}.1`);

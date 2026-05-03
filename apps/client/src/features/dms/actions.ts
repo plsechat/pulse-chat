@@ -1,4 +1,11 @@
-import { encryptDmMessage, decryptDmMessage } from '@/lib/e2ee';
+import {
+  decryptDmGroupMessage,
+  decryptDmMessage,
+  encryptDmGroupMessage,
+  encryptDmMessage,
+  ensureDmGroupSenderKey,
+  rotateDmGroupSenderKey
+} from '@/lib/e2ee';
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
 import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
@@ -259,12 +266,40 @@ export async function decryptDmMessageInPlace<
   T extends {
     id: number;
     userId: number;
+    dmChannelId: number;
     e2ee: boolean;
     content: string | null;
   }
 >(message: T): Promise<T> {
   if (!message.e2ee || !message.content) return message;
 
+  // Group DMs use sender-key encryption — both own and other messages
+  // are decryptable locally because we have our own sender key cached
+  // and peers' keys arrive via distributeSenderKeys. So no
+  // ownSentPlaintextCache trickery is needed for groups; it's a
+  // single uniform decrypt path.
+  const state = store.getState();
+  const channel = state.dms.channels.find((c) => c.id === message.dmChannelId);
+  const isGroup = (channel?.members.length ?? 0) > 2;
+
+  if (isGroup) {
+    try {
+      const payload = await decryptDmGroupMessage(
+        message.dmChannelId,
+        message.userId,
+        message.content
+      );
+      setFileKeys(message.id, payload.fileKeys);
+      return { ...message, content: payload.content };
+    } catch (err) {
+      console.error('[E2EE/DM] Failed to decrypt group DM message:', err);
+      return { ...message, content: '[Unable to decrypt]' };
+    }
+  }
+
+  // 1:1 path — pairwise Signal Protocol. Own messages are encrypted
+  // *to the recipient*, so we cannot self-decrypt; we rely on the
+  // ciphertext-keyed plaintext cache populated at send time.
   // Check persistent cache first (works for both own and others' messages).
   // The cached entry stores the ciphertext it came from — when a message
   // is edited the server replaces content with a fresh ciphertext under
@@ -283,7 +318,7 @@ export async function decryptDmMessageInPlace<
     await deleteCachedPlaintext(message.id).catch(() => {});
   }
 
-  const ownUserId = ownUserIdSelector(store.getState());
+  const ownUserId = ownUserIdSelector(state);
 
   // Own messages are encrypted for the recipient — we cannot decrypt them.
   // Use the in-memory cache populated at send time for the current session.
@@ -442,11 +477,44 @@ export const sendDmMessage = async (
   // would land cleartext in the DB on a conversation the user believes
   // is encrypted, and the server-side e2ee enforcement would reject it
   // anyway. Surface the failure so the user knows.
-  if (recipientUserId && channel?.e2ee) {
+  if (channel?.e2ee) {
     const plaintext: E2EEPlaintext = { content, fileKeys };
+    const ownUserId = ownUserIdSelector(state);
+    const isGroup = channel.members.length > 2;
+
+    if (isGroup) {
+      if (ownUserId == null) {
+        throw new Error('Cannot send encrypted message before login completes');
+      }
+      // Make sure our sender key has been distributed to every member.
+      // Idempotent — covers first send + new joiners since last send.
+      const memberIds = channel.members.map((m) => m.id);
+      await ensureDmGroupSenderKey(dmChannelId, ownUserId, memberIds);
+
+      const encryptedContent = await encryptDmGroupMessage(
+        dmChannelId,
+        ownUserId,
+        plaintext
+      );
+      await trpc.dms.sendMessage.mutate({
+        dmChannelId,
+        content: encryptedContent,
+        e2ee: true,
+        files,
+        replyToId
+      });
+      return;
+    }
+
+    if (!recipientUserId) {
+      throw new Error(
+        'Cannot send encrypted message: recipient unavailable'
+      );
+    }
     const encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
     // Cache plaintext so we can display our own message when the
-    // subscription echo arrives (own messages can't be self-decrypted).
+    // subscription echo arrives (own messages can't be self-decrypted
+    // in the pairwise scheme).
     ownSentPlaintextCache.set(encryptedContent, plaintext);
     await trpc.dms.sendMessage.mutate({
       dmChannelId,
@@ -523,6 +591,87 @@ export const enableDmEncryption = async (dmChannelId: number) => {
   // Without this we'd rely on the DM_CHANNEL_UPDATE pubsub round-trip,
   // and any send() before that arrives would go out as plaintext.
   await fetchDmChannels();
+
+  // Group DMs: pre-generate and distribute our sender key so the first
+  // send doesn't have to wait for the round-trip. ensureDmGroupSenderKey
+  // is idempotent — safe to call before any group send anyway.
+  const state = store.getState();
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  const ownUserId = ownUserIdSelector(state);
+  if (channel && channel.members.length > 2 && ownUserId != null) {
+    try {
+      await ensureDmGroupSenderKey(
+        dmChannelId,
+        ownUserId,
+        channel.members.map((m) => m.id)
+      );
+    } catch (err) {
+      console.warn('[E2EE/DM] Initial sender-key distribution failed:', err);
+      // Non-fatal: ensureDmGroupSenderKey will retry on send.
+    }
+  }
+};
+
+/**
+ * On DM_MEMBER_ADD: if the channel is e2ee and we have a sender key,
+ * distribute it to the joiner so they can decrypt our future messages.
+ * No-op for non-encrypted DMs and for the joiner themselves.
+ */
+export const syncDmGroupSenderKeysOnMemberAdd = async (
+  dmChannelId: number,
+  addedUserId: number
+) => {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  if (ownUserId == null || addedUserId === ownUserId) return;
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  if (!channel?.e2ee) return;
+  // Only distribute if the channel is now a real group (≥3 members);
+  // 2-person channels use pairwise. Once a 1:1 grows to 3, the user who
+  // had encryption on a pairwise basis needs to start a sender-key
+  // session — ensureDmGroupSenderKey handles both fresh-generate and
+  // distribute-to-missing-members.
+  if (channel.members.length < 3) return;
+  try {
+    await ensureDmGroupSenderKey(
+      dmChannelId,
+      ownUserId,
+      channel.members.map((m) => m.id)
+    );
+  } catch (err) {
+    console.warn(
+      '[E2EE/DM] Failed to distribute sender key to new member:',
+      err
+    );
+  }
+};
+
+/**
+ * On DM_MEMBER_REMOVE: rotate our sender key so the leaver can no longer
+ * decrypt future messages with the cached old key (forward secrecy).
+ * No-op for non-encrypted DMs, for the case where we are the leaver
+ * (we're out of the channel anyway), or when the channel drops below
+ * group threshold (back to pairwise).
+ */
+export const syncDmGroupSenderKeysOnMemberRemove = async (
+  dmChannelId: number,
+  removedUserId: number
+) => {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  if (ownUserId == null || removedUserId === ownUserId) return;
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  if (!channel?.e2ee) return;
+  if (channel.members.length < 3) return;
+  try {
+    await rotateDmGroupSenderKey(
+      dmChannelId,
+      ownUserId,
+      channel.members.map((m) => m.id)
+    );
+  } catch (err) {
+    console.warn('[E2EE/DM] Failed to rotate sender key on remove:', err);
+  }
 };
 
 export const joinDmVoiceCall = async (dmChannelId: number) => {

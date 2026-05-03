@@ -211,6 +211,11 @@ type Events = {
     userId: number;
   };
 
+  [ServerEvents.DM_SENDER_KEY_DISTRIBUTION]: {
+    dmChannelId: number;
+    fromUserId: number;
+  };
+
   [ServerEvents.INVITE_CREATE]: {
     inviteId: number;
     serverId: number;

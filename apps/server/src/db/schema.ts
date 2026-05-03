@@ -1060,6 +1060,38 @@ const e2eeSenderKeys = pgTable(
   ]
 );
 
+// Group DMs use the same Signal sender-key scheme as server channels —
+// each member generates their own AES-256-GCM key and pairwise-encrypts
+// it to every other member via Signal Protocol. Stored separately from
+// e2eeSenderKeys because the channelId namespaces collide (server
+// channel id 5 != dm channel id 5).
+const dmE2eeSenderKeys = pgTable(
+  'dm_e2ee_sender_keys',
+  {
+    id: serial('id').primaryKey(),
+    dmChannelId: integer('dm_channel_id')
+      .notNull()
+      .references(() => dmChannels.id, { onDelete: 'cascade' }),
+    fromUserId: integer('from_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    toUserId: integer('to_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    distributionMessage: text('distribution_message').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('dm_e2ee_sender_keys_channel_idx').on(t.dmChannelId),
+    index('dm_e2ee_sender_keys_from_idx').on(t.fromUserId),
+    index('dm_e2ee_sender_keys_to_idx').on(t.toUserId),
+    index('dm_e2ee_sender_keys_channel_to_idx').on(
+      t.dmChannelId,
+      t.toUserId
+    )
+  ]
+);
+
 export {
   activityLog,
   automodRules,
@@ -1075,6 +1107,7 @@ export {
   dmMessageReactions,
   dmMessages,
   dmReadStates,
+  dmE2eeSenderKeys,
   e2eeSenderKeys,
   emojis,
   federationInstances,

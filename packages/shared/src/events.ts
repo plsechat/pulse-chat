@@ -78,6 +78,7 @@ export enum ServerEvents {
 
   E2EE_SENDER_KEY_DISTRIBUTION = "e2eeSenderKeyDistribution",
   E2EE_IDENTITY_RESET = "e2eeIdentityReset",
+  DM_SENDER_KEY_DISTRIBUTION = "dmSenderKeyDistribution",
 
   INVITE_CREATE = "inviteCreate",
   INVITE_DELETE = "inviteDelete",

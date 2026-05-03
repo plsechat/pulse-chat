@@ -31,6 +31,12 @@ import { pinDmMessageRoute } from './pin-dm-message';
 import { removeMemberRoute } from './remove-member';
 import { searchDmMessagesRoute } from './search-messages';
 import { sendMessageRoute } from './send-message';
+import {
+  acknowledgeDmSenderKeysRoute,
+  distributeDmSenderKeysRoute,
+  getPendingDmSenderKeysRoute,
+  onDmSenderKeyDistributionRoute
+} from './sender-keys';
 import { signalDmTypingRoute } from './signal-typing';
 import { toggleDmReactionRoute } from './toggle-reaction';
 import { unpinDmMessageRoute } from './unpin-dm-message';
@@ -74,5 +80,9 @@ export const dmsRouter = t.router({
   onChannelUpdate: onDmChannelUpdateRoute,
   onChannelDelete: onDmChannelDeleteRoute,
   onMemberAdd: onDmMemberAddRoute,
-  onMemberRemove: onDmMemberRemoveRoute
+  onMemberRemove: onDmMemberRemoveRoute,
+  distributeSenderKeys: distributeDmSenderKeysRoute,
+  getPendingSenderKeys: getPendingDmSenderKeysRoute,
+  acknowledgeSenderKeys: acknowledgeDmSenderKeysRoute,
+  onSenderKeyDistribution: onDmSenderKeyDistributionRoute
 });
