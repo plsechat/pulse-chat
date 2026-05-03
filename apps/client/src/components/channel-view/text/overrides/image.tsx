@@ -40,7 +40,11 @@ const ImageOverride = memo(({ src, alt }: TImageOverrideProps) => {
   return (
     <div className="my-0.5">
       {loading ? (
-        <Skeleton className="w-[300px] h-[300px] rounded-lg" />
+        // Cap the skeleton to whichever is smaller — the message
+        // column or 300px — so a narrow viewport during load doesn't
+        // briefly overflow before the real image renders with its
+        // own max-w-full.
+        <Skeleton className="w-full max-w-[300px] aspect-square rounded-lg" />
       ) : (
         <FullScreenImage
           src={src}

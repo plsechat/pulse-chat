@@ -26,7 +26,15 @@ function AvatarImage({
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
-      className={cn('aspect-square size-full', className)}
+      // `object-cover` is what makes a non-square uploaded image fill
+      // the circular avatar instead of letterboxing to the left or top.
+      // Without it, browsers default to `object-fit: fill` which warps
+      // wide source photos into a strip on the left edge of the
+      // circle, leaving the right quarter empty (the user's report).
+      className={cn(
+        'aspect-square size-full object-cover object-center',
+        className
+      )}
       {...props}
     />
   );
