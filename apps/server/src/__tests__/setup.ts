@@ -27,80 +27,69 @@ beforeAll(async () => {
   testsBaseUrl = 'http://localhost:9999';
 });
 
-// Process-level lock id to serialize the truncate+seed cycle across
-// parallel test files. CASCADE truncates take ACCESS EXCLUSIVE locks
-// across many tables and can deadlock with another file's in-flight
-// HTTP-handler queries on shared connections.
-const TEST_BEFORE_EACH_LOCK_ID = 827394828;
-
 beforeEach(async () => {
   const tdb = getTestDb();
 
-  await tdb.execute(sql`SELECT pg_advisory_lock(${TEST_BEFORE_EACH_LOCK_ID})`);
-  try {
-    // Truncate all tables in reverse dependency order. Keep this list in
-    // sync with the schema — leftover rows in tables that aren't truncated
-    // here lengthen CASCADE chains and widen deadlock windows.
-    await tdb.execute(sql`TRUNCATE TABLE
-      e2ee_sender_keys,
-      user_key_backups,
-      user_one_time_pre_keys,
-      user_signed_pre_keys,
-      user_identity_keys,
-      user_preferences,
-      user_notes,
-      plugin_data,
-      thread_followers,
-      forum_post_tags,
-      forum_tags,
-      channel_notification_settings,
-      channel_read_states,
-      channel_user_permissions,
-      channel_role_permissions,
-      message_reactions,
-      message_files,
-      dm_read_states,
-      dm_message_reactions,
-      dm_message_files,
-      dm_messages,
-      dm_channel_members,
-      dm_channels,
-      friend_requests,
-      friendships,
-      activity_log,
-      logins,
-      server_members,
-      user_roles,
-      webhooks,
-      automod_rules,
-      messages,
-      emojis,
-      invites,
-      files,
-      user_federated_servers,
-      federation_instances,
-      federation_keys,
-      users,
-      role_permissions,
-      roles,
-      channels,
-      categories,
-      servers,
-      settings
-      RESTART IDENTITY CASCADE`);
+  // Truncate all tables in reverse dependency order. Keep this list in
+  // sync with the schema — leftover rows in tables that aren't truncated
+  // here lengthen CASCADE chains and widen deadlock windows.
+  await tdb.execute(sql`TRUNCATE TABLE
+    e2ee_sender_keys,
+    user_key_backups,
+    user_one_time_pre_keys,
+    user_signed_pre_keys,
+    user_identity_keys,
+    user_preferences,
+    user_notes,
+    plugin_data,
+    thread_followers,
+    forum_post_tags,
+    forum_tags,
+    channel_notification_settings,
+    channel_read_states,
+    channel_user_permissions,
+    channel_role_permissions,
+    message_reactions,
+    message_files,
+    dm_read_states,
+    dm_message_reactions,
+    dm_message_files,
+    dm_messages,
+    dm_channel_members,
+    dm_channels,
+    friend_requests,
+    friendships,
+    activity_log,
+    logins,
+    server_members,
+    user_roles,
+    webhooks,
+    automod_rules,
+    messages,
+    emojis,
+    invites,
+    files,
+    user_federated_servers,
+    federation_instances,
+    federation_keys,
+    users,
+    role_permissions,
+    roles,
+    channels,
+    categories,
+    servers,
+    settings
+    RESTART IDENTITY CASCADE`);
 
-    await seedDatabase(tdb);
+  await seedDatabase(tdb);
 
-    // Warm the file-token cache. Production code never calls getSecretToken()
-    // explicitly either; tests that exercised generateFileToken used to depend
-    // on cross-file mock leakage from files-crypto.test.ts. With more test
-    // files in the suite that order is no longer deterministic, so we warm
-    // it here. Cache is module-scoped and persists across tests, so this is
-    // a one-time cost on first call.
-    await getSecretToken();
-  } finally {
-    await tdb.execute(sql`SELECT pg_advisory_unlock(${TEST_BEFORE_EACH_LOCK_ID})`);
-  }
+  // Warm the file-token cache. Production code never calls getSecretToken()
+  // explicitly either; tests that exercised generateFileToken used to depend
+  // on cross-file mock leakage from files-crypto.test.ts. With more test
+  // files in the suite that order is no longer deterministic, so we warm
+  // it here. Cache is module-scoped and persists across tests, so this is
+  // a one-time cost on first call.
+  await getSecretToken();
 });
 
 afterEach(() => {
