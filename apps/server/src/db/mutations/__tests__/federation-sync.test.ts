@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import dns from 'dns/promises';
 import { eq } from 'drizzle-orm';
 import { db } from '../..';
 import { federationInstances, files, users } from '../../schema';
@@ -10,10 +11,11 @@ const mockFetchAs = (fn: (...args: any[]) => Promise<Response>) =>
   fn as unknown as typeof fetch;
 
 const originalFetch = globalThis.fetch;
-// Use the IANA-reserved example.com; it resolves to a public IP in CI which
-// the new SSRF validator (validateFederationUrl, fail-closed on DNS failure)
-// requires. The mocked fetch matches by URL substring so the actual domain
-// just needs to resolve.
+// Use a domain that the SSRF validator (validateFederationUrl) will treat
+// as public. We mock dns.resolve4/resolve6 below so this doesn't depend
+// on the test runner's resolver — the github-hosted vs self-hosted
+// runners reached different conclusions about example.com's AAAA record,
+// which is exactly the kind of environment leakage tests shouldn't have.
 const REMOTE_DOMAIN = 'example.com';
 const REMOTE_PUBLIC_ID = 'remote-user-pub-id-001';
 
@@ -51,6 +53,13 @@ function makeUserInfoResponse(opts?: {
 }
 
 beforeEach(async () => {
+  // Pin DNS lookups to a known-public address so validateFederationUrl
+  // doesn't depend on the runner's actual resolver. 93.184.216.34 is
+  // example.com's historical address; what matters is that it's
+  // public (not in the SSRF blocklist) so the validator passes.
+  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
+  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
+
   await generateFederationKeys();
 
   const [instance] = await db

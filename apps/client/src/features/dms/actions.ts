@@ -514,6 +514,52 @@ async function decryptDmMessages(
     await setCachedPlaintextBatch(pendingCacheWrites).catch(() => {});
   }
 
+  // Reply-preview decryption pass. The parent of a reply is often in
+  // the same batch — its plaintext is in `results` but its IDB cache
+  // entry was just written above (and decryptReplyToInPlace's IDB
+  // lookup may race the write), so build a local map of decrypted
+  // plaintext from this batch and consult it first.
+  const localPlaintextById = new Map<number, string>();
+  for (const r of results) {
+    if (
+      r.e2ee &&
+      typeof r.content === 'string' &&
+      r.content !== '[Encrypted message]' &&
+      r.content !== '[Unable to decrypt]'
+    ) {
+      localPlaintextById.set(r.id, r.content);
+    }
+  }
+
+  const channelMap = new Map(
+    store.getState().dms.channels.map((c) => [c.id, c])
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const msg = results[i];
+    if (!msg.replyTo?.e2ee || !msg.replyTo.content) continue;
+
+    const local = localPlaintextById.get(msg.replyTo.id);
+    if (local !== undefined) {
+      results[i] = {
+        ...msg,
+        replyTo: { ...msg.replyTo, content: local }
+      };
+      continue;
+    }
+
+    const channel = channelMap.get(msg.dmChannelId);
+    const isGroup = (channel?.members.length ?? 0) > 2;
+    const newReplyTo = await decryptReplyToInPlace(
+      msg.replyTo,
+      msg.dmChannelId,
+      isGroup
+    );
+    if (newReplyTo !== msg.replyTo) {
+      results[i] = { ...msg, replyTo: newReplyTo };
+    }
+  }
+
   return results;
 }
 
