@@ -103,6 +103,7 @@ export enum UploadHeaders {
   TYPE = "x-file-type",
   CONTENT_LENGTH = "content-length",
   TOKEN = "x-token",
+  ENCRYPTED = "x-file-encrypted",
 }
 
 export enum ChannelPermission {

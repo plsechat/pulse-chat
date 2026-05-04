@@ -271,12 +271,21 @@ const DmConversation = memo(
     sendTypingSignal.cancel();
 
     try {
-      // Build fileKeys from encrypted upload key material
+      // Build fileKeys from encrypted upload key material. Includes
+      // the real originalName + extension so the recipient can render
+      // them — the server stores only placeholders.
       const fileKeys = isE2ee && files.length > 0
         ? files.map((f) => {
           const keyInfo = fileKeyMapRef.current.get(f.id);
           return keyInfo
-            ? { fileId: f.id, key: keyInfo.key, nonce: keyInfo.nonce, mimeType: keyInfo.mimeType }
+            ? {
+                fileId: f.id,
+                key: keyInfo.key,
+                nonce: keyInfo.nonce,
+                mimeType: keyInfo.mimeType,
+                originalName: keyInfo.originalName,
+                extension: keyInfo.extension
+              }
             : null;
         }).filter((k): k is NonNullable<typeof k> => k !== null)
         : undefined;

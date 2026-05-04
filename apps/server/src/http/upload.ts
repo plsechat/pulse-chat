@@ -19,7 +19,8 @@ const BLOCKED_EXTENSIONS = new Set([
 const zHeaders = z.object({
   [UploadHeaders.TOKEN]: z.string(),
   [UploadHeaders.ORIGINAL_NAME]: z.string(),
-  [UploadHeaders.CONTENT_LENGTH]: z.string().transform((val) => Number(val))
+  [UploadHeaders.CONTENT_LENGTH]: z.string().transform((val) => Number(val)),
+  [UploadHeaders.ENCRYPTED]: z.string().optional()
 });
 
 const uploadFileRouteHandler = async (
@@ -32,6 +33,12 @@ const uploadFileRouteHandler = async (
     parsedHeaders[UploadHeaders.ORIGINAL_NAME],
     parsedHeaders[UploadHeaders.CONTENT_LENGTH]
   ];
+  // The encrypted flag is opt-in client-side. When true, the upload's
+  // body is ciphertext and `originalName` is a placeholder UUID — the
+  // server stores it as-is, marks files.encrypted = true, and never
+  // sees the real metadata (which lives inside the E2EE message
+  // envelope's fileKeys).
+  const isEncrypted = parsedHeaders[UploadHeaders.ENCRYPTED] === 'true';
 
   // Authenticate via standard token or federation token (both are validated)
   const federationToken = req.headers['x-federation-token'] as string | undefined;
@@ -137,7 +144,8 @@ const uploadFileRouteHandler = async (
         originalName,
         filePath: safePath,
         size: bytesReceived,
-        userId: user.id
+        userId: user.id,
+        encrypted: isEncrypted
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });

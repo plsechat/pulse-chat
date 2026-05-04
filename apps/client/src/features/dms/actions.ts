@@ -7,11 +7,11 @@ import {
   rotateDmGroupSenderKey
 } from '@/lib/e2ee';
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
-import { setFileKeys } from '@/lib/e2ee/file-key-store';
+import { patchFilesWithE2eeMetadata, setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
-import { TYPING_MS, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
+import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
@@ -340,6 +340,7 @@ export async function decryptDmMessageInPlace<
     dmChannelId: number;
     e2ee: boolean;
     content: string | null;
+    files?: TFile[];
     replyTo?: TReplyToShape | null;
   }
 >(message: T): Promise<T> {
@@ -372,7 +373,15 @@ export async function decryptDmMessageInPlace<
         message.content
       );
       setFileKeys(message.id, payload.fileKeys);
-      return { ...message, content: payload.content, replyTo };
+      const files = message.files
+        ? patchFilesWithE2eeMetadata(message.files, payload.fileKeys)
+        : undefined;
+      return {
+        ...message,
+        content: payload.content,
+        ...(files ? { files } : {}),
+        replyTo
+      };
     } catch (err) {
       console.error('[E2EE/DM] Failed to decrypt group DM message:', err);
       return { ...message, content: '[Unable to decrypt]', replyTo };
@@ -394,7 +403,15 @@ export async function decryptDmMessageInPlace<
       persisted.ciphertext === message.content;
     if (matches) {
       setFileKeys(message.id, persisted.fileKeys);
-      return { ...message, content: persisted.content, replyTo };
+      const files = message.files
+        ? patchFilesWithE2eeMetadata(message.files, persisted.fileKeys)
+        : undefined;
+      return {
+        ...message,
+        content: persisted.content,
+        ...(files ? { files } : {}),
+        replyTo
+      };
     }
     // Stale entry from before an edit — drop it before falling through.
     await deleteCachedPlaintext(message.id).catch(() => {});
@@ -416,7 +433,15 @@ export async function decryptDmMessageInPlace<
         ciphertext: message.content
       }).catch(() => {});
       setFileKeys(message.id, cached.fileKeys);
-      return { ...message, content: cached.content, replyTo };
+      const files = message.files
+        ? patchFilesWithE2eeMetadata(message.files, cached.fileKeys)
+        : undefined;
+      return {
+        ...message,
+        content: cached.content,
+        ...(files ? { files } : {}),
+        replyTo
+      };
     }
     return { ...message, content: '[Encrypted message]', replyTo };
   }
@@ -432,7 +457,15 @@ export async function decryptDmMessageInPlace<
       ciphertext: message.content
     }).catch(() => {});
     setFileKeys(message.id, payload.fileKeys);
-    return { ...message, content: payload.content, replyTo };
+    const files = message.files
+      ? patchFilesWithE2eeMetadata(message.files, payload.fileKeys)
+      : undefined;
+    return {
+      ...message,
+      content: payload.content,
+      ...(files ? { files } : {}),
+      replyTo
+    };
   } catch (err) {
     console.error('[E2EE] Failed to decrypt DM message:', err);
     return { ...message, content: '[Unable to decrypt]', replyTo };
@@ -493,7 +526,8 @@ export async function decryptDmMessages(
       (cached.ciphertext === undefined || cached.ciphertext === msg.content)
     ) {
       setFileKeys(msg.id, cached.fileKeys);
-      results[i] = { ...msg, content: cached.content };
+      const files = patchFilesWithE2eeMetadata(msg.files, cached.fileKeys);
+      results[i] = { ...msg, content: cached.content, files };
       continue;
     }
 
@@ -506,7 +540,8 @@ export async function decryptDmMessages(
           plaintext: { ...sent, ciphertext: msg.content }
         });
         setFileKeys(msg.id, sent.fileKeys);
-        results[i] = { ...msg, content: sent.content };
+        const files = patchFilesWithE2eeMetadata(msg.files, sent.fileKeys);
+        results[i] = { ...msg, content: sent.content, files };
       } else {
         results[i] = { ...msg, content: '[Encrypted message]' };
       }
@@ -529,7 +564,8 @@ export async function decryptDmMessages(
             plaintext: { ...payload, ciphertext: msg.content! }
           });
           setFileKeys(msg.id, payload.fileKeys);
-          results[index] = { ...msg, content: payload.content };
+          const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);
+          results[index] = { ...msg, content: payload.content, files };
         } catch (err) {
           console.error('[E2EE] Failed to decrypt DM message:', err);
           results[index] = { ...msg, content: '[Unable to decrypt]' };

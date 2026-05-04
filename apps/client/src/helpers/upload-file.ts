@@ -10,6 +10,12 @@ export type TEncryptedUploadResult = {
   key: string;
   nonce: string;
   mimeType: string;
+  /** Real (plaintext) filename — must be packed into the E2EE message
+   *  envelope's fileKeys so the recipient can render it. The server only
+   *  ever sees a placeholder UUID. */
+  originalName: string;
+  /** Real extension (with leading dot, e.g. `.png`). */
+  extension: string;
 };
 
 /**
@@ -24,6 +30,7 @@ const buildUploadRequest = async (params: {
   type: string;
   contentLength: number;
   originalName: string;
+  encrypted?: boolean;
 }): Promise<{ url: string; headers: Record<string, string> } | null> => {
   const state = store.getState();
   const activeInstanceDomain = state.app.activeInstanceDomain;
@@ -34,6 +41,9 @@ const buildUploadRequest = async (params: {
     [UploadHeaders.CONTENT_LENGTH]: params.contentLength.toString(),
     [UploadHeaders.ORIGINAL_NAME]: params.originalName
   };
+  if (params.encrypted) {
+    headers[UploadHeaders.ENCRYPTED] = 'true';
+  }
 
   if (activeInstanceDomain) {
     // On a federated server — upload to the remote instance.
@@ -88,22 +98,43 @@ const uploadFiles = async (files: File[]) => {
   return uploadedFiles;
 };
 
+/**
+ * Generate a placeholder filename for an encrypted upload. The real
+ * name lives encrypted in the message envelope; the server-stored row
+ * only sees the placeholder. Random hex keeps disk filenames unique
+ * without burning a UUID dependency on the client.
+ */
+const placeholderEncryptedName = (): string => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex}.bin`;
+};
+
 const uploadEncryptedFile = async (
   file: File
 ): Promise<TEncryptedUploadResult | undefined> => {
   const { encryptedBlob, key, nonce } = await encryptFile(file);
   const mimeType = file.type;
+  const originalName = file.name;
+  // Derive extension from the real name (with leading dot to match
+  // server's path.extname output). Empty string for files with no
+  // extension — render layer handles that.
+  const lastDot = originalName.lastIndexOf('.');
+  const extension = lastDot >= 0 ? originalName.slice(lastDot) : '';
+  const placeholderName = placeholderEncryptedName();
 
-  // Create a File-like object from the encrypted blob so the upload
-  // path can use it identically, but with the original name preserved.
-  const encryptedFile = new File([encryptedBlob], file.name, {
+  // Create a File-like object from the encrypted blob with a redacted
+  // name so the upload path doesn't leak the real filename through
+  // any framing or logs.
+  const encryptedFile = new File([encryptedBlob], placeholderName, {
     type: 'application/octet-stream'
   });
 
   const req = await buildUploadRequest({
     type: 'application/octet-stream',
     contentLength: encryptedFile.size,
-    originalName: file.name
+    originalName: placeholderName,
+    encrypted: true
   });
   if (!req) return undefined;
 
@@ -120,7 +151,7 @@ const uploadEncryptedFile = async (
   }
 
   const tempFile: TTempFile = await res.json();
-  return { tempFile, key, nonce, mimeType };
+  return { tempFile, key, nonce, mimeType, originalName, extension };
 };
 
 const uploadEncryptedFiles = async (files: File[]) => {

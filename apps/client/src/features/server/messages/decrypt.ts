@@ -2,7 +2,10 @@ import {
   decryptChannelMessage,
   fetchAndProcessPendingSenderKeys
 } from '@/lib/e2ee';
-import { setFileKeys } from '@/lib/e2ee/file-key-store';
+import {
+  patchFilesWithE2eeMetadata,
+  setFileKeys
+} from '@/lib/e2ee/file-key-store';
 import type { TJoinedMessage } from '@pulse/shared';
 
 /**
@@ -64,7 +67,8 @@ export async function decryptChannelMessages(
           msg.content
         );
         setFileKeys(msg.id, payload.fileKeys);
-        return { ...msg, content: payload.content, replyTo };
+        const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);
+        return { ...msg, content: payload.content, files, replyTo };
       } catch (err) {
         console.error('[E2EE] Failed to decrypt channel message:', err);
         return { ...msg, content: '[Unable to decrypt]', replyTo };
