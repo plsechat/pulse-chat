@@ -722,22 +722,35 @@ body,
   to { transform: rotate(180deg); }
 }
 
-.icon-anim-wiggle:hover {
+/* Trigger animations from the BUTTON's hover, not the SVG itself.
+   Hovering a button-with-icon means the cursor is over the button's
+   padding box; the SVG only registers :hover when the cursor is
+   directly over the rendered glyph, which leaves the animation
+   inert most of the time. The parent-hover pattern fires
+   reliably whenever the button shows its hover state. */
+
+button:hover .icon-anim-wiggle,
+[role='button']:hover .icon-anim-wiggle {
   animation: icon-wiggle 0.5s ease-in-out;
 }
 
-.icon-anim-jiggle:hover {
+button:hover .icon-anim-jiggle,
+[role='button']:hover .icon-anim-jiggle {
   animation: icon-jiggle 0.45s ease-in-out;
 }
 
-.icon-anim-spin:hover {
+button:hover .icon-anim-spin,
+[role='button']:hover .icon-anim-spin {
   animation: icon-spin-once 0.5s ease-in-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .icon-anim-wiggle:hover,
-  .icon-anim-jiggle:hover,
-  .icon-anim-spin:hover {
+  button:hover .icon-anim-wiggle,
+  button:hover .icon-anim-jiggle,
+  button:hover .icon-anim-spin,
+  [role='button']:hover .icon-anim-wiggle,
+  [role='button']:hover .icon-anim-jiggle,
+  [role='button']:hover .icon-anim-spin {
     animation: none;
   }
 }
