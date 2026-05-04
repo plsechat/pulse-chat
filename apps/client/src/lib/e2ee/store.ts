@@ -1,3 +1,38 @@
+/**
+ * Phase B / C / D — Signal Protocol IndexedDB store.
+ *
+ * Channels-vs-DMs scoping rule (clarified by Phase D / D2):
+ *
+ *   - **DMs always use the home store** (`signalStore`). The user
+ *     has one identity, used for all DM sessions regardless of
+ *     whether the recipient lives on this instance or a federated
+ *     peer. Cross-instance bundle exchange (Phase D / D1) goes
+ *     through `e2ee.getFederatedPreKeyBundle`; the resulting X3DH
+ *     session is keyed on the recipient's local shadow-user id and
+ *     stored in the home store next to same-instance sessions.
+ *     `verifiedIdentities` (TOFU pins) for DM peers also live in
+ *     the home store.
+ *
+ *   - **Server channels use the per-instance store**. When the user
+ *     is browsing a federated server, channel sender-key chains and
+ *     identity pins for that server's members live in
+ *     `getStoreForInstance(activeInstanceDomain)`. Each federated
+ *     server's identity context is independent.
+ *
+ *   - The chain-kind dispatch in encryptDmGroupMessage / decrypt
+ *     channel paths handles this — `KIND_DM` always routes to
+ *     `signalStore`, channel kinds route to `getActiveStore()`.
+ *
+ * Why split: same-instance and federated DMs are conceptually one
+ * conversation per peer; you don't want a different identity for
+ * Bob-on-remote.com vs Alice-on-home.com from your perspective.
+ * Server channels in contrast are server-local — your view of a
+ * federated server's encryption is server-scoped and shouldn't
+ * leak across instances. Phase C added the per-instance scaffolding
+ * for channels; Phase D / D2 codified that DMs deliberately bypass
+ * it.
+ */
+
 import { openDB, type IDBPDatabase } from 'idb';
 import type {
   Direction,

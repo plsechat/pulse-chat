@@ -315,6 +315,231 @@ export const _challengeInternals = {
   CHALLENGE_TTL_MS
 };
 
+/**
+ * Test-only: sign a payload claiming to be from `issuerDomain` using
+ * an arbitrary private JWK. Production code uses `signChallenge`,
+ * which is hard-wired to this instance's identity (iss = our domain,
+ * private key = our key). Tests use this helper to fabricate signed
+ * federation requests AS IF they came from a peer — required to
+ * exercise the inbound federation HTTP handlers without spinning up
+ * a second test instance.
+ *
+ * The receiver's `verifyChallenge` will accept the signature when:
+ *   - the federation_instances row for `issuerDomain` has its
+ *     `publicKey` field set to the matching public JWK (test seeds
+ *     this), AND
+ *   - `audienceDomain` matches the receiver's local domain.
+ */
+export async function _signChallengeAs(
+  payload: unknown,
+  issuerDomain: string,
+  audienceDomain: string,
+  privateKeyJwk: JWK
+): Promise<string> {
+  const privateKey = await importJWK(privateKeyJwk, 'EdDSA');
+  const sha256 = await payloadDigest(payload);
+
+  return new SignJWT({ sha256 })
+    .setProtectedHeader({ alg: 'EdDSA' })
+    .setIssuer(issuerDomain)
+    .setAudience(audienceDomain)
+    .setJti(randomUUIDv7())
+    .setIssuedAt()
+    .setExpirationTime(CHALLENGE_TTL)
+    .sign(privateKey);
+}
+
+// ─── Phase D / D0 — signed federation responses ──────────────────────────
+//
+// `signChallenge` / `verifyChallenge` above protect REQUESTS (sender ⇒
+// receiver). Federation responses on existing routes (dm-relay, member-
+// add, etc.) are TLS-only — fine when the response body is just an ack,
+// but not fine the moment a federation response carries security-
+// sensitive data (e.g. the cross-instance pre-key bundles introduced in
+// Phase D1). An active attacker between the requester's home and the
+// responding peer could substitute key material in the response under
+// TLS-only protection.
+//
+// `signFederationResponse` + `verifyFederationResponse` extend the same
+// JWT challenge protocol to the response direction: the responder signs
+// the response body bound to the original requester's domain (the
+// `fromDomain` field that `verifyChallenge` already authenticated on the
+// inbound request). The requester verifies the signature with the
+// responder's stored federation public key. Audience binding stops a
+// captured response signed for peer A from being replayed to peer B.
+//
+// Opt-in per route: existing relayToInstance handlers can keep returning
+// unsigned acks. Routes that return security-critical data should use
+// `signedJsonResponse` on the responder side and `queryInstance` on the
+// requester side.
+
+/**
+ * Build a signed federation response body. The caller passes the
+ * `requesterDomain` value extracted from the verified request's
+ * `fromDomain` field — the responder commits to that audience so a
+ * captured response can't be replayed against a different peer.
+ *
+ * Returns the wire-shaped body: { ...payload, fromDomain, signature }.
+ * The responder ships this verbatim; the requester strips `signature`
+ * and re-canonicalizes the rest before verifying.
+ */
+async function signFederationResponse(
+  payload: Record<string, unknown>,
+  requesterDomain: string
+): Promise<Record<string, unknown>> {
+  const bodyToSign = {
+    ...payload,
+    fromDomain: config.federation.domain
+  };
+  const signature = await signChallenge(bodyToSign, requesterDomain);
+  return { ...bodyToSign, signature };
+}
+
+/**
+ * HTTP wrapper for `signFederationResponse`. Replaces `jsonResponse`
+ * for federation handlers that return security-critical data.
+ */
+async function signedJsonResponse(
+  res: import('node:http').ServerResponse,
+  status: number,
+  payload: Record<string, unknown>,
+  requesterDomain: string
+): Promise<void> {
+  const signedBody = await signFederationResponse(payload, requesterDomain);
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(signedBody));
+}
+
+/**
+ * Verify a signed federation response body. Strips `signature` from
+ * the wire body, runs `verifyChallenge` against the responder's stored
+ * public key, and returns the verified payload (without `signature`)
+ * or null on any failure.
+ *
+ * Pulled out of `queryInstance` so the verification path is unit-
+ * testable without going through `federationFetch`.
+ */
+async function verifyFederationResponse(
+  responseBody: Record<string, unknown>,
+  expectedPeerDomain: string,
+  peerPublicKeyStr: string
+): Promise<Record<string, unknown> | null> {
+  const { signature, ...payload } = responseBody;
+  if (typeof signature !== 'string') return null;
+
+  const isValid = await verifyChallenge(
+    signature,
+    payload,
+    expectedPeerDomain,
+    peerPublicKeyStr
+  );
+  return isValid ? payload : null;
+}
+
+/**
+ * Parallel to `relayToInstance`, but for request/response federation
+ * calls where the response body carries security-sensitive data
+ * (Phase D1 pre-key bundles, identity-rotation acks, etc).
+ *
+ * Behaviour:
+ * 1. Sign the request body (audience = remote instance).
+ * 2. POST it.
+ * 3. Read the response JSON.
+ * 4. Look up the remote instance's stored federation public key.
+ * 5. Verify the response body's `signature` against that key, with
+ *    issuer = the remote instance and audience = our own domain (the
+ *    audience check is enforced inside `verifyChallenge` against
+ *    `config.federation.domain`).
+ * 6. Return the verified payload (without `signature`) on success,
+ *    or null on any failure (network, signature, missing peer key,
+ *    HTTP non-2xx). The caller decides how to surface the failure.
+ */
+async function queryInstance<T extends Record<string, unknown>>(
+  instanceDomain: string,
+  path: string,
+  payload: Record<string, unknown>
+): Promise<T | null> {
+  try {
+    const isLocalhost =
+      instanceDomain.startsWith('localhost') ||
+      instanceDomain.startsWith('127.0.0.1');
+    const protocol = isLocalhost ? 'http' : 'https';
+
+    const bodyToSign = {
+      ...payload,
+      fromDomain: config.federation.domain
+    };
+    const signature = await signChallenge(bodyToSign, instanceDomain);
+    const requestBody = { ...bodyToSign, signature };
+
+    const response = await federationFetch(
+      `${protocol}://${instanceDomain}${path}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(10_000)
+      }
+    );
+
+    if (!response.ok) {
+      logger.warn(
+        '[queryInstance] %s%s returned %d',
+        instanceDomain,
+        path,
+        response.status
+      );
+      return null;
+    }
+
+    const responseJson = (await response.json()) as Record<string, unknown>;
+
+    const [instance] = await db
+      .select({ publicKey: federationInstances.publicKey })
+      .from(federationInstances)
+      .where(
+        and(
+          eq(federationInstances.domain, instanceDomain),
+          eq(federationInstances.status, 'active')
+        )
+      )
+      .limit(1);
+
+    if (!instance?.publicKey) {
+      logger.warn(
+        '[queryInstance] no public key on file for %s — cannot verify response',
+        instanceDomain
+      );
+      return null;
+    }
+
+    const verified = await verifyFederationResponse(
+      responseJson,
+      instanceDomain,
+      instance.publicKey
+    );
+
+    if (!verified) {
+      logger.warn(
+        '[queryInstance] %s%s response signature invalid',
+        instanceDomain,
+        path
+      );
+      return null;
+    }
+
+    return verified as T;
+  } catch (error) {
+    logger.error(
+      '[queryInstance] failed to query %s%s: %o',
+      instanceDomain,
+      path,
+      error
+    );
+    return null;
+  }
+}
+
 async function relayToInstance(
   instanceDomain: string,
   path: string,
@@ -372,8 +597,12 @@ export {
   generateFederationToken,
   getFederationConfig,
   getLocalKeys,
+  queryInstance,
   relayToInstance,
   signChallenge,
+  signFederationResponse,
+  signedJsonResponse,
   verifyChallenge,
+  verifyFederationResponse,
   verifyFederationToken
 };

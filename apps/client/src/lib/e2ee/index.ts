@@ -434,13 +434,45 @@ async function rotateSignedPreKeyIfNeeded(
 }
 
 /**
+ * Look up a user's federation status from Redux. `_identity` is set
+ * to `name@domain` for federated users (joined-user query in
+ * apps/server/src/db/queries/users.ts) and undefined for local users.
+ *
+ * Best-effort: if Redux isn't ready or the user isn't in any
+ * loaded slice, default to local. A wrong guess is self-correcting
+ * — the wrong-route fetch returns null and the caller surfaces it
+ * as a clear "encrypted DM unavailable" failure per Decision 2.
+ */
+async function isUserFederated(userId: number): Promise<boolean> {
+  try {
+    const { store: reduxStore } = await import('@/features/store');
+    const state = reduxStore.getState();
+    const user =
+      state.server.users.find((u) => u.id === userId) ??
+      state.friends.friends.find((f) => f.id === userId);
+    return !!user?._identity && user._identity.includes('@');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Ensure we have a session with a user. If not, fetch their pre-key bundle
  * and establish one via X3DH.
  *
- * When `verifyIdentity` is true, checks whether the remote user's server-side
- * identity key still matches what we have stored locally. If it changed (key
- * reset), the stale session is cleared and a fresh one is built. This avoids
- * encrypting with an old session that the reset user can't decrypt.
+ * When `verifyIdentity` is true (same-instance only), checks whether
+ * the remote user's server-side identity key still matches what we
+ * have stored locally. If it changed (key reset), the stale session
+ * is cleared and a fresh one is built. This avoids encrypting with
+ * an old session that the reset user can't decrypt.
+ *
+ * For federated users (Phase D / D2), the bundle is fetched via
+ * `e2ee.getFederatedPreKeyBundle` — the home server proxies the
+ * request to the recipient's instance and verifies the signed
+ * response (Phase D / D0). The verifyIdentity branch is skipped:
+ * D3's identity-rotation broadcast handles cross-instance rotation;
+ * stale federated sessions surface the identity-changed modal on
+ * the next decrypt attempt.
  */
 async function ensureSession(
   userId: number,
@@ -454,8 +486,10 @@ async function ensureSession(
   const trpc = opts?.trpc ?? getHomeTRPCClient();
   if (!trpc) throw new Error('Not connected');
 
+  const federated = await isUserFederated(userId);
+
   if (await hasSession(userId, s)) {
-    if (opts?.verifyIdentity) {
+    if (opts?.verifyIdentity && !federated) {
       const serverKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
       const localKey = await s.getStoredIdentityKey(userId);
 
@@ -470,10 +504,20 @@ async function ensureSession(
     }
   }
 
-  const bundle = await trpc.e2ee.getPreKeyBundle.query({ userId });
+  const bundle = federated
+    ? await trpc.e2ee.getFederatedPreKeyBundle.query({ userId })
+    : await trpc.e2ee.getPreKeyBundle.query({ userId });
 
   if (!bundle) {
-    throw new Error(`User ${userId} has no E2EE keys registered`);
+    // Decision 2: hard fail. The thrown message is user-facing —
+    // it surfaces verbatim through `getTrpcError` into the
+    // composer's toast on a failed send. Don't include internal
+    // userIds; do say what failed and (when federated) why.
+    throw new Error(
+      federated
+        ? "Encrypted DM unavailable — the recipient's instance is unreachable or hasn't published encryption keys."
+        : "Encrypted DM unavailable — the recipient hasn't set up encryption yet."
+    );
   }
 
   const typedBundle = bundle as PreKeyBundle;
@@ -991,7 +1035,12 @@ export function setLocalResetFlag(value: boolean): void {
  *   for all E2EE channels.
  */
 export async function handlePeerIdentityReset(
-  userId: number
+  userId: number,
+  // Phase D / D3 — federated rotations carry the new identity key
+  // in the broadcast payload so the client doesn't have to round-
+  // trip back through federation. Same-instance rotations leave
+  // this undefined and the existing fetch path runs.
+  newIdentityPublicKeyFromBroadcast?: string
 ): Promise<void> {
   const { store: reduxStore } = await import('@/features/store');
   const state = reduxStore.getState();
@@ -1005,27 +1054,37 @@ export async function handlePeerIdentityReset(
     return;
   }
 
-  // Phase C: peer just rotated their identity. Fetch their NEW
-  // identity public key and re-pin BEFORE we touch sessions, so the
-  // SKDM-distribute below — which triggers libsignal session
-  // re-establishment under the new identity — passes
+  // Phase C: peer just rotated their identity. Re-pin BEFORE we touch
+  // sessions, so the SKDM-distribute below — which triggers libsignal
+  // session re-establishment under the new identity — passes
   // `isTrustedIdentity` instead of throwing on the old pin.
-  // Best-effort: a lookup failure leaves the modal path (C4) to
-  // handle the mismatch the next time a message goes through.
+  //
+  // Phase D / D3: prefer the key embedded in the broadcast payload
+  // (federated case). Fall back to the same-instance lookup when
+  // missing. A lookup failure leaves the modal path (C4) to handle
+  // the mismatch the next time a message goes through.
   const trpc = getHomeTRPCClient();
-  if (trpc) {
+  let newIdentityKey: string | null = newIdentityPublicKeyFromBroadcast ?? null;
+  if (!newIdentityKey && trpc) {
     try {
-      const newIdentityKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
-      if (newIdentityKey) {
-        await signalStore.acceptIdentityChange(userId, newIdentityKey);
-        const active = getActiveStore();
-        if (active !== signalStore) {
-          await active.acceptIdentityChange(userId, newIdentityKey);
-        }
-      }
+      newIdentityKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
     } catch (err) {
       console.warn(
         `[E2EE] Failed to refresh pinned identity for reset peer ${userId}:`,
+        err
+      );
+    }
+  }
+  if (newIdentityKey) {
+    try {
+      await signalStore.acceptIdentityChange(userId, newIdentityKey);
+      const active = getActiveStore();
+      if (active !== signalStore) {
+        await active.acceptIdentityChange(userId, newIdentityKey);
+      }
+    } catch (err) {
+      console.warn(
+        `[E2EE] Failed to apply new pinned identity for reset peer ${userId}:`,
         err
       );
     }

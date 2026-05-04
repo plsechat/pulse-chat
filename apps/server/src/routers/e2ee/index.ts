@@ -15,7 +15,9 @@ import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getCoMemberIds } from '../../db/queries/servers';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
+import { relayFederatedIdentityRotation } from '../../utils/federation-dm-group-dispatch';
 import { protectedProcedure, t } from '../../utils/trpc';
+import { getFederatedPreKeyBundleRoute } from './get-federated-prekey-bundle';
 import { insertIdentityResetMessages } from './identity-reset-messages';
 
 const registerKeysRoute = protectedProcedure
@@ -123,6 +125,14 @@ const registerKeysRoute = protectedProcedure
       const coMemberIds = await getCoMemberIds(ctx.userId);
       pubsub.publishFor(coMemberIds, ServerEvents.E2EE_IDENTITY_RESET, {
         userId: ctx.userId
+      });
+
+      // Phase D / D3 — propagate to federated DM peers. Active-DM-
+      // channels-only scope; channel rotation propagation is out of
+      // scope for Phase D (federation v3 territory).
+      void relayFederatedIdentityRotation({
+        rotatingUserId: ctx.userId,
+        newIdentityPublicKey: input.identityPublicKey
       });
     }
   });
@@ -504,6 +514,7 @@ const onIdentityResetRoute = protectedProcedure.subscription(
 export const e2eeRouter = t.router({
   registerKeys: registerKeysRoute,
   getPreKeyBundle: getPreKeyBundleRoute,
+  getFederatedPreKeyBundle: getFederatedPreKeyBundleRoute,
   getIdentityPublicKey: getIdentityPublicKeyRoute,
   uploadOneTimePreKeys: uploadOneTimePreKeysRoute,
   getPreKeyCount: getPreKeyCountRoute,

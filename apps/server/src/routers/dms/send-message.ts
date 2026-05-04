@@ -8,6 +8,7 @@ import { getUserById } from '../../db/queries/users';
 import { dmChannels, dmMessageFiles, dmMessages, federationInstances } from '../../db/schema';
 import { enqueueProcessDmMetadata } from '../../queues/dm-message-metadata';
 import { relayToInstance } from '../../utils/federation';
+import { getFederationGroupId } from '../../utils/federation-dm-group-dispatch';
 import { invariant } from '../../utils/invariant';
 import { fileManager } from '../../utils/file-manager';
 import { logger } from '../../logger';
@@ -118,9 +119,21 @@ const sendMessageRoute = protectedProcedure
       enqueueProcessDmMetadata(input.content, message!.id, input.dmChannelId);
     }
 
-    // Relay to remote instances for federated members (skip for E2EE)
-    if (input.content && !isE2ee) {
+    // Relay to remote instances for federated members. Phase D / D1
+    // flipped the previous `!isE2ee` gate — encrypted messages now
+    // ride through the same `/federation/dm-relay` path with an
+    // explicit e2ee flag and the ciphertext envelope as `content`.
+    // The receiving instance never decrypts; it just routes the
+    // ciphertext to the recipient's WS and persists with e2ee=true.
+    // Plaintext path is unchanged.
+    //
+    // Phase D / D2 — for group DMs that span instances we include
+    // the channel's `federationGroupId` so the receiver can route
+    // the message into the correct mirror channel instead of the
+    // 1:1 fallback.
+    if (input.content) {
       const sender = await getUserById(ctx.userId);
+      const federationGroupId = await getFederationGroupId(input.dmChannelId);
       if (sender) {
         for (const memberId of memberIds) {
           if (memberId === ctx.userId) continue;
@@ -148,7 +161,14 @@ const sendMessageRoute = protectedProcedure
                 fromAvatarFile: sender.avatar?.name ?? null,
                 fromUserId: ctx.userId,
                 toPublicId: member.federatedPublicId,
-                content: input.content
+                content: input.content,
+                // Phase D / D1: receiver uses this flag to persist
+                // the message with e2ee=true and to auto-upgrade the
+                // channel's encryption flag on first ciphertext.
+                e2ee: isE2ee,
+                // Phase D / D2: only set for federated group DMs.
+                // Receiver looks up the mirror channel by this id.
+                ...(federationGroupId ? { federationGroupId } : {})
               }).catch((err) =>
                 logger.error('[sendDmMessage] federation relay failed: %o', err)
               );

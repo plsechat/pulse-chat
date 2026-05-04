@@ -78,7 +78,15 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
-        className="w-auto p-0 border-none shadow-none bg-transparent"
+        // `duration-0` on close: when the trigger sits inside a hover-only
+        // action bar, clicking an emoji makes the bar `display:none` (mouse
+        // is no longer over the message group, and Radix has flipped the
+        // trigger's data-state to "closed" so the bar's `:has` keep-open
+        // rule no longer applies). The popover then animates its close from
+        // a zero-bounding-box trigger, snapping to (0,0) before fading out.
+        // Killing the close animation removes the window in which the
+        // misplacement is visible. Open animation is unaffected.
+        className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
         align="start"
         sideOffset={8}
         onOpenAutoFocus={(e) => e.preventDefault()}

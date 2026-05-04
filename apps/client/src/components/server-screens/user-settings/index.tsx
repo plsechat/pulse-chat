@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { ChevronLeft, Fingerprint, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
@@ -93,7 +93,7 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
 
   useEffect(() => {
     let cancelled = false;
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
 
     trpc.users.getAuthProviders

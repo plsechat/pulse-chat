@@ -1,10 +1,17 @@
 import { ServerEvents } from '@pulse/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
-import { dmE2eeSenderKeys } from '../../db/schema';
+import { dmE2eeSenderKeys, users } from '../../db/schema';
+import {
+  announceFederatedGroupCreate,
+  assignFederationGroupIdIfNeeded,
+  getFederationGroupId,
+  relayFederatedSkdm
+} from '../../utils/federation-dm-group-dispatch';
 import { invariant } from '../../utils/invariant';
+import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, userSubscription } from '../../utils/trpc';
 
@@ -46,22 +53,85 @@ const distributeSenderKeysRoute = protectedProcedure
       });
     }
 
-    await db.insert(dmE2eeSenderKeys).values(
-      input.distributions.map((d) => ({
-        dmChannelId: input.dmChannelId,
-        senderKeyId: input.senderKeyId,
-        fromUserId: ctx.userId,
-        toUserId: d.toUserId,
-        distributionMessage: d.distributionMessage,
-        createdAt: Date.now()
-      }))
+    // Phase D / D2 — split distributions into local vs federated.
+    // Local recipients get the SKDM stored on this server (existing
+    // behaviour). Federated recipients have their SKDM relayed to
+    // their home instance via /federation/dm-sender-key, where it
+    // lands in that instance's local dm_e2ee_sender_keys for the
+    // recipient to fetch. Without this split, federated recipients
+    // never see the SKDM (their client polls their home instance,
+    // not ours), so group decryption breaks for them.
+    const recipientUserIds = input.distributions.map((d) => d.toUserId);
+    const recipientRows = await db
+      .select({
+        id: users.id,
+        isFederated: users.isFederated
+      })
+      .from(users)
+      .where(inArray(users.id, recipientUserIds));
+    const isFederatedById = new Map(
+      recipientRows.map((r) => [r.id, r.isFederated])
     );
 
-    for (const d of input.distributions) {
-      pubsub.publishFor(d.toUserId, ServerEvents.DM_SENDER_KEY_DISTRIBUTION, {
-        dmChannelId: input.dmChannelId,
-        fromUserId: ctx.userId
-      });
+    const localDists = input.distributions.filter(
+      (d) => !isFederatedById.get(d.toUserId)
+    );
+    const federatedDists = input.distributions.filter(
+      (d) => isFederatedById.get(d.toUserId) === true
+    );
+
+    if (localDists.length > 0) {
+      await db.insert(dmE2eeSenderKeys).values(
+        localDists.map((d) => ({
+          dmChannelId: input.dmChannelId,
+          senderKeyId: input.senderKeyId,
+          fromUserId: ctx.userId,
+          toUserId: d.toUserId,
+          distributionMessage: d.distributionMessage,
+          createdAt: Date.now()
+        }))
+      );
+
+      for (const d of localDists) {
+        pubsub.publishFor(d.toUserId, ServerEvents.DM_SENDER_KEY_DISTRIBUTION, {
+          dmChannelId: input.dmChannelId,
+          fromUserId: ctx.userId
+        });
+      }
+    }
+
+    if (federatedDists.length > 0) {
+      // Self-heal for groups that pre-date Phase D / D2: assign a
+      // federationGroupId on the fly and re-announce so peers build
+      // their mirrors. New groups created via createGroup already
+      // have the id set; this only fires for legacy rows that gained
+      // federated members before the column existed.
+      let federationGroupId = await getFederationGroupId(input.dmChannelId);
+      if (!federationGroupId) {
+        federationGroupId = await assignFederationGroupIdIfNeeded(
+          input.dmChannelId
+        );
+        if (federationGroupId) {
+          void announceFederatedGroupCreate(input.dmChannelId, ctx.userId);
+        }
+      }
+
+      if (!federationGroupId) {
+        logger.warn(
+          '[distributeDmSenderKeys] channel %s has federated recipients but federationGroupId could not be assigned',
+          input.dmChannelId
+        );
+      } else {
+        for (const d of federatedDists) {
+          void relayFederatedSkdm({
+            federationGroupId,
+            senderKeyId: input.senderKeyId,
+            fromUserId: ctx.userId,
+            toUserId: d.toUserId,
+            distributionMessage: d.distributionMessage
+          });
+        }
+      }
     }
   });
 

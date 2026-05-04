@@ -4,6 +4,11 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmChannelMembers, dmChannels, friendships } from '../../db/schema';
+import {
+  announceFederatedGroupAddMember,
+  announceFederatedGroupCreate,
+  assignFederationGroupIdIfNeeded
+} from '../../utils/federation-dm-group-dispatch';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -144,6 +149,31 @@ const addMemberRoute = protectedProcedure
           dmChannelId: input.dmChannelId,
           userId: addedId
         });
+      }
+    }
+
+    // Phase D / D2 — federation propagation. Two cases:
+    //  1. 1:1 → group promotion that adds a federated member, OR a
+    //     same-instance group that's gaining its first federated
+    //     member. The channel doesn't have a federationGroupId yet —
+    //     assign one, then announce the whole group to peers (they
+    //     need the full member list, not just the add-member event).
+    //  2. Existing federated group gaining a member. Just dispatch
+    //     dm-group-add-member to peers.
+    const channelHadFederationId = !!channel.federationGroupId;
+    const federationGroupId = await assignFederationGroupIdIfNeeded(
+      input.dmChannelId
+    );
+    if (federationGroupId) {
+      if (!channelHadFederationId) {
+        void announceFederatedGroupCreate(
+          input.dmChannelId,
+          channel.ownerId ?? ctx.userId
+        );
+      } else {
+        for (const addedId of toAdd) {
+          void announceFederatedGroupAddMember(input.dmChannelId, addedId);
+        }
       }
     }
   });

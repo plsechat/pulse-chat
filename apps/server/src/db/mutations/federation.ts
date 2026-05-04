@@ -112,6 +112,78 @@ async function findOrCreateShadowUser(
   return raced!;
 }
 
+/**
+ * Phase D / D2 — find-or-create a shadow user identified ONLY by
+ * (federatedInstanceId, federatedPublicId). Unlike `findOrCreateShadowUser`,
+ * does NOT fall back to looking up by `federatedUsername`. Used by the
+ * group-DM federation handlers which don't receive per-member remote
+ * user ids over the wire — only publicIds.
+ *
+ * The fallback path in `findOrCreateShadowUser` causes false positives
+ * when multiple shadows on the same instance are inserted with the
+ * same sentinel `federatedUsername='0'`: the second lookup matches
+ * the first row and returns it as if it were the new member.
+ */
+async function findOrCreateShadowUserByPublicId(
+  instanceId: number,
+  remotePublicId: string,
+  name: string
+): Promise<TUser> {
+  const [existing] = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.federatedInstanceId, instanceId),
+        eq(users.federatedPublicId, remotePublicId)
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    if (existing.name !== name) {
+      await db
+        .update(users)
+        .set({ name, updatedAt: Date.now() })
+        .where(eq(users.id, existing.id));
+    }
+    return existing;
+  }
+
+  const [created] = await db
+    .insert(users)
+    .values({
+      supabaseId: `federated-${randomUUIDv7()}`,
+      name,
+      isFederated: true,
+      federatedInstanceId: instanceId,
+      federatedPublicId: remotePublicId,
+      // federatedUsername left NULL — we don't know the remote user id
+      // from the group-DM federation messages.
+      publicId: randomUUIDv7(),
+      createdAt: Date.now(),
+      lastLoginAt: Date.now()
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (created) return created;
+
+  // Race: another concurrent caller inserted the same shadow first.
+  const [raced] = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.federatedInstanceId, instanceId),
+        eq(users.federatedPublicId, remotePublicId)
+      )
+    )
+    .limit(1);
+
+  return raced!;
+}
+
 async function deleteShadowUsersByInstance(instanceId: number): Promise<void> {
   await db
     .delete(users)
@@ -378,6 +450,7 @@ async function syncShadowUserProfile(
 export {
   deleteShadowUsersByInstance,
   findOrCreateShadowUser,
+  findOrCreateShadowUserByPublicId,
   getShadowUsersByInstance,
   syncShadowUserAvatar,
   syncShadowUserProfile

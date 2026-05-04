@@ -34,7 +34,7 @@ import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import { useUploadFiles } from '@/hooks/use-upload-files';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -180,7 +180,7 @@ const DmConversation = memo(
   const sendTypingSignal = useMemo(
     () =>
       throttle(async () => {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         try {
           await trpc.dms.signalTyping.mutate({ dmChannelId });
@@ -769,7 +769,7 @@ const DmPinnedMessagesPanel = memo(
       setLoading(true);
 
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         const messages = await trpc.dms.getPinned.query({ dmChannelId });
         // Same batch decryptor used by history + live + banner so E2EE
@@ -800,7 +800,7 @@ const DmPinnedMessagesPanel = memo(
     }, [dmChannelId, fetchPinned]);
 
     const onUnpin = useCallback(async (dmMessageId: number) => {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
 
       try {
@@ -1040,7 +1040,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 
   const handleToggleReaction = useCallback(
     async (emoji: string) => {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
 
       try {
@@ -1056,7 +1056,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   );
 
   const handlePinToggle = useCallback(async () => {
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
 
     try {
@@ -1076,7 +1076,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 
   const onEmojiSelect = useCallback(
     async (emoji: TEmojiItem) => {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
 
       try {

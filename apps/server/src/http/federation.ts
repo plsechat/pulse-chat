@@ -1,14 +1,25 @@
 import { type TFederationInfo, ServerEvents } from '@pulse/shared';
-import { and, eq, count } from 'drizzle-orm';
+import { and, eq, count, sql } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
-import { federationInstances, servers, serverMembers, users, files } from '../db/schema';
+import {
+  federationInstances,
+  servers,
+  serverMembers,
+  users,
+  files,
+  userIdentityKeys,
+  userSignedPreKeys,
+  userOneTimePreKeys
+} from '../db/schema';
 import { getFirstServer } from '../db/queries/servers';
 import { config } from '../config';
 import {
   getLocalKeys,
+  signedJsonResponse,
   verifyChallenge
 } from '../utils/federation';
+import { _tryConsumeBundleFetchToken } from '../utils/bundle-fetch-rate-limit';
 import { SERVER_VERSION } from '../utils/env';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
@@ -815,6 +826,22 @@ const federationDmRelayHandler = async (
   const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
   const toPublicId = signedBody.toPublicId as string;
   const content = signedBody.content as string;
+  // Phase D / D1 — when set, `content` is base64-encoded Signal
+  // ciphertext (PreKeyMessage on first contact, regular message
+  // afterwards). The receiving instance never decrypts; it just
+  // routes the envelope to the recipient's WS and persists the
+  // ciphertext to dmMessages with the e2ee flag set. Optional,
+  // defaults false to preserve the pre-Phase-D plaintext behaviour
+  // for in-flight v0.2 traffic.
+  const isE2ee = signedBody.e2ee === true;
+  // Phase D / D2 — populated for group DMs that span instances. The
+  // receiving instance looks up its local mirror by this ID instead
+  // of `findDmChannelBetween` (which is hardcoded to 1:1). Null /
+  // undefined for 1:1 DMs and same-instance groups.
+  const federationGroupId =
+    typeof signedBody.federationGroupId === 'string'
+      ? signedBody.federationGroupId
+      : null;
 
   if (!fromDomain || !fromUsername || !content || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -878,16 +905,43 @@ const federationDmRelayHandler = async (
     return jsonResponse(res, 404, { error: 'Local user not found' });
   }
 
-  // Find or create DM channel between shadow user and local user
+  // Find or create DM channel between shadow user and local user.
+  // Phase D / D2 — for group DMs the sender includes a
+  // `federationGroupId` and we look up the local mirror channel by
+  // that column instead of `findDmChannelBetween` (which is
+  // hardcoded to 1:1 and would otherwise route group messages into
+  // a brand-new 1:1 channel).
   const { findDmChannelBetween, getDmMessage } = await import('../db/queries/dms');
   const { dmChannels, dmChannelMembers, dmMessages } = await import('../db/schema');
 
-  let dmChannelId = await findDmChannelBetween(shadowUser.id, localUser.id);
+  let dmChannelId: number | null = null;
+  if (federationGroupId) {
+    const [mirror] = await db
+      .select({ id: dmChannels.id })
+      .from(dmChannels)
+      .where(eq(dmChannels.federationGroupId, federationGroupId))
+      .limit(1);
+    dmChannelId = mirror?.id ?? null;
+    if (!dmChannelId) {
+      // The peer must announce the group via /federation/dm-group-
+      // create before relaying messages. If we never received that
+      // announcement (or it was lost), refuse the message rather
+      // than silently routing into a wrong 1:1 channel.
+      return jsonResponse(res, 404, {
+        error: 'Group mirror not found — was the group announced first?'
+      });
+    }
+  } else {
+    dmChannelId = await findDmChannelBetween(shadowUser.id, localUser.id);
+  }
+
+  let channelE2eeFlipped = false;
 
   if (!dmChannelId) {
+    // New 1:1 channel — initialise its e2ee flag from the incoming envelope.
     const [newChannel] = await db
       .insert(dmChannels)
-      .values({ createdAt: Date.now() })
+      .values({ createdAt: Date.now(), e2ee: isE2ee })
       .returning();
 
     dmChannelId = newChannel!.id;
@@ -896,6 +950,26 @@ const federationDmRelayHandler = async (
       { dmChannelId: dmChannelId, userId: shadowUser.id, createdAt: Date.now() },
       { dmChannelId: dmChannelId, userId: localUser.id, createdAt: Date.now() }
     ]);
+  } else if (isE2ee) {
+    // Existing channel that's still flagged plaintext on this side
+    // (e.g. previous messages were plaintext). The remote sender just
+    // upgraded their side via `enableEncryption` — auto-upgrade ours
+    // so the recipient's UI flips to the encrypted state. Encryption
+    // is one-way (no auto-disable); plaintext arriving on an already-
+    // encrypted channel falls through to the existing-channel path
+    // without flipping the flag back.
+    const [existing] = await db
+      .select({ e2ee: dmChannels.e2ee })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, dmChannelId))
+      .limit(1);
+    if (existing && !existing.e2ee) {
+      await db
+        .update(dmChannels)
+        .set({ e2ee: true, updatedAt: Date.now() })
+        .where(eq(dmChannels.id, dmChannelId));
+      channelE2eeFlipped = true;
+    }
   }
 
   // Insert message
@@ -905,9 +979,21 @@ const federationDmRelayHandler = async (
       dmChannelId,
       userId: shadowUser.id,
       content,
+      e2ee: isE2ee,
       createdAt: Date.now()
     })
     .returning();
+
+  // Notify the recipient that the channel just became encrypted so
+  // their client refreshes the badge + composer state. Same event
+  // shape as the same-instance `enableEncryption` mutation.
+  if (channelE2eeFlipped) {
+    pubsub.publishFor(localUser.id, ServerEvents.DM_CHANNEL_UPDATE, {
+      dmChannelId,
+      name: null,
+      iconFileId: null
+    });
+  }
 
   // Publish event to local user
   const joined = await getDmMessage(message!.id);
@@ -977,12 +1063,151 @@ const federationReportUserHandler = async (
   jsonResponse(res, 200, { success: true });
 };
 
+// POST /federation/get-prekey-bundle — return a signed pre-key bundle
+// for a local user, addressed by publicId. Phase D / D1 — used by
+// remote peers when their user wants to start a cross-instance E2EE
+// DM with one of our users.
+//
+// Auth: signed request body (Phase 4 / F1). Response is signed via
+// Phase D / D0 (`signedJsonResponse`) so the requester can detect a
+// TLS-only-MITM that substituted bundle data in flight.
+//
+// DoS protection: per-publicId token bucket stops a hostile peer
+// from enumerating to drain a user's one-time pre-key pool.
+const federationGetPreKeyBundleHandler = async (
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+) => {
+  if (!config.federation.enabled) {
+    return jsonResponse(res, 403, { error: 'Federation not enabled' });
+  }
+
+  const body = await parseBody(req);
+  const { signature, ...signedBody } = body as Record<string, unknown> & {
+    signature: string;
+  };
+  const fromDomain = signedBody.fromDomain as string;
+  const targetPublicId = signedBody.targetPublicId as string;
+
+  if (!fromDomain || !targetPublicId || !signature) {
+    return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+
+  const [instance] = await db
+    .select()
+    .from(federationInstances)
+    .where(
+      and(
+        eq(federationInstances.domain, fromDomain),
+        eq(federationInstances.status, 'active')
+      )
+    )
+    .limit(1);
+
+  if (!instance || !instance.publicKey) {
+    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
+  }
+
+  const isValid = await verifyChallenge(
+    signature,
+    signedBody,
+    fromDomain,
+    instance.publicKey
+  );
+  if (!isValid) {
+    return jsonResponse(res, 401, { error: 'Invalid signature' });
+  }
+
+  // Per-publicId rate limit (DoS / OTPK-pool-drain protection).
+  // Applied AFTER signature verification so unsigned probes don't
+  // even register against a publicId's bucket.
+  if (!_tryConsumeBundleFetchToken(targetPublicId)) {
+    return jsonResponse(res, 429, {
+      error: 'Bundle fetch rate limit exceeded'
+    });
+  }
+
+  const [localUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.publicId, targetPublicId))
+    .limit(1);
+
+  if (!localUser) {
+    return jsonResponse(res, 404, { error: 'Local user not found' });
+  }
+
+  const [identityKey] = await db
+    .select()
+    .from(userIdentityKeys)
+    .where(eq(userIdentityKeys.userId, localUser.id))
+    .limit(1);
+
+  if (!identityKey) {
+    return jsonResponse(res, 404, { error: 'User has no identity key' });
+  }
+
+  const [signedPreKeyRow] = await db
+    .select()
+    .from(userSignedPreKeys)
+    .where(eq(userSignedPreKeys.userId, localUser.id))
+    .orderBy(sql`${userSignedPreKeys.createdAt} DESC`)
+    .limit(1);
+
+  if (!signedPreKeyRow) {
+    return jsonResponse(res, 404, { error: 'User has no signed pre-key' });
+  }
+
+  // Consume one OTPK (FIFO — delete oldest, return it). Atomic via
+  // single-statement subquery, same pattern as the same-instance
+  // `e2ee.getPreKeyBundle` route. Returns null in `oneTimePreKey`
+  // when the pool is empty — clients fall back to `signedPreKey`-
+  // only X3DH (loses one round of forward secrecy until OTPKs
+  // replenish).
+  const [oneTimePreKey] = await db
+    .delete(userOneTimePreKeys)
+    .where(
+      eq(
+        userOneTimePreKeys.id,
+        db
+          .select({ id: userOneTimePreKeys.id })
+          .from(userOneTimePreKeys)
+          .where(eq(userOneTimePreKeys.userId, localUser.id))
+          .orderBy(sql`${userOneTimePreKeys.createdAt} ASC`)
+          .limit(1)
+      )
+    )
+    .returning();
+
+  return signedJsonResponse(
+    res,
+    200,
+    {
+      identityPublicKey: identityKey.identityPublicKey,
+      registrationId: identityKey.registrationId,
+      signedPreKey: {
+        keyId: signedPreKeyRow.keyId,
+        publicKey: signedPreKeyRow.publicKey,
+        signature: signedPreKeyRow.signature
+      },
+      oneTimePreKey: oneTimePreKey
+        ? {
+            keyId: oneTimePreKey.keyId,
+            publicKey: oneTimePreKey.publicKey
+          }
+        : null
+    },
+    fromDomain
+  );
+};
+
 export {
   federationAcceptHandler,
   federationDmRelayHandler,
   federationFriendAcceptHandler,
   federationFriendRemoveHandler,
   federationFriendRequestHandler,
+  federationGetPreKeyBundleHandler,
   federationInfoHandler,
   federationReportUserHandler,
   federationRequestHandler,

@@ -8,7 +8,7 @@ import { getHandshakeHash } from '@/features/server/actions';
 import { store } from '@/features/store';
 import { EmptyState } from '@/components/ui/empty-state';
 import { getFileUrl } from '@/helpers/get-file-url';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type {
   TFederationActiveInstance,
@@ -223,7 +223,7 @@ const DiscoverView = memo(() => {
   useEffect(() => {
     const fetchServers = async () => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         const data = await trpc.servers.discover.query();
         setServers(data);
@@ -243,7 +243,7 @@ const DiscoverView = memo(() => {
       const fetchFederated = async () => {
         setFedLoading(true);
         try {
-          const trpc = getTRPCClient();
+          const trpc = getHomeTRPCClient();
           if (!trpc) return;
           const active = await trpc.federation.listActiveInstances.query();
           setInstances(active);
@@ -291,7 +291,7 @@ const DiscoverView = memo(() => {
     setJoiningId(serverId);
 
     try {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
       const summary = await trpc.servers.joinDiscover.mutate({ serverId, password });
 
@@ -342,7 +342,7 @@ const DiscoverView = memo(() => {
       setJoiningFedPublicId(server.publicId);
 
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
 
         // Find the instance

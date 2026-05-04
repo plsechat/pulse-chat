@@ -64,8 +64,13 @@ const MessageActions = memo(
   }: TMessageActionsProps) => {
     const showThreadButton = canCreateThread && !hasThread && !!onCreateThread;
 
+    // Visibility uses opacity + pointer-events instead of `hidden`/`flex` so
+    // the bar's flex layout — and the emoji-picker trigger's bounding box —
+    // is always present. With `display:none` on close, the trigger had a
+    // zero rect and Radix snapped the popover to (0,0) for one paint frame
+    // before unmount.
     return (
-      <div className="gap-0.5 absolute right-0 -top-6 z-10 hidden group-hover:flex [&:has([data-state=open])]:flex items-center rounded-md shadow-md border border-border bg-card/90 backdrop-blur-sm p-0.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-150 h-8 [&_button[data-slot=icon-button]]:rounded [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60">
+      <div className="gap-0.5 absolute right-0 -top-6 z-10 flex opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto [&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto items-center rounded-md shadow-md border border-border bg-card/90 backdrop-blur-sm p-0.5 transition-opacity duration-150 h-8 [&_button[data-slot=icon-button]]:rounded [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60">
         {canEdit && (
           <IconButton
             size="sm"

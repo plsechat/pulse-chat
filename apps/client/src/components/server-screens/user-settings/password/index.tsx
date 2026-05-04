@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input';
 import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useForm } from '@/hooks/use-form';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -15,7 +15,7 @@ const Password = memo(() => {
   });
 
   const updatePassword = useCallback(async () => {
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
 
     try {

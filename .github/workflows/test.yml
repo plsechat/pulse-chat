@@ -30,9 +30,55 @@ jobs:
       - name: Lint
         run: bun run lint
 
-  test:
-    name: Run Tests
+  # Find every server test file and split into 10 roughly-even
+  # chunks. Each chunk becomes a single test job, so a freshly
+  # provisioned VM + postgres + bun install + drizzle gen amortises
+  # over ~5-6 test files instead of running once per file. New
+  # tests get picked up automatically — the chunking is dynamic.
+  discover-tests:
+    name: Discover test files
     runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.find.outputs.shards }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - id: find
+        name: Enumerate + chunk test files
+        working-directory: apps/server
+        run: |
+          shards_count=10
+          files_json=$(find src -name '*.test.ts' -type f \
+            | sort \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          total=$(echo "$files_json" | jq 'length')
+          if [ "$total" -eq 0 ]; then
+            echo "shards=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Ceil(total / shards) so the last chunk doesn't overflow.
+          chunk_size=$(( (total + shards_count - 1) / shards_count ))
+          shards=$(echo "$files_json" | jq -c "
+            [range(0; length; $chunk_size) as \$i | .[\$i : \$i + $chunk_size]]
+          ")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "Split $total test files into $(echo "$shards" | jq 'length') shards:"
+          echo "$shards" | jq -c '.[]'
+
+  # Each shard runs its assigned files in a single bun-test
+  # invocation. The shard is an array of file paths; we join with
+  # spaces so `bun test path1 path2 path3 ...` runs them all in
+  # sequence inside the same Bun process.
+  test:
+    name: Test shard ${{ strategy.job-index }}
+    needs: discover-tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.discover-tests.outputs.shards) }}
 
     services:
       postgres:
@@ -76,6 +122,43 @@ jobs:
         working-directory: apps/server
         run: bun run db:gen
 
-      - name: Run server tests
+      - name: Run shard
         working-directory: apps/server
-        run: bun test
+        # Run each file in its own bun-test invocation. Bun runs test
+        # files in parallel within a single process by default, which
+        # reintroduces the cross-file TRUNCATE deadlock the per-shard
+        # postgres isolation was meant to avoid. Per-file invocation
+        # serializes them, paying ~50ms per file in startup cost — a
+        # cheap trade for reliability.
+        #
+        # Bun classifies a beforeEach/afterEach hook timeout as a
+        # hook-level error rather than a test failure: it logs `(fail)`
+        # for visibility but doesn't increment the fail count and
+        # exits the process with 0. Capture stdout/stderr, scan for
+        # `(fail)` markers, and fail the file regardless of Bun's exit
+        # code. NEVER trust just the exit code.
+        run: |
+          set -e
+          first_failure=
+          for file in ${{ join(matrix.shard, ' ') }}; do
+            echo "::group::$file"
+            output_file=$(mktemp)
+            set +e
+            bun test "$file" 2>&1 | tee "$output_file"
+            bun_exit=${PIPESTATUS[0]}
+            set -e
+            # Either a non-zero exit OR any `(fail)` line in the
+            # output marks this file as failed. The `(fail)` scan
+            # catches Bun's hook-timeout edge case where the runner
+            # logs the failure but exits 0.
+            if [ "$bun_exit" -ne 0 ] || grep -qE '^\(fail\)' "$output_file"; then
+              first_failure=${first_failure:-$file}
+              echo "::error::$file failed (bun exit=$bun_exit)"
+            fi
+            rm -f "$output_file"
+            echo "::endgroup::"
+          done
+          if [ -n "$first_failure" ]; then
+            echo "Shard failed; first failing file: $first_failure"
+            exit 1
+          fi

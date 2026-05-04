@@ -89,10 +89,10 @@ const subscribeToMessages = () => {
     subscribe(
       'onIdentityReset',
       trpc.e2ee.onIdentityReset,
-      async ({ userId }) => {
+      async ({ userId, newIdentityPublicKey }) => {
         try {
           const { handlePeerIdentityReset } = await import('@/lib/e2ee');
-          await handlePeerIdentityReset(userId);
+          await handlePeerIdentityReset(userId, newIdentityPublicKey);
         } catch (err) {
           console.error(
             `[E2EE] Failed to handle identity reset for user ${userId}:`,
