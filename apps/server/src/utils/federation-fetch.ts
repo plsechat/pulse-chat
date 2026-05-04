@@ -1,23 +1,32 @@
 /**
- * Wraps fetch with `redirect: 'manual'` and a per-peer outbound rate
- * limit. Federation endpoints (peer instances, federated avatar/file
- * downloads) must respond directly; redirects are an SSRF pivot
- * vector even after the original URL has been validated by
- * `validateFederationUrl` — the redirect target is never re-validated
- * by the runtime.
+ * Hardened wrapper around fetch for federation endpoints. Layers:
  *
- * Rate limit (Phase 4 / F6): token bucket keyed by URL host. Stops a
- * runaway loop, hostile-peer retry storm, or compromised handler
- * from hammering a single remote. Defaults: 60 burst, refilled at
- * 60/minute (1/sec sustained). Self-prunes long-idle buckets to
- * avoid unbounded growth.
+ *   1. F4 SSRF re-validation (was Phase 4 / F2): every call routes
+ *      through `validateFederationUrl` again, so even if the caller
+ *      forgot — or if minutes have passed since they validated —
+ *      we re-resolve DNS at the fetch boundary and reject any
+ *      hostname that now points to a private IP. This collapses
+ *      the long-window TOCTOU. A residual short window between
+ *      this DNS lookup and the actual TCP connect still exists —
+ *      fully closing it requires a custom undici dispatcher with
+ *      IP pinning, which is environment-specific (Bun's native
+ *      fetch doesn't expose the same hooks as undici on Node).
+ *      Tracked as a follow-up.
  *
- * Treats 3xx and `status === 0` (opaque redirect) as errors.
+ *   2. `redirect: 'manual'`: federation endpoints must respond
+ *      directly; redirects are an SSRF pivot vector even after a
+ *      validated URL because the redirect target is never
+ *      re-validated by the runtime. 3xx and opaque (status === 0)
+ *      responses both throw.
  *
- * Does NOT pin DNS — DNS rebinding / TOCTOU between validation and
- * connect is a separate Phase 4 hardening item (F2). For now this
- * only closes redirects + abuse rate.
+ *   3. F6 outbound per-peer rate limit: token bucket keyed by URL
+ *      host. Stops a runaway loop, hostile-peer retry storm, or
+ *      compromised handler from hammering a single remote. 60
+ *      burst, refilled at 60/minute (1/sec sustained). Self-prunes
+ *      long-idle peers when the map crosses 1024 entries.
  */
+
+import { validateFederationUrl } from './validate-url';
 
 const RATE_LIMIT_CAPACITY = 60;
 const RATE_LIMIT_REFILL_PER_MS = RATE_LIMIT_CAPACITY / 60_000;
@@ -75,18 +84,21 @@ export async function federationFetch(
   url: string,
   init?: RequestInit
 ): Promise<Response> {
-  let host: string;
-  try {
-    host = new URL(url).host;
-  } catch {
-    throw new Error(`federationFetch: invalid url ${url}`);
-  }
+  // Re-validate at the fetch boundary so we catch:
+  //   - Callers that forgot to validate up front
+  //   - DNS rebinding between an earlier validate and now
+  //   - Localhost / IP-literal slips through code paths that
+  //     hand-build the URL (e.g. relayToInstance constructs
+  //     `${protocol}://${instanceDomain}${path}` directly)
+  // The validator also rejects non-HTTP(S) and unresolvable hosts.
+  const validated = await validateFederationUrl(url);
+  const host = validated.host;
 
   if (!_tryConsumeFederationToken(host)) {
     throw new FederationRateLimitError(host);
   }
 
-  const response = await fetch(url, {
+  const response = await fetch(validated.href, {
     ...init,
     redirect: 'manual'
   });

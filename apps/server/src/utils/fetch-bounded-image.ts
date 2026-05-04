@@ -150,10 +150,12 @@ export async function fetchBoundedImage(
   let earlyRejected = false;
 
   try {
-    // Loop variable is mutated inside via reader.read() in TS-strict
-    // mode using `while (true)`. Both branches inside the loop
-    // either break or return.
-    while (true) {
+    // Stream until done or we hit a fail-fast condition. The
+    // condition expression below cannot be `true` because the
+    // no-constant-condition rule rejects it; using `!earlyRejected`
+    // is functionally equivalent (the in-loop fail-fast paths set
+    // it before they break) and keeps the lint happy.
+    while (!earlyRejected) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
