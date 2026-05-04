@@ -1,8 +1,14 @@
 /**
  * Read-side hook for the Phase C verifiedIdentities store.
  *
- * Returns the pinned record for `userId` from the home `signalStore`,
- * or null if no entry exists, or `undefined` while loading.
+ * Returns the pinned record for `userId` from the *currently active*
+ * SignalProtocolStore (home or federated, depending on which server
+ * is in focus), or null if no entry exists, or `undefined` while
+ * loading. The active-store scoping matters because user IDs are
+ * per-instance — home userId 5 is not the same person as federated
+ * userId 5 — so badges and verification status must always be
+ * resolved against the same store the active server uses for its
+ * own E2EE flows.
  *
  * Refreshes when `notifyVerifiedIdentityChanged()` fires — call that
  * after any deliberate write (mark-verified, accept-change, clear-pin)
@@ -11,8 +17,10 @@
  * up.
  */
 
+import { activeInstanceDomainSelector } from '@/features/app/selectors';
 import { useEffect, useState } from 'react';
-import { signalStore, type VerifiedIdentityRecord } from './store';
+import { useSelector } from 'react-redux';
+import { getStoreForInstance, type VerifiedIdentityRecord } from './store';
 
 const listeners = new Set<() => void>();
 
@@ -23,6 +31,7 @@ export function notifyVerifiedIdentityChanged(): void {
 export function useVerifiedIdentity(
   userId: number | null | undefined
 ): VerifiedIdentityRecord | null | undefined {
+  const activeDomain = useSelector(activeInstanceDomainSelector);
   const [data, setData] = useState<
     VerifiedIdentityRecord | null | undefined
   >(undefined);
@@ -42,7 +51,8 @@ export function useVerifiedIdentity(
       return;
     }
     let cancelled = false;
-    signalStore
+    const store = getStoreForInstance(activeDomain);
+    store
       .getVerifiedIdentity(userId)
       .then((r) => {
         if (!cancelled) setData(r ?? null);
@@ -53,7 +63,7 @@ export function useVerifiedIdentity(
     return () => {
       cancelled = true;
     };
-  }, [userId, tick]);
+  }, [userId, tick, activeDomain]);
 
   return data;
 }

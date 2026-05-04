@@ -8,11 +8,13 @@ import {
   formatForDisplay
 } from '@/lib/e2ee/safety-number';
 import {
-  signalStore,
+  getStoreForInstance,
+  type SignalProtocolStore,
   type VerifiedIdentityEntry
 } from '@/lib/e2ee/store';
 import { notifyVerifiedIdentityChanged } from '@/lib/e2ee/use-verified-identity';
 import { base64ToArrayBuffer } from '@/lib/e2ee/utils';
+import { activeInstanceDomainSelector } from '@/features/app/selectors';
 import { format } from 'date-fns';
 import {
   ChevronLeft,
@@ -82,10 +84,12 @@ const PeerRow = memo(
 const PeerDetail = memo(
   ({
     entry,
+    store,
     onBack,
     onChanged
   }: {
     entry: VerifiedIdentityEntry;
+    store: SignalProtocolStore;
     onBack: () => void;
     onChanged: () => void;
   }) => {
@@ -98,7 +102,7 @@ const PeerDetail = memo(
     useEffect(() => {
       let cancelled = false;
       (async () => {
-        const ownKeyPair = await signalStore.getIdentityKeyPair();
+        const ownKeyPair = await store.getIdentityKeyPair();
         if (!ownKeyPair || ownUserId === undefined) {
           if (!cancelled) setSafetyNumber(null);
           return;
@@ -121,13 +125,13 @@ const PeerDetail = memo(
       return () => {
         cancelled = true;
       };
-    }, [entry.identityPublicKey, entry.userId, ownUserId]);
+    }, [entry.identityPublicKey, entry.userId, ownUserId, store]);
 
     const handleMarkVerified = useCallback(async () => {
       if (working) return;
       setWorking(true);
       try {
-        await signalStore.markIdentityManual(
+        await store.markIdentityManual(
           entry.userId,
           entry.identityPublicKey
         );
@@ -140,13 +144,13 @@ const PeerDetail = memo(
       } finally {
         setWorking(false);
       }
-    }, [entry.userId, entry.identityPublicKey, name, onChanged, working]);
+    }, [entry.userId, entry.identityPublicKey, name, onChanged, working, store]);
 
     const handleClearPin = useCallback(async () => {
       if (working) return;
       setWorking(true);
       try {
-        await signalStore.clearVerifiedIdentity(entry.userId);
+        await store.clearVerifiedIdentity(entry.userId);
         notifyVerifiedIdentityChanged();
         toast.success(`Removed pinned identity for ${name}`);
         onChanged();
@@ -157,7 +161,7 @@ const PeerDetail = memo(
       } finally {
         setWorking(false);
       }
-    }, [entry.userId, name, onBack, onChanged, working]);
+    }, [entry.userId, name, onBack, onChanged, working, store]);
 
     return (
       <div className="space-y-4">
@@ -232,6 +236,11 @@ type TVerifyIdentityProps = {
 };
 
 const VerifyIdentity = memo(({ initialPeerId }: TVerifyIdentityProps) => {
+  const activeDomain = useSelector(activeInstanceDomainSelector);
+  const store = useMemo(
+    () => getStoreForInstance(activeDomain),
+    [activeDomain]
+  );
   const [entries, setEntries] = useState<VerifiedIdentityEntry[] | null>(
     null
   );
@@ -241,14 +250,14 @@ const VerifyIdentity = memo(({ initialPeerId }: TVerifyIdentityProps) => {
 
   const refresh = useCallback(async () => {
     try {
-      const list = await signalStore.listVerifiedIdentities();
+      const list = await store.listVerifiedIdentities();
       list.sort((a, b) => b.verifiedAt - a.verifiedAt);
       setEntries(list);
     } catch (err) {
       console.error(err);
       setEntries([]);
     }
-  }, []);
+  }, [store]);
 
   useEffect(() => {
     refresh();
@@ -266,6 +275,7 @@ const VerifyIdentity = memo(({ initialPeerId }: TVerifyIdentityProps) => {
     return (
       <PeerDetail
         entry={selectedEntry}
+        store={store}
         onBack={() => setSelectedUserId(null)}
         onChanged={refresh}
       />
