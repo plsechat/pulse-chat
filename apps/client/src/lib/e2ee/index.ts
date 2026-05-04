@@ -64,6 +64,10 @@ import {
   presentIdentityChange,
   UntrustedIdentityError
 } from './identity-change-dispatch';
+import {
+  retryFailedChannelDecrypts,
+  retryFailedDmDecrypts
+} from './decrypt-retry';
 import type { E2EEPlaintext, PreKeyBundle } from './types';
 
 export { UntrustedIdentityError } from './identity-change-dispatch';
@@ -761,6 +765,12 @@ export async function processIncomingSenderKey(
   );
   const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
   await acceptInboundChannelChain(channelId, fromUserId, distribution, store);
+  // Phase B follow-up: SKDM finally landed — re-decrypt any messages
+  // from this sender that arrived first and got stuck on the
+  // "[Unable to decrypt]" placeholder.
+  retryFailedChannelDecrypts(channelId, fromUserId).catch((err) => {
+    console.warn('[E2EE] Channel retry-decrypt loop errored:', err);
+  });
 }
 
 /**
@@ -818,6 +828,13 @@ async function doFetchAndProcessPendingSenderKeys(
         store
       );
       processedIds.push(key.id);
+      // Phase B follow-up: each accepted SKDM unlocks pre-stuck
+      // messages from that (channelId, fromUserId). Fire and forget.
+      retryFailedChannelDecrypts(key.channelId, key.fromUserId).catch(
+        (err) => {
+          console.warn('[E2EE] Channel retry-decrypt loop errored:', err);
+        }
+      );
     } catch (err) {
       console.warn(
         `[E2EE] Failed to process sender key from user ${key.fromUserId}:`,
@@ -1172,6 +1189,13 @@ async function doFetchAndProcessPendingDmSenderKeys(
         distribution
       );
       processedIds.push(key.id);
+      // Phase B follow-up: re-decrypt anything from this sender stuck
+      // on '[Unable to decrypt]' before the SKDM landed.
+      retryFailedDmDecrypts(key.dmChannelId, key.fromUserId).catch(
+        (err) => {
+          console.warn('[E2EE/DM] Retry-decrypt loop errored:', err);
+        }
+      );
     } catch (err) {
       console.warn(
         `[E2EE/DM] Failed to process sender key from user ${key.fromUserId}:`,
