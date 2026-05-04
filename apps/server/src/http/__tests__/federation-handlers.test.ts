@@ -22,6 +22,7 @@
  * peer, idempotency).
  */
 
+import { ServerEvents } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, type JWK } from 'jose';
@@ -662,7 +663,7 @@ describe('POST /federation/dm-channel-state-update (E2)', () => {
     expect(channel!.e2ee).toBe(true);
 
     const dmUpdates = events.filter(
-      (e) => e.topic === 'DM_CHANNEL_UPDATE'
+      (e) => e.topic === ServerEvents.DM_CHANNEL_UPDATE
     );
     expect(dmUpdates.length).toBeGreaterThan(0);
     expect(

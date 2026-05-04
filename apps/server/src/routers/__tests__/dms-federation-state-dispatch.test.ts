@@ -11,8 +11,8 @@
  * Inline setup (no beforeEach) per the cross-file deadlock pattern.
  */
 
-import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { eq } from 'drizzle-orm';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import dns from 'dns/promises';
 import { config } from '../../config';
 import { db } from '../../db';
 import {
@@ -28,8 +28,12 @@ import { relayFederatedDmChannelStateUpdate } from '../../utils/federation-dm-st
 
 config.federation.enabled = true;
 
-const PEER_DOMAIN_A = 'peer-a.dispatch-state';
-const PEER_DOMAIN_B = 'peer-b.dispatch-state';
+// Real-format domains so `validateFederationUrl` (called inside
+// `federationFetch`) accepts them. DNS is mocked below to point them
+// at a public IP so the SSRF validator doesn't reject the resolution
+// either. Mirrors the pattern in federation-sync.test.ts.
+const PEER_DOMAIN_A = 'peera.example.com';
+const PEER_DOMAIN_B = 'peerb.example.com';
 
 type FetchCall = {
   url: string;
@@ -68,7 +72,13 @@ function spyOnFetch(): { calls: FetchCall[]; restore: () => void } {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  mock.restore();
 });
+
+function mockDns() {
+  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
+  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
+}
 
 async function seedFederatedPeer(domain: string): Promise<{ instanceId: number }> {
   const [instance] = await db
@@ -157,6 +167,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
   test('1:1 federated DM dispatches one relay to the peer with toPublicId/fromPublicId', async () => {
     await initTest(1);
     await generateFederationKeys();
+    mockDns();
     const peer = await seedFederatedPeer(PEER_DOMAIN_A);
     const shadow = await seedShadowFriend(peer.instanceId, 'peerA-user-pid', 'PeerA');
     const channelId = await createDmChannel(false, [1, shadow]);
@@ -180,6 +191,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
   test('group DM dispatches once per unique peer instance', async () => {
     await initTest(1);
     await generateFederationKeys();
+    mockDns();
     const peerA = await seedFederatedPeer(PEER_DOMAIN_A);
     const peerB = await seedFederatedPeer(PEER_DOMAIN_B);
     // Two shadow friends from peer A and one from peer B —
@@ -213,6 +225,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
   test('all-local DM does not dispatch', async () => {
     await initTest(1);
     await generateFederationKeys();
+    mockDns();
     const localFriend = await seedLocalFriend('localOnly');
     const channelId = await createDmChannel(false, [1, localFriend]);
 
@@ -230,6 +243,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
   test('group missing federationGroupId is skipped (logged, no relay)', async () => {
     await initTest(1);
     await generateFederationKeys();
+    mockDns();
     const peer = await seedFederatedPeer(PEER_DOMAIN_A);
     const shadow = await seedShadowFriend(peer.instanceId, 'no-fgid-pid', 'NoFGID');
     // Group with a federated member but no federationGroupId — this
@@ -251,6 +265,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
   test('empty changes set does not dispatch', async () => {
     await initTest(1);
     await generateFederationKeys();
+    mockDns();
     const peer = await seedFederatedPeer(PEER_DOMAIN_A);
     const shadow = await seedShadowFriend(peer.instanceId, 'empty-changes', 'EmptyChanges');
     const channelId = await createDmChannel(false, [1, shadow]);
