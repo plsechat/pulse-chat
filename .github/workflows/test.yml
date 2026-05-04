@@ -31,8 +31,26 @@ jobs:
         run: bun run lint
 
   test:
-    name: Run Tests
+    name: Run Tests (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
+
+    # Each shard gets its own postgres service container, so cross-file
+    # TRUNCATE deadlocks across shards are impossible. Within a shard,
+    # bun still runs files in parallel — but the shards are sized so
+    # that's a smaller pool. Adding the matrix keeps CI wall-clock
+    # close to the slowest shard's runtime instead of the sum of all.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: lightweight
+            paths: src/__tests__ src/db src/utils src/lib src/plugins src/http/__tests__
+          - name: dms-federation-e2ee
+            paths: src/routers/__tests__/dms.test.ts src/routers/__tests__/dms-federation-dispatch.test.ts src/routers/__tests__/e2ee.test.ts src/routers/__tests__/e2ee-messages.test.ts src/routers/__tests__/federation-membership.test.ts
+          - name: accounts
+            paths: src/routers/__tests__/users.test.ts src/routers/__tests__/authorization.test.ts src/routers/__tests__/access-control.test.ts src/routers/__tests__/nicknames.test.ts src/routers/__tests__/user-preferences.test.ts src/routers/__tests__/others.test.ts src/routers/__tests__/file-encryption.test.ts src/routers/__tests__/files.test.ts src/routers/__tests__/key-backup-crypto.test.ts src/routers/__tests__/deferred-data.test.ts
+          - name: content
+            paths: src/routers/__tests__/messages.test.ts src/routers/__tests__/channels.test.ts src/routers/__tests__/categories.test.ts src/routers/__tests__/emojis.test.ts src/routers/__tests__/roles.test.ts src/routers/__tests__/servers.test.ts src/routers/__tests__/invites.test.ts src/routers/__tests__/forums.test.ts
 
     services:
       postgres:
@@ -78,4 +96,4 @@ jobs:
 
       - name: Run server tests
         working-directory: apps/server
-        run: bun test
+        run: bun test ${{ matrix.shard.paths }}
