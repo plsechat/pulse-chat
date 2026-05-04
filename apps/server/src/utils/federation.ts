@@ -390,10 +390,9 @@ async function verifyFederationResponse(
   expectedPeerDomain: string,
   peerPublicKeyStr: string
 ): Promise<Record<string, unknown> | null> {
-  const signature = responseBody.signature;
+  const { signature, ...payload } = responseBody;
   if (typeof signature !== 'string') return null;
 
-  const { signature: _strip, ...payload } = responseBody;
   const isValid = await verifyChallenge(
     signature,
     payload,

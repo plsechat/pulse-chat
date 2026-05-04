@@ -30,9 +30,13 @@ const LOCAL_DOMAIN = 'test.local';
 const PEER_DOMAIN = 'peer.example';
 
 beforeEach(async () => {
+  // setup.ts's beforeEach already TRUNCATEs federation_keys (and every
+  // other table), so we don't need to DELETE it again here. Skipping
+  // the redundant DELETE matters: parallel test files all running
+  // their own redundant DELETE on the same shared CI database widen
+  // the deadlock window with anything else taking AccessShareLocks
+  // on adjacent tables.
   await initTest();
-  const tdb = getTestDb();
-  await tdb.execute(sql`DELETE FROM federation_keys`);
   await generateFederationKeys();
   _resetSeenJtis();
 });
