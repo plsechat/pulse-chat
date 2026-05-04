@@ -11,6 +11,7 @@ import {
   dmsLoadingSelector,
   dmTypingUsersSelector,
   ownDmCallChannelIdSelector,
+  ringingCallsSelector,
   selectedDmChannelIdSelector,
   selectedDmChannelSelector
 } from './selectors';
@@ -63,3 +64,5 @@ export const useDmTypingUsers = (dmChannelId: number) =>
   useSelector((state: IRootState) =>
     dmTypingUsersSelector(state, dmChannelId)
   );
+
+export const useRingingCalls = () => useSelector(ringingCallsSelector);

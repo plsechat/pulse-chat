@@ -811,6 +811,8 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
     state: { micMuted: false, soundMuted: false }
   });
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(dmChannelId));
+  // Joining covers an in-flight ring — drop it from the modal.
+  store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
   // Also set the server voice channel ID so useVoiceEvents subscribes
   setCurrentVoiceChannelId(dmChannelId);
   return result;
@@ -825,11 +827,32 @@ export const leaveDmVoiceCall = async () => {
   setCurrentVoiceServerId(undefined);
 };
 
-export const dmCallStarted = (dmChannelId: number, startedBy: number) =>
+export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
   store.dispatch(dmsSliceActions.dmCallStarted({ dmChannelId, startedBy }));
 
-export const dmCallEnded = (dmChannelId: number) =>
+  // Decide whether this user should hear the ring. Skip if:
+  //  - we're the caller (the publish goes to all members, including
+  //    self, so the originator doesn't ring themselves)
+  //  - we're already in this exact call (e.g. accepted from another
+  //    tab / rejoin after a brief disconnect)
+  const state = store.getState();
+  const ownUserId = state.server.ownUserId;
+  const ownDmCallChannelId = state.dms.ownDmCallChannelId;
+  if (ownUserId == null || startedBy === ownUserId) return;
+  if (ownDmCallChannelId === dmChannelId) return;
+
+  store.dispatch(dmsSliceActions.addRingingCall(dmChannelId));
+};
+
+export const dmCallEnded = (dmChannelId: number) => {
   store.dispatch(dmsSliceActions.dmCallEnded({ dmChannelId }));
+  // Auto-dismiss any incoming-call modal for this channel — the call
+  // is over, no point ringing for it.
+  store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+};
+
+export const dismissRingingCall = (dmChannelId: number) =>
+  store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
 
 export const dmCallUserJoined = (
   dmChannelId: number,

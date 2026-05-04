@@ -312,6 +312,9 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       const trpc = getTRPCClient();
       if (!trpc) return;
       const content = gifUrl;
+      // Thread reply context — picking a GIF while replying should
+      // attach to the parent message, not start a new top-level msg.
+      const replyToId = replyingTo?.id;
 
       try {
         if (isE2ee && ownUserId) {
@@ -325,17 +328,19 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           await trpc.messages.send.mutate({
             content: encryptedContent,
             e2ee: true,
-            channelId
+            channelId,
+            replyToId
           });
         } else {
-          await trpc.messages.send.mutate({ content, channelId });
+          await trpc.messages.send.mutate({ content, channelId, replyToId });
         }
         playSound(SoundType.MESSAGE_SENT);
+        setReplyingTo(null);
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [channelId, isE2ee, ownUserId]
+    [channelId, isE2ee, ownUserId, replyingTo]
   );
 
   const onRemoveFileClick = useCallback(

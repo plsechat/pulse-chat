@@ -74,6 +74,22 @@ const HomeView = memo(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // External "open this DM" requests — currently emitted by the
+  // IncomingCallModal when the user accepts a call. HomeView owns
+  // the local state that picks the DM, so localStorage alone won't
+  // re-render; this CustomEvent is the bridge.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ dmChannelId: number }>).detail;
+      if (typeof detail?.dmChannelId !== 'number') return;
+      setLocalSelectedDmChannelId(detail.dmChannelId);
+      setSelectedDmChannelId(detail.dmChannelId);
+      setActiveTab('dm');
+    };
+    window.addEventListener('dm-navigate', handler);
+    return () => window.removeEventListener('dm-navigate', handler);
+  }, []);
+
   // When the active DM disappears from the channel list (self-delete,
   // peer delete pushed via DM_CHANNEL_DELETE, leave-group, or being
   // removed from a group), bounce back to Friends. Without this the

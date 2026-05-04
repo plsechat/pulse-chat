@@ -284,15 +284,21 @@ const DmConversation = memo(
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
       try {
+        // Thread the reply context through so picking a GIF while
+        // replying lands as a reply (was dropped before — gif sent
+        // top-level + the user's reply preview vanished).
         await sendDmMessage(
           dmChannelId,
-          gifUrl
+          gifUrl,
+          undefined,
+          replyingTo?.id
         );
+        setReplyingTo(null);
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [dmChannelId]
+    [dmChannelId, replyingTo]
   );
 
   const onFileInputChange = useCallback(

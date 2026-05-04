@@ -7,7 +7,8 @@ import {
   dmChannelMembers,
   dmChannels,
   dmE2eeSenderKeys,
-  dmMessages
+  dmMessages,
+  friendships
 } from '../../db/schema';
 
 // Build a 3-person group DM directly in the DB so tests don't have to
@@ -303,5 +304,181 @@ describe('DM group sender-key distribution', () => {
     const after = await caller3.dms.getPendingSenderKeys({});
     expect(after.length).toBe(1);
     expect(after[0]!.id).toBe(id3);
+  });
+});
+
+// addMember covers two flows in one route: adding to an existing
+// group (owner-gated, batched) and promoting a 1:1 to a group (any
+// member can promote, caller becomes owner). Both gates the friend
+// requirement.
+async function makeFriendship(userIdA: number, userIdB: number) {
+  const tdb = getTestDb();
+  await tdb.insert(friendships).values({
+    userId: userIdA,
+    friendId: userIdB,
+    createdAt: Date.now()
+  });
+}
+
+describe('DM addMember', () => {
+  test('group owner can add a single friend', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    await initTest(3);
+
+    const groupId = await makeGroup(1, [1, 2]);
+    await makeFriendship(1, 3);
+
+    await caller1.dms.addMember({ dmChannelId: groupId, userIds: [3] });
+
+    const tdb = getTestDb();
+    const members = await tdb
+      .select({ userId: dmChannelMembers.userId })
+      .from(dmChannelMembers)
+      .where(eq(dmChannelMembers.dmChannelId, groupId));
+    const ids = members.map((m) => m.userId).sort();
+    expect(ids).toEqual([1, 2, 3]);
+  });
+
+  test('group owner can add multiple friends in one call', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    await initTest(3);
+    const fourthId = await createTestUser({ name: 'Fourth' });
+    await initTest(fourthId);
+
+    const groupId = await makeGroup(1, [1, 2]);
+    await makeFriendship(1, 3);
+    await makeFriendship(1, fourthId);
+
+    await caller1.dms.addMember({
+      dmChannelId: groupId,
+      userIds: [3, fourthId]
+    });
+
+    const tdb = getTestDb();
+    const members = await tdb
+      .select({ userId: dmChannelMembers.userId })
+      .from(dmChannelMembers)
+      .where(eq(dmChannelMembers.dmChannelId, groupId));
+    expect(members.length).toBe(4);
+  });
+
+  test('non-owner cannot add to an existing group', async () => {
+    await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    await initTest(3);
+
+    // makeGroup sets ownerId=1
+    const groupId = await makeGroup(1, [1, 2]);
+    await makeFriendship(2, 3);
+
+    await expect(
+      caller2.dms.addMember({ dmChannelId: groupId, userIds: [3] })
+    ).rejects.toThrow();
+  });
+
+  test('rejects adding a non-friend', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    await initTest(3);
+
+    const groupId = await makeGroup(1, [1, 2]);
+    // No friendship between 1 and 3
+
+    await expect(
+      caller1.dms.addMember({ dmChannelId: groupId, userIds: [3] })
+    ).rejects.toThrow();
+  });
+
+  test('rejects when all picks are already members', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+
+    const groupId = await makeGroup(1, [1, 2]);
+    await makeFriendship(1, 2);
+
+    // 2 is already a member; nothing to do
+    await expect(
+      caller1.dms.addMember({ dmChannelId: groupId, userIds: [2] })
+    ).rejects.toThrow();
+  });
+
+  test('rejects when adding would exceed the 10-member cap', async () => {
+    const { caller: caller1 } = await initTest(1);
+    // Build a group already at 10 members
+    const otherIds: number[] = [];
+    for (let i = 0; i < 9; i++) {
+      const uid = await createTestUser({ name: `Filler${i}` });
+      otherIds.push(uid);
+    }
+    const groupId = await makeGroup(1, [1, ...otherIds]);
+    const newId = await createTestUser({ name: 'OneTooMany' });
+    await makeFriendship(1, newId);
+
+    await expect(
+      caller1.dms.addMember({ dmChannelId: groupId, userIds: [newId] })
+    ).rejects.toThrow();
+  });
+
+  test('promotes a 1:1 to a group when adding a third member', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    await initTest(3);
+
+    // Real 1:1 channel via getOrCreateChannel so isGroup=false
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    expect(channel.isGroup).toBe(false);
+
+    await makeFriendship(1, 3);
+
+    await caller1.dms.addMember({
+      dmChannelId: channel.id,
+      userIds: [3]
+    });
+
+    const tdb = getTestDb();
+    const [row] = await tdb
+      .select({ isGroup: dmChannels.isGroup, ownerId: dmChannels.ownerId })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, channel.id))
+      .limit(1);
+    expect(row?.isGroup).toBe(true);
+    // Promoter becomes owner
+    expect(row?.ownerId).toBe(1);
+
+    const members = await tdb
+      .select({ userId: dmChannelMembers.userId })
+      .from(dmChannelMembers)
+      .where(eq(dmChannelMembers.dmChannelId, channel.id));
+    expect(members.length).toBe(3);
+  });
+
+  test('any member of a 1:1 can promote (owner gate is group-only)', async () => {
+    await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    await initTest(3);
+
+    // 1:1 originated by user 1, but 2 should be able to promote
+    const { caller: caller1 } = await initTest(1);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    expect(channel.isGroup).toBe(false);
+
+    await makeFriendship(2, 3);
+
+    await caller2.dms.addMember({
+      dmChannelId: channel.id,
+      userIds: [3]
+    });
+
+    const tdb = getTestDb();
+    const [row] = await tdb
+      .select({ isGroup: dmChannels.isGroup, ownerId: dmChannels.ownerId })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, channel.id))
+      .limit(1);
+    expect(row?.isGroup).toBe(true);
+    // 2 promoted, so 2 is owner of the resulting group
+    expect(row?.ownerId).toBe(2);
   });
 });

@@ -401,9 +401,55 @@ export const playSound = (type: SoundType) => {
     case SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL:
       return sfxRemoteUserLeftVoiceChannel();
 
+    case SoundType.INCOMING_CALL:
+      return sfxIncomingCall();
+
     default:
       return;
   }
+};
+
+// INCOMING_CALL — classic two-tone "ring" pattern (Eb + Bb), repeated
+// twice in quick succession to read as a phone ring rather than a
+// notification ping. The IncomingCallModal calls playSound() on a
+// 2.5s interval so the ring continues while the modal is open.
+const sfxIncomingCall = () => {
+  // Resume AudioContext if suspended (browsers require user gesture
+  // and reload may suspend).
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+
+  const ring = (offset: number) => {
+    // First tone — Eb5
+    const osc1 = createOsc('sine', 622);
+    const gain1 = createGain(0.08);
+    gain1.gain.setValueAtTime(0, now() + offset);
+    gain1.gain.linearRampToValueAtTime(
+      0.08 * SOUNDS_VOLUME * getMasterVolumeMultiplier(),
+      now() + offset + 0.02
+    );
+    gain1.gain.exponentialRampToValueAtTime(0.0001, now() + offset + 0.18);
+    osc1.connect(gain1).connect(audioCtx.destination);
+    osc1.start(now() + offset);
+    osc1.stop(now() + offset + 0.2);
+
+    // Second tone — Bb5 (perfect fifth above)
+    const osc2 = createOsc('sine', 932);
+    const gain2 = createGain(0.07);
+    gain2.gain.setValueAtTime(0, now() + offset + 0.18);
+    gain2.gain.linearRampToValueAtTime(
+      0.07 * SOUNDS_VOLUME * getMasterVolumeMultiplier(),
+      now() + offset + 0.2
+    );
+    gain2.gain.exponentialRampToValueAtTime(0.0001, now() + offset + 0.36);
+    osc2.connect(gain2).connect(audioCtx.destination);
+    osc2.start(now() + offset + 0.18);
+    osc2.stop(now() + offset + 0.38);
+  };
+
+  ring(0);
+  ring(0.5);
 };
 
 /** Play a sound for the settings preview buttons (skips category gate). */
