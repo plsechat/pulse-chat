@@ -1,40 +1,14 @@
 import { ServerEvents } from '@pulse/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { userSubscription } from '../../utils/trpc';
 
-const onChannelCreateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.CHANNEL_CREATE);
-  }
+const onChannelCreateRoute = userSubscription(ServerEvents.CHANNEL_CREATE);
+const onChannelDeleteRoute = userSubscription(ServerEvents.CHANNEL_DELETE);
+const onChannelUpdateRoute = userSubscription(ServerEvents.CHANNEL_UPDATE);
+const onChannelPermissionsUpdateRoute = userSubscription(
+  ServerEvents.CHANNEL_PERMISSIONS_UPDATE
 );
-
-const onChannelDeleteRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.CHANNEL_DELETE);
-  }
-);
-
-const onChannelUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.CHANNEL_UPDATE);
-  }
-);
-
-const onChannelPermissionsUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.CHANNEL_PERMISSIONS_UPDATE
-    );
-  }
-);
-
-const onChannelReadStatesUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.CHANNEL_READ_STATES_UPDATE
-    );
-  }
+const onChannelReadStatesUpdateRoute = userSubscription(
+  ServerEvents.CHANNEL_READ_STATES_UPDATE
 );
 
 export {

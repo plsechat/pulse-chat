@@ -1,26 +1,44 @@
-import { setActiveView, setModViewOpen } from '@/features/app/actions';
-import { useActiveInstanceDomain } from '@/features/app/hooks';
-import { requestTextInput } from '@/features/dialogs/actions';
-import { getOrCreateDmChannel, sendDmMessage } from '@/features/dms/actions';
-import { useFriends } from '@/features/friends/hooks';
+import { setModViewOpen } from '@/features/app/actions';
+import { ServerScreen } from '@/components/server-screens/screens';
+import { openServerScreen } from '@/features/server-screens/actions';
 import {
+  useActiveInstanceDomain,
+  useActiveServerId
+} from '@/features/app/hooks';
+import {
+  requestConfirmation,
+  requestTextInput
+} from '@/features/dialogs/actions';
+import {
+  getOrCreateDmChannel,
+  navigateToDm,
+  sendDmMessage
+} from '@/features/dms/actions';
+import { useFriends, useIsUserBlocked } from '@/features/friends/hooks';
+import {
+  blockUser,
   removeFriendAction,
-  sendFriendRequest
+  sendFriendRequest,
+  unblockUser
 } from '@/features/friends/actions';
 import { useUserRoles } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { Permission, UserStatus } from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
+  Ban,
   Copy,
   Ellipsis,
+  Fingerprint,
   Globe,
   Pencil,
   Plus,
   ShieldCheck,
   StickyNote,
+  UserCheck,
   UserCog,
   UserMinus,
   UserPlus,
@@ -40,6 +58,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { TiptapInput } from '../tiptap-input';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { UserAvatar } from '../user-avatar';
 import { UserStatusBadge } from '../user-status';
 
@@ -60,7 +79,12 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
   const ownUserId = useOwnUserId();
   const friends = useFriends();
   const activeInstanceDomain = useActiveInstanceDomain();
+  const activeServerId = useActiveServerId();
   const isOwnUser = !activeInstanceDomain && userId === ownUserId;
+  // Moderation View is a per-server tool — hide it whenever the popover
+  // is opened from a context with no active local server (e.g. the
+  // home/DMs Friends panel, where there's no shared server to moderate).
+  const inSharedServer = !activeInstanceDomain && activeServerId !== undefined;
 
   const [notes, setNotes] = useState<TNote[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
@@ -70,10 +94,39 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     () => friends.some((f) => f.id === userId),
     [friends, userId]
   );
+  const isBlocked = useIsUserBlocked(userId);
+
+  const handleBlockToggle = useCallback(async () => {
+    if (!user) return;
+    if (isBlocked) {
+      try {
+        await unblockUser(userId);
+        toast.success(`Unblocked ${user.name}`);
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to unblock user'));
+      }
+      return;
+    }
+    const confirmed = await requestConfirmation({
+      title: `Block ${user.name}?`,
+      message:
+        'They won’t be able to message you, send you friend requests, or open a DM with you. Any current friendship will be removed.',
+      confirmLabel: 'Block',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    try {
+      await blockUser(userId);
+      toast.success(`Blocked ${user.name}`);
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to block user'));
+    }
+  }, [isBlocked, user, userId]);
 
   const fetchNotes = useCallback(async () => {
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const result = await trpc.notes.getAll.query({ targetUserId: userId });
       setNotes(result.notes);
       setNotesLoaded(true);
@@ -115,11 +168,12 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     if (text) {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
         fetchNotes();
-      } catch {
-        toast.error('Failed to save note');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
   }, [userId, user, fetchNotes]);
@@ -128,11 +182,12 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     async (noteId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notes.delete.mutate({ noteId });
         setNotes((prev) => prev.filter((n) => n.id !== noteId));
         toast.success('Note deleted');
-      } catch {
-        toast.error('Failed to delete note');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete note'));
       }
     },
     []
@@ -147,6 +202,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     }
 
     const trpc = getHomeTRPCClient();
+    if (!trpc) return userId;
     const result = await trpc.federation.ensureShadowUser.mutate({
       instanceDomain: activeInstanceDomain,
       remoteUserId: userId,
@@ -162,12 +218,17 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       const localId = await resolveLocalUserId();
       const channel = await getOrCreateDmChannel(localId);
       if (channel) {
-        await sendDmMessage(channel.id, popoverMessage);
+        // Convert tiptap HTML output to the token-content format the
+        // server stores. The main DM composer does the same — without
+        // it, popover-sent messages would land in the DB as raw HTML
+        // (e.g. "<p>asdf</p>") and render with the literal tags.
+        await sendDmMessage(channel.id, tiptapHtmlToTokens(popoverMessage));
         setPopoverMessage('');
-        setActiveView('home');
+        // Land on the DM that was just opened, not just the home view.
+        await navigateToDm(channel.id);
       }
-    } catch {
-      toast.error('Failed to send message');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to send message'));
     }
   }, [resolveLocalUserId, popoverMessage]);
 
@@ -176,8 +237,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       const localId = await resolveLocalUserId();
       await sendFriendRequest(localId);
       toast.success('Friend request sent');
-    } catch {
-      toast.error('Failed to send friend request');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to send friend request'));
     }
   }, [resolveLocalUserId]);
 
@@ -186,8 +247,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       const localId = await resolveLocalUserId();
       await removeFriendAction(localId);
       toast.success('Friend removed');
-    } catch {
-      toast.error('Failed to remove friend');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to remove friend'));
     }
   }, [resolveLocalUserId]);
 
@@ -204,6 +265,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     if (text !== null && text !== undefined) {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const nickname = text.trim() || null;
         if (isOwnUser) {
           await trpc.users.setNickname.mutate({ nickname });
@@ -211,8 +273,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
           await trpc.users.setUserNickname.mutate({ userId, nickname });
         }
         toast.success(nickname ? 'Nickname updated' : 'Nickname cleared');
-      } catch {
-        toast.error('Failed to update nickname');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update nickname'));
       }
     }
   }, [userId, user, isOwnUser]);
@@ -250,7 +312,10 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
 
           {/* Action buttons on banner */}
           <div className="absolute right-2 top-2 flex items-center gap-1.5">
-            {!isOwnUser && (
+            {/* Hide the add/remove-friend toggle when this user is
+                blocked — sending the request would 404 server-side
+                and a friendship can't exist alongside a block anyway. */}
+            {!isOwnUser && !isBlocked && (
               <button
                 type="button"
                 className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
@@ -303,15 +368,44 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
                     Copy User ID
                   </DropdownMenuItem>
                 )}
-                <Protect permission={Permission.MANAGE_USERS}>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setModViewOpen(true, user.id)}
-                  >
-                    <UserCog className="h-4 w-4" />
-                    Moderation View
-                  </DropdownMenuItem>
-                </Protect>
+                {!isOwnUser && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() =>
+                        openServerScreen(ServerScreen.USER_SETTINGS, {
+                          initialSection: 'verify-identity',
+                          initialVerifyPeerId: userId
+                        })
+                      }
+                    >
+                      <Fingerprint className="h-4 w-4" />
+                      Verify Identity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleBlockToggle}
+                      variant={isBlocked ? undefined : 'destructive'}
+                    >
+                      {isBlocked ? (
+                        <UserCheck className="h-4 w-4" />
+                      ) : (
+                        <Ban className="h-4 w-4" />
+                      )}
+                      {isBlocked ? 'Unblock User' : 'Block User'}
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {inSharedServer && !isOwnUser && (
+                  <Protect permission={Permission.MANAGE_USERS}>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setModViewOpen(true, user.id)}
+                    >
+                      <UserCog className="h-4 w-4" />
+                      Moderation View
+                    </DropdownMenuItem>
+                  </Protect>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -437,7 +531,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         </div>
 
         {/* === Zone 4: Message Input === */}
-        {!isOwnUser && (
+        {!isOwnUser && !isBlocked && (
           <div className="px-4 pb-4 pt-2 border-t border-border">
             <div className="flex items-center gap-2 rounded-md bg-muted/50 border border-border px-3 py-1.5 cursor-text"
               onClick={(e) => {
@@ -453,6 +547,13 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
                 onSubmit={handleSendPopoverMessage}
               />
             </div>
+          </div>
+        )}
+        {!isOwnUser && isBlocked && (
+          <div className="px-4 pb-4 pt-2 border-t border-border">
+            <p className="text-xs text-muted-foreground italic">
+              You blocked this user. Unblock to send messages.
+            </p>
           </div>
         )}
       </PopoverContent>

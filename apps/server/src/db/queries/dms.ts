@@ -210,7 +210,7 @@ const getDmMessage = async (
     file: r.file
   }));
 
-  let replyTo = null;
+  let replyTo: TJoinedDmMessage['replyTo'] = null;
 
   if (msg.replyToId) {
     const [replyRow] = await db
@@ -223,7 +223,18 @@ const getDmMessage = async (
       .where(eq(dmMessages.id, msg.replyToId))
       .limit(1);
 
-    replyTo = replyRow ?? null;
+    if (replyRow) {
+      const [hasFileRow] = await db
+        .select({ dmMessageId: dmMessageFiles.dmMessageId })
+        .from(dmMessageFiles)
+        .where(eq(dmMessageFiles.dmMessageId, msg.replyToId))
+        .limit(1);
+
+      replyTo = {
+        ...replyRow,
+        hasFiles: !!hasFileRow
+      };
+    }
   }
 
   return {

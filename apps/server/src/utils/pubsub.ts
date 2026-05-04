@@ -39,11 +39,14 @@ type Events = {
     userId: number;
   };
 
-  [ServerEvents.USER_JOIN]: TJoinedPublicUser;
+  [ServerEvents.USER_JOIN]: { serverId: number; user: TJoinedPublicUser };
   [ServerEvents.USER_LEAVE]: number;
   [ServerEvents.USER_CREATE]: TJoinedPublicUser;
   [ServerEvents.USER_UPDATE]: TJoinedPublicUser;
-  [ServerEvents.USER_DELETE]: number;
+  // Server-scoped: serverId is the server the user was removed from. Clients
+  // ignore the event when serverId !== activeServerId so a kick in server A
+  // doesn't corrupt the local roster of server B.
+  [ServerEvents.USER_DELETE]: { serverId: number; userId: number };
 
   [ServerEvents.CHANNEL_CREATE]: TChannel;
   [ServerEvents.CHANNEL_UPDATE]: TChannel;
@@ -157,6 +160,10 @@ type Events = {
     dmChannelId: number;
     userId: number;
   };
+  [ServerEvents.DM_CALL_DECLINED]: {
+    dmChannelId: number;
+    userId: number;
+  };
 
   [ServerEvents.DM_MESSAGE_TYPING]: {
     dmChannelId: number;
@@ -208,6 +215,11 @@ type Events = {
     userId: number;
   };
 
+  [ServerEvents.DM_SENDER_KEY_DISTRIBUTION]: {
+    dmChannelId: number;
+    fromUserId: number;
+  };
+
   [ServerEvents.INVITE_CREATE]: {
     inviteId: number;
     serverId: number;
@@ -224,6 +236,15 @@ type Events = {
   [ServerEvents.USER_KICKED]: {
     serverId: number;
     reason?: string;
+  };
+
+  // Sent only to the blocker so their client can refresh the blocked list
+  // and any cached state for the affected user. The blocked user receives
+  // no notification — block disclosure is intentional only on the
+  // outbound (DM/friend-request) error path.
+  [ServerEvents.USER_BLOCK_CHANGED]: {
+    blockedUserId: number;
+    blocked: boolean;
   };
 };
 

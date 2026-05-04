@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getFileUrl } from '@/helpers/get-file-url';
-import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
+import { getTrpcError, parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedEmoji } from '@pulse/shared';
 import { filesize } from 'filesize';
@@ -34,19 +34,21 @@ const UpdateEmoji = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.emojis.delete.mutate({ emojiId: selectedEmoji.id });
         toast.success('Emoji deleted');
         refetch();
         setSelectedEmojiId(undefined);
-      } catch {
-        toast.error('Failed to delete emoji');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete emoji'));
       }
     }, [selectedEmoji.id, refetch, setSelectedEmojiId]);
 
     const onUpdateEmoji = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.emojis.update.mutate({ emojiId: selectedEmoji.id, name });

@@ -4,7 +4,13 @@ import { Permission, type TTempFile } from '@pulse/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-export type TFileKeyInfo = { key: string; nonce: string; mimeType: string };
+export type TFileKeyInfo = {
+  key: string;
+  nonce: string;
+  mimeType: string;
+  originalName: string;
+  extension: string;
+};
 
 const useUploadFiles = (disabled: boolean = false, isE2ee: boolean = false, onAfterUpload?: () => void) => {
   const [files, setFiles] = useState<TTempFile[]>([]);
@@ -49,7 +55,9 @@ const useUploadFiles = (disabled: boolean = false, isE2ee: boolean = false, onAf
             fileKeyMapRef.current.set(r.tempFile.id, {
               key: r.key,
               nonce: r.nonce,
-              mimeType: r.mimeType
+              mimeType: r.mimeType,
+              originalName: r.originalName,
+              extension: r.extension
             });
           }
           addFiles(tempFiles);

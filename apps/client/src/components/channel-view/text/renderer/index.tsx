@@ -1,6 +1,7 @@
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import {
   isLegacyHtml,
@@ -25,6 +26,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Tooltip } from '../../../ui/tooltip';
 import { FileCard } from '../file-card';
+import { ImageContextMenu } from '../image-context-menu';
 import { MessageReactions } from '../message-reactions';
 import { AudioPlayer } from '../overrides/audio-player';
 import { ImageOverride } from '../overrides/image';
@@ -58,7 +60,11 @@ const MediaFile = memo(({
   }
 
   if (imageExtensions.includes(file.extension)) {
-    return <ImageOverride src={url} />;
+    return (
+      <ImageContextMenu src={url} filename={file.originalName}>
+        <ImageOverride src={url} />
+      </ImageContextMenu>
+    );
   }
   if (videoExtensions.includes(file.extension)) {
     return <VideoPlayer src={url} name={file.originalName} />;
@@ -181,6 +187,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.files.delete.mutate({
@@ -188,8 +195,8 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       });
 
       toast.success('File deleted');
-    } catch {
-      toast.error('Failed to delete file');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete file'));
     }
   }, []);
 
@@ -227,9 +234,7 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       <div className="flex items-start gap-1.5">
         {message.e2ee && (
           <Tooltip content="End-to-end encrypted">
-            <div className="bg-emerald-500/10 rounded-full p-0.5 shrink-0 mt-[0.2rem] cursor-default">
-              <Lock className="h-3 w-3 text-emerald-500 drop-shadow-[0_0_3px_rgba(16,185,129,0.4)]" />
-            </div>
+            <Lock className="h-3 w-3 text-emerald-500 shrink-0 mt-[0.3rem] cursor-default" />
           </Tooltip>
         )}
       <div className={cn('max-w-full break-words msg-content min-w-0', isEmojiOnly && 'emoji-only')}>
@@ -254,7 +259,11 @@ const MessageRenderer = memo(({ message }: TMessageRendererProps) => {
       {/* Inline media from message HTML (links, embeds) */}
       {foundMedia.map((media, index) => {
         if (media.type === 'image') {
-          return <ImageOverride src={media.url} key={`inline-${index}`} />;
+          return (
+            <ImageContextMenu src={media.url} key={`inline-${index}`}>
+              <ImageOverride src={media.url} />
+            </ImageContextMenu>
+          );
         }
         if (media.type === 'video') {
           return <VideoPlayer src={media.url} name={media.name} key={`inline-${index}`} />;

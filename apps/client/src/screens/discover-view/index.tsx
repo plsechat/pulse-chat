@@ -6,6 +6,7 @@ import { useFederatedServers } from '@/features/app/hooks';
 import { appSliceActions } from '@/features/app/slice';
 import { getHandshakeHash } from '@/features/server/actions';
 import { store } from '@/features/store';
+import { EmptyState } from '@/components/ui/empty-state';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -223,6 +224,7 @@ const DiscoverView = memo(() => {
     const fetchServers = async () => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         const data = await trpc.servers.discover.query();
         setServers(data);
       } catch (error) {
@@ -242,6 +244,7 @@ const DiscoverView = memo(() => {
         setFedLoading(true);
         try {
           const trpc = getTRPCClient();
+          if (!trpc) return;
           const fedInstances = await trpc.federation.listInstances.query();
           const active = fedInstances.filter((i) => i.status === 'active');
           setInstances(active);
@@ -290,6 +293,7 @@ const DiscoverView = memo(() => {
 
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const summary = await trpc.servers.joinDiscover.mutate({ serverId, password });
 
       // Add to Redux state
@@ -340,6 +344,7 @@ const DiscoverView = memo(() => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         // Find the instance
         const instance = instances.find(
@@ -439,20 +444,18 @@ const DiscoverView = memo(() => {
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : servers.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-                <Compass className="h-12 w-12" />
-                <p className="text-lg font-medium">No servers to discover</p>
-                <p className="text-sm">
-                  Check back later or join a server with an invite link.
-                </p>
-              </div>
+              <EmptyState
+                icon={Compass}
+                title="No servers to discover"
+                description="Check back later or join a server with an invite link."
+                className="h-full"
+              />
             ) : filteredServers.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-                <Search className="h-12 w-12" />
-                <p className="text-lg font-medium">
-                  No servers matching &apos;{searchQuery}&apos;
-                </p>
-              </div>
+              <EmptyState
+                icon={Search}
+                title={`No servers matching '${searchQuery}'`}
+                className="h-full"
+              />
             ) : (
               <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredServers.map((server) => (
@@ -475,24 +478,22 @@ const DiscoverView = memo(() => {
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : remoteServers.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-                <Globe className="h-12 w-12" />
-                <p className="text-lg font-medium">
-                  No federated servers available
-                </p>
-                <p className="text-sm">
-                  {instances.length === 0
+              <EmptyState
+                icon={Globe}
+                title="No federated servers available"
+                description={
+                  instances.length === 0
                     ? 'No active federated instances. Ask your admin to set up federation.'
-                    : 'Connected instances have no federatable servers.'}
-                </p>
-              </div>
+                    : 'Connected instances have no federatable servers.'
+                }
+                className="h-full"
+              />
             ) : filteredRemoteServers.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-                <Search className="h-12 w-12" />
-                <p className="text-lg font-medium">
-                  No servers matching &apos;{searchQuery}&apos;
-                </p>
-              </div>
+              <EmptyState
+                icon={Search}
+                title={`No servers matching '${searchQuery}'`}
+                className="h-full"
+              />
             ) : (
               <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredRemoteServers.map((server) => (

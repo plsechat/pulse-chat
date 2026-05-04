@@ -28,6 +28,7 @@ const CreateCategoryDialog = memo(
     const onSubmit = useCallback(async () => {
       if (!activeServerId) return;
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       setLoading(true);
 

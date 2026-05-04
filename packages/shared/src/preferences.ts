@@ -5,6 +5,7 @@ export type TUserPreferences = {
     fontScale: number;
     zoomLevel: number;
     timeFormat: '12h' | '24h';
+    showFormattingHints: boolean;
   };
   soundNotification: {
     masterVolume: number;
@@ -24,7 +25,8 @@ export const DEFAULT_USER_PREFERENCES: TUserPreferences = {
     messageSpacing: 'normal',
     fontScale: 100,
     zoomLevel: 100,
-    timeFormat: '12h'
+    timeFormat: '12h',
+    showFormattingHints: false
   },
   soundNotification: {
     masterVolume: 100,

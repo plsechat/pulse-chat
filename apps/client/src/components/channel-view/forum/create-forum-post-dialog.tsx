@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { uploadFiles } from '@/helpers/upload-file';
@@ -49,6 +50,7 @@ const CreateForumPostDialog = memo(
     useEffect(() => {
       const fetchTags = async () => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           const result = await trpc.threads.getForumTags.query({ channelId });
@@ -96,8 +98,8 @@ const CreateForumPostDialog = memo(
             };
           });
           setUploadedFiles((prev) => [...prev, ...newFiles]);
-        } catch {
-          toast.error('Failed to upload file');
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to upload file'));
         } finally {
           setUploading(false);
           e.target.value = '';
@@ -120,6 +122,10 @@ const CreateForumPostDialog = memo(
       setSubmitting(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setSubmitting(false);
+        return;
+      }
 
       try {
         const result = await trpc.threads.createForumPost.mutate({
@@ -136,8 +142,8 @@ const CreateForumPostDialog = memo(
         setActiveThreadId(result.threadId);
         toast.success('Post created');
         onClose();
-      } catch {
-        toast.error('Failed to create post');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create post'));
       } finally {
         setSubmitting(false);
       }

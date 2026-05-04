@@ -2,7 +2,7 @@ import { ChannelType } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getServerById } from '../../db/queries/servers';
+import { getServerById, isServerOwner } from '../../db/queries/servers';
 import { channels, servers } from '../../db/schema';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
@@ -22,7 +22,7 @@ const deleteServerRoute = protectedProcedure
       message: 'Server not found'
     });
 
-    invariant(server.ownerId === ctx.userId, {
+    invariant(await isServerOwner(input.serverId, ctx.userId), {
       code: 'FORBIDDEN',
       message: 'Only the server owner can delete the server'
     });

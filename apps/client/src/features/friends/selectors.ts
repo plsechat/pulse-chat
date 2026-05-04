@@ -7,3 +7,6 @@ export const friendRequestsSelector = (state: IRootState) =>
 
 export const friendsLoadingSelector = (state: IRootState) =>
   state.friends.loading;
+
+export const blockedUsersSelector = (state: IRootState) =>
+  state.friends.blocked;

@@ -36,6 +36,7 @@ const Header = memo(() => {
       }
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.users.removeRole.mutate({
@@ -65,6 +66,7 @@ const Header = memo(() => {
     }
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.kick.mutate({
@@ -82,6 +84,7 @@ const Header = memo(() => {
 
   const onBan = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     const reason = await requestTextInput({
       title: 'Ban User',
@@ -109,6 +112,7 @@ const Header = memo(() => {
 
   const onUnban = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     const answer = await requestConfirmation({
       title: 'Unban User',

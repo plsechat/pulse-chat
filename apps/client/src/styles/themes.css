@@ -269,7 +269,7 @@ html.dracula {
 html.nord {
   --background: #eceff4;
   --foreground: #2e3440;
-  --card: #e5e9f0;
+  --card: #d8dee9;
   --card-foreground: #2e3440;
   --popover: #eceff4;
   --popover-foreground: #2e3440;
@@ -279,7 +279,7 @@ html.nord {
   --secondary-foreground: #4c566a;
   --muted: #e5e9f0;
   --muted-foreground: #6a7384;
-  --accent: #d8dee9;
+  --accent: #c2c9d6;
   --accent-foreground: #2e3440;
   --destructive: #bf616a;
   --border: #d0d6e1;
@@ -321,7 +321,7 @@ html.nord {
 html.sand {
   --background: #faf6f1;
   --foreground: #1c1410;
-  --card: #f5ede4;
+  --card: #ebdfd0;
   --card-foreground: #1c1410;
   --popover: #faf6f1;
   --popover-foreground: #1c1410;
@@ -331,7 +331,7 @@ html.sand {
   --secondary-foreground: #57453a;
   --muted: #f5ede4;
   --muted-foreground: #7a6b5f;
-  --accent: #eae0d3;
+  --accent: #ddd1bf;
   --accent-foreground: #1c1410;
   --destructive: #dc2626;
   --border: #e0d5c7;
@@ -342,7 +342,7 @@ html.sand {
   --chart-3: #ea580c;
   --chart-4: #c026d3;
   --chart-5: #dc2626;
-  --sidebar: #f5ede4;
+  --sidebar: #f3eadd;
   --sidebar-foreground: #1c1410;
   --sidebar-primary: #b45309;
   --sidebar-primary-foreground: #fef3c7;

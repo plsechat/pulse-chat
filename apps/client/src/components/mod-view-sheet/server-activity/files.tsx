@@ -25,6 +25,7 @@ const Files = memo(() => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         await trpc.files.delete.mutate({ fileId });
         toast.success('File deleted successfully');

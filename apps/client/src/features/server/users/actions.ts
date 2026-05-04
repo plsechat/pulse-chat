@@ -21,9 +21,26 @@ export const updateUser = (
   store.dispatch(serverSliceActions.updateUser({ userId, user }));
 };
 
-export const handleUserJoin = (user: TJoinedPublicUser) => {
-  // Only update users already in the current server's member list.
-  // Never add — USER_JOIN fires for all co-members across servers,
-  // so adding would create ghost entries when viewing a different server.
-  updateUser(user.id, user);
+export const handleUserJoin = (
+  serverId: number,
+  user: TJoinedPublicUser
+) => {
+  // Only act on JOIN events for the active server. The server-side now
+  // includes serverId in the payload, so we can safely add a brand-new
+  // member to the slice (previous behaviour silently dropped them, which
+  // produced the QA-reported bug where new joiners didn't appear in the
+  // user bar until refresh).
+  const activeServerId = store.getState().app.activeServerId;
+  if (activeServerId !== serverId) {
+    // For non-active-server JOINs, nothing to do — the new member's
+    // identity will be fetched fresh when the viewer next switches there.
+    return;
+  }
+
+  const existing = store.getState().server.users.find((u) => u.id === user.id);
+  if (existing) {
+    updateUser(user.id, user);
+  } else {
+    addUser(user);
+  }
 };

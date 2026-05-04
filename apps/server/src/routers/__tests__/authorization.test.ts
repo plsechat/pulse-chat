@@ -2,8 +2,16 @@ import { Permission } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
 import { sql } from 'drizzle-orm';
-import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
+import {
+  createTestCategory,
+  createTestChannel,
+  createTestRole,
+  createTestServer,
+  createTestServerMember,
+  grantTestUserRole
+} from '../../__tests__/fixtures';
+import { getTestDb } from '../../__tests__/mock-db';
 
 /**
  * Creates a second server with its own category, channel, and roles.
@@ -11,69 +19,25 @@ import { initTest } from '../../__tests__/helpers';
  * User 2 (regular member of server 1) becomes the owner of server 2.
  */
 async function createSecondServer() {
-  const tdb = getTestDb();
-  const now = Date.now();
-
-  const [server2] = await tdb.execute(sql`
-    INSERT INTO servers (name, description, password, public_id, secret_token,
-      allow_new_users, storage_uploads_enabled, storage_quota,
-      storage_upload_max_file_size, storage_space_quota_by_user,
-      storage_overflow_action, enable_plugins, owner_id, created_at)
-    VALUES ('Server 2', 'Second test server', '', ${randomUUIDv7()},
-      'secret', true, true, 10737418240, 26214400, 104857600, 'reject', false,
-      2, ${now})
-    RETURNING id
-  `);
-
-  const server2Id = (server2 as { id: number }).id;
-
-  // Create category in server 2
-  const [cat2] = await tdb.execute(sql`
-    INSERT INTO categories (name, position, server_id, created_at)
-    VALUES ('Server 2 Category', 1, ${server2Id}, ${now})
-    RETURNING id
-  `);
-
-  const category2Id = (cat2 as { id: number }).id;
-
-  // Create channel in server 2
-  const [ch2] = await tdb.execute(sql`
-    INSERT INTO channels (type, name, position, file_access_token,
-      file_access_token_updated_at, category_id, server_id, created_at)
-    VALUES ('text', 'server2-general', 0, ${randomUUIDv7()}, ${now},
-      ${category2Id}, ${server2Id}, ${now})
-    RETURNING id
-  `);
-
-  const channel2Id = (ch2 as { id: number }).id;
-
-  // Create owner role for server 2 with all permissions
-  const [role2] = await tdb.execute(sql`
-    INSERT INTO roles (name, color, is_persistent, is_default, server_id, created_at)
-    VALUES ('Server2 Owner', '#ff0000', true, false, ${server2Id}, ${now})
-    RETURNING id
-  `);
-
-  const role2Id = (role2 as { id: number }).id;
-
-  // Grant all permissions to server 2 owner role
-  for (const perm of Object.values(Permission)) {
-    await tdb.execute(sql`
-      INSERT INTO role_permissions (role_id, permission, created_at)
-      VALUES (${role2Id}, ${perm}, ${now})
-    `);
-  }
-
-  // Make user 2 a member and owner of server 2
-  await tdb.execute(sql`
-    INSERT INTO server_members (server_id, user_id, joined_at, position)
-    VALUES (${server2Id}, 2, ${now}, 0)
-  `);
-
-  await tdb.execute(sql`
-    INSERT INTO user_roles (user_id, role_id, created_at)
-    VALUES (2, ${role2Id}, ${now})
-  `);
+  const server2Id = await createTestServer({ name: 'Server 2', ownerId: 2 });
+  const category2Id = await createTestCategory({
+    serverId: server2Id,
+    name: 'Server 2 Category',
+    position: 1
+  });
+  const channel2Id = await createTestChannel({
+    serverId: server2Id,
+    categoryId: category2Id,
+    name: 'server2-general'
+  });
+  const role2Id = await createTestRole({
+    serverId: server2Id,
+    name: 'Server2 Owner',
+    isPersistent: true,
+    permissions: Object.values(Permission)
+  });
+  await createTestServerMember({ serverId: server2Id, userId: 2 });
+  await grantTestUserRole(2, role2Id);
 
   return { server2Id, category2Id, channel2Id, role2Id };
 }
@@ -329,5 +293,232 @@ describe('webhook authorization', () => {
         channelId: channel2Id
       })
     ).rejects.toThrow('Channel not found');
+  });
+
+  test('should deny moving a webhook to a channel in another server', async () => {
+    const { channel2Id } = await createSecondServer();
+    const { caller } = await initTest(1);
+
+    // Create a webhook in server 1
+    const webhook = await caller.webhooks.create({
+      name: 'Server 1 Webhook',
+      channelId: 1
+    });
+
+    // Try to move it into server 2's channel — should be rejected
+    await expect(
+      caller.webhooks.update({
+        webhookId: webhook!.id,
+        channelId: channel2Id
+      })
+    ).rejects.toThrow('Channel not found');
+  });
+});
+
+describe('cross-server message mutation scoping', () => {
+  test('should deny purging a channel from another server', async () => {
+    const { channel2Id } = await createSecondServer();
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.messages.purge({
+        channelId: channel2Id,
+        confirmChannelName: 'server2-general'
+      })
+    ).rejects.toThrow('Channel');
+  });
+
+  test('should deny bulk-deleting messages from another server', async () => {
+    const { channel2Id } = await createSecondServer();
+
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [msg] = await tdb.execute(sql`
+      INSERT INTO messages (user_id, channel_id, content, created_at)
+      VALUES (2, ${channel2Id}, 'server2 msg', ${now})
+      RETURNING id
+    `);
+    const msgId = (msg as { id: number }).id;
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.messages.bulkDelete({
+        messageIds: [msgId]
+      })
+    ).rejects.toThrow('No messages found');
+
+    // Verify the message still exists.
+    const [stillThere] = await tdb.execute(sql`
+      SELECT id FROM messages WHERE id = ${msgId}
+    `);
+    expect(stillThere).toBeDefined();
+  });
+
+  test('should deny deleting a single message from another server', async () => {
+    const { channel2Id } = await createSecondServer();
+
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [msg] = await tdb.execute(sql`
+      INSERT INTO messages (user_id, channel_id, content, created_at)
+      VALUES (2, ${channel2Id}, 'server2 msg', ${now})
+      RETURNING id
+    `);
+    const msgId = (msg as { id: number }).id;
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.messages.delete({ messageId: msgId })
+    ).rejects.toThrow('Message not found');
+  });
+
+  test('should deny editing a message from another server', async () => {
+    const { channel2Id } = await createSecondServer();
+
+    const tdb = getTestDb();
+    const now = Date.now();
+    // Author is user 1 — but the message lives in server 2 where they're
+    // not a member. Without the scope fix they could edit it anyway.
+    const [msg] = await tdb.execute(sql`
+      INSERT INTO messages (user_id, channel_id, content, created_at)
+      VALUES (1, ${channel2Id}, 'cross-server author msg', ${now})
+      RETURNING id
+    `);
+    const msgId = (msg as { id: number }).id;
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.messages.edit({ messageId: msgId, content: 'edited' })
+    ).rejects.toThrow('Message not found');
+  });
+});
+
+describe('cross-server admin action scoping', () => {
+  test('should deny unbanning a user not in the active server', async () => {
+    await createSecondServer();
+
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [user4] = await tdb.execute(sql`
+      INSERT INTO users (name, supabase_id, public_id, banned, created_at, last_login_at)
+      VALUES ('Server2 Banned', ${`s2-banned-${randomUUIDv7()}`}, ${randomUUIDv7()}, true, ${now}, ${now})
+      RETURNING id
+    `);
+    const user4Id = (user4 as { id: number }).id;
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.users.unban({ userId: user4Id })
+    ).rejects.toThrow('User not found');
+  });
+
+  test('should deny deleting an invite from another server', async () => {
+    const { server2Id } = await createSecondServer();
+
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [inv] = await tdb.execute(sql`
+      INSERT INTO invites (code, server_id, creator_id, max_uses, uses, created_at)
+      VALUES (${`s2-inv-${randomUUIDv7()}`}, ${server2Id}, 2, 10, 0, ${now})
+      RETURNING id
+    `);
+    const inviteId = (inv as { id: number }).id;
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.invites.delete({ inviteId })
+    ).rejects.toThrow('Invite not found');
+
+    // Verify the invite still exists.
+    const [stillThere] = await tdb.execute(sql`
+      SELECT id FROM invites WHERE id = ${inviteId}
+    `);
+    expect(stillThere).toBeDefined();
+  });
+
+  test('should deny reading a category from another server', async () => {
+    const { category2Id } = await createSecondServer();
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.categories.get({ categoryId: category2Id })
+    ).rejects.toThrow('Category not found');
+  });
+});
+
+describe('owner role and ownership protection', () => {
+  test('should refuse granting OWNER_ROLE_ID via add-role', async () => {
+    const { caller } = await initTest(1);
+
+    // OWNER_ROLE_ID = 1 (the bootstrap server's owner role). The
+    // active-server scope on the role lookup would let it through; the
+    // explicit OWNER_ROLE_ID block is what stops it.
+    await expect(
+      caller.users.addRole({ userId: 3, roleId: 1 })
+    ).rejects.toThrow('Owner role cannot be granted');
+  });
+});
+
+describe('group DM ownership protection', () => {
+  test('should deny non-owner deleting a group DM', async () => {
+    const tdb = getTestDb();
+    const now = Date.now();
+
+    // Create a group DM owned by user 2 with user 1 as a member.
+    const [dm] = await tdb.execute(sql`
+      INSERT INTO dm_channels (name, owner_id, is_group, created_at)
+      VALUES ('Test Group', 2, true, ${now})
+      RETURNING id
+    `);
+    const dmId = (dm as { id: number }).id;
+
+    await tdb.execute(sql`
+      INSERT INTO dm_channel_members (dm_channel_id, user_id, created_at)
+      VALUES (${dmId}, 1, ${now}), (${dmId}, 2, ${now})
+    `);
+
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.dms.deleteChannel({ dmChannelId: dmId })
+    ).rejects.toThrow('Only the group owner');
+
+    // Verify the channel still exists.
+    const [stillThere] = await tdb.execute(sql`
+      SELECT id FROM dm_channels WHERE id = ${dmId}
+    `);
+    expect(stillThere).toBeDefined();
+  });
+
+  test('should allow owner to delete their own group DM', async () => {
+    const tdb = getTestDb();
+    const now = Date.now();
+
+    const [dm] = await tdb.execute(sql`
+      INSERT INTO dm_channels (name, owner_id, is_group, created_at)
+      VALUES ('Owner Group', 1, true, ${now})
+      RETURNING id
+    `);
+    const dmId = (dm as { id: number }).id;
+
+    await tdb.execute(sql`
+      INSERT INTO dm_channel_members (dm_channel_id, user_id, created_at)
+      VALUES (${dmId}, 1, ${now}), (${dmId}, 2, ${now})
+    `);
+
+    const { caller } = await initTest(1);
+
+    await caller.dms.deleteChannel({ dmChannelId: dmId });
+
+    const [gone] = await tdb.execute(sql`
+      SELECT id FROM dm_channels WHERE id = ${dmId}
+    `);
+    expect(gone).toBeUndefined();
   });
 });

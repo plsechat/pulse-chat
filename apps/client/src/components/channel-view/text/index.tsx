@@ -22,15 +22,23 @@ import {
 } from '@pulse/shared';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { setHighlightedMessageId } from '@/features/server/channels/actions';
-import { format, isToday, isYesterday } from 'date-fns';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
+import { DateDivider } from '@/components/chat-primitives/date-divider';
+import { NewMessagesDivider } from '@/components/chat-primitives/new-messages-divider';
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import { stripToPlainText } from '@/helpers/strip-to-plain-text';
+import { ReplyContentPreview } from './reply-content-preview';
+import { FormattingHints } from './formatting-hints';
+import {
+  ComposerExpandToggle,
+  ComposerResizer,
+  MIN_COMPOSER_HEIGHT
+} from './composer-expand';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
+import { cn } from '@/lib/utils';
 import { FileCard } from './file-card';
 import { MessagesGroup } from './messages-group';
 import { SystemMessage } from './system-message';
@@ -40,34 +48,8 @@ import { SelectionProvider, useSelection } from './selection-context';
 import { useScrollController } from './use-scroll-controller';
 import { UsersTyping } from './users-typing';
 
-const NewMessagesDivider = memo(() => (
-  <div className="flex items-center gap-2 px-4 py-1" id="new-messages-divider">
-    <div className="flex-1 h-px bg-destructive/50" />
-    <span className="text-xs font-semibold text-destructive/80 shrink-0 uppercase">
-      New messages
-    </span>
-    <div className="flex-1 h-px bg-destructive/50" />
-  </div>
-));
-
-const DateDivider = memo(({ timestamp }: { timestamp: number }) => {
-  const date = new Date(timestamp);
-  const label = isToday(date)
-    ? 'Today'
-    : isYesterday(date)
-      ? 'Yesterday'
-      : format(date, 'MMMM d, yyyy');
-
-  return (
-    <div className="flex items-center gap-4 px-4 py-2">
-      <div className="flex-1 h-px bg-border" />
-      <span className="text-[11px] font-medium text-muted-foreground shrink-0">
-        {label}
-      </span>
-      <div className="flex-1 h-px bg-border" />
-    </div>
-  );
-});
+// Date and new-messages dividers live in chat-primitives so the DM
+// view paints them identically — see imports above.
 
 type TChannelProps = {
   channelId: number;
@@ -82,21 +64,12 @@ const ReplyBar = memo(
     onDismiss: () => void;
   }) => {
     const user = useUserById(message.userId);
-    const contentPreview = useMemo(() => {
-      if (!message.content) return 'Message deleted';
-      return stripToPlainText(message.content).slice(0, 80) || 'Attachment';
-    }, [message.content]);
 
-    const scrollToMessage = useCallback(() => {
-      setHighlightedMessageId(message.id);
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`msg-${message.id}`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      });
-      setTimeout(() => setHighlightedMessageId(undefined), 2500);
-    }, [message.id]);
+    const scrollToTarget = useScrollToMessage();
+    const scrollToMessage = useCallback(
+      () => scrollToTarget(message.id),
+      [scrollToTarget, message.id]
+    );
 
     return (
       <div className="flex items-center gap-2 rounded-t-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
@@ -109,7 +82,15 @@ const ReplyBar = memo(
           <span className="font-semibold text-primary shrink-0">
             {getDisplayName(user)}
           </span>
-          <span className="truncate text-muted-foreground">{contentPreview}</span>
+          <span className="truncate text-muted-foreground">
+            {message.content ? (
+              <ReplyContentPreview content={message.content} />
+            ) : message.files.length > 0 ? (
+              'Attachment'
+            ) : (
+              'Message deleted'
+            )}
+          </span>
         </button>
         <button
           type="button"
@@ -209,6 +190,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
+  const [multilineMode, setMultilineMode] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
 
   const focusEditor = useCallback(() => {
     requestAnimationFrame(() => {
@@ -233,6 +216,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     () =>
       throttle(async () => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.signalTyping.mutate({ channelId });
@@ -249,6 +233,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     sendTypingSignal.cancel();
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const content = tiptapHtmlToTokens(newMessage);
@@ -257,12 +242,21 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         // Ensure we have a sender key and distribute to members
         await ensureChannelSenderKey(channelId, ownUserId);
 
-        // Build fileKeys from encrypted upload key material
+        // Build fileKeys from encrypted upload key material. Includes
+        // the real originalName + extension so the recipient can render
+        // them — the server stores only placeholders.
         const fileKeys = files.length > 0
           ? files.map((f) => {
             const keyInfo = fileKeyMapRef.current.get(f.id);
             return keyInfo
-              ? { fileId: f.id, key: keyInfo.key, nonce: keyInfo.nonce, mimeType: keyInfo.mimeType }
+              ? {
+                  fileId: f.id,
+                  key: keyInfo.key,
+                  nonce: keyInfo.nonce,
+                  mimeType: keyInfo.mimeType,
+                  originalName: keyInfo.originalName,
+                  extension: keyInfo.extension
+                }
               : null;
           }).filter((k): k is NonNullable<typeof k> => k !== null)
           : undefined;
@@ -326,7 +320,11 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const content = gifUrl;
+      // Thread reply context — picking a GIF while replying should
+      // attach to the parent message, not start a new top-level msg.
+      const replyToId = replyingTo?.id;
 
       try {
         if (isE2ee && ownUserId) {
@@ -340,17 +338,19 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           await trpc.messages.send.mutate({
             content: encryptedContent,
             e2ee: true,
-            channelId
+            channelId,
+            replyToId
           });
         } else {
-          await trpc.messages.send.mutate({ content, channelId });
+          await trpc.messages.send.mutate({ content, channelId, replyToId });
         }
         playSound(SoundType.MESSAGE_SENT);
+        setReplyingTo(null);
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [channelId, isE2ee, ownUserId]
+    [channelId, isE2ee, ownUserId, replyingTo]
   );
 
   const onRemoveFileClick = useCallback(
@@ -358,6 +358,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       removeFile(fileId);
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         trpc.files.deleteTemporary.mutate({ fileId });
@@ -469,9 +470,37 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             <span>Slow mode: {slowModeRemaining}s remaining</span>
           </div>
         )}
+        <FormattingHints />
+        {multilineMode && (
+          <ComposerResizer
+            height={composerHeight}
+            onHeightChange={setComposerHeight}
+          />
+        )}
+        <ComposerExpandToggle
+          expanded={multilineMode}
+          onToggle={() => setMultilineMode((m) => !m)}
+        />
         <div
           ref={inputAreaRef}
-          className="flex items-center gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-all duration-200 cursor-text"
+          // `transition-[border-color,box-shadow]` rather than
+          // `transition-all`: the multiline mode binds `height` to a
+          // drag handle, and `transition-all` would animate every
+          // frame of the drag (200ms behind the cursor) — extremely
+          // laggy. Scoping the transition to focus-affordances keeps
+          // height instant while the focus glow still fades smoothly.
+          className={cn(
+            'flex gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
+            // Single-line: vertically center icons relative to the
+            // input baseline. Multiline: anchor icons to the TOP so
+            // they line up with the first line of typed text and the
+            // emoji button rendered inside TiptapInput (which sits
+            // at the top of the editor area). Anchoring to the
+            // bottom would split the icons across the composer
+            // height and look disconnected.
+            multilineMode ? 'items-start' : 'items-center'
+          )}
+          style={multilineMode ? { height: composerHeight } : undefined}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;
             const pm = e.currentTarget.querySelector('.ProseMirror');
@@ -504,6 +533,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             onTyping={sendTypingSignal}
             disabled={uploading || !canSendMessages || slowModeRemaining > 0}
             commands={pluginCommands}
+            multilineMode={multilineMode}
           />
           {isGiphyEnabled() && (
             <GifPicker onSelect={onGifSelect}>

@@ -162,9 +162,14 @@ const joinServerRoute = t.procedure
     if (ownPublicUser) {
       const memberIds = await getServerMemberIds(targetServer.id);
       ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, {
-        ...ownPublicUser,
-        status: ctx.getStatusById(ctx.user.id),
-        _identity: ownPublicUser._identity?.includes('@') ? ownPublicUser._identity : undefined
+        serverId: targetServer.id,
+        user: {
+          ...ownPublicUser,
+          status: ctx.getStatusById(ctx.user.id),
+          _identity: ownPublicUser._identity?.includes('@')
+            ? ownPublicUser._identity
+            : undefined
+        }
       });
     }
 

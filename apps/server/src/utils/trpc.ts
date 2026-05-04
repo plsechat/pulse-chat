@@ -1,5 +1,6 @@
 import {
   ChannelPermission,
+  ServerEvents,
   UserStatus,
   type Permission,
   type TUser
@@ -94,4 +95,15 @@ const protectedProcedure = t.procedure
 
 const publicProcedure = t.procedure.use(timingMiddleware);
 
-export { protectedProcedure, publicProcedure, t };
+/**
+ * Build a tRPC subscription that delivers a per-user-scoped pubsub topic.
+ * Replaces the boilerplate that was repeated across 16 router events.ts
+ * files: every wrapper was the same `protectedProcedure.subscription
+ * (({ctx}) => ctx.pubsub.subscribeFor(ctx.userId, X))`.
+ */
+const userSubscription = <T extends ServerEvents>(event: T) =>
+  protectedProcedure.subscription(({ ctx }) =>
+    ctx.pubsub.subscribeFor(ctx.userId, event)
+  );
+
+export { protectedProcedure, publicProcedure, t, userSubscription };

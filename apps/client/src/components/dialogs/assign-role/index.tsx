@@ -59,6 +59,7 @@ const AssignRoleDialog = memo(
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         await trpc.users.addRole.mutate({
           userId: user.id,

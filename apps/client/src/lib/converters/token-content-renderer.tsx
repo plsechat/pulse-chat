@@ -22,7 +22,9 @@ import { Fragment, memo, useMemo } from 'react';
 import { CodeBlockOverride } from '@/components/channel-view/text/overrides/code-block';
 import {
   ChannelMention,
-  MentionOverride
+  ForumPostLink,
+  MentionOverride,
+  MessageLink
 } from '@/components/channel-view/text/overrides/mention';
 import { TwitterOverride } from '@/components/channel-view/text/overrides/twitter';
 import { YoutubeOverride } from '@/components/channel-view/text/overrides/youtube';
@@ -37,6 +39,8 @@ type Token =
   | { type: 'role_mention'; id: number }
   | { type: 'all_mention' }
   | { type: 'channel_mention'; id: number }
+  | { type: 'forum_post_link'; channelId: number; threadId: number }
+  | { type: 'message_link'; channelId: number; messageId: number }
   | { type: 'custom_emoji'; name: string; id: number }
   | { type: 'code_block'; lang: string; code: string }
   | { type: 'inline_code'; code: string }
@@ -45,6 +49,7 @@ type Token =
   | { type: 'strikethrough'; children: Token[] }
   | { type: 'underline'; children: Token[] }
   | { type: 'url'; href: string }
+  | { type: 'markdown_link'; href: string; text: string }
   | { type: 'newline' };
 
 // ── Tokenizer ────────────────────────────────────────────────
@@ -92,6 +97,30 @@ function tokenizeInline(text: string): Token[] {
       type: 'all_mention'
     }), best);
 
+    // Forum post link: <#post:channelId/threadId>
+    best = tryMatch(
+      remaining,
+      /<#post:(\d+)\/(\d+)>/,
+      (m) => ({
+        type: 'forum_post_link',
+        channelId: Number(m[1]),
+        threadId: Number(m[2])
+      }),
+      best
+    );
+
+    // Message link: <#msg:channelId/messageId>
+    best = tryMatch(
+      remaining,
+      /<#msg:(\d+)\/(\d+)>/,
+      (m) => ({
+        type: 'message_link',
+        channelId: Number(m[1]),
+        messageId: Number(m[2])
+      }),
+      best
+    );
+
     // Channel mention: <#123>
     best = tryMatch(remaining, /<#(\d+)>/, (m) => ({
       type: 'channel_mention', id: Number(m[1])
@@ -126,6 +155,17 @@ function tokenizeInline(text: string): Token[] {
     best = tryMatch(remaining, /__(.+?)__/, (m) => ({
       type: 'underline', children: tokenizeInline(m[1])
     }), best);
+
+    // Markdown link: [text](https://url) — must run before bare URL_RE so
+    // we don't render the URL twice (once as the link, once as text inside
+    // the brackets). tryMatch picks the earliest-starting match; the `[`
+    // sits before the embedded URL so this wins for well-formed syntax.
+    best = tryMatch(
+      remaining,
+      /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/,
+      (m) => ({ type: 'markdown_link', text: m[1], href: m[2] }),
+      best
+    );
 
     // URL
     best = tryMatch(remaining, URL_RE, (m) => ({
@@ -297,6 +337,26 @@ function renderTokens(
         );
         break;
 
+      case 'forum_post_link':
+        elements.push(
+          <ForumPostLink
+            key={`fpl-${i}`}
+            channelId={token.channelId}
+            threadId={token.threadId}
+          />
+        );
+        break;
+
+      case 'message_link':
+        elements.push(
+          <MessageLink
+            key={`ml-${i}`}
+            channelId={token.channelId}
+            messageId={token.messageId}
+          />
+        );
+        break;
+
       case 'custom_emoji':
         elements.push(
           <CustomEmoji key={`ce-${i}`} name={token.name} id={token.id} />
@@ -346,6 +406,19 @@ function renderTokens(
           <u key={`u-${i}`}>
             {renderTokens(token.children, pushMedia)}
           </u>
+        );
+        break;
+
+      case 'markdown_link':
+        elements.push(
+          <a
+            key={`ml-${i}`}
+            href={token.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {token.text}
+          </a>
         );
         break;
 

@@ -4,6 +4,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Select,
   SelectContent,
@@ -74,6 +75,7 @@ const useSubscribeToPluginLogs = (pluginId: string) => {
 
   const setupSubscription = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       if (!loadedFirstLogs.current) {
@@ -213,15 +215,12 @@ const PluginLogsDialog = memo(
 
           <div className="flex-1 min-h-0 mt-4">
             {sortedLogs.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                <div className="text-center">
-                  <Info className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p>No logs yet</p>
-                  <p className="text-sm mt-1">
-                    Logs will appear here when the plugin generates them
-                  </p>
-                </div>
-              </div>
+              <EmptyState
+                icon={Info}
+                title="No logs yet"
+                description="Logs will appear here when the plugin generates them"
+                className="h-full"
+              />
             ) : (
               <div
                 ref={scrollRef}

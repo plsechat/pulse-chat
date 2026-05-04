@@ -1,7 +1,9 @@
 import { type TTempFile } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
+import { sql } from 'drizzle-orm';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
+import { getTestDb } from '../../__tests__/mock-db';
 import { appRouter } from '../../routers';
 
 describe('users router', () => {
@@ -186,6 +188,49 @@ describe('users router', () => {
     ).rejects.toThrow('New password and confirmation do not match');
   });
 
+  test('getAuthProviders should return identities from supabase', async () => {
+    const { caller } = await initTest();
+
+    const result = await caller.users.getAuthProviders();
+    expect(result.providers).toContain('email');
+  });
+
+  test('updatePassword should reject OAuth-only users (no email identity)', async () => {
+    const { caller } = await initTest();
+
+    // Mutate the seeded auth-store entry to drop the email provider —
+    // simulates a user who signed up via Google/GitHub and never set
+    // a password. Without the gate, signInWithPassword would fail with
+    // "current password incorrect," which is misleading. The gate
+    // should reject earlier with a clear message naming the linked
+    // provider.
+    const store = globalThis.__supabaseAuthStore!;
+    for (const entry of store.values()) {
+      entry.identities = ['google'];
+    }
+
+    await expect(
+      caller.users.updatePassword({
+        currentPassword: 'password123',
+        newPassword: 'newpassword',
+        confirmNewPassword: 'newpassword'
+      })
+    ).rejects.toThrow('signs in through google');
+  });
+
+  test('getAuthProviders should reflect non-email providers', async () => {
+    const { caller } = await initTest();
+
+    const store = globalThis.__supabaseAuthStore!;
+    for (const entry of store.values()) {
+      entry.identities = ['github'];
+    }
+
+    const result = await caller.users.getAuthProviders();
+    expect(result.providers).toEqual(['github']);
+    expect(result.providers).not.toContain('email');
+  });
+
   test('should change avatar', async () => {
     const { caller, mockedToken } = await initTest();
 
@@ -316,16 +361,18 @@ describe('users router', () => {
   test('should add role to user', async () => {
     const { caller } = await initTest();
 
+    // roleId 3 is the test seed's "Guest" role. Avoid roleId 1 because
+    // the OWNER_ROLE_ID grant block in add-role.ts now refuses it.
     await caller.users.addRole({
       userId: 2,
-      roleId: 1
+      roleId: 3
     });
 
     const info = await caller.users.getInfo({
       userId: 2
     });
 
-    expect(info.user.roleIds).toContain(1);
+    expect(info.user.roleIds).toContain(3);
   });
 
   test('should throw when adding duplicate role', async () => {
@@ -342,21 +389,22 @@ describe('users router', () => {
   test('should remove role from user', async () => {
     const { caller } = await initTest();
 
+    // roleId 3 is the Guest role (see "should add role to user" comment).
     await caller.users.addRole({
       userId: 2,
-      roleId: 1
+      roleId: 3
     });
 
     await caller.users.removeRole({
       userId: 2,
-      roleId: 1
+      roleId: 3
     });
 
     const info = await caller.users.getInfo({
       userId: 2
     });
 
-    expect(info.user.roleIds).not.toContain(1);
+    expect(info.user.roleIds).not.toContain(3);
   });
 
   test('should throw when removing non-existent role', async () => {
@@ -449,11 +497,25 @@ describe('users router', () => {
   });
 
   test('should handle multiple role operations', async () => {
+    const tdb = getTestDb();
+    const now = Date.now();
+
+    // Need a second non-owner role to test "add multiple, remove one,
+    // verify the other remains". The seed has Owner(1)/Member(2)/Guest(3);
+    // since OWNER_ROLE_ID can no longer be granted via add-role, create
+    // a fresh test role on serverId=1.
+    const [extraRole] = await tdb.execute(sql`
+      INSERT INTO roles (name, color, is_persistent, is_default, server_id, created_at)
+      VALUES ('Test Extra Role', '#abcdef', false, false, 1, ${now})
+      RETURNING id
+    `);
+    const extraRoleId = (extraRole as { id: number }).id;
+
     const { caller } = await initTest();
 
     await caller.users.addRole({
       userId: 2,
-      roleId: 1
+      roleId: extraRoleId
     });
 
     await caller.users.addRole({
@@ -465,19 +527,19 @@ describe('users router', () => {
       userId: 2
     });
 
-    expect(info.user.roleIds).toContain(1);
+    expect(info.user.roleIds).toContain(extraRoleId);
     expect(info.user.roleIds).toContain(3);
 
     await caller.users.removeRole({
       userId: 2,
-      roleId: 1
+      roleId: extraRoleId
     });
 
     const updatedInfo = await caller.users.getInfo({
       userId: 2
     });
 
-    expect(updatedInfo.user.roleIds).not.toContain(1);
+    expect(updatedInfo.user.roleIds).not.toContain(extraRoleId);
     expect(updatedInfo.user.roleIds).toContain(3);
   });
 
@@ -545,5 +607,69 @@ describe('users router', () => {
     expect(info.user.name).toBe('Final Name');
     expect(info.user.bannerColor).toBe('#333333');
     expect(info.user.bio).toBe('Final Bio');
+  });
+
+  describe('getMyId', () => {
+    test('returns the calling user id (user 1)', async () => {
+      const { caller } = await initTest();
+      const result = await caller.users.getMyId();
+      expect(result).toEqual({ userId: 1 });
+    });
+
+    test('returns the calling user id (user 2)', async () => {
+      const { caller } = await initTest(2);
+      const result = await caller.users.getMyId();
+      expect(result).toEqual({ userId: 2 });
+    });
+  });
+
+  describe('federation guard (F9): refuses ban/kick/role on federated targets', () => {
+    async function insertFederatedShadow(): Promise<number> {
+      const tdb = getTestDb();
+      const instanceRows = (await tdb.execute(
+        sql`INSERT INTO federation_instances (domain, name, status, direction, created_at) VALUES ('peer.example.com', 'Peer', 'active', 'outgoing', ${Date.now()}) RETURNING id`
+      )) as unknown as Array<{ id: number }>;
+      const instanceId = instanceRows[0]!.id;
+
+      const supabaseId = `federated:${instanceId}:99`;
+      const now = Date.now();
+      const userRows = (await tdb.execute(
+        sql`INSERT INTO users (supabase_id, name, is_federated, federated_instance_id, federated_username, public_id, created_at, last_login_at) VALUES (${supabaseId}, 'shadow-user', TRUE, ${instanceId}, '99', ${`pid-${now}`}, ${now}, ${now}) RETURNING id`
+      )) as unknown as Array<{ id: number }>;
+
+      return userRows[0]!.id;
+    }
+
+    test('ban refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(caller.users.ban({ userId: shadowId })).rejects.toThrow(
+        /federated/i
+      );
+    });
+
+    test('kick refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(caller.users.kick({ userId: shadowId })).rejects.toThrow(
+        /federated/i
+      );
+    });
+
+    test('addRole refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(
+        caller.users.addRole({ userId: shadowId, roleId: 2 })
+      ).rejects.toThrow(/federated/i);
+    });
+
+    test('removeRole refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(
+        caller.users.removeRole({ userId: shadowId, roleId: 2 })
+      ).rejects.toThrow(/federated/i);
+    });
   });
 });

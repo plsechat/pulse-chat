@@ -11,6 +11,11 @@ export type TFederatedServerEntry = {
   server: TServerSummary;
   federationToken: string;
   tokenExpiresAt: number;
+  /** Our user id WITHIN this federated instance. Cached at first
+   *  contact (joinServer or users.getMyId) so flows like Phase B
+   *  redistribute can target each instance's chains under the right
+   *  author id without re-fetching joinServer. */
+  ownUserId?: number;
 };
 
 export interface TAppState {
@@ -175,6 +180,22 @@ export const appSlice = createSlice({
       );
       if (entry) {
         entry.server = action.payload.server;
+      }
+    },
+    setFederatedOwnUserId: (
+      state,
+      action: PayloadAction<{
+        instanceDomain: string;
+        ownUserId: number;
+      }>
+    ) => {
+      // Cache against every entry sharing this instance domain — one
+      // user has one id per instance, regardless of which servers on
+      // that instance they belong to.
+      for (const entry of state.federatedServers) {
+        if (entry.instanceDomain === action.payload.instanceDomain) {
+          entry.ownUserId = action.payload.ownUserId;
+        }
       }
     },
     setServerUnreadCounts: (

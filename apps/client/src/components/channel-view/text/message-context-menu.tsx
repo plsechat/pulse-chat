@@ -10,6 +10,7 @@ import {
 import { useCan } from '@/features/server/hooks';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { requestConfirmation } from '@/features/dialogs/actions';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import {
@@ -73,17 +74,19 @@ const MessageContextMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.messages.delete.mutate({ messageId });
         toast.success('Message deleted');
-      } catch {
-        toast.error('Failed to delete message');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete message'));
       }
     }, [messageId]);
 
     const onPinToggle = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         if (pinned) {
@@ -104,6 +107,10 @@ const MessageContextMenu = memo(
       setCreatingThread(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreatingThread(false);
+        return;
+      }
 
       try {
         const result = await trpc.threads.create.mutate({
@@ -113,8 +120,8 @@ const MessageContextMenu = memo(
 
         setActiveThreadId(result.threadId);
         toast.success('Thread created');
-      } catch {
-        toast.error('Failed to create thread');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create thread'));
       } finally {
         setCreatingThread(false);
       }
@@ -123,14 +130,15 @@ const MessageContextMenu = memo(
     const onEmojiSelect = useCallback(
       async (emoji: TEmojiItem) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.messages.toggleReaction.mutate({
             messageId,
             emoji: emoji.name
           });
-        } catch {
-          toast.error('Failed to add reaction');
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to add reaction'));
         }
       },
       [messageId]
@@ -144,8 +152,13 @@ const MessageContextMenu = memo(
     }, [messageContent]);
 
     const onCopyMessageLink = useCallback(() => {
+      // Emits the deep-link token (`<#msg:channelId/messageId>`) that the
+      // renderer recognizes. Pasting it produces a clickable badge that
+      // jumps to the message via the existing scroll-to-message pulse.
+      // Falls back to a bare `messageId` when channelId is unknown
+      // (vanishingly rare — only legacy code paths drop the channel).
       const link = channelId
-        ? `${channelId}/${messageId}`
+        ? `<#msg:${channelId}/${messageId}>`
         : String(messageId);
       navigator.clipboard.writeText(link);
       toast.success('Message link copied');
@@ -199,7 +212,7 @@ const MessageContextMenu = memo(
 
           <ContextMenuItem onClick={onCopyMessageLink}>
             <ClipboardCopy className="h-4 w-4" />
-            Copy Message ID
+            Copy Message Link
           </ContextMenuItem>
 
           {!selectionMode && can(Permission.MANAGE_MESSAGES) && (

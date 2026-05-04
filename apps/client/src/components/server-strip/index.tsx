@@ -22,7 +22,7 @@ import {
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { appSliceActions } from '@/features/app/slice';
 import { getHandshakeHash } from '@/features/server/actions';
-import { useFriendRequests } from '@/features/friends/hooks';
+import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { openDialog } from '@/features/dialogs/actions';
 import { Dialog } from '@/components/dialogs/dialogs';
@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useCurrentVoiceServerId } from '@/features/server/channels/hooks';
 import { useHasAnyVoiceUsers } from '@/features/server/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -105,8 +106,8 @@ const ServerIcon = memo(
           className={cn(
             'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
             isActive
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
           )}
           title={server.name}
         >
@@ -178,8 +179,8 @@ const FederatedServerIcon = memo(
           className={cn(
             'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
             isActive
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl',
+              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20',
             isOffline && 'opacity-50'
           )}
           title={`${entry.server.name} (${entry.instanceDomain})${statusSuffix}`}
@@ -249,11 +250,8 @@ const SortableServerItem = memo(
 
 const ServerStrip = memo(() => {
   const activeView = useActiveView();
-  const friendRequests = useFriendRequests();
+  const pendingCount = useIncomingFriendRequestCount();
   const ownUserId = useOwnUserId();
-  const pendingCount = friendRequests.filter(
-    (r) => r.receiverId === ownUserId
-  ).length;
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
   const serverUnreadCounts = useServerUnreadCounts();
@@ -338,6 +336,7 @@ const ServerStrip = memo(() => {
     async (serverId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notifications.markServerAsRead.mutate({ serverId });
         // Optimistically reset server-level unread and mention counts
         store.dispatch(
@@ -356,8 +355,8 @@ const ServerStrip = memo(() => {
           }
         }
         toast.success('Marked as read');
-      } catch {
-        toast.error('Failed to mark as read');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to mark as read'));
       }
     },
     []
@@ -367,10 +366,11 @@ const ServerStrip = memo(() => {
     try {
       store.dispatch(dmsSliceActions.clearAllUnread());
       const trpc = getHomeTRPCClient();
+      if (!trpc) return;
       await trpc.dms.markAllAsRead.mutate();
       toast.success('Marked as read');
-    } catch {
-      toast.error('Failed to mark as read');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to mark as read'));
     }
   }, []);
 
@@ -378,10 +378,11 @@ const ServerStrip = memo(() => {
     async (serverId: number, muted: boolean) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notifications.setServerMute.mutate({ serverId, muted });
         setServerMuted(muted);
-      } catch {
-        toast.error('Failed to update mute setting');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update mute setting'));
       }
     },
     []
@@ -391,13 +392,14 @@ const ServerStrip = memo(() => {
     async (serverId: number, level: string) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notifications.setServerNotificationLevel.mutate({
           serverId,
           level: level as 'all' | 'mentions' | 'nothing' | 'default'
         });
         setServerNotifLevel(level);
-      } catch {
-        toast.error('Failed to update notification setting');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update notification setting'));
       }
     },
     []
@@ -408,6 +410,7 @@ const ServerStrip = memo(() => {
       if (open) {
         try {
           const trpc = getTRPCClient();
+          if (!trpc) return;
           const settings = await trpc.notifications.getServerSettings.query({
             serverId
           });
@@ -444,16 +447,22 @@ const ServerStrip = memo(() => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.servers.reorder.mutate({ serverIds: reorderedIds });
-      } catch {
-        toast.error('Failed to reorder servers');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to reorder servers'));
       }
     },
     [serverIds]
   );
 
   return (
-    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3 md:pb-[5.5rem] overflow-y-auto">
+    // `overflow-x-clip` keeps the voice/mention badges that sit at
+    // `-bottom-1 -right-1` on each 48px server icon from forcing a
+    // horizontal scrollbar on the 72px strip — the badges still render
+    // slightly past the strip's right edge as designed, but the browser
+    // doesn't expose them through scroll.
+    <div className="flex w-[72px] flex-col items-center gap-2 bg-sidebar py-3 md:pb-[5.5rem] overflow-y-auto overflow-x-clip">
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="relative flex w-full items-center justify-center group">
@@ -466,26 +475,57 @@ const ServerStrip = memo(() => {
               className={cn(
                 'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
                 activeView === 'home'
-                  ? 'bg-primary text-primary-foreground rounded-xl'
-                  : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+                  ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+                  : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
               )}
               title="Home"
             >
               <Home className="h-6 w-6" />
-              {(pendingCount > 0 || totalDmUnreadCount > 0) && (
-                <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                  {pendingCount + totalDmUnreadCount > 99 ? '99+' : pendingCount + totalDmUnreadCount}
+              {/*
+                Two separate badges so a stuck "1" can't ambiguously
+                mean either a DM or a pending friend request — that
+                forced a false-positive search through the DM list in
+                QA. DM count gets the red destructive badge bottom-
+                right; friend requests get a smaller primary indicator
+                top-right that lines up with the Friends tab inside
+                the home view.
+              */}
+              {totalDmUnreadCount > 0 && (
+                <span
+                  title={`${totalDmUnreadCount} unread DM${totalDmUnreadCount === 1 ? '' : 's'}`}
+                  className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground"
+                >
+                  {totalDmUnreadCount > 99 ? '99+' : totalDmUnreadCount}
+                </span>
+              )}
+              {pendingCount > 0 && (
+                <span
+                  title={`${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`}
+                  // Amber, not bg-primary — when the home button is the
+                  // active view it's already painted in primary, and a
+                  // primary-on-primary indicator vanishes against it. Amber
+                  // contrasts with both the active and inactive home button.
+                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white"
+                >
+                  {pendingCount > 99 ? '99+' : pendingCount}
                 </span>
               )}
             </button>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          {totalDmUnreadCount > 0 && (
-            <ContextMenuItem onClick={handleMarkAllDmsAsRead}>
-              Mark as Read
-            </ContextMenuItem>
-          )}
+          {/*
+            Always render Mark as Read so right-clicking the home button
+            doesn't open an empty popover when there are no unreads —
+            disabled state is more honest than absent. Click is gated by
+            `disabled` so the no-op case stays a no-op.
+          */}
+          <ContextMenuItem
+            onClick={handleMarkAllDmsAsRead}
+            disabled={totalDmUnreadCount === 0}
+          >
+            Mark as Read
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
 
@@ -648,7 +688,7 @@ const ServerStrip = memo(() => {
 
       <button
         onClick={handleCreateServer}
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:rounded-xl"
+        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20"
         title="Create Server"
       >
         <Plus className="h-6 w-6" />
@@ -664,8 +704,8 @@ const ServerStrip = memo(() => {
           className={cn(
             'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
             activeView === 'discover'
-              ? 'bg-primary text-primary-foreground rounded-xl'
-              : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl'
+              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
+              : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
           )}
           title="Discover Servers"
         >

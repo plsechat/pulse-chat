@@ -1,5 +1,5 @@
 import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
@@ -19,10 +19,17 @@ const purgeChannelRoute = protectedProcedure
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_MESSAGES);
 
+    // Scope the channel lookup to the caller's active server. Without this,
+    // MANAGE_MESSAGES in server A could purge any channel in server B.
     const [channel] = await db
       .select({ id: channels.id, name: channels.name })
       .from(channels)
-      .where(eq(channels.id, input.channelId))
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId!)
+        )
+      )
       .limit(1);
 
     invariant(channel, {

@@ -1,3 +1,4 @@
+import { randomUUIDv7 } from 'bun';
 import {
   SignJWT,
   jwtVerify,
@@ -12,6 +13,7 @@ import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { db } from '../db';
 import { federationInstances, federationKeys } from '../db/schema';
 import { config } from '../config';
+import { federationFetch } from './federation-fetch';
 import { logger } from '../logger';
 
 async function generateFederationKeys(): Promise<{
@@ -177,25 +179,95 @@ async function verifyFederationToken(token: string): Promise<{
   }
 }
 
-async function signChallenge(data: string): Promise<string> {
-  const keys = await getLocalKeys();
+// ─── Phase 4 / F1 — wire-format hardened challenge protocol ──────────────
+//
+// signChallenge embeds the SHA-256 hash of the canonicalized payload in a
+// `sha256` JWT claim, plus the destination as `aud`, our domain as `iss`,
+// and a random `jti` for replay tracking. verifyChallenge re-canonicalizes
+// the received body, recomputes the digest, and rejects mismatches; it
+// also rejects unexpected issuers, audiences, expired tokens, and
+// previously-seen jtis (within a 10-minute retention window covering the
+// 5-minute signing TTL plus clock skew).
+//
+// Wire-format BREAKING vs. v0.1.x: a peer running pre-v0.2 code will fail
+// every verify against a v0.2 signature because the old verifier doesn't
+// look at sha256/iss/aud/jti and the old signer doesn't emit them. Both
+// sides must upgrade for federation to work.
+//
+// Canonicalization: we recursively sort object keys alphabetically before
+// JSON.stringify so sender and receiver produce identical bytes for the
+// same logical payload regardless of insertion order. Arrays preserve
+// order. Primitives pass through.
 
+const CHALLENGE_TTL = '5m';
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+// Replay window — a bit larger than TTL to cover clock skew between peers.
+const JTI_RETENTION_MS = 10 * 60 * 1000;
+
+const seenJtis = new Map<string, number>();
+
+function pruneExpiredJtis(now: number): void {
+  for (const [jti, expiresAt] of seenJtis) {
+    if (expiresAt < now) seenJtis.delete(jti);
+  }
+}
+
+/** Test-only: drop the in-memory replay set so tests can exercise the
+ *  same jti deterministically. Not exported through the index — only
+ *  imported by `__tests__/federation-challenge.test.ts`. */
+export function _resetSeenJtis(): void {
+  seenJtis.clear();
+}
+
+function canonicalize(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val === null || typeof val !== 'object' || Array.isArray(val)) {
+      return val;
+    }
+    const sorted: Record<string, unknown> = {};
+    for (const k of Object.keys(val as Record<string, unknown>).sort()) {
+      sorted[k] = (val as Record<string, unknown>)[k];
+    }
+    return sorted;
+  });
+}
+
+async function payloadDigest(payload: unknown): Promise<string> {
+  const canonical = canonicalize(payload);
+  const buf = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(canonical)
+  );
+  // base64url, no padding
+  return Buffer.from(buf).toString('base64url');
+}
+
+async function signChallenge(
+  payload: unknown,
+  audienceDomain: string
+): Promise<string> {
+  const keys = await getLocalKeys();
   if (!keys) {
     throw new Error('Federation keys not generated');
   }
 
   const privateKey = await importJWK(keys.privateKey, 'EdDSA');
+  const sha256 = await payloadDigest(payload);
 
-  return new SignJWT({ data })
+  return new SignJWT({ sha256 })
     .setProtectedHeader({ alg: 'EdDSA' })
     .setIssuer(config.federation.domain)
+    .setAudience(audienceDomain)
+    .setJti(randomUUIDv7())
     .setIssuedAt()
-    .setExpirationTime('5m')
+    .setExpirationTime(CHALLENGE_TTL)
     .sign(privateKey);
 }
 
 async function verifyChallenge(
   signature: string,
+  payload: unknown,
+  expectedIssuer: string,
   publicKeyStr: string
 ): Promise<boolean> {
   try {
@@ -203,12 +275,45 @@ async function verifyChallenge(
       JSON.parse(publicKeyStr) as JWK,
       'EdDSA'
     );
-    await jwtVerify(signature, publicKey);
+
+    const { payload: claims } = await jwtVerify(signature, publicKey, {
+      audience: config.federation.domain,
+      issuer: expectedIssuer
+    });
+
+    // Body-hash binding: re-canonicalize the received body and compare.
+    // Without this, a peer signature is reusable against any other body
+    // that the same key signed before.
+    const expectedDigest = await payloadDigest(payload);
+    const claimedDigest = (claims as Record<string, unknown>).sha256;
+    if (typeof claimedDigest !== 'string' || claimedDigest !== expectedDigest) {
+      return false;
+    }
+
+    // Replay protection: jti must be unique within the retention window.
+    if (typeof claims.jti !== 'string' || !claims.exp) return false;
+
+    const now = Date.now();
+    pruneExpiredJtis(now);
+    if (seenJtis.has(claims.jti)) return false;
+
+    // Retain past the signature's exp so a replay arriving right at the
+    // edge still gets caught — claims.exp is seconds, we store ms.
+    seenJtis.set(claims.jti, now + JTI_RETENTION_MS);
+
     return true;
   } catch {
     return false;
   }
 }
+
+// Test-only re-export so the unit tests can poke the canonicalizer +
+// digest without going through the full sign/verify dance.
+export const _challengeInternals = {
+  canonicalize,
+  payloadDigest,
+  CHALLENGE_TTL_MS
+};
 
 async function relayToInstance(
   instanceDomain: string,
@@ -221,18 +326,28 @@ async function relayToInstance(
       instanceDomain.startsWith('127.0.0.1');
     const protocol = isLocalhost ? 'http' : 'https';
 
-    const signature = await signChallenge(JSON.stringify(payload));
+    // Bind the signature to the entire wire body (every field except the
+    // signature itself) and to the destination audience. The receiver
+    // strips `signature`, recomputes the canonical digest, and verifies
+    // it matches `sha256` in the JWT — so a relay payload signed for
+    // peer A can't be replayed against peer B (different aud), and a
+    // body field can't be tampered with in transit (digest mismatch).
+    const bodyToSign = {
+      ...payload,
+      fromDomain: config.federation.domain
+    };
+    const signature = await signChallenge(bodyToSign, instanceDomain);
 
     const body = {
-      ...payload,
-      fromDomain: config.federation.domain,
+      ...bodyToSign,
       signature
     };
 
-    const response = await fetch(`${protocol}://${instanceDomain}${path}`, {
+    const response = await federationFetch(`${protocol}://${instanceDomain}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000)
     });
 
     if (!response.ok) {

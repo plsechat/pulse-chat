@@ -555,4 +555,33 @@ describe('file manager', () => {
     expect(p.startsWith(UPLOADS_PATH)).toBe(true);
     expect(path.extname(p)).toBe('');
   });
+
+  test('encrypted upload sets files.encrypted=true and forces octet-stream MIME', async () => {
+    // Mimic the client placeholder filename for an encrypted upload —
+    // the server should NEVER see the real name/mime. Both end up in
+    // the DB unchanged; the encrypted flag flips and the MIME is
+    // forced to application/octet-stream regardless of file content.
+    const placeholderName = `encrypted-${Date.now()}.bin`;
+    const filePath = path.join(UPLOADS_PATH, placeholderName);
+    // Bytes that bun would normally sniff as text/plain — proves the
+    // encrypted=true branch overrides bunFile.type.
+    await fs.writeFile(filePath, 'plaintext-looking content');
+    const stats = await fs.stat(filePath);
+
+    const tempFile = await fileManager.addTemporaryFile({
+      filePath,
+      size: stats.size,
+      originalName: placeholderName,
+      userId: 1,
+      encrypted: true
+    });
+
+    const savedFile = await fileManager.saveFile(tempFile.id, 1);
+    tempFilesToCleanup.push(path.join(PUBLIC_PATH, savedFile.name));
+
+    expect(savedFile.encrypted).toBe(true);
+    expect(savedFile.mimeType).toBe('application/octet-stream');
+    expect(savedFile.originalName).toBe(placeholderName);
+    expect(savedFile.extension).toBe('.bin');
+  });
 });

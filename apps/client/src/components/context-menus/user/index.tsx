@@ -10,13 +10,13 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { Slider } from '@/components/ui/slider';
-import { setActiveView } from '@/features/app/actions';
 import { requestTextInput } from '@/features/dialogs/actions';
-import { getOrCreateDmChannel } from '@/features/dms/actions';
+import { getOrCreateDmChannel, navigateToDm } from '@/features/dms/actions';
 import { useCan, useUserRoles } from '@/features/server/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { voiceMapSelector } from '@/features/server/voice/selectors';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { dispatchMentionUser } from '@/lib/events';
 import { getTRPCClient } from '@/lib/trpc';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
@@ -66,7 +66,10 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const handleMessage = useCallback(async () => {
     const channel = await getOrCreateDmChannel(userId);
     if (channel) {
-      setActiveView('home');
+      // Land on the new DM, not just the home view in general.
+      // navigateToDm bridges through HomeView's local state via the
+      // dm-navigate CustomEvent — Redux alone doesn't re-render.
+      await navigateToDm(channel.id);
     }
   }, [userId]);
 
@@ -81,10 +84,11 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     if (text) {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
-      } catch {
-        toast.error('Failed to save note');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
   }, [userId, user]);
@@ -93,13 +97,14 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     async (roleId: number, hasRole: boolean) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         if (hasRole) {
           await trpc.users.removeRole.mutate({ userId, roleId });
         } else {
           await trpc.users.addRole.mutate({ userId, roleId });
         }
-      } catch {
-        toast.error('Failed to update role');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update role'));
       }
     },
     [userId]

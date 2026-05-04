@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
@@ -39,6 +40,7 @@ const ManageTagsDialog = memo(
 
     const fetchTags = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         const result = await trpc.threads.getForumTags.query({ channelId });
@@ -58,6 +60,10 @@ const ManageTagsDialog = memo(
       setLoading(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setLoading(false);
+        return;
+      }
 
       try {
         await trpc.threads.createForumTag.mutate({
@@ -68,8 +74,8 @@ const ManageTagsDialog = memo(
         setNewTagName('');
         setNewTagColor('#808080');
         fetchTags();
-      } catch {
-        toast.error('Failed to create tag');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create tag'));
       } finally {
         setLoading(false);
       }
@@ -82,6 +88,10 @@ const ManageTagsDialog = memo(
         setLoading(true);
 
         const trpc = getTRPCClient();
+        if (!trpc) {
+          setLoading(false);
+          return;
+        }
 
         try {
           await trpc.threads.updateForumTag.mutate({
@@ -91,8 +101,8 @@ const ManageTagsDialog = memo(
           });
           setEditingId(null);
           fetchTags();
-        } catch {
-          toast.error('Failed to update tag');
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to update tag'));
         } finally {
           setLoading(false);
         }
@@ -103,12 +113,13 @@ const ManageTagsDialog = memo(
     const onDeleteTag = useCallback(
       async (tagId: number) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           await trpc.threads.deleteForumTag.mutate({ tagId });
           fetchTags();
-        } catch {
-          toast.error('Failed to delete tag');
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to delete tag'));
         }
       },
       [fetchTags]

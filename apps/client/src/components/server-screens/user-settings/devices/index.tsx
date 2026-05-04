@@ -2,6 +2,7 @@ import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { LoadingCard } from '@/components/ui/loading-card';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import {
   Select,
   SelectContent,
@@ -13,6 +14,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { Resolution } from '@/types';
 import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
@@ -166,12 +168,10 @@ const Devices = memo(() => {
         {/* macOS Audio Driver — only shown in Electron on macOS */}
         <MacOSAudioDriverSection />
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={saveDeviceSettings}>Save Changes</Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={saveDeviceSettings}
+        />
     </div>
   );
 });
@@ -211,8 +211,8 @@ const MacOSAudioDriverSection = memo(() => {
       } else if (result.error) {
         toast.error(result.error);
       }
-    } catch {
-      toast.error('Failed to install audio driver');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to install audio driver'));
     } finally {
       setLoading(false);
       refreshStatus();
@@ -228,8 +228,8 @@ const MacOSAudioDriverSection = memo(() => {
       } else if (result.error) {
         toast.error(result.error);
       }
-    } catch {
-      toast.error('Failed to uninstall audio driver');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to uninstall audio driver'));
     } finally {
       setLoading(false);
       refreshStatus();

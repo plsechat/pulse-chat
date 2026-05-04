@@ -5,7 +5,10 @@ import path from 'path';
 import { db } from '..';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
+import { config } from '../../config';
 import { signChallenge } from '../../utils/federation';
+import { federationFetch } from '../../utils/federation-fetch';
+import { fetchBoundedImage } from '../../utils/fetch-bounded-image';
 import { validateFederationUrl } from '../../utils/validate-url';
 import { publishUser } from '../publishers';
 import { files, users } from '../schema';
@@ -134,6 +137,13 @@ async function getShadowUsersByInstance(
     );
 }
 
+// Caps for federated media proxies (Phase 4 / F3). Federated peers
+// can serve arbitrarily large bytes; we don't blindly accept what
+// they hand us, especially for proxied avatars/banners that go to
+// disk under our PUBLIC_PATH. 10 MB is plenty for any realistic
+// avatar/banner (Discord caps avatars at 8 MB animated, 10 MB total).
+const MAX_FEDERATED_AVATAR_BYTES = 10 * 1024 * 1024;
+
 async function syncShadowUserAvatar(
   shadowUserId: number,
   remoteAvatarUrl: string
@@ -151,25 +161,20 @@ async function syncShadowUserAvatar(
 
     if (shadow?.avatarId) return;
 
-    const response = await fetch(validatedUrl.href, {
-      signal: AbortSignal.timeout(10_000)
-    });
-    if (!response.ok) return;
+    // F3 + F4: stream-bounded fetch with magic-byte sniff. Rejects
+    // oversized bodies before they hit disk and forces the saved
+    // mime/extension to whatever the bytes actually are, never the
+    // attacker-controlled Content-Type header.
+    const sniffed = await fetchBoundedImage(
+      validatedUrl.href,
+      MAX_FEDERATED_AVATAR_BYTES,
+      { signal: AbortSignal.timeout(10_000) }
+    );
 
-    const buffer = await response.arrayBuffer();
-    const contentType =
-      response.headers.get('content-type') || 'image/png';
-    const ext = contentType.includes('png')
-      ? '.png'
-      : contentType.includes('gif')
-        ? '.gif'
-        : contentType.includes('webp')
-          ? '.webp'
-          : '.jpg';
-    const fileName = `federated-avatar-${randomUUIDv7()}${ext}`;
+    const fileName = `federated-avatar-${randomUUIDv7()}${sniffed.extension}`;
     const filePath = path.join(PUBLIC_PATH, fileName);
 
-    await Bun.write(filePath, buffer);
+    await Bun.write(filePath, sniffed.bytes);
 
     const [fileRecord] = await db
       .insert(files)
@@ -178,9 +183,9 @@ async function syncShadowUserAvatar(
         originalName: fileName,
         md5: `federated-${randomUUIDv7()}`,
         userId: shadowUserId,
-        size: buffer.byteLength,
-        mimeType: contentType,
-        extension: ext,
+        size: sniffed.bytes.byteLength,
+        mimeType: sniffed.mimeType,
+        extension: sniffed.extension,
         createdAt: Date.now()
       })
       .returning();
@@ -204,26 +209,30 @@ async function downloadFederatedFile(
   userId: number,
   remoteOriginalName: string
 ): Promise<{ fileId: number; fileName: string } | null> {
-  await validateFederationUrl(remoteUrl);
+  const validatedUrl = await validateFederationUrl(remoteUrl);
 
-  const response = await fetch(remoteUrl, {
-    signal: AbortSignal.timeout(10_000)
-  });
-  if (!response.ok) return null;
+  // Same cap as avatars — every call site is image-only (avatar /
+  // banner) so 10 MB is safely generous and small enough to bound
+  // disk damage from a hostile peer.
+  let sniffed;
+  try {
+    sniffed = await fetchBoundedImage(
+      validatedUrl.href,
+      MAX_FEDERATED_AVATAR_BYTES,
+      { signal: AbortSignal.timeout(10_000) }
+    );
+  } catch (err) {
+    logger.warn(
+      '[downloadFederatedFile] failed for url=%s: %o',
+      remoteUrl,
+      err
+    );
+    return null;
+  }
 
-  const buffer = await response.arrayBuffer();
-  const contentType = response.headers.get('content-type') || 'image/png';
-  const ext = contentType.includes('png')
-    ? '.png'
-    : contentType.includes('gif')
-      ? '.gif'
-      : contentType.includes('webp')
-        ? '.webp'
-        : '.jpg';
-
-  const fileName = `${prefix}-${randomUUIDv7()}${ext}`;
+  const fileName = `${prefix}-${randomUUIDv7()}${sniffed.extension}`;
   const filePath = path.join(PUBLIC_PATH, fileName);
-  await Bun.write(filePath, buffer);
+  await Bun.write(filePath, sniffed.bytes);
 
   const [fileRecord] = await db
     .insert(files)
@@ -232,9 +241,9 @@ async function downloadFederatedFile(
       originalName: remoteOriginalName,
       md5: `federated-${randomUUIDv7()}`,
       userId,
-      size: buffer.byteLength,
-      mimeType: contentType,
-      extension: ext,
+      size: sniffed.bytes.byteLength,
+      mimeType: sniffed.mimeType,
+      extension: sniffed.extension,
       createdAt: Date.now()
     })
     .returning();
@@ -270,14 +279,21 @@ async function syncShadowUserProfile(
 
     // Fetch profile from home instance
     const protocol = issuerDomain.includes('localhost') ? 'http' : 'https';
-    const signature = await signChallenge(JSON.stringify({ publicId }));
+    const bodyToSign = {
+      publicId,
+      fromDomain: config.federation.domain
+    };
+    const signature = await signChallenge(bodyToSign, issuerDomain);
 
-    const infoResponse = await fetch(
+    const infoResponse = await federationFetch(
       `${protocol}://${issuerDomain}/federation/user-info`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ publicId, signature }),
+        body: JSON.stringify({
+          ...bodyToSign,
+          signature
+        }),
         signal: AbortSignal.timeout(10_000)
       }
     );

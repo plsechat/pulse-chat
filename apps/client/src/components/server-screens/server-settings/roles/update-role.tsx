@@ -40,19 +40,21 @@ const UpdateRole = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.roles.delete.mutate({ roleId: selectedRole.id });
         toast.success('Role deleted');
         refetch();
         setSelectedRoleId(undefined);
-      } catch {
-        toast.error('Failed to delete role');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete role'));
       }
     }, [selectedRole.id, refetch, setSelectedRoleId]);
 
     const onUpdateRole = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.roles.update.mutate({
@@ -77,6 +79,7 @@ const UpdateRole = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.roles.setDefault.mutate({ roleId: selectedRole.id });

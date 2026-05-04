@@ -1,13 +1,15 @@
 import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { UserAvatar } from '@/components/user-avatar';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedPublicUser } from '@pulse/shared';
 import { Upload } from 'lucide-react';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
+import { AvatarCropDialog } from './avatar-crop-dialog';
 
 type TAvatarManagerProps = {
   user: TJoinedPublicUser;
@@ -15,26 +17,43 @@ type TAvatarManagerProps = {
 
 const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
   const openFilePicker = useFilePicker();
+  // Holds the file the user just picked while the crop dialog is open.
+  // null means no crop is in progress; the dialog renders only when set.
+  const [pickedFile, setPickedFile] = useState<File | null>(null);
 
   const removeAvatar = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.changeAvatar.mutate({ fileId: undefined });
 
       toast.success('Avatar removed successfully!');
-    } catch {
-      toast.error('Could not remove avatar. Please try again.');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Could not remove avatar. Please try again.'));
     }
   }, []);
 
   const onAvatarClick = useCallback(async () => {
-    const trpc = getTRPCClient();
-
     try {
       const [file] = await openFilePicker('image/*');
+      // Defer upload until the user has confirmed a crop region in
+      // the dialog — uploading the raw file and then cropping after
+      // would waste bandwidth on the discarded portion of the image.
+      setPickedFile(file);
+    } catch {
+      // openFilePicker rejects when the dialog is dismissed; that's
+      // a user-initiated cancel, not an error worth surfacing.
+    }
+  }, [openFilePicker]);
 
-      const temporaryFile = await uploadFile(file);
+  const handleCropConfirm = useCallback(async (cropped: File) => {
+    setPickedFile(null);
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+
+    try {
+      const temporaryFile = await uploadFile(cropped);
 
       if (!temporaryFile) {
         toast.error('Could not upload file. Please try again.');
@@ -44,10 +63,16 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
       await trpc.users.changeAvatar.mutate({ fileId: temporaryFile.id });
 
       toast.success('Avatar updated successfully!');
-    } catch {
-      toast.error('Could not update avatar. Please try again.');
+    } catch (err) {
+      toast.error(
+        getTrpcError(err, 'Could not update avatar. Please try again.')
+      );
     }
-  }, [openFilePicker]);
+  }, []);
+
+  const handleCropCancel = useCallback(() => {
+    setPickedFile(null);
+  }, []);
 
   return (
     <Group label="Avatar">
@@ -75,6 +100,14 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
             Remove avatar
           </Button>
         </div>
+      )}
+      {pickedFile && (
+        <AvatarCropDialog
+          file={pickedFile}
+          open
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
       )}
     </Group>
   );

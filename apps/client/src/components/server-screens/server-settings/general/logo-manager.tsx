@@ -1,5 +1,6 @@
 import { ImagePicker } from '@/components/image-picker';
 import { Group } from '@/components/ui/group';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getTRPCClient } from '@/lib/trpc';
@@ -19,6 +20,7 @@ const LogoManager = memo(({ logo, serverId, refetch }: TLogoManagerProps) => {
   const removeLogo = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.others.changeLogo.mutate({ serverId, fileId: undefined });
@@ -34,6 +36,7 @@ const LogoManager = memo(({ logo, serverId, refetch }: TLogoManagerProps) => {
   const onLogoClick = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const [file] = await openFilePicker('image/*');
@@ -49,8 +52,8 @@ const LogoManager = memo(({ logo, serverId, refetch }: TLogoManagerProps) => {
       await refetch();
 
       toast.success('Logo updated successfully!');
-    } catch {
-      toast.error('Could not update logo. Please try again.');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Could not update logo. Please try again.'));
     }
   }, [openFilePicker, refetch, serverId]);
 

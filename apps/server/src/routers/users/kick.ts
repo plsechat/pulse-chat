@@ -6,6 +6,7 @@ import {
   removeServerMember
 } from '../../db/queries/servers';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { assertNotFederatedTarget } from '../../utils/federation-guard';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -23,6 +24,8 @@ const kickRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'No active server'
     });
+
+    await assertNotFederatedTarget(input.userId, 'Kick');
 
     const isMember = await isServerMember(ctx.activeServerId, input.userId);
     invariant(isMember, {
@@ -53,8 +56,11 @@ const kickRoute = protectedProcedure
       userId: input.userId
     });
 
-    // Notify other members to remove the user from the member list
-    publishUser(input.userId, 'delete');
+    // Notify the active server's members to drop the user from the roster.
+    // Note: this fires AFTER `removeServerMember`, so getServerMemberIds
+    // (inside publishUser) returns the remaining members — the kicked user
+    // already received USER_KICKED above and doesn't need USER_DELETE.
+    publishUser(input.userId, 'delete', { scopeServerId: ctx.activeServerId });
 
     enqueueActivityLog({
       type: ActivityLogType.USER_KICKED,

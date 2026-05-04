@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
-import { setActiveThreadId, setHighlightedMessageId } from '@/features/server/channels/actions';
+import { setActiveThreadId } from '@/features/server/channels/actions';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { useThreadsByParentChannelId } from '@/features/server/channels/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { Archive, MessageSquare } from 'lucide-react';
@@ -34,6 +35,10 @@ const ThreadListPopover = memo(
 
     const fetchThreads = useCallback(async () => {
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setLoading(false);
+        return;
+      }
 
       try {
         const threads = await trpc.threads.getAll.query({
@@ -81,32 +86,23 @@ const ThreadListPopover = memo(
       sourceMessageId: null
     }));
 
+    const scrollToMessage = useScrollToMessage();
     const onThreadClick = useCallback(
       (threadId: number, sourceMessageId?: number | null) => {
         setActiveThreadId(threadId);
 
         // Scroll the main channel to the source message and highlight it
         if (sourceMessageId) {
-          setHighlightedMessageId(sourceMessageId);
-
-          requestAnimationFrame(() => {
-            const el = document.getElementById(`msg-${sourceMessageId}`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          });
-
-          // Clear highlight after animation
-          setTimeout(() => setHighlightedMessageId(undefined), 2500);
+          scrollToMessage(sourceMessageId);
         }
 
         onClose();
       },
-      [onClose]
+      [onClose, scrollToMessage]
     );
 
     return (
-      <div className="absolute right-0 top-full mt-1 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+      <div className="absolute right-0 top-full mt-1 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
           <span className="text-sm font-medium">Threads</span>
           <Button

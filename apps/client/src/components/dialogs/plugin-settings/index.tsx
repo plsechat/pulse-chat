@@ -111,6 +111,10 @@ const PluginSettingsDialog = memo(
         setLoading(true);
 
         const trpc = getTRPCClient();
+        if (!trpc) {
+          setLoading(false);
+          return;
+        }
 
         try {
           const result = await trpc.plugins.getSettings.query({ pluginId });
@@ -218,6 +222,10 @@ const PluginSettingsDialog = memo(
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) {
+          setIsSaving(false);
+          return;
+        }
         const updates: Record<string, string | number | boolean> = {};
 
         for (const def of definitions) {

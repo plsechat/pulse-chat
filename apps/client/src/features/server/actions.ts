@@ -7,7 +7,11 @@ import {
   setActiveView
 } from '@/features/app/actions';
 import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
-import { fetchFriendRequests, fetchFriends } from '@/features/friends/actions';
+import {
+  fetchBlockedUsers,
+  fetchFriendRequests,
+  fetchFriends
+} from '@/features/friends/actions';
 import { logDebug } from '@/helpers/browser-logger';
 import { getHostFromServer } from '@/helpers/get-file-url';
 import { applyServerPreferences } from '@/lib/preferences-apply';
@@ -91,6 +95,7 @@ export const fetchDeferredServerData = (
   trpc: ReturnType<typeof getHomeTRPCClient>,
   expectedServerId: string
 ) => {
+  if (!trpc) return;
   const isStale = () => store.getState().server.serverId !== expectedServerId;
 
   trpc.others.getServerMembers.query().then((users) => {
@@ -116,6 +121,7 @@ export const joinServer = async (
   serverId?: number
 ) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   const data = await trpc.others.joinServer.query({
     handshakeHash,
     serverId
@@ -159,6 +165,7 @@ export const joinServer = async (
   // Fetch friends, DM data, joined servers, and unread counts in parallel
   fetchFriends();
   fetchFriendRequests();
+  fetchBlockedUsers();
   fetchDmChannels();
   fetchActiveDmCalls();
   fetchServerUnreadCounts();

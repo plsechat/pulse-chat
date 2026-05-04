@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
 import { roles, userRoles } from '../../db/schema';
+import { assertNotFederatedTarget } from '../../utils/federation-guard';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -21,6 +22,8 @@ const removeRoleRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'No active server'
     });
+
+    await assertNotFederatedTarget(input.userId, 'Remove role');
 
     // Verify the role belongs to the caller's active server
     const [role] = await db

@@ -1,10 +1,6 @@
 import { SoundType } from '@/features/server/types';
-import {
-  getLocalStorageItemAsJSON,
-  LocalStorageKey,
-  setLocalStorageItemAsJSON
-} from '@/helpers/storage';
-import { syncPreference } from '@/lib/preferences-sync';
+import { LocalStorageKey } from '@/helpers/storage';
+import { createPreferenceStore } from '@/lib/preference-store';
 import { useCallback, useSyncExternalStore } from 'react';
 
 // ---------------------------------------------------------------------------
@@ -78,7 +74,7 @@ for (const [, cat] of Object.entries(SOUND_CATEGORIES)) {
 }
 
 // ---------------------------------------------------------------------------
-// Defaults & module-level state (mirrors use-appearance-settings.ts)
+// Defaults & store
 // ---------------------------------------------------------------------------
 
 const defaultSettings: SoundNotificationSettings = {
@@ -89,91 +85,56 @@ const defaultSettings: SoundNotificationSettings = {
   desktopNotificationsEnabled: false
 };
 
-let listeners: Array<() => void> = [];
-let currentSettings: SoundNotificationSettings | null = null;
-
-const getSettings = (): SoundNotificationSettings => {
-  if (currentSettings === null) {
-    currentSettings =
-      getLocalStorageItemAsJSON<SoundNotificationSettings>(
-        LocalStorageKey.SOUND_NOTIFICATION_SETTINGS,
-        defaultSettings
-      ) ?? defaultSettings;
-  }
-  return currentSettings;
-};
-
-const subscribe = (listener: () => void) => {
-  listeners = [...listeners, listener];
-  return () => {
-    listeners = listeners.filter((l) => l !== listener);
-  };
-};
-
-const updateSettings = (partial: Partial<SoundNotificationSettings>) => {
-  currentSettings = { ...getSettings(), ...partial };
-  setLocalStorageItemAsJSON(
-    LocalStorageKey.SOUND_NOTIFICATION_SETTINGS,
-    currentSettings
-  );
-  syncPreference({ soundNotification: partial });
-  for (const listener of listeners) {
-    listener();
-  }
-};
-
-// Re-read from localStorage when server preferences are applied
-if (typeof window !== 'undefined') {
-  window.addEventListener('pulse-preferences-loaded', () => {
-    currentSettings = null;
-    getSettings();
-    for (const listener of listeners) {
-      listener();
-    }
-  });
-}
+const store = createPreferenceStore<SoundNotificationSettings>({
+  storageKey: LocalStorageKey.SOUND_NOTIFICATION_SETTINGS,
+  defaults: defaultSettings,
+  syncKey: 'soundNotification'
+});
 
 // ---------------------------------------------------------------------------
 // Non-React exports (for playSound / desktop-notification)
 // ---------------------------------------------------------------------------
 
-export const getSoundNotificationSettings = getSettings;
+export const getSoundNotificationSettings = store.getSettings;
 
 export const isCategoryEnabledForSound = (type: SoundType): boolean => {
   const key = soundToCategoryKey[type];
   if (!key) return true;
-  return getSettings()[key] as boolean;
+  return store.getSettings()[key] as boolean;
 };
 
 export const getMasterVolumeMultiplier = (): number =>
-  getSettings().masterVolume / 100;
+  store.getSettings().masterVolume / 100;
 
 // ---------------------------------------------------------------------------
 // React hook
 // ---------------------------------------------------------------------------
 
 export const useSoundNotificationSettings = () => {
-  const settings = useSyncExternalStore(subscribe, getSettings);
+  const settings = useSyncExternalStore(store.subscribe, store.getSettings);
 
-  const setMasterVolume = useCallback((value: number) => {
-    updateSettings({ masterVolume: value });
-  }, []);
-
-  const setMessageSoundsEnabled = useCallback((value: boolean) => {
-    updateSettings({ messageSoundsEnabled: value });
-  }, []);
-
-  const setVoiceSoundsEnabled = useCallback((value: boolean) => {
-    updateSettings({ voiceSoundsEnabled: value });
-  }, []);
-
-  const setActionSoundsEnabled = useCallback((value: boolean) => {
-    updateSettings({ actionSoundsEnabled: value });
-  }, []);
-
-  const setDesktopNotificationsEnabled = useCallback((value: boolean) => {
-    updateSettings({ desktopNotificationsEnabled: value });
-  }, []);
+  const setMasterVolume = useCallback(
+    (value: number) => store.updateSettings({ masterVolume: value }),
+    []
+  );
+  const setMessageSoundsEnabled = useCallback(
+    (value: boolean) =>
+      store.updateSettings({ messageSoundsEnabled: value }),
+    []
+  );
+  const setVoiceSoundsEnabled = useCallback(
+    (value: boolean) => store.updateSettings({ voiceSoundsEnabled: value }),
+    []
+  );
+  const setActionSoundsEnabled = useCallback(
+    (value: boolean) => store.updateSettings({ actionSoundsEnabled: value }),
+    []
+  );
+  const setDesktopNotificationsEnabled = useCallback(
+    (value: boolean) =>
+      store.updateSettings({ desktopNotificationsEnabled: value }),
+    []
+  );
 
   return {
     settings,

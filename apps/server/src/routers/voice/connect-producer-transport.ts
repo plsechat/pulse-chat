@@ -20,12 +20,7 @@ const connectProducerTransportRoute = protectedProcedure
       message: 'User is not in a voice channel'
     });
 
-    const runtime = VoiceRuntime.findById(ctx.currentVoiceChannelId);
-
-    invariant(runtime, {
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Voice runtime not found for this channel'
-    });
+    const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
 
     const producerTransport = runtime.getProducerTransport(ctx.user.id);
 

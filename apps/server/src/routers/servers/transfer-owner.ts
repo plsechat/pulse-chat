@@ -1,7 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getServerById, isServerMember } from '../../db/queries/servers';
+import {
+  getServerById,
+  isServerMember,
+  isServerOwner
+} from '../../db/queries/servers';
 import { servers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -21,7 +25,7 @@ const transferOwnerRoute = protectedProcedure
       message: 'Server not found'
     });
 
-    invariant(server.ownerId === ctx.userId, {
+    invariant(await isServerOwner(input.serverId, ctx.userId), {
       code: 'FORBIDDEN',
       message: 'Only the server owner can transfer ownership'
     });

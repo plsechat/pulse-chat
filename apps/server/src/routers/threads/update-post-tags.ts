@@ -1,9 +1,10 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { count, eq, max } from 'drizzle-orm';
+import { and, count, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, forumPostTags, messages } from '../../db/schema';
+import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -15,6 +16,11 @@ const updatePostTagsRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [thread] = await db
       .select({
         id: channels.id,
@@ -24,7 +30,12 @@ const updatePostTagsRoute = protectedProcedure
         parentChannelId: channels.parentChannelId
       })
       .from(channels)
-      .where(eq(channels.id, input.threadId))
+      .where(
+        and(
+          eq(channels.id, input.threadId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!thread || thread.type !== ChannelType.THREAD) {

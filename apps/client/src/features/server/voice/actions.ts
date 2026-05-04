@@ -152,6 +152,7 @@ export const joinVoice = async (
 
   const { micMuted, soundMuted } = ownVoiceStateSelector(state);
   const client = getTRPCClient();
+  if (!client) return undefined;
 
   try {
     const { routerRtpCapabilities } = await client.voice.join.mutate({
@@ -191,6 +192,7 @@ export const leaveVoice = async (): Promise<void> => {
   setPinnedCard(undefined);
 
   const client = getTRPCClient();
+  if (!client) return;
 
   try {
     await client.voice.leave.mutate();

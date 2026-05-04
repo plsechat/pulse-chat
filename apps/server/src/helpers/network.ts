@@ -1,6 +1,5 @@
 import os from 'os';
-
-const FETCH_TIMEOUT_MS = 5000;
+import { outboundFetch } from '../utils/outbound-fetch';
 
 const getPrivateIp = async () => {
   const interfaces = os.networkInterfaces();
@@ -14,12 +13,8 @@ const getPrivateIp = async () => {
 
 const getPublicIpFromIpify = async (): Promise<string | undefined> => {
   try {
-    const response = await fetch('https://api.ipify.org?format=json', {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-    });
-    const data = (await response.json()) as {
-      ip: string;
-    };
+    const response = await outboundFetch('https://api.ipify.org?format=json');
+    const data = await response.json<{ ip: string }>();
 
     return data.ip;
   } catch {
@@ -30,9 +25,7 @@ const getPublicIpFromIpify = async (): Promise<string | undefined> => {
 // fallback since it can return ipv6 sometimes
 const getPublicIpFromIfconfig = async (): Promise<string | undefined> => {
   try {
-    const response = await fetch('https://ifconfig.me/ip', {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-    });
+    const response = await outboundFetch('https://ifconfig.me/ip');
     const ip = (await response.text()).trim();
 
     return ip;
@@ -43,9 +36,7 @@ const getPublicIpFromIfconfig = async (): Promise<string | undefined> => {
 
 const getPublicIpFromIcanhazip = async (): Promise<string | undefined> => {
   try {
-    const response = await fetch('https://ipv4.icanhazip.com', {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-    });
+    const response = await outboundFetch('https://ipv4.icanhazip.com');
     const ip = (await response.text()).trim();
 
     return ip;

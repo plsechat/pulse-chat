@@ -1,21 +1,16 @@
+import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getTRPCClient } from '@/lib/trpc';
 import { setPluginCommands } from './actions';
 
 const subscribeToPlugins = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
-  const onCommandsChangeSub = trpc.plugins.onCommandsChange.subscribe(
-    undefined,
-    {
-      onData: (data) => setPluginCommands(data),
-      onError: (err) =>
-        console.error('onCommandsChange subscription error:', err)
-    }
+  return combineUnsubscribes(
+    subscribe('onCommandsChange', trpc.plugins.onCommandsChange, (data) =>
+      setPluginCommands(data)
+    )
   );
-
-  return () => {
-    onCommandsChangeSub.unsubscribe();
-  };
 };
 
 export { subscribeToPlugins };

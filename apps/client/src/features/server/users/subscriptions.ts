@@ -3,97 +3,85 @@ import { appSliceActions } from '@/features/app/slice';
 import { updateFriend } from '@/features/friends/actions';
 import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
+import {
+  distributeSenderKeysToOnlineMember,
+  markChainForRotation
+} from '@/lib/e2ee';
+import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getTRPCClient } from '@/lib/trpc';
-import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
+import { UserStatus } from '@pulse/shared';
 import { toast } from 'sonner';
 import { addUser, handleUserJoin, removeUser, updateUser } from './actions';
 
 /**
- * When a user comes online, proactively distribute our sender keys to them
- * for every E2EE channel in the server. This closes the gap between
- * "member joins/reconnects" and "first message send" so the new user can
- * decrypt messages immediately.
+ * Snapshot the inputs needed by lib/e2ee from Redux. Keeping the lookup
+ * here (rather than inside lib/e2ee) avoids a Redux dependency in the
+ * E2EE module — `lib/` stays orchestrator-callable from anywhere.
  */
-async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
+function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
   const state = store.getState();
   const ownUserId = state.server.ownUserId;
-  if (!ownUserId || joinedUserId === ownUserId) return;
-
-  const e2eeChannels = state.server.channels.filter((c) => c.e2ee);
-  if (e2eeChannels.length === 0) return;
-
-  const { ensureChannelSenderKey, clearDistributedMember, hasKeys } =
-    await import('@/lib/e2ee');
-
-  // Don't prompt the user to set up keys — this is a background operation.
-  // If they haven't generated keys yet, silently skip.
-  if (!(await hasKeys())) return;
-
-  // Clear the user from distributedMembers so we don't skip them.
-  // If their identity changed (key reset), ensureSession with
-  // verifyIdentity: true will detect the mismatch and rebuild.
-  clearDistributedMember(joinedUserId);
-
-  for (const channel of e2eeChannels) {
-    try {
-      await ensureChannelSenderKey(channel.id, ownUserId);
-    } catch (err) {
-      console.warn(
-        `[E2EE] Proactive key distribution failed for channel ${channel.id}:`,
-        err
-      );
-    }
-  }
+  if (!ownUserId) return Promise.resolve();
+  const e2eeChannelIds = state.server.channels
+    .filter((c) => c.e2ee)
+    .map((c) => c.id);
+  return distributeSenderKeysToOnlineMember(
+    joinedUserId,
+    ownUserId,
+    e2eeChannelIds
+  );
 }
 
 const subscribeToUsers = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
-  const onUserJoinSub = trpc.users.onJoin.subscribe(undefined, {
-    onData: (user: TJoinedPublicUser) => {
-      handleUserJoin(user);
-      updateFriend(user.id, user);
+  return combineUnsubscribes(
+    subscribe('onUserJoin', trpc.users.onJoin, (payload) => {
+      handleUserJoin(payload.serverId, payload.user);
+      updateFriend(payload.user.id, payload.user);
 
       // Fire-and-forget: distribute sender keys to the newly online user
-      distributeE2eeKeysToUser(user.id).catch((err) =>
+      distributeE2eeKeysToUser(payload.user.id).catch((err) =>
         console.warn('[E2EE] Proactive key distribution error:', err)
       );
-    },
-    onError: (err) => console.error('onUserJoin subscription error:', err)
-  });
-
-  const onUserCreateSub = trpc.users.onCreate.subscribe(undefined, {
-    onData: (user: TJoinedPublicUser) => {
-      addUser(user);
-    },
-    onError: (err) => console.error('onUserCreate subscription error:', err)
-  });
-
-  const onUserLeaveSub = trpc.users.onLeave.subscribe(undefined, {
-    onData: (userId: number) => {
+    }),
+    subscribe('onUserCreate', trpc.users.onCreate, (user) => addUser(user)),
+    subscribe('onUserLeave', trpc.users.onLeave, (userId) => {
       updateUser(userId, { status: UserStatus.OFFLINE });
       updateFriend(userId, { status: UserStatus.OFFLINE });
-    },
-    onError: (err) => console.error('onUserLeave subscription error:', err)
-  });
-
-  const onUserUpdateSub = trpc.users.onUpdate.subscribe(undefined, {
-    onData: (user: TJoinedPublicUser) => {
+    }),
+    subscribe('onUserUpdate', trpc.users.onUpdate, (user) => {
       updateUser(user.id, user);
       updateFriend(user.id, user);
-    },
-    onError: (err) => console.error('onUserUpdate subscription error:', err)
-  });
-
-  const onUserDeleteSub = trpc.users.onDelete.subscribe(undefined, {
-    onData: (userId: number) => {
+    }),
+    subscribe('onUserDelete', trpc.users.onDelete, ({ serverId, userId }) => {
+      // Server-scoped delete (kick/ban/leave from `serverId`). Only mutate
+      // the local roster when we're actually viewing that server, otherwise
+      // we'd corrupt the active server's user list (audit H1, same shape as
+      // the USER_JOIN scope fix).
+      const activeServerId = store.getState().app.activeServerId;
+      if (serverId !== activeServerId) return;
       removeUser(userId);
-    },
-    onError: (err) => console.error('onUserDelete subscription error:', err)
-  });
-
-  const onKickedSub = trpc.users.onKicked.subscribe(undefined, {
-    onData: ({ serverId, reason }: { serverId: number; reason?: string }) => {
+      // Phase B B4 — lazy rotation on kick/leave. Mark every E2EE
+      // channel in this server dirty so the next encrypt rotates the
+      // chain (new senderKeyId) and SKDMs only the still-visible
+      // members. Some channels may not have included the leaver, but
+      // over-rotation is cheap and the alternative (per-channel
+      // membership query) round-trips for every kick.
+      const e2eeChannels = store
+        .getState()
+        .server.channels.filter((c) => c.e2ee);
+      for (const channel of e2eeChannels) {
+        markChainForRotation('channel', channel.id).catch((err) => {
+          console.warn(
+            `[E2EE] Failed to mark channel ${channel.id} dirty after kick of ${userId}:`,
+            err
+          );
+        });
+      }
+    }),
+    subscribe('onKicked', trpc.users.onKicked, ({ serverId, reason }) => {
       toast.error(
         reason
           ? `You have been kicked: ${reason}`
@@ -110,18 +98,8 @@ const subscribeToUsers = () => {
         setActiveView('home');
         store.dispatch(appSliceActions.setActiveServerId(undefined));
       }
-    },
-    onError: (err) => console.error('onKicked subscription error:', err)
-  });
-
-  return () => {
-    onUserJoinSub.unsubscribe();
-    onUserLeaveSub.unsubscribe();
-    onUserUpdateSub.unsubscribe();
-    onUserCreateSub.unsubscribe();
-    onUserDeleteSub.unsubscribe();
-    onKickedSub.unsubscribe();
-  };
+    })
+  );
 };
 
 export { subscribeToUsers };

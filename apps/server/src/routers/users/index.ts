@@ -11,6 +11,8 @@ import {
   onUserLeaveRoute,
   onUserUpdateRoute
 } from './events';
+import { getAuthProvidersRoute } from './get-auth-providers';
+import { getMyIdRoute } from './get-my-id';
 import { getPreferencesRoute } from './get-preferences';
 import { getUserInfoRoute } from './get-user-info';
 import { getUsersRoute } from './get-users';
@@ -35,6 +37,7 @@ export const usersRouter = t.router({
   setUserNickname: setUserNicknameRoute,
   getInfo: getUserInfoRoute,
   getAll: getUsersRoute,
+  getMyId: getMyIdRoute,
   kick: kickRoute,
   ban: banRoute,
   unban: unbanRoute,
@@ -45,5 +48,6 @@ export const usersRouter = t.router({
   onDelete: onUserDeleteRoute,
   getPreferences: getPreferencesRoute,
   updatePreferences: updatePreferencesRoute,
+  getAuthProviders: getAuthProvidersRoute,
   onKicked: onUserKickedRoute
 });

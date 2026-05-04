@@ -5,17 +5,27 @@ import {
 } from '@/helpers/storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type TScrollPositionMap = Record<number, number>;
+type TScrollPositionEntry = {
+  scrollTop: number;
+  atBottom: boolean;
+};
+type TScrollPositionMap = Record<number, TScrollPositionEntry>;
 
 // In-memory cache (fast reads), backed by localStorage (survives refresh)
 const scrollPositions: TScrollPositionMap = loadScrollPositions();
 
 function loadScrollPositions(): TScrollPositionMap {
-  return (
-    getLocalStorageItemAsJSON<TScrollPositionMap>(
-      LocalStorageKey.SCROLL_POSITIONS
-    ) ?? {}
-  );
+  const raw = getLocalStorageItemAsJSON<
+    Record<number, number | TScrollPositionEntry>
+  >(LocalStorageKey.SCROLL_POSITIONS);
+  if (!raw) return {};
+  // Migrate legacy number-only shape to {scrollTop, atBottom}
+  const out: TScrollPositionMap = {};
+  for (const [k, v] of Object.entries(raw)) {
+    out[Number(k)] =
+      typeof v === 'number' ? { scrollTop: v, atBottom: false } : v;
+  }
+  return out;
 }
 
 function persistScrollPositions() {
@@ -72,7 +82,10 @@ const useScrollController = ({
     if (!container) return;
 
     container.scrollTop = container.scrollHeight;
-    delete scrollPositions[channelId];
+    scrollPositions[channelId] = {
+      scrollTop: container.scrollTop,
+      atBottom: true
+    };
     schedulePersist();
     setIsAtBottom(true);
   }, [channelId]);
@@ -83,12 +96,18 @@ const useScrollController = ({
 
     if (!container || fetching) return;
 
-    // Save scroll position
-    scrollPositions[channelId] = container.scrollTop;
+    // Save scroll position + whether the user is anchored at the bottom.
+    // atBottom is the load-bearing flag: scrollTop is in absolute pixels and
+    // becomes meaningless once scrollHeight grows (more messages loaded), but
+    // atBottom stays correct because it's a relative concept.
+    const atBottom = checkIsAtBottom();
+    scrollPositions[channelId] = {
+      scrollTop: container.scrollTop,
+      atBottom
+    };
     schedulePersist();
 
-    // Update isAtBottom state
-    setIsAtBottom(checkIsAtBottom());
+    setIsAtBottom(atBottom);
 
     if (container.scrollTop <= 50 && hasMore) {
       const prevScrollHeight = container.scrollHeight;
@@ -101,12 +120,26 @@ const useScrollController = ({
     }
   }, [loadMore, hasMore, fetching, channelId, checkIsAtBottom]);
 
+  // Reset the "did we restore yet?" flag when the channel changes.
+  // Without this, switching A→B→A keeps the flag true from the A visit and
+  // the restore branch below is skipped, leaving the user wherever the
+  // browser placed scrollTop (typically 0 = top).
+  useEffect(() => {
+    hasInitialScroll.current = false;
+  }, [channelId]);
+
   // Save scroll position on unmount
   useEffect(() => {
     const container = containerRef.current;
     return () => {
       if (container) {
-        scrollPositions[channelId] = container.scrollTop;
+        const atBottom =
+          container.scrollTop + container.clientHeight >=
+          container.scrollHeight * 0.9;
+        scrollPositions[channelId] = {
+          scrollTop: container.scrollTop,
+          atBottom
+        };
         // Flush immediately on unmount so it's saved before page unload
         persistScrollPositions();
       }
@@ -119,17 +152,21 @@ const useScrollController = ({
     if (fetching || messages.length === 0) return;
 
     if (!hasInitialScroll.current) {
-      const savedPosition = scrollPositions[channelId];
+      const saved = scrollPositions[channelId];
 
       const performScroll = () => {
         const container = containerRef.current;
         if (!container) return;
 
-        if (savedPosition !== undefined) {
-          container.scrollTop = savedPosition;
-          setIsAtBottom(checkIsAtBottom());
-        } else {
+        // Always honor the bottom anchor over a stale scrollTop value —
+        // scrollHeight may have changed since save time (more/fewer messages
+        // loaded), so a saved scrollTop near the old bottom would land in
+        // the middle of the new content. atBottom stays correct regardless.
+        if (saved?.atBottom || saved === undefined) {
           scrollToBottom();
+        } else {
+          container.scrollTop = saved.scrollTop;
+          setIsAtBottom(checkIsAtBottom());
         }
         hasInitialScroll.current = true;
       };

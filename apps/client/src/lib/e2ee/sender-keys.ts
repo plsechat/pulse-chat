@@ -1,148 +1,231 @@
-import { signalStore, type SignalProtocolStore } from './store';
-import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
+/**
+ * Channel sender-key glue. Phase B replaces the static AES-256-GCM
+ * keys we shipped in Phase A with full Signal-style ratcheted chains
+ * (see `sender-key-chain.ts` for the protocol). This module is a
+ * thin persistence layer on top of `SenderKeyChain` — it loads chain
+ * state from IDB, hands it to the chain, and stores the advanced
+ * state back. It does not talk to the network — distribution flows
+ * through `index.ts` (`ensureChannelSenderKey`,
+ * `processIncomingSenderKey`, `fetchAndProcessPendingSenderKeys`).
+ *
+ * No-cache surface area: the chain owns its own forward state in
+ * IDB; CryptoKeys are derived per-message from the chainKey HKDF
+ * step and not re-imported from a base64 string the way the Phase A
+ * code did. The Phase A `cryptoKeyCache` / `clearCryptoKeyCache`
+ * exports are gone — consumers should not need to invalidate any
+ * external cache when restoring keys.
+ */
 
-const IV_LENGTH = 12;
+import { signalStore, type SignalProtocolStore } from './store';
+import {
+  decodeWire,
+  SenderKeyChain,
+  type AadContext,
+  type ChainKind,
+  type SenderKeyDistribution
+} from './sender-key-chain';
+import { base64ToArrayBuffer } from './utils';
+
+const KIND: ChainKind = 'channel';
+
+function aad(
+  channelId: number,
+  senderId: number
+): Omit<AadContext, 'senderKeyId'> {
+  return { kind: KIND, scopeId: channelId, senderId };
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  return new Uint8Array(base64ToArrayBuffer(b64));
+}
 
 /**
- * Generate a new AES-256-GCM sender key for a channel and store it locally.
- * Returns the raw key as a base64 string.
+ * Get-or-create the latest own outbound chain for (channel, ownUser).
+ * If we've never sent in this channel, generates a fresh chain at
+ * `senderKeyId = 1`. The caller is responsible for distributing the
+ * resulting SKDM (`chain.buildDistribution()`) to remaining members.
  */
-export async function generateSenderKey(
+export async function getOrCreateOutboundChannelChain(
   channelId: number,
   ownUserId: number,
-  store?: SignalProtocolStore
-): Promise<string> {
-  const s = store ?? signalStore;
-
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
+  store: SignalProtocolStore = signalStore
+): Promise<SenderKeyChain> {
+  const senderKeyId = await store.getOwnSenderKeyId(
+    KIND,
+    channelId,
+    ownUserId
   );
-
-  const rawKey = await crypto.subtle.exportKey('raw', key);
-  const keyBase64 = arrayBufferToBase64(rawKey);
-
-  await s.storeSenderKey(channelId, ownUserId, keyBase64);
-  return keyBase64;
+  if (senderKeyId !== undefined) {
+    const data = await store.getChain(
+      KIND,
+      channelId,
+      ownUserId,
+      senderKeyId
+    );
+    if (data) return SenderKeyChain.fromIdb(data);
+  }
+  const chain = await SenderKeyChain.createOutbound(1);
+  await store.storeChain(KIND, channelId, ownUserId, 1, chain.toIdb());
+  await store.setOwnSenderKeyId(KIND, channelId, ownUserId, 1);
+  return chain;
 }
 
 /**
- * Check if we have our own sender key for a channel.
+ * Bump senderKeyId and generate a new outbound chain. Used on
+ * detected kick/leave (B4 lazy rotation): the kicked member retains
+ * keys for the OLD chain, but new messages encrypt under the new
+ * chain that no SKDM has been sent to them for. Caller redistributes
+ * to remaining members.
  */
-export async function hasSenderKey(
+export async function rotateOutboundChannelChain(
   channelId: number,
-  userId: number,
-  store?: SignalProtocolStore
-): Promise<boolean> {
-  const s = store ?? signalStore;
-  const key = await s.getSenderKey(channelId, userId);
-  return !!key;
+  ownUserId: number,
+  store: SignalProtocolStore = signalStore
+): Promise<SenderKeyChain> {
+  const current =
+    (await store.getOwnSenderKeyId(KIND, channelId, ownUserId)) ?? 0;
+  const nextId = current + 1;
+  const chain = await SenderKeyChain.createOutbound(nextId);
+  await store.storeChain(KIND, channelId, ownUserId, nextId, chain.toIdb());
+  await store.setOwnSenderKeyId(KIND, channelId, ownUserId, nextId);
+  return chain;
 }
 
 /**
- * Store a received sender key for a specific user/channel.
+ * Persist an inbound chain we received via SKDM. Idempotent:
+ * receiving the same SKDM twice (a fetchPending retry, an explicit
+ * re-distribute after peer reconnect) is safe — second call
+ * overwrites with the same state, which won't break already-cached
+ * `lastSeen` because peers never SKDM the same iteration twice.
  */
-export async function storeSenderKeyForUser(
+export async function acceptInboundChannelChain(
   channelId: number,
-  userId: number,
-  keyBase64: string,
-  store?: SignalProtocolStore
+  fromUserId: number,
+  distribution: SenderKeyDistribution,
+  store: SignalProtocolStore = signalStore
 ): Promise<void> {
-  const s = store ?? signalStore;
-  await s.storeSenderKey(channelId, userId, keyBase64);
-}
-
-/**
- * Cache imported CryptoKey objects so we don't call importKey
- * repeatedly for the same sender key (e.g. 50 messages from one user).
- */
-const cryptoKeyCache = new Map<string, CryptoKey>();
-
-/**
- * Import a base64 key string as a CryptoKey (cached).
- */
-async function importKey(keyBase64: string): Promise<CryptoKey> {
-  const cached = cryptoKeyCache.get(keyBase64);
-  if (cached) return cached;
-
-  const rawKey = base64ToArrayBuffer(keyBase64);
-  const key = await crypto.subtle.importKey(
-    'raw',
-    rawKey,
-    { name: 'AES-GCM' },
-    false,
-    ['encrypt', 'decrypt']
+  const chain = SenderKeyChain.acceptInbound(
+    distribution.senderKeyId,
+    b64ToBytes(distribution.chainKey),
+    distribution.iteration,
+    b64ToBytes(distribution.signingPublicKey)
   );
-  cryptoKeyCache.set(keyBase64, key);
-  return key;
+  await store.storeChain(
+    KIND,
+    channelId,
+    fromUserId,
+    distribution.senderKeyId,
+    chain.toIdb()
+  );
 }
 
 /**
- * Encrypt plaintext using the sender's own key for a channel.
- * Format: base64(iv || ciphertext)
+ * Encrypt a channel message under our latest own chain. Persists
+ * the advanced chain state on success. Throws if no outbound chain
+ * exists yet — caller must run `ensureChannelSenderKey` first.
  */
-export async function encryptWithSenderKey(
+export async function encryptChannelMessage(
   channelId: number,
   ownUserId: number,
   plaintext: string,
-  store?: SignalProtocolStore
+  store: SignalProtocolStore = signalStore
 ): Promise<string> {
-  const s = store ?? signalStore;
-  const keyBase64 = await s.getSenderKey(channelId, ownUserId);
-  if (!keyBase64) {
-    throw new Error(`No sender key found for channel ${channelId}`);
-  }
-
-  const key = await importKey(keyBase64);
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const encoder = new TextEncoder();
-  const encoded = encoder.encode(plaintext);
-
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoded
+  const senderKeyId = await store.getOwnSenderKeyId(
+    KIND,
+    channelId,
+    ownUserId
   );
-
-  // Combine IV + ciphertext
-  const combined = new Uint8Array(IV_LENGTH + ciphertext.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(ciphertext), IV_LENGTH);
-
-  return arrayBufferToBase64(combined.buffer);
+  if (senderKeyId === undefined) {
+    throw new Error(
+      `No outbound chain for channel ${channelId} — call ensureChannelSenderKey first`
+    );
+  }
+  const data = await store.getChain(
+    KIND,
+    channelId,
+    ownUserId,
+    senderKeyId
+  );
+  if (!data) {
+    throw new Error(
+      `Outbound chain missing in IDB for channel=${channelId} senderKeyId=${senderKeyId}`
+    );
+  }
+  const chain = SenderKeyChain.fromIdb(data);
+  const wire = await chain.encrypt(plaintext, aad(channelId, ownUserId));
+  await store.storeChain(
+    KIND,
+    channelId,
+    ownUserId,
+    senderKeyId,
+    chain.toIdb()
+  );
+  return wire;
 }
 
 /**
- * Decrypt ciphertext using a specific sender's key for a channel.
- * Expects format: base64(iv || ciphertext)
+ * Decrypt a channel message wire. Loads the chain at the senderKeyId
+ * embedded in the wire — if missing throws `MissingChainError` so the
+ * caller can fetch pending SKDMs and retry. Persists advanced chain
+ * state (lastSeen, skippedKeys cache, ratcheted chainKey) on success.
  */
-export async function decryptWithSenderKey(
+export class MissingChainError extends Error {
+  constructor(
+    public readonly channelId: number,
+    public readonly fromUserId: number,
+    public readonly senderKeyId: number
+  ) {
+    super(
+      `No chain for channel=${channelId} sender=${fromUserId} senderKeyId=${senderKeyId}`
+    );
+    this.name = 'MissingChainError';
+  }
+}
+
+export async function decryptChannelMessage(
   channelId: number,
   fromUserId: number,
-  ciphertextBase64: string,
-  store?: SignalProtocolStore
+  wire: string,
+  store: SignalProtocolStore = signalStore
 ): Promise<string> {
-  const s = store ?? signalStore;
-  const keyBase64 = await s.getSenderKey(channelId, fromUserId);
-  if (!keyBase64) {
-    throw new Error(
-      `No sender key found for user ${fromUserId} in channel ${channelId}`
-    );
-  }
-
-  const key = await importKey(keyBase64);
-  const combined = new Uint8Array(base64ToArrayBuffer(ciphertextBase64));
-
-  const iv = combined.slice(0, IV_LENGTH);
-  const ciphertext = combined.slice(IV_LENGTH);
-
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ciphertext
+  const decoded = decodeWire(wire);
+  const data = await store.getChain(
+    KIND,
+    channelId,
+    fromUserId,
+    decoded.senderKeyId
   );
+  if (!data) {
+    throw new MissingChainError(channelId, fromUserId, decoded.senderKeyId);
+  }
+  const chain = SenderKeyChain.fromIdb(data);
+  const plaintext = await chain.decrypt(wire, aad(channelId, fromUserId));
+  await store.storeChain(
+    KIND,
+    channelId,
+    fromUserId,
+    decoded.senderKeyId,
+    chain.toIdb()
+  );
+  return plaintext;
+}
 
-  const decoder = new TextDecoder();
-  return decoder.decode(plaintext);
+/**
+ * Truthy when an inbound chain exists for (channel, fromUserId,
+ * senderKeyId). The decrypt-retry path uses this to bail before
+ * spinning on an SKDM that the sender simply hasn't issued yet.
+ */
+export async function hasChannelChain(
+  channelId: number,
+  fromUserId: number,
+  senderKeyId: number,
+  store: SignalProtocolStore = signalStore
+): Promise<boolean> {
+  const data = await store.getChain(
+    KIND,
+    channelId,
+    fromUserId,
+    senderKeyId
+  );
+  return !!data;
 }

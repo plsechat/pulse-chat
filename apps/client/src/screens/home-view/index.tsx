@@ -1,8 +1,10 @@
 import { CreateGroupDmDialog } from '@/components/dialogs/create-group-dm';
+import { DmProfilePanel } from '@/components/dm-profile-panel';
 import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
 import { MobileHeader } from '@/components/mobile-header';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
+import { useDmChannels } from '@/features/dms/hooks';
 import {
   getLocalStorageItem,
   LocalStorageKey,
@@ -11,6 +13,7 @@ import {
 } from '@/helpers/storage';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSwipeGestures } from '@/hooks/use-swipe-gestures';
+import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { cn } from '@/lib/utils';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { DmConversation } from './dm-conversation';
@@ -38,7 +41,28 @@ const HomeView = memo(() => {
   >(savedTab === 'dm' ? savedDmId : undefined);
   const [showCreateGroupDm, setShowCreateGroupDm] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // Reuse the server view's RIGHT_SIDEBAR_STATE storage key so toggling
+  // the panel in either screen reflects across both — one preference,
+  // not two screen-specific ones.
+  const [isProfilePanelOpen, setIsProfilePanelOpen] = useState(
+    getLocalStorageItem(LocalStorageKey.RIGHT_SIDEBAR_STATE) === 'true' || false
+  );
+  // The DM profile panel needs the same room-to-breathe gate the
+  // server members panel uses — below 1024px the canvas is too narrow
+  // to fit it without crushing the message column.
+  const profilePanelAvailable = useViewportAtLeast(1024);
   const isMobile = useIsMobile();
+
+  const handleToggleProfilePanel = useCallback(() => {
+    setIsProfilePanelOpen((prev) => {
+      const next = !prev;
+      setLocalStorageItem(
+        LocalStorageKey.RIGHT_SIDEBAR_STATE,
+        next ? 'true' : 'false'
+      );
+      return next;
+    });
+  }, []);
 
   // Sync saved DM channel to Redux on mount so incoming messages
   // know the user is viewing this DM (prevents false unread badges)
@@ -49,6 +73,41 @@ const HomeView = memo(() => {
     // Intentionally mount-only: sync initial saved state to Redux once
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // External "open this DM" requests — currently emitted by the
+  // IncomingCallModal when the user accepts a call. HomeView owns
+  // the local state that picks the DM, so localStorage alone won't
+  // re-render; this CustomEvent is the bridge.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ dmChannelId: number }>).detail;
+      if (typeof detail?.dmChannelId !== 'number') return;
+      setLocalSelectedDmChannelId(detail.dmChannelId);
+      setSelectedDmChannelId(detail.dmChannelId);
+      setActiveTab('dm');
+    };
+    window.addEventListener('dm-navigate', handler);
+    return () => window.removeEventListener('dm-navigate', handler);
+  }, []);
+
+  // When the active DM disappears from the channel list (self-delete,
+  // peer delete pushed via DM_CHANNEL_DELETE, leave-group, or being
+  // removed from a group), bounce back to Friends. Without this the
+  // <DmConversation> would keep rendering against a non-existent channel
+  // and trigger FORBIDDEN polls for the now-deleted channel.
+  const dmChannels = useDmChannels();
+  useEffect(() => {
+    if (
+      localSelectedDmChannelId !== undefined &&
+      !dmChannels.some((c) => c.id === localSelectedDmChannelId)
+    ) {
+      setLocalSelectedDmChannelId(undefined);
+      setSelectedDmChannelId(undefined);
+      removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+      setActiveTab('friends');
+      setLocalStorageItem(LocalStorageKey.HOME_TAB, 'friends');
+    }
+  }, [localSelectedDmChannelId, dmChannels]);
 
   const handleDmSelect = useCallback((dmChannelId: number) => {
     setLocalSelectedDmChannelId(dmChannelId);
@@ -137,11 +196,25 @@ const HomeView = memo(() => {
           {activeTab === 'friends' ? (
             <FriendsPanel onDmSelect={handleDmSelect} />
           ) : localSelectedDmChannelId ? (
-            <DmConversation dmChannelId={localSelectedDmChannelId} />
+            <DmConversation
+              dmChannelId={localSelectedDmChannelId}
+              isProfilePanelOpen={isProfilePanelOpen && profilePanelAvailable}
+              profilePanelAvailable={profilePanelAvailable}
+              onToggleProfilePanel={handleToggleProfilePanel}
+            />
           ) : (
             <FriendsPanel onDmSelect={handleDmSelect} />
           )}
         </div>
+
+        {activeTab === 'dm' &&
+          localSelectedDmChannelId !== undefined &&
+          profilePanelAvailable && (
+            <DmProfilePanel
+              dmChannelId={localSelectedDmChannelId}
+              isOpen={isProfilePanelOpen}
+            />
+          )}
 
         {showCreateGroupDm && (
           <CreateGroupDmDialog

@@ -3,12 +3,10 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import z from 'zod';
-import { findOrCreateShadowUser } from '../db/mutations/federation';
 import { getFirstServer } from '../db/queries/servers';
-import { getUserByToken } from '../db/queries/users';
 import { logger } from '../logger';
-import { verifyFederationToken } from '../utils/federation';
 import { fileManager } from '../utils/file-manager';
+import { resolveAuthenticatedUser } from '../utils/resolve-auth';
 
 const BLOCKED_EXTENSIONS = new Set([
   '.html', '.htm', '.xhtml', '.xml', '.svg',
@@ -21,7 +19,8 @@ const BLOCKED_EXTENSIONS = new Set([
 const zHeaders = z.object({
   [UploadHeaders.TOKEN]: z.string(),
   [UploadHeaders.ORIGINAL_NAME]: z.string(),
-  [UploadHeaders.CONTENT_LENGTH]: z.string().transform((val) => Number(val))
+  [UploadHeaders.CONTENT_LENGTH]: z.string().transform((val) => Number(val)),
+  [UploadHeaders.ENCRYPTED]: z.string().optional()
 });
 
 const uploadFileRouteHandler = async (
@@ -34,29 +33,28 @@ const uploadFileRouteHandler = async (
     parsedHeaders[UploadHeaders.ORIGINAL_NAME],
     parsedHeaders[UploadHeaders.CONTENT_LENGTH]
   ];
+  // The encrypted flag is opt-in client-side. When true, the upload's
+  // body is ciphertext and `originalName` is a placeholder UUID — the
+  // server stores it as-is, marks files.encrypted = true, and never
+  // sees the real metadata (which lives inside the E2EE message
+  // envelope's fileKeys).
+  const isEncrypted = parsedHeaders[UploadHeaders.ENCRYPTED] === 'true';
 
   // Authenticate via standard token or federation token (both are validated)
   const federationToken = req.headers['x-federation-token'] as string | undefined;
-  const user = federationToken
-    ? await (async () => {
-        const fedResult = await verifyFederationToken(federationToken);
-        if (!fedResult) return undefined;
-        return findOrCreateShadowUser(
-          fedResult.instanceId,
-          fedResult.userId,
-          fedResult.username,
-          undefined,
-          fedResult.publicId
-        );
-      })()
-    : await getUserByToken(token);
+  const auth = await resolveAuthenticatedUser({
+    accessToken: token,
+    federationToken
+  });
 
-  if (!user) {
+  if (!auth) {
     req.resume();
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized' }));
     return;
   }
+
+  const user = auth.user;
 
   const server = await getFirstServer();
 
@@ -109,29 +107,61 @@ const uploadFileRouteHandler = async (
   const safePath = await fileManager.getSafeUploadPath(originalName);
   const fileStream = fs.createWriteStream(safePath);
 
+  // Enforce the size cap on the actual byte stream — the Content-Length
+  // header is a claim the client can lie about. Without this, a client that
+  // sends `Content-Length: 100` but streams gigabytes will fill disk.
+  const sizeLimit = server.storageUploadMaxFileSize;
+  let bytesReceived = 0;
+  let exceeded = false;
+
+  req.on('data', (chunk: Buffer) => {
+    if (exceeded) return;
+    bytesReceived += chunk.length;
+    if (bytesReceived > sizeLimit) {
+      exceeded = true;
+      // Tear down both ends and clean up the partial file. Best-effort —
+      // any unlink/destroy errors are logged at error level downstream.
+      fileStream.destroy();
+      req.destroy();
+      fs.unlink(safePath, () => {});
+      if (!res.headersSent) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error: `File ${originalName} exceeds the maximum allowed size`
+          })
+        );
+      }
+    }
+  });
+
   req.pipe(fileStream);
 
   fileStream.on('finish', async () => {
+    if (exceeded || res.headersSent) return;
     try {
       const tempFile = await fileManager.addTemporaryFile({
         originalName,
         filePath: safePath,
-        size: contentLength,
-        userId: user.id
+        size: bytesReceived,
+        userId: user.id,
+        encrypted: isEncrypted
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(tempFile));
     } catch (error) {
       logger.error('Error processing uploaded file:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'File processing failed' }));
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'File processing failed' }));
+      }
     }
   });
 
   fileStream.on('error', (err) => {
+    if (exceeded || res.headersSent) return;
     logger.error('Error uploading file:', err);
-
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'File upload failed' }));
   });

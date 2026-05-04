@@ -67,36 +67,40 @@ const getPublicSettings = async (): Promise<TPublicServerSettings> => {
   return getServerPublicSettings(server.id);
 };
 
-// Cached token for synchronous access (used by files-crypto)
-let cachedToken: string;
+// Per-instance HMAC secret used by files-crypto to mint short-lived file
+// access tokens. Stored in `servers.secret_token` for historical reasons —
+// pre-Phase-3 the column also doubled as the owner-claim challenge, but
+// that role is gone (see commit 1e989da). The DB column rename to
+// `file_hmac_secret` is a separate migration; the symbol-level renames
+// here clarify what the value is for now that the dual purpose is gone.
+let cachedFileHmacSecret: string;
 
-const getServerTokenSync = (): string => {
-  if (!cachedToken) {
-    throw new Error('Server token has not been initialized yet');
+const getFileHmacSecretSync = (): string => {
+  if (!cachedFileHmacSecret) {
+    throw new Error('File HMAC secret has not been initialized yet');
   }
 
-  return cachedToken;
+  return cachedFileHmacSecret;
 };
 
-const getSecretToken = async (): Promise<string> => {
-  if (cachedToken) return cachedToken;
+const warmFileHmacSecret = async (): Promise<string> => {
+  if (cachedFileHmacSecret) return cachedFileHmacSecret;
 
-  // Read from first server's secret token
   const [server] = await db.select().from(servers).limit(1);
 
   if (!server?.secretToken) {
-    throw new Error('Secret token not found in database');
+    throw new Error('File HMAC secret not found in database');
   }
 
-  cachedToken = server.secretToken;
+  cachedFileHmacSecret = server.secretToken;
 
-  return cachedToken;
+  return cachedFileHmacSecret;
 };
 
 export {
+  getFileHmacSecretSync,
   getPublicSettings,
-  getSecretToken,
   getServerPublicSettings,
-  getServerTokenSync,
-  getSettings
+  getSettings,
+  warmFileHmacSecret
 };

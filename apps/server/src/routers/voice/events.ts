@@ -1,6 +1,6 @@
 import { ServerEvents, type StreamKind } from '@pulse/shared';
 import { observable } from '@trpc/server/observable';
-import { protectedProcedure } from '../../utils/trpc';
+import { protectedProcedure, userSubscription } from '../../utils/trpc';
 
 type TVoiceProducerEvent = {
   channelId: number;
@@ -8,42 +8,20 @@ type TVoiceProducerEvent = {
   kind: StreamKind;
 };
 
-// these events are scoped to server members
-const onUserJoinVoiceRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_JOIN_VOICE);
-  }
+// User-scoped voice events (delivered to server members):
+const onUserJoinVoiceRoute = userSubscription(ServerEvents.USER_JOIN_VOICE);
+const onUserLeaveVoiceRoute = userSubscription(ServerEvents.USER_LEAVE_VOICE);
+const onUserUpdateVoiceStateRoute = userSubscription(
+  ServerEvents.USER_VOICE_STATE_UPDATE
 );
-
-const onUserLeaveVoiceRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_LEAVE_VOICE);
-  }
+const onVoiceAddExternalStreamRoute = userSubscription(
+  ServerEvents.VOICE_ADD_EXTERNAL_STREAM
 );
-
-const onUserUpdateVoiceStateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.USER_VOICE_STATE_UPDATE);
-  }
+const onVoiceUpdateExternalStreamRoute = userSubscription(
+  ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM
 );
-
-// these events are scoped to server members
-const onVoiceAddExternalStreamRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.VOICE_ADD_EXTERNAL_STREAM);
-  }
-);
-
-const onVoiceUpdateExternalStreamRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.VOICE_UPDATE_EXTERNAL_STREAM);
-  }
-);
-
-const onVoiceRemoveExternalStreamRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM);
-  }
+const onVoiceRemoveExternalStreamRoute = userSubscription(
+  ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM
 );
 
 // these events are channel-scoped (only sent to users in the same voice channel)

@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
 import { publishMessage } from '../../db/publishers';
 import { getFilesByMessageId } from '../../db/queries/files';
+import { getMessageInActiveServer } from '../../db/queries/messages';
 import { messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
@@ -13,14 +14,15 @@ import { protectedProcedure } from '../../utils/trpc';
 const deleteMessageRoute = protectedProcedure
   .input(z.object({ messageId: z.number() }))
   .mutation(async ({ input, ctx }) => {
-    const [targetMessage] = await db
-      .select({
-        userId: messages.userId,
-        channelId: messages.channelId
-      })
-      .from(messages)
-      .where(eq(messages.id, input.messageId))
-      .limit(1);
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    const targetMessage = await getMessageInActiveServer(
+      input.messageId,
+      ctx.activeServerId
+    );
 
     invariant(targetMessage, {
       code: 'NOT_FOUND',

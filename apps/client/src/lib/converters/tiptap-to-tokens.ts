@@ -129,8 +129,15 @@ function walkNode(node: Node, ctx: WalkContext): string {
   // --- Links ---
   if (tag === 'a') {
     const href = el.getAttribute('href');
-    if (href) return href;
-    return el.textContent ?? '';
+    const text = el.textContent ?? '';
+    if (!href) return text;
+    // Auto-linked URLs (the common case — Link extension wraps bare URLs)
+    // emit just the href; the renderer's URL_RE re-links them. When the
+    // anchor's display text differs from the href, emit the markdown
+    // `[text](href)` form so the renderer's markdown_link tokenizer can
+    // pick it up and preserve the visible label.
+    if (text && text !== href) return `[${text}](${href})`;
+    return href;
   }
 
   // --- Paragraphs ---

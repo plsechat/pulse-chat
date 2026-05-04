@@ -1,5 +1,6 @@
+import { fetchAndProcessPendingDmSenderKeys } from '@/lib/e2ee';
+import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedDmMessage, TVoiceUserState } from '@pulse/shared';
 import {
   addUserToVoiceChannel,
   removeUserFromVoiceChannel
@@ -9,158 +10,121 @@ import {
   addDmTypingUser,
   decryptDmMessageInPlace,
   deleteDmMessage,
+  dmCallDeclined,
   dmCallEnded,
   dmCallStarted,
   dmCallUserJoined,
   dmCallUserLeft,
   fetchDmChannels,
   removeDmChannel,
+  syncDmGroupSenderKeysOnMemberAdd,
+  syncDmGroupSenderKeysOnMemberRemove,
   updateDmMessage
 } from './actions';
 
 const subscribeToDms = () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return () => {};
 
-  const onNewMessageSub = trpc.dms.onNewMessage.subscribe(undefined, {
-    onData: async (message: TJoinedDmMessage) => {
+  return combineUnsubscribes(
+    subscribe('onDmNewMessage', trpc.dms.onNewMessage, async (message) => {
       const decrypted = await decryptDmMessageInPlace(message);
       addDmMessages(decrypted.dmChannelId, [decrypted], {}, true);
-    },
-    onError: (err) =>
-      console.error('onDmNewMessage subscription error:', err)
-  });
-
-  const onMessageUpdateSub = trpc.dms.onMessageUpdate.subscribe(undefined, {
-    onData: async (message: TJoinedDmMessage) => {
+    }),
+    subscribe('onDmMessageUpdate', trpc.dms.onMessageUpdate, async (message) => {
       const decrypted = await decryptDmMessageInPlace(message);
       updateDmMessage(decrypted);
-
       // Notify pinned messages panel so it can refetch
       window.dispatchEvent(
         new CustomEvent('dm-pinned-messages-changed', {
           detail: { dmChannelId: decrypted.dmChannelId }
         })
       );
-    },
-    onError: (err) =>
-      console.error('onDmMessageUpdate subscription error:', err)
-  });
-
-  const onMessageDeleteSub = trpc.dms.onMessageDelete.subscribe(undefined, {
-    onData: ({
-      dmMessageId,
-      dmChannelId
-    }: {
-      dmMessageId: number;
-      dmChannelId: number;
-    }) => deleteDmMessage(dmChannelId, dmMessageId),
-    onError: (err) =>
-      console.error('onDmMessageDelete subscription error:', err)
-  });
-
-  const onCallStartedSub = trpc.dms.onCallStarted.subscribe(undefined, {
-    onData: ({
-      dmChannelId,
-      startedBy
-    }: {
-      dmChannelId: number;
-      startedBy: number;
-    }) => dmCallStarted(dmChannelId, startedBy),
-    onError: (err) =>
-      console.error('onDmCallStarted subscription error:', err)
-  });
-
-  const onCallEndedSub = trpc.dms.onCallEnded.subscribe(undefined, {
-    onData: ({ dmChannelId }: { dmChannelId: number }) =>
-      dmCallEnded(dmChannelId),
-    onError: (err) => console.error('onDmCallEnded subscription error:', err)
-  });
-
-  const onCallUserJoinedSub = trpc.dms.onCallUserJoined.subscribe(undefined, {
-    onData: ({
-      dmChannelId,
-      userId,
-      state
-    }: {
-      dmChannelId: number;
-      userId: number;
-      state: TVoiceUserState;
-    }) => {
-      dmCallUserJoined(dmChannelId, userId, state);
-      addUserToVoiceChannel(userId, dmChannelId, state);
-    },
-    onError: (err) =>
-      console.error('onDmCallUserJoined subscription error:', err)
-  });
-
-  const onTypingSub = trpc.dms.onTyping.subscribe(undefined, {
-    onData: ({
-      dmChannelId,
-      userId
-    }: {
-      dmChannelId: number;
-      userId: number;
-    }) => addDmTypingUser(dmChannelId, userId),
-    onError: (err) =>
-      console.error('onDmTyping subscription error:', err)
-  });
-
-  const onCallUserLeftSub = trpc.dms.onCallUserLeft.subscribe(undefined, {
-    onData: ({
-      dmChannelId,
-      userId
-    }: {
-      dmChannelId: number;
-      userId: number;
-    }) => {
-      dmCallUserLeft(dmChannelId, userId);
-      removeUserFromVoiceChannel(userId, dmChannelId);
-    },
-    onError: (err) =>
-      console.error('onDmCallUserLeft subscription error:', err)
-  });
-
-  const onChannelUpdateSub = trpc.dms.onChannelUpdate.subscribe(undefined, {
-    onData: () => fetchDmChannels(),
-    onError: (err) =>
-      console.error('onDmChannelUpdate subscription error:', err)
-  });
-
-  const onChannelDeleteSub = trpc.dms.onChannelDelete.subscribe(undefined, {
-    onData: (data) => {
-      const { dmChannelId } = data as { dmChannelId: number };
-      removeDmChannel(dmChannelId);
-    },
-    onError: (err) =>
-      console.error('onDmChannelDelete subscription error:', err)
-  });
-
-  const onMemberAddSub = trpc.dms.onMemberAdd.subscribe(undefined, {
-    onData: () => fetchDmChannels(),
-    onError: (err) =>
-      console.error('onDmMemberAdd subscription error:', err)
-  });
-
-  const onMemberRemoveSub = trpc.dms.onMemberRemove.subscribe(undefined, {
-    onData: () => fetchDmChannels(),
-    onError: (err) =>
-      console.error('onDmMemberRemove subscription error:', err)
-  });
-
-  return () => {
-    onNewMessageSub.unsubscribe();
-    onMessageUpdateSub.unsubscribe();
-    onMessageDeleteSub.unsubscribe();
-    onTypingSub.unsubscribe();
-    onCallStartedSub.unsubscribe();
-    onCallEndedSub.unsubscribe();
-    onCallUserJoinedSub.unsubscribe();
-    onCallUserLeftSub.unsubscribe();
-    onChannelUpdateSub.unsubscribe();
-    onChannelDeleteSub.unsubscribe();
-    onMemberAddSub.unsubscribe();
-    onMemberRemoveSub.unsubscribe();
-  };
+    }),
+    subscribe(
+      'onDmMessageDelete',
+      trpc.dms.onMessageDelete,
+      ({ dmMessageId, dmChannelId }) => deleteDmMessage(dmChannelId, dmMessageId)
+    ),
+    subscribe(
+      'onDmCallStarted',
+      trpc.dms.onCallStarted,
+      ({ dmChannelId, startedBy }) => dmCallStarted(dmChannelId, startedBy)
+    ),
+    subscribe('onDmCallEnded', trpc.dms.onCallEnded, ({ dmChannelId }) =>
+      dmCallEnded(dmChannelId)
+    ),
+    subscribe(
+      'onDmCallUserJoined',
+      trpc.dms.onCallUserJoined,
+      ({ dmChannelId, userId, state }) => {
+        dmCallUserJoined(dmChannelId, userId, state);
+        addUserToVoiceChannel(userId, dmChannelId, state);
+      }
+    ),
+    subscribe('onDmTyping', trpc.dms.onTyping, ({ dmChannelId, userId }) =>
+      addDmTypingUser(dmChannelId, userId)
+    ),
+    subscribe(
+      'onDmCallUserLeft',
+      trpc.dms.onCallUserLeft,
+      ({ dmChannelId, userId }) => {
+        dmCallUserLeft(dmChannelId, userId);
+        removeUserFromVoiceChannel(userId, dmChannelId);
+      }
+    ),
+    subscribe(
+      'onDmCallDeclined',
+      trpc.dms.onCallDeclined,
+      ({ dmChannelId, userId }) => dmCallDeclined(dmChannelId, userId)
+    ),
+    subscribe('onDmChannelUpdate', trpc.dms.onChannelUpdate, () =>
+      fetchDmChannels()
+    ),
+    subscribe(
+      'onDmChannelDelete',
+      trpc.dms.onChannelDelete,
+      (data) => {
+        const { dmChannelId } = data as { dmChannelId: number };
+        removeDmChannel(dmChannelId);
+      }
+    ),
+    subscribe('onDmMemberAdd', trpc.dms.onMemberAdd, async (data) => {
+      const { dmChannelId, userId } = data as {
+        dmChannelId: number;
+        userId: number;
+      };
+      await fetchDmChannels();
+      // If we already have a sender key for this DM (it's encrypted),
+      // distribute it to the new joiner.
+      await syncDmGroupSenderKeysOnMemberAdd(dmChannelId, userId);
+    }),
+    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, async (data) => {
+      const { dmChannelId, userId } = data as {
+        dmChannelId: number;
+        userId: number;
+      };
+      await fetchDmChannels();
+      // Forward secrecy: rotate our sender key so the leaver can't
+      // decrypt new messages with the cached old key. If we *are* the
+      // leaver, do nothing — we're out of the channel.
+      await syncDmGroupSenderKeysOnMemberRemove(dmChannelId, userId);
+    }),
+    subscribe(
+      'onDmSenderKeyDistribution',
+      trpc.dms.onSenderKeyDistribution,
+      async ({ dmChannelId }) => {
+        try {
+          await fetchAndProcessPendingDmSenderKeys(dmChannelId);
+        } catch (err) {
+          console.error(
+            '[E2EE/DM] Failed to process pending sender keys:',
+            err
+          );
+        }
+      }
+    )
+  );
 };
 
 export { subscribeToDms };

@@ -2,7 +2,6 @@ import {
   ChannelType,
   DEFAULT_ROLE_PERMISSIONS,
   Permission,
-  sha256,
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MIN_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
@@ -15,7 +14,6 @@ import {
 import { randomUUIDv7 } from 'bun';
 import chalk from 'chalk';
 import { logger } from '../logger';
-import { IS_DEVELOPMENT } from '../utils/env';
 import { db } from './index';
 import {
   categories,
@@ -34,7 +32,6 @@ const seedDatabase = async () => {
   logger.debug('Seeding initial database values...');
 
   const firstStart = Date.now();
-  const originalToken = IS_DEVELOPMENT ? 'dev' : randomUUIDv7();
 
   const initialSettings: TISettings = {
     name: 'Pulse Server',
@@ -42,7 +39,6 @@ const seedDatabase = async () => {
       'This is the default Pulse server description. Change me in the server settings!',
     password: '',
     serverId: Bun.randomUUIDv7(),
-    secretToken: await sha256(originalToken),
     allowNewUsers: true,
     storageUploadEnabled: true,
     storageQuota: STORAGE_QUOTA,
@@ -54,12 +50,15 @@ const seedDatabase = async () => {
 
   await db.insert(settings).values(initialSettings);
 
+  // servers.secret_token is the per-server HMAC seed used by files-crypto
+  // for short-lived file access tokens — unrelated to the (now-removed)
+  // owner-claim flow. Generate a fresh random value on first boot.
   await db.insert(servers).values({
     name: initialSettings.name,
     description: initialSettings.description,
     password: initialSettings.password,
     publicId: initialSettings.serverId,
-    secretToken: initialSettings.secretToken,
+    secretToken: randomUUIDv7(),
     allowNewUsers: initialSettings.allowNewUsers,
     storageUploadEnabled: initialSettings.storageUploadEnabled,
     storageQuota: initialSettings.storageQuota,

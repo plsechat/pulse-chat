@@ -4,6 +4,7 @@ import { ModViewSheet } from '@/components/mod-view-sheet';
 import { Protect } from '@/components/protect';
 import { RightSidebar } from '@/components/right-sidebar';
 import { TopBar } from '@/components/top-bar';
+import { PinBanner } from '@/components/top-bar/pin-banner';
 import { VoiceChatSidebar } from '@/components/voice-chat-sidebar';
 import { useSelectedChannelId } from '@/features/server/channels/hooks';
 import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
@@ -123,6 +124,7 @@ const ServerView = memo(() => {
             onToggleVoiceChat={handleVoiceChatSidebarToggle}
             isVoiceChatOpen={isVoiceChatSidebarOpen}
           />
+          <PinBanner />
           <ContentWrapper />
         </div>
 

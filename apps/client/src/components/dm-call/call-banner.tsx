@@ -2,6 +2,7 @@ import { useDmCall, useOwnDmCallChannelId } from '@/features/dms/hooks';
 import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
 import { useVoice } from '@/features/server/voice/hooks';
 import { useUserById } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { Phone, PhoneOff } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
@@ -27,8 +28,8 @@ const DmCallBanner = memo(({ dmChannelId }: TDmCallBannerProps) => {
       if (result) {
         await init(result.routerRtpCapabilities, dmChannelId);
       }
-    } catch {
-      toast.error('Failed to join call');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to join call'));
     } finally {
       setJoining(false);
     }
@@ -37,8 +38,8 @@ const DmCallBanner = memo(({ dmChannelId }: TDmCallBannerProps) => {
   const handleLeave = useCallback(async () => {
     try {
       await leaveDmVoiceCall();
-    } catch {
-      toast.error('Failed to leave call');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to leave call'));
     }
   }, []);
 

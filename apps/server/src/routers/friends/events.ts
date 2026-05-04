@@ -1,38 +1,16 @@
 import { ServerEvents } from '@pulse/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { userSubscription } from '../../utils/trpc';
 
-const onFriendRequestReceivedRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.FRIEND_REQUEST_RECEIVED
-    );
-  }
+const onFriendRequestReceivedRoute = userSubscription(
+  ServerEvents.FRIEND_REQUEST_RECEIVED
 );
-
-const onFriendRequestAcceptedRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.FRIEND_REQUEST_ACCEPTED
-    );
-  }
+const onFriendRequestAcceptedRoute = userSubscription(
+  ServerEvents.FRIEND_REQUEST_ACCEPTED
 );
-
-const onFriendRequestRejectedRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(
-      ctx.userId,
-      ServerEvents.FRIEND_REQUEST_REJECTED
-    );
-  }
+const onFriendRequestRejectedRoute = userSubscription(
+  ServerEvents.FRIEND_REQUEST_REJECTED
 );
-
-const onFriendRemovedRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.FRIEND_REMOVED);
-  }
-);
+const onFriendRemovedRoute = userSubscription(ServerEvents.FRIEND_REMOVED);
 
 export {
   onFriendRemovedRoute,

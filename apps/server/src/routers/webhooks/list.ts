@@ -15,6 +15,11 @@ const listWebhooksRoute = protectedProcedure
   .query(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_WEBHOOKS);
 
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     if (input.channelId) {
       // Verify the channel belongs to the caller's active server
       const [channel] = await db
@@ -23,7 +28,7 @@ const listWebhooksRoute = protectedProcedure
         .where(
           and(
             eq(channels.id, input.channelId),
-            eq(channels.serverId, ctx.activeServerId!)
+            eq(channels.serverId, ctx.activeServerId)
           )
         )
         .limit(1);
@@ -42,7 +47,7 @@ const listWebhooksRoute = protectedProcedure
     return db
       .select()
       .from(webhooks)
-      .where(eq(webhooks.serverId, ctx.activeServerId!));
+      .where(eq(webhooks.serverId, ctx.activeServerId));
   });
 
 export { listWebhooksRoute };
