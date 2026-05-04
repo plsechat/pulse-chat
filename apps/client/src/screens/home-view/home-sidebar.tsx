@@ -1,3 +1,4 @@
+import { AddDmMembersDialog } from '@/components/dialogs/add-dm-members';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
@@ -8,7 +9,11 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { UserStatusBadge } from '@/components/user-status';
-import { deleteDmChannel, enableDmEncryption } from '@/features/dms/actions';
+import {
+  deleteDmChannel,
+  enableDmEncryption,
+  fetchDmChannels
+} from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
@@ -19,8 +24,8 @@ import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
-import { Lock, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { Lock, MessageSquare, Plus, Trash2, UserPlus, Users } from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { THomeTab } from '.';
 
@@ -171,6 +176,14 @@ const DmChannelItem = memo(
       }
     }, [channel.id]);
 
+    const [showAddDialog, setShowAddDialog] = useState(false);
+    const memberIds = useMemo(
+      () => channel.members.map((m) => m.id),
+      [channel.members]
+    );
+    const remainingCapacity = Math.max(0, 10 - channel.members.length);
+    const canAddMore = remainingCapacity > 0;
+
     if (otherMembers.length === 0) return null;
 
     return (
@@ -225,6 +238,14 @@ const DmChannelItem = memo(
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem
+            onClick={() => setShowAddDialog(true)}
+            disabled={!canAddMore}
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            {channel.isGroup ? 'Add People' : 'Add People (make group)'}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           {!channel.e2ee && (
             <>
               <ContextMenuItem onClick={handleEnableEncryption}>
@@ -242,6 +263,21 @@ const DmChannelItem = memo(
             Delete Conversation
           </ContextMenuItem>
         </ContextMenuContent>
+        {showAddDialog && (
+          <AddDmMembersDialog
+            dmChannelId={channel.id}
+            existingMemberIds={memberIds}
+            maxAdd={remainingCapacity}
+            onClose={() => setShowAddDialog(false)}
+            onAdded={() => {
+              setShowAddDialog(false);
+              // The DM_MEMBER_ADD subscription already fires
+              // fetchDmChannels(), but covering it here too gives us
+              // a synchronous refresh before the toast hides.
+              fetchDmChannels();
+            }}
+          />
+        )}
       </ContextMenu>
     );
   }
