@@ -733,21 +733,29 @@ body,
 
 /* tiptap placeholder — targets the empty <p> node decorated by @tiptap/extension-placeholder */
 
+/* The empty <p> needs to be a positioning context so the
+   placeholder pseudo can layer over it without shifting layout. */
+.tiptap p.is-editor-empty:first-child,
+.tiptap p.is-empty:first-child {
+  position: relative;
+}
+
 .tiptap p.is-editor-empty:first-child::before,
 .tiptap p.is-empty:first-child::before {
   content: attr(data-placeholder);
-  float: left;
+  /* Absolute over the empty paragraph so the placeholder doesn't
+     contribute to layout (no extra height, no wrap pushing things
+     down). The previous `float:left + height:0` trick + overflow
+     clipping made the text invisible in narrow containers; this
+     positioning is layout-agnostic. */
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  pointer-events: none;
   color: var(--muted-foreground);
   opacity: 0.5;
-  pointer-events: none;
-  height: 0;
-  /* Without nowrap+ellipsis, "Message @LongUsername" wraps inside
-     narrow containers (the user-popover quick-send is the worst
-     offender) — the float-with-zero-height layout doesn't reserve
-     space for the second line, so it spills below and the input
-     looks weirdly tall. Single-line + ellipsis keeps the rhythm. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }

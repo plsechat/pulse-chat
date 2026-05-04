@@ -60,7 +60,7 @@ export const dmsRouter = t.router({
   addMember: addMemberRoute,
   removeMember: removeMemberRoute,
   updateGroup: updateGroupRoute,
-  leaveGroup: leaveGroupRoute,
+  leave: leaveGroupRoute,
   markAllAsRead: markAllAsReadRoute,
   markChannelAsRead: markChannelAsReadRoute,
   voiceJoin: dmVoiceJoinRoute,

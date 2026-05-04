@@ -12,7 +12,8 @@ import { UserStatusBadge } from '@/components/user-status';
 import {
   deleteDmChannel,
   enableDmEncryption,
-  fetchDmChannels
+  fetchDmChannels,
+  leaveDmChannel
 } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
@@ -24,7 +25,15 @@ import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
-import { Lock, MessageSquare, Plus, Trash2, UserPlus, Users } from 'lucide-react';
+import {
+  DoorOpen,
+  Lock,
+  MessageSquare,
+  Plus,
+  Trash2,
+  UserPlus,
+  Users
+} from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { THomeTab } from '.';
@@ -176,6 +185,30 @@ const DmChannelItem = memo(
       }
     }, [channel.id]);
 
+    const handleLeave = useCallback(async () => {
+      // Group: leaver vanishes from member list, others keep going.
+      // 1:1: same — the other side keeps the chat, leaver just
+      // drops it from their list. Different from Delete (which
+      // tears down the channel for both sides).
+      const confirmed = await requestConfirmation({
+        title: channel.isGroup
+          ? 'Leave Group DM'
+          : 'Leave Conversation',
+        message: channel.isGroup
+          ? 'You will stop receiving messages and the conversation will disappear from your list. The group will continue without you.'
+          : 'You will stop receiving messages and the conversation will disappear from your list. The other person can still see the history on their side.',
+        confirmLabel: 'Leave',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      try {
+        await leaveDmChannel(channel.id);
+        toast.success('You left the conversation');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to leave conversation'));
+      }
+    }, [channel.id, channel.isGroup]);
+
     const [showAddDialog, setShowAddDialog] = useState(false);
     const memberIds = useMemo(
       () => channel.members.map((m) => m.id),
@@ -255,6 +288,10 @@ const DmChannelItem = memo(
               <ContextMenuSeparator />
             </>
           )}
+          <ContextMenuItem onClick={handleLeave}>
+            <DoorOpen className="mr-2 h-4 w-4" />
+            {channel.isGroup ? 'Leave Group' : 'Leave Conversation'}
+          </ContextMenuItem>
           <ContextMenuItem
             onClick={handleDelete}
             className="text-destructive focus:text-destructive"

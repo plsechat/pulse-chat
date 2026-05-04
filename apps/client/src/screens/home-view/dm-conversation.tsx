@@ -19,6 +19,7 @@ import Spinner from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
 import {
+  clearDmChannelUnread,
   decryptDmMessages,
   deleteDmMessageAction,
   editDmMessage,
@@ -123,6 +124,21 @@ const DmConversation = memo(
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     return channel?.e2ee ?? false;
   }, [dmChannels, dmChannelId]);
+
+  // Auto-clear the unread badge whenever it rises above zero while
+  // the user is here. addDmMessages tries to suppress the badge via
+  // isViewingThisChannel, but state-propagation races (activeView /
+  // selectedChannelId mid-flight, tab-focus events, etc.) can let
+  // a badge slip through. Treating "DmConversation is mounted" as
+  // the source of truth — and clearing on every render where the
+  // count is non-zero — closes those races.
+  const unreadCount = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    return channel?.unreadCount ?? 0;
+  }, [dmChannels, dmChannelId]);
+  useEffect(() => {
+    if (unreadCount > 0) clearDmChannelUnread(dmChannelId);
+  }, [dmChannelId, unreadCount]);
 
   const dmPlaceholder = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);

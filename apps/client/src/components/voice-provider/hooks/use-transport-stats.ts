@@ -27,6 +27,10 @@ export type TransportStatsData = {
 
 const SMOOTHING_WINDOW = 5; // Number of samples for moving average
 
+// One-shot dedupe for the RTT diagnostic log so we don't flood the
+// console once per stats interval. Cleared on full page reload.
+const diagDumped = new Set<string>();
+
 const useTransportStats = () => {
   const [stats, setStats] = useState<TransportStatsData>({
     producer: null,
@@ -133,6 +137,37 @@ const useTransportStats = () => {
       // one yet (the common case in the first ~10s of a call).
       if (rtt === 0 && rtcpRtt > 0) {
         rtt = rtcpRtt;
+      }
+
+      // TEMP DIAG — logs the raw shape of stats once per transport
+      // so we can see what Mediasoup actually exposes. The earlier
+      // RTT fix assumed candidate-pair / remote-inbound-rtp would
+      // populate; if both are missing, this surfaces what's there
+      // instead. Remove after RTT is confirmed working.
+      if (rtt === 0 && !diagDumped.has(isProducer ? 'p' : 'c')) {
+        diagDumped.add(isProducer ? 'p' : 'c');
+        const types: Record<string, number> = {};
+        const samples: Record<string, unknown> = {};
+        for (const stat of statsReport.values()) {
+          types[stat.type] = (types[stat.type] ?? 0) + 1;
+          if (
+            stat.type === 'transport' ||
+            stat.type === 'candidate-pair' ||
+            stat.type === 'remote-inbound-rtp' ||
+            stat.type === 'remote-outbound-rtp'
+          ) {
+            samples[`${stat.type}#${stat.id}`] = {
+              ...stat
+            };
+          }
+        }
+        console.log(`[RTT-DIAG] ${isProducer ? 'producer' : 'consumer'}`, {
+          selectedPairId,
+          rttFromCandidatePair: rtt,
+          rttFromRtcp: rtcpRtt,
+          types,
+          samples
+        });
       }
 
       return {

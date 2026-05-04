@@ -695,6 +695,17 @@ export const deleteDmChannel = async (dmChannelId: number) => {
   removeDmChannel(dmChannelId);
 };
 
+export const leaveDmChannel = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  await trpc.dms.leave.mutate({ dmChannelId });
+  // Server publishes DM_CHANNEL_DELETE to the leaver, but drop the
+  // channel synchronously here too so the toast lands on a UI that
+  // already reflects the leave (no flicker between toast and the
+  // pubsub round-trip).
+  removeDmChannel(dmChannelId);
+};
+
 export const enableDmEncryption = async (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
@@ -854,6 +865,19 @@ export const dmCallEnded = (dmChannelId: number) => {
 
 export const dismissRingingCall = (dmChannelId: number) =>
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+
+/**
+ * Clear an unread badge on a DM the user is actively looking at —
+ * both locally and server-side. Defensive against races where
+ * isViewingThisChannel is false in addDmMessages but the user is
+ * really on the channel (state propagation lag, tab focus quirks,
+ * etc): the consumer (DmConversation) calls this on every render
+ * where unreadCount > 0, so the badge can never linger.
+ */
+export const clearDmChannelUnread = (dmChannelId: number) => {
+  store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+  markDmChannelAsRead(dmChannelId);
+};
 
 /**
  * Handle a peer declining a call we may be in. Two side effects:
