@@ -139,6 +139,12 @@ const cleanup = (signOut = false) => {
 
   if (signOut) {
     supabase.auth.signOut({ scope: 'local' });
+    // Wipe E2EE IDB so the next user on this browser doesn't inherit
+    // the previous user's identity, sessions, or sender keys. Dynamic
+    // import to avoid a lib/e2ee → lib/trpc circular dependency.
+    void import('@/lib/e2ee/store').then(({ clearAllStores }) =>
+      clearAllStores()
+    );
   }
 };
 

@@ -9,7 +9,7 @@ import { store as reduxStore } from '@/features/store';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORES = {
   IDENTITY_KEY: 'identityKey',
@@ -19,7 +19,14 @@ const STORES = {
   SESSIONS: 'sessions',
   IDENTITIES: 'identities',
   SENDER_KEYS: 'senderKeys',
-  DISTRIBUTED_MEMBERS: 'distributedMembers'
+  DISTRIBUTED_MEMBERS: 'distributedMembers',
+  META: 'meta'
+} as const;
+
+const META_KEYS = {
+  NEXT_OTP_KEY_ID: 'nextOtpKeyId',
+  SIGNED_PRE_KEY_ID: 'signedPreKeyId',
+  SIGNED_PRE_KEY_ROTATED_AT: 'signedPreKeyRotatedAt'
 } as const;
 
 type SerializedKeyPair = {
@@ -367,6 +374,41 @@ export class SignalProtocolStore implements StorageType {
     const db = await this.getDb();
     await db.clear(STORES.SESSIONS);
   }
+
+  // --- META: per-store counters that must survive page reloads ---
+
+  async getNextOtpKeyId(): Promise<number | undefined> {
+    const db = await this.getDb();
+    const v = await db.get(STORES.META, META_KEYS.NEXT_OTP_KEY_ID);
+    return typeof v === 'number' ? v : undefined;
+  }
+
+  async setNextOtpKeyId(id: number): Promise<void> {
+    const db = await this.getDb();
+    await db.put(STORES.META, id, META_KEYS.NEXT_OTP_KEY_ID);
+  }
+
+  async getSignedPreKeyId(): Promise<number | undefined> {
+    const db = await this.getDb();
+    const v = await db.get(STORES.META, META_KEYS.SIGNED_PRE_KEY_ID);
+    return typeof v === 'number' ? v : undefined;
+  }
+
+  async setSignedPreKeyId(id: number): Promise<void> {
+    const db = await this.getDb();
+    await db.put(STORES.META, id, META_KEYS.SIGNED_PRE_KEY_ID);
+  }
+
+  async getSignedPreKeyRotatedAt(): Promise<number | undefined> {
+    const db = await this.getDb();
+    const v = await db.get(STORES.META, META_KEYS.SIGNED_PRE_KEY_ROTATED_AT);
+    return typeof v === 'number' ? v : undefined;
+  }
+
+  async setSignedPreKeyRotatedAt(ts: number): Promise<void> {
+    const db = await this.getDb();
+    await db.put(STORES.META, ts, META_KEYS.SIGNED_PRE_KEY_ROTATED_AT);
+  }
 }
 
 // Home instance store (singleton, backward compatible)
@@ -398,4 +440,23 @@ export function getStoreForInstance(domain: string | null): SignalProtocolStore 
 export function getActiveStore(): SignalProtocolStore {
   const domain = reduxStore.getState().app.activeInstanceDomain as string | null;
   return getStoreForInstance(domain);
+}
+
+/**
+ * Wipe IDB for the home store and every federated-instance store
+ * created in this session. Used on sign-out so the next user on the
+ * same browser cannot inherit the previous user's identity, sessions,
+ * or sender keys.
+ */
+export async function clearAllStores(): Promise<void> {
+  await signalStore.clearAll();
+  for (const store of instanceStores.values()) {
+    try {
+      await store.clearAll();
+    } catch {
+      // best-effort — keep going so a single failed instance doesn't
+      // leave the rest of the IDB residue around
+    }
+  }
+  instanceStores.clear();
 }

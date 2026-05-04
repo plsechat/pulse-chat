@@ -3,6 +3,17 @@ import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const IV_LENGTH = 12;
 
+// AAD-bind every channel ciphertext to its (channelId, senderId)
+// pair. The cipher's auth tag covers AAD, so a server (or anyone
+// with DB write access) can no longer move a ciphertext row from one
+// channel to another, or relabel a sender — decryption will fail.
+// Pre-AAD ciphertexts in the DB will fail to decrypt; this is the
+// "clean break" path agreed for alpha (post-deploy, old e2ee
+// messages render as undecryptable placeholders).
+function buildChannelAad(channelId: number, senderId: number): Uint8Array {
+  return new TextEncoder().encode(`channel:${channelId}:${senderId}`);
+}
+
 /**
  * Generate a new AES-256-GCM sender key for a channel and store it locally.
  * Returns the raw key as a base64 string.
@@ -110,7 +121,11 @@ export async function encryptWithSenderKey(
   const encoded = encoder.encode(plaintext);
 
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    {
+      name: 'AES-GCM',
+      iv,
+      additionalData: buildChannelAad(channelId, ownUserId)
+    },
     key,
     encoded
   );
@@ -148,7 +163,11 @@ export async function decryptWithSenderKey(
   const ciphertext = combined.slice(IV_LENGTH);
 
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    {
+      name: 'AES-GCM',
+      iv,
+      additionalData: buildChannelAad(channelId, fromUserId)
+    },
     key,
     ciphertext
   );

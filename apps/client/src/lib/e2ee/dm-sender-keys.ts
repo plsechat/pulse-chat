@@ -9,6 +9,13 @@ import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const IV_LENGTH = 12;
 
+// AAD-bind every DM-group ciphertext to its (dmChannelId, senderId)
+// pair. See sender-keys.ts for the rationale. Pre-AAD ciphertexts
+// will fail to decrypt — clean break for alpha.
+function buildDmAad(dmChannelId: number, senderId: number): Uint8Array {
+  return new TextEncoder().encode(`dm:${dmChannelId}:${senderId}`);
+}
+
 const cryptoKeyCache = new Map<string, CryptoKey>();
 
 async function importKey(keyBase64: string): Promise<CryptoKey> {
@@ -78,7 +85,11 @@ export async function encryptWithDmSenderKey(
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const encoded = new TextEncoder().encode(plaintext);
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    {
+      name: 'AES-GCM',
+      iv,
+      additionalData: buildDmAad(dmChannelId, ownUserId)
+    },
     key,
     encoded
   );
@@ -107,7 +118,11 @@ export async function decryptWithDmSenderKey(
   const iv = combined.slice(0, IV_LENGTH);
   const ciphertext = combined.slice(IV_LENGTH);
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    {
+      name: 'AES-GCM',
+      iv,
+      additionalData: buildDmAad(dmChannelId, fromUserId)
+    },
     key,
     ciphertext
   );

@@ -3,6 +3,7 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
+  channels,
   e2eeSenderKeys,
   serverMembers,
   userIdentityKeys,
@@ -10,6 +11,7 @@ import {
   userOneTimePreKeys,
   userSignedPreKeys
 } from '../../db/schema';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getCoMemberIds } from '../../db/queries/servers';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
@@ -264,6 +266,33 @@ const uploadOneTimePreKeysRoute = protectedProcedure
     );
   });
 
+// Identity reset and key restore must redistribute sender keys to every
+// E2EE channel the caller can VIEW across every server they're in — not
+// just the active server (the previous behavior, which left peers in
+// other servers stuck on stale keys until manual rotation). The result
+// is a flat number[] of channel ids; the client iterates and calls
+// ensureChannelSenderKey on each.
+const listMyE2eeChannelIdsRoute = protectedProcedure.query(async ({ ctx }) => {
+  // Pull every e2ee channel id and ask the existing visibility query
+  // which ones the caller can view. This re-uses the channel-permission
+  // logic (private + per-user overrides + role permissions) instead of
+  // duplicating it, at the cost of N small queries on identity reset.
+  // Reset happens rarely; the cost is acceptable.
+  const e2eeChannels = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(eq(channels.e2ee, true));
+
+  const visible: number[] = [];
+  for (const ch of e2eeChannels) {
+    const userIds = await getAffectedUserIdsForChannel(ch.id, {
+      permission: ChannelPermission.VIEW_CHANNEL
+    });
+    if (userIds.includes(ctx.userId)) visible.push(ch.id);
+  }
+  return visible;
+});
+
 const getPreKeyCountRoute = protectedProcedure.query(async ({ ctx }) => {
   const [result] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -470,6 +499,7 @@ export const e2eeRouter = t.router({
   uploadOneTimePreKeys: uploadOneTimePreKeysRoute,
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,
+  listMyE2eeChannelIds: listMyE2eeChannelIdsRoute,
   distributeSenderKey: distributeSenderKeyRoute,
   distributeSenderKeysBatch: distributeSenderKeysBatchRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
