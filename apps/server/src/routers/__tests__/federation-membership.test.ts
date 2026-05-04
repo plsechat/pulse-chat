@@ -218,3 +218,20 @@ describe('federation membership', () => {
     expect(joined[0]!.remoteServerId).toBe(2);
   });
 });
+
+describe('listInstances permission gate (F8)', () => {
+  test('owner (user 1) can list federation peers', async () => {
+    const { caller } = await initTest();
+    await createTestInstance('peer.example.com', 'Peer');
+    const instances = await caller.federation.listInstances();
+    expect(instances.length).toBeGreaterThanOrEqual(1);
+    expect(instances.some((i) => i.domain === 'peer.example.com')).toBe(true);
+  });
+
+  test('non-MANAGE_SETTINGS user is rejected', async () => {
+    const { caller } = await initTest(2);
+    await expect(caller.federation.listInstances()).rejects.toThrow(
+      'Insufficient permissions'
+    );
+  });
+});
