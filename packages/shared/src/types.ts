@@ -220,6 +220,15 @@ export type TFederationInstanceSummary = {
   createdAt: number;
 };
 
+// Public-facing slice of a federation peer for the discover view.
+// Excludes operator-sensitive metadata (status, direction, createdAt).
+export type TFederationActiveInstance = {
+  id: number;
+  domain: string;
+  name: string | null;
+  lastSeenAt: number | null;
+};
+
 export type TFederationConfig = {
   enabled: boolean;
   domain: string;

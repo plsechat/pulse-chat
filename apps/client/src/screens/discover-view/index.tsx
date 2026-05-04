@@ -11,7 +11,7 @@ import { getFileUrl } from '@/helpers/get-file-url';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type {
-  TFederationInstanceSummary,
+  TFederationActiveInstance,
   TRemoteServerSummary,
   TServerSummary
 } from '@pulse/shared';
@@ -189,7 +189,7 @@ const DiscoverView = memo(() => {
   const federatedServers = useFederatedServers();
 
   // Federated state
-  const [instances, setInstances] = useState<TFederationInstanceSummary[]>([]);
+  const [instances, setInstances] = useState<TFederationActiveInstance[]>([]);
   const [remoteServers, setRemoteServers] = useState<TRemoteServerSummary[]>(
     []
   );
@@ -245,8 +245,7 @@ const DiscoverView = memo(() => {
         try {
           const trpc = getTRPCClient();
           if (!trpc) return;
-          const fedInstances = await trpc.federation.listInstances.query();
-          const active = fedInstances.filter((i) => i.status === 'active');
+          const active = await trpc.federation.listActiveInstances.query();
           setInstances(active);
 
           // Fetch servers from all active instances
