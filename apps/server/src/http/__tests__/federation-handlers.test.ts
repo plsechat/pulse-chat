@@ -1023,3 +1023,147 @@ describe('POST /federation/user-info-update (E3)', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /federation/channel-sender-key-notify (E1)', () => {
+  test('pubsubs E2EE_FEDERATED_SENDER_KEY_AVAILABLE to each local recipient', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/channel-sender-key-notify',
+        {
+          hostDomain: PEER_DOMAIN,
+          hostChannelPublicId: 'host-channel-pid-1',
+          fromPublicId: 'remote-sender-pid',
+          senderKeyId: 7,
+          recipientPublicIds: [localPublicId]
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.notified).toBe(1);
+      return collected;
+    });
+
+    const matched = events.filter(
+      (e) => e.topic === ServerEvents.E2EE_FEDERATED_SENDER_KEY_AVAILABLE
+    );
+    expect(matched.length).toBe(1);
+    expect(
+      (matched[0]!.payload as { hostChannelPublicId: string }).hostChannelPublicId
+    ).toBe('host-channel-pid-1');
+    expect((matched[0]!.payload as { senderKeyId: number }).senderKeyId).toBe(7);
+  });
+
+  test('empty recipientPublicIds is a 200 no-op', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid',
+        fromPublicId: 'sender',
+        senderKeyId: 1,
+        recipientPublicIds: []
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.notified).toBe(0);
+  });
+
+  test('unknown recipient publicIds are silently skipped', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid',
+        fromPublicId: 'sender',
+        senderKeyId: 1,
+        recipientPublicIds: ['never-existed', 'also-never']
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.notified).toBe(0);
+  });
+
+  test('federated shadow users are not valid recipients (only local)', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    // Insert a shadow user with a publicId that the request will
+    // reference. Because the user is federated, they should NOT be
+    // notified — the notification is supposed to reach the user's
+    // home instance, not a peer hosting their shadow.
+    const shadowPublicId = 'shadow-pid-not-a-recipient';
+    await db.insert(users).values({
+      name: 'Shadow',
+      supabaseId: 'shadow-not-recipient',
+      publicId: shadowPublicId,
+      isFederated: true,
+      federatedInstanceId: peerInstanceId,
+      federatedPublicId: 'remote-shadow-recipient',
+      createdAt: Date.now()
+    });
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid',
+        fromPublicId: 'sender',
+        senderKeyId: 1,
+        recipientPublicIds: [shadowPublicId]
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.notified).toBe(0);
+  });
+
+  test('400 when required fields are missing', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid'
+        // fromPublicId, senderKeyId, recipientPublicIds missing
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects unsigned requests', async () => {
+    await initTest();
+    await seedPeer();
+
+    const res = await fetch(
+      `${testsBaseUrl}/federation/channel-sender-key-notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromDomain: PEER_DOMAIN,
+          hostDomain: PEER_DOMAIN,
+          hostChannelPublicId: 'pid',
+          fromPublicId: 'a',
+          senderKeyId: 1,
+          recipientPublicIds: []
+        })
+      }
+    );
+    expect(res.status).toBe(400);
+  });
+});
