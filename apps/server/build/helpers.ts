@@ -88,9 +88,24 @@ const getCurrentVersion = async () => {
 };
 
 const getMediasoupVersion = async () => {
-  const serverPkg = JSON.parse(await fs.readFile(serverPckJson, 'utf8'));
-
-  return serverPkg.dependencies['mediasoup'].replace('^', '');
+  // Read the *resolved* version from the installed package, not the
+  // semver range from package.json. The Node-side mediasoup package
+  // and the embedded C++ worker binary must come from exactly the
+  // same release; a `^3.19.11` floor in package.json could resolve
+  // to e.g. 3.19.17 at install time, while the previous code stripped
+  // the caret and downloaded the 3.19.11 worker. The Node and worker
+  // sides then disagree on the IPC settings shape and the worker
+  // exits with `wrong settings` at startup.
+  //
+  // Bun.resolveSync follows the same module-resolution path the
+  // runtime would, so it works whether mediasoup is hoisted to the
+  // workspace root or installed under apps/server/node_modules.
+  const installedPkgPath = Bun.resolveSync(
+    'mediasoup/package.json',
+    serverCwd
+  );
+  const installedPkg = JSON.parse(await fs.readFile(installedPkgPath, 'utf8'));
+  return installedPkg.version as string;
 };
 
 const patchPackageJsons = async (newVersion: string) => {
