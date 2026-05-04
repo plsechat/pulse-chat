@@ -10,6 +10,7 @@ import type { E2EEPlaintext } from '@/lib/e2ee/types';
 import { setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getHomeTRPCClient } from '@/lib/trpc';
+import { toast } from 'sonner';
 import { TYPING_MS, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
@@ -853,6 +854,41 @@ export const dmCallEnded = (dmChannelId: number) => {
 
 export const dismissRingingCall = (dmChannelId: number) =>
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+
+/**
+ * Handle a peer declining a call we may be in. Two side effects:
+ *  - Toast "<Name> declined" so the user gets immediate feedback.
+ *  - For 1:1 DMs (members.length === 2), auto-leave the call —
+ *    the only possible joiner just said no, no point waiting for
+ *    the 30s solo-leave timeout. For groups, just toast; other
+ *    members may still answer.
+ *
+ * Skips the toast for own decline events (the publish goes to all
+ * members including the decliner, so we'd otherwise toast ourselves).
+ */
+export const dmCallDeclined = (
+  dmChannelId: number,
+  declinedByUserId: number
+) => {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  if (declinedByUserId === ownUserId) return;
+
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  const decliner = channel?.members.find((m) => m.id === declinedByUserId);
+  const name = decliner?.name ?? 'A user';
+  toast.info(`${name} declined`);
+
+  // Auto-leave if this is the call we're in and there's no point
+  // staying — i.e. effectively-1:1 (member count of 2).
+  const ownInCall = state.dms.ownDmCallChannelId === dmChannelId;
+  const isOneOnOne = (channel?.members.length ?? 0) === 2;
+  if (ownInCall && isOneOnOne) {
+    leaveDmVoiceCall().catch(() => {
+      // Best-effort — toast already informed the user.
+    });
+  }
+};
 
 export const dmCallUserJoined = (
   dmChannelId: number,

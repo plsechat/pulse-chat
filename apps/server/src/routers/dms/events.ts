@@ -10,6 +10,7 @@ const onDmCallUserJoinedRoute = userSubscription(
   ServerEvents.DM_CALL_USER_JOINED
 );
 const onDmCallUserLeftRoute = userSubscription(ServerEvents.DM_CALL_USER_LEFT);
+const onDmCallDeclinedRoute = userSubscription(ServerEvents.DM_CALL_DECLINED);
 const onDmTypingRoute = userSubscription(ServerEvents.DM_MESSAGE_TYPING);
 const onDmChannelUpdateRoute = userSubscription(ServerEvents.DM_CHANNEL_UPDATE);
 const onDmChannelDeleteRoute = userSubscription(ServerEvents.DM_CHANNEL_DELETE);
@@ -17,6 +18,7 @@ const onDmMemberAddRoute = userSubscription(ServerEvents.DM_MEMBER_ADD);
 const onDmMemberRemoveRoute = userSubscription(ServerEvents.DM_MEMBER_REMOVE);
 
 export {
+  onDmCallDeclinedRoute,
   onDmCallEndedRoute,
   onDmCallStartedRoute,
   onDmCallUserJoinedRoute,

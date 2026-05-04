@@ -482,3 +482,33 @@ describe('DM addMember', () => {
     expect(row?.ownerId).toBe(2);
   });
 });
+
+// declineCall is a pure notification mutation — no persisted state,
+// just publishes DM_CALL_DECLINED. Server-side test coverage is
+// limited to membership gating; the client-side toast + auto-leave
+// behavior is exercised manually.
+describe('DM declineCall', () => {
+  test('member can decline a call in their channel', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+
+    // Just resolves — the route returns void after publishing.
+    await expect(
+      caller1.dms.declineCall({ dmChannelId: channel.id })
+    ).resolves.toBeUndefined();
+  });
+
+  test('non-member cannot decline a call in someone else\'s channel', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+
+    await expect(
+      caller3.dms.declineCall({ dmChannelId: channel.id })
+    ).rejects.toThrow();
+  });
+});

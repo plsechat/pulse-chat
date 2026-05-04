@@ -10,6 +10,7 @@ import {
   addDmTypingUser,
   decryptDmMessageInPlace,
   deleteDmMessage,
+  dmCallDeclined,
   dmCallEnded,
   dmCallStarted,
   dmCallUserJoined,
@@ -71,6 +72,11 @@ const subscribeToDms = () => {
         dmCallUserLeft(dmChannelId, userId);
         removeUserFromVoiceChannel(userId, dmChannelId);
       }
+    ),
+    subscribe(
+      'onDmCallDeclined',
+      trpc.dms.onCallDeclined,
+      ({ dmChannelId, userId }) => dmCallDeclined(dmChannelId, userId)
     ),
     subscribe('onDmChannelUpdate', trpc.dms.onChannelUpdate, () =>
       fetchDmChannels()

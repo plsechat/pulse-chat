@@ -160,6 +160,10 @@ type Events = {
     dmChannelId: number;
     userId: number;
   };
+  [ServerEvents.DM_CALL_DECLINED]: {
+    dmChannelId: number;
+    userId: number;
+  };
 
   [ServerEvents.DM_MESSAGE_TYPING]: {
     dmChannelId: number;

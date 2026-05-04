@@ -61,6 +61,7 @@ export enum ServerEvents {
   DM_CALL_ENDED = "dmCallEnded",
   DM_CALL_USER_JOINED = "dmCallUserJoined",
   DM_CALL_USER_LEFT = "dmCallUserLeft",
+  DM_CALL_DECLINED = "dmCallDeclined",
   DM_MESSAGE_TYPING = "dmMessageTyping",
 
   SERVER_MEMBER_JOIN = "serverMemberJoin",

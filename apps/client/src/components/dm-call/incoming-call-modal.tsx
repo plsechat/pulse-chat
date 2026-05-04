@@ -9,6 +9,7 @@ import { useOwnUserId } from '@/features/server/users/hooks';
 import { LocalStorageKey, setLocalStorageItem } from '@/helpers/storage';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useVoice } from '@/features/server/voice/hooks';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { Phone, PhoneOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -134,7 +135,13 @@ const IncomingCallContent = memo(
     }, [accepting, dmChannelId, init]);
 
     const handleDecline = useCallback(() => {
+      // Always dismiss locally first — even if the server-side
+      // notify fails, the user has clicked decline and the modal
+      // should close with the ring stopping. Best-effort publish
+      // notifies the caller (and other ringers in a group).
       dismissRingingCall(dmChannelId);
+      const trpc = getHomeTRPCClient();
+      trpc?.dms.declineCall.mutate({ dmChannelId }).catch(() => {});
     }, [dmChannelId]);
 
     return (
