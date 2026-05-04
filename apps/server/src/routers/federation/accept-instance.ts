@@ -49,15 +49,16 @@ const acceptInstanceRoute = protectedProcedure
     // Notify remote instance (retry once on failure, fire-and-forget)
     const notifyRemote = async (attempt: number) => {
       try {
-        const signature = await signChallenge(config.federation.domain);
         const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
+        const bodyToSign = { domain: config.federation.domain };
+        const signature = await signChallenge(bodyToSign, instance!.domain);
 
         const res = await federationFetch(`${protocol}://${instance!.domain}/federation/accept`, {
           method: 'POST',
           signal: AbortSignal.timeout(10_000),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            domain: config.federation.domain,
+            ...bodyToSign,
             signature
           })
         });

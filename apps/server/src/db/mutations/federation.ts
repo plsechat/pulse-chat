@@ -279,7 +279,11 @@ async function syncShadowUserProfile(
 
     // Fetch profile from home instance
     const protocol = issuerDomain.includes('localhost') ? 'http' : 'https';
-    const signature = await signChallenge(JSON.stringify({ publicId }));
+    const bodyToSign = {
+      publicId,
+      fromDomain: config.federation.domain
+    };
+    const signature = await signChallenge(bodyToSign, issuerDomain);
 
     const infoResponse = await federationFetch(
       `${protocol}://${issuerDomain}/federation/user-info`,
@@ -287,8 +291,7 @@ async function syncShadowUserProfile(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          publicId,
-          fromDomain: config.federation.domain,
+          ...bodyToSign,
           signature
         }),
         signal: AbortSignal.timeout(10_000)

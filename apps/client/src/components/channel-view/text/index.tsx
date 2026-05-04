@@ -38,6 +38,7 @@ import {
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
+import { cn } from '@/lib/utils';
 import { FileCard } from './file-card';
 import { MessagesGroup } from './messages-group';
 import { SystemMessage } from './system-message';
@@ -488,7 +489,14 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           // frame of the drag (200ms behind the cursor) — extremely
           // laggy. Scoping the transition to focus-affordances keeps
           // height instant while the focus glow still fades smoothly.
-          className="flex items-start gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]"
+          className={cn(
+            'flex gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
+            // Single-line: vertically center icons relative to the
+            // input baseline. Multiline: anchor icons to the bottom
+            // so they stay aligned with the send-action edge as the
+            // input grows upward via the resize handle.
+            multilineMode ? 'items-end' : 'items-center'
+          )}
           style={multilineMode ? { height: composerHeight } : undefined}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;

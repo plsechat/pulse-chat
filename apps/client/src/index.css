@@ -694,6 +694,54 @@ body,
   animation: msg-highlight 2.5s ease-out forwards;
 }
 
+/* Hover animations for the user-control row icons. Each animation
+   only runs while the icon's button is hovered, then resets — so
+   you get a quick personality cue on hover without the icon ever
+   feeling busy at rest. Animations honor prefers-reduced-motion via
+   the global media query at the bottom of this stylesheet. */
+
+@keyframes icon-wiggle {
+  0% { transform: rotate(0deg); }
+  20% { transform: rotate(-12deg); }
+  40% { transform: rotate(10deg); }
+  60% { transform: rotate(-6deg); }
+  80% { transform: rotate(4deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes icon-jiggle {
+  0% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) rotate(-4deg); }
+  50% { transform: translateY(0) rotate(0deg); }
+  75% { transform: translateY(-1px) rotate(4deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes icon-spin-once {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(180deg); }
+}
+
+.icon-anim-wiggle:hover {
+  animation: icon-wiggle 0.5s ease-in-out;
+}
+
+.icon-anim-jiggle:hover {
+  animation: icon-jiggle 0.45s ease-in-out;
+}
+
+.icon-anim-spin:hover {
+  animation: icon-spin-once 0.5s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-anim-wiggle:hover,
+  .icon-anim-jiggle:hover,
+  .icon-anim-spin:hover {
+    animation: none;
+  }
+}
+
 /* mentions */
 
 .mention {

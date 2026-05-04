@@ -82,11 +82,19 @@ const addInstanceRoute = protectedProcedure
       );
     }
 
-    // Step 2: POST our info to remote's /federation/request
-    const signature = await signChallenge(config.federation.domain);
+    // Step 2: POST our info to remote's /federation/request.
+    // Signature binds the entire body — receiver verifies the JWT
+    // against the publicKey we present (proving key ownership) AND
+    // re-derives the body hash from the wire payload.
     const server = await import('../../db/queries/servers').then(
       (m) => m.getFirstServer()
     );
+    const bodyToSign = {
+      domain: config.federation.domain,
+      name: server?.name || 'Pulse Instance',
+      publicKey: JSON.stringify(keys!.publicKey)
+    };
+    const signature = await signChallenge(bodyToSign, url.host);
 
     try {
       const requestRes = await federationFetch(`${url.origin}/federation/request`, {
@@ -94,9 +102,7 @@ const addInstanceRoute = protectedProcedure
         signal: AbortSignal.timeout(10_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          domain: config.federation.domain,
-          name: server?.name || 'Pulse Instance',
-          publicKey: JSON.stringify(keys!.publicKey),
+          ...bodyToSign,
           signature
         })
       });

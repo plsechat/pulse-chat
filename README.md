@@ -22,7 +22,10 @@
 ---
 
 > [!NOTE]
-> Pulse Chat is in alpha (v0.1.3). Expect bugs and breaking changes between updates.
+> Pulse Chat is in alpha (v0.2.0). Expect bugs and breaking changes between updates.
+
+> [!WARNING]
+> **v0.2.0 introduces a breaking change to the federation wire format.** Outbound signed requests now embed the request body's SHA-256 in a `sha256` JWT claim, plus `iss`/`aud`/`jti` claims for replay and cross-instance protection. A v0.2 server **cannot** federate with a pre-v0.2 peer until both sides upgrade. Coordinate with peers before upgrading.
 
 ## Why Pulse?
 

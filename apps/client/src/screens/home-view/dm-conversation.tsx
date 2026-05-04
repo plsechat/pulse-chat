@@ -468,7 +468,13 @@ const DmConversation = memo(
           // height during drag-resize). Without this, the DM input
           // rendered as a bare inline row that didn't match the rest
           // of the chat surface.
-          className="flex items-start gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]"
+          className={cn(
+            'flex gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
+            // Match channel composer: single-line centers icons with
+            // the input baseline; multiline anchors them to the
+            // bottom edge as the input grows upward.
+            multilineMode ? 'items-end' : 'items-center'
+          )}
           style={multilineMode ? { height: composerHeight } : undefined}
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('button')) return;

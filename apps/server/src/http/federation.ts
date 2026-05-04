@@ -105,8 +105,15 @@ const federationRequestHandler = async (
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
-  // Verify signature proves key ownership
-  const isValid = await verifyChallenge(signature, publicKey);
+  // Verify signature proves key ownership AND binds to the body. The
+  // sender signed { domain, name, publicKey } so we re-derive that
+  // shape from the wire body (everything except `signature` itself).
+  const isValid = await verifyChallenge(
+    signature,
+    { domain, name, publicKey },
+    domain,
+    publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
@@ -245,7 +252,13 @@ const federationAcceptHandler = async (
     });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  // Sender signed { domain } and we look the publicKey up by that domain.
+  const isValid = await verifyChallenge(
+    signature,
+    { domain },
+    domain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
@@ -379,7 +392,15 @@ const federationUserInfoHandler = async (
     return jsonResponse(res, 401, { error: 'Unknown or inactive instance' });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  // Sender signed { publicId, fromDomain }. userId is in the body but
+  // wasn't part of the signed shape historically; we keep it that way
+  // so signatures don't break if a peer omits it.
+  const isValid = await verifyChallenge(
+    signature,
+    { publicId, fromDomain },
+    fromDomain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
@@ -424,15 +445,15 @@ const federationFriendRequestHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, fromUsername, fromUserId, fromPublicId, fromAvatarFile, toPublicId, signature } = body as {
-    fromDomain: string;
-    fromUsername: string;
-    fromUserId?: number;
-    fromPublicId: string;
-    fromAvatarFile?: string;
-    toPublicId: string;
+  const { signature, ...signedBody } = body as Record<string, unknown> & {
     signature: string;
   };
+  const fromDomain = signedBody.fromDomain as string;
+  const fromUsername = signedBody.fromUsername as string;
+  const fromPublicId = signedBody.fromPublicId as string;
+  const fromUserId = signedBody.fromUserId as number | undefined;
+  const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
+  const toPublicId = signedBody.toPublicId as string;
 
   if (!fromDomain || !fromUsername || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -459,7 +480,15 @@ const federationFriendRequestHandler = async (
     return jsonResponse(res, 403, { error: 'Not a trusted instance' });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  // Receive-side: signedBody is the full wire body minus `signature`,
+  // which exactly matches what relayToInstance signed (payload +
+  // fromDomain). Canonicalization handles key-order on both sides.
+  const isValid = await verifyChallenge(
+    signature,
+    signedBody,
+    fromDomain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
@@ -541,15 +570,15 @@ const federationFriendAcceptHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, fromUsername, fromUserId, fromPublicId, fromAvatarFile, toPublicId, signature } = body as {
-    fromDomain: string;
-    fromUsername: string;
-    fromUserId?: number;
-    fromPublicId: string;
-    fromAvatarFile?: string;
-    toPublicId: string;
+  const { signature, ...signedBody } = body as Record<string, unknown> & {
     signature: string;
   };
+  const fromDomain = signedBody.fromDomain as string;
+  const fromUsername = signedBody.fromUsername as string;
+  const fromPublicId = signedBody.fromPublicId as string;
+  const fromUserId = signedBody.fromUserId as number | undefined;
+  const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
+  const toPublicId = signedBody.toPublicId as string;
 
   if (!fromDomain || !fromUsername || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -575,7 +604,12 @@ const federationFriendAcceptHandler = async (
     return jsonResponse(res, 403, { error: 'Not a trusted instance' });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  const isValid = await verifyChallenge(
+    signature,
+    signedBody,
+    fromDomain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
@@ -664,12 +698,12 @@ const federationFriendRemoveHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, fromPublicId, toPublicId, signature } = body as {
-    fromDomain: string;
-    fromPublicId: string;
-    toPublicId: string;
+  const { signature, ...signedBody } = body as Record<string, unknown> & {
     signature: string;
   };
+  const fromDomain = signedBody.fromDomain as string;
+  const fromPublicId = signedBody.fromPublicId as string;
+  const toPublicId = signedBody.toPublicId as string;
 
   if (!fromDomain || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -695,7 +729,12 @@ const federationFriendRemoveHandler = async (
     return jsonResponse(res, 403, { error: 'Not a trusted instance' });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  const isValid = await verifyChallenge(
+    signature,
+    signedBody,
+    fromDomain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
@@ -767,15 +806,15 @@ const federationDmRelayHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, fromUsername, fromPublicId, fromAvatarFile, toPublicId, content, signature } = body as {
-    fromDomain: string;
-    fromUsername: string;
-    fromPublicId: string;
-    fromAvatarFile?: string;
-    toPublicId: string;
-    content: string;
+  const { signature, ...signedBody } = body as Record<string, unknown> & {
     signature: string;
   };
+  const fromDomain = signedBody.fromDomain as string;
+  const fromUsername = signedBody.fromUsername as string;
+  const fromPublicId = signedBody.fromPublicId as string;
+  const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
+  const toPublicId = signedBody.toPublicId as string;
+  const content = signedBody.content as string;
 
   if (!fromDomain || !fromUsername || !content || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -801,12 +840,17 @@ const federationDmRelayHandler = async (
     return jsonResponse(res, 403, { error: 'Not a trusted instance' });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  const isValid = await verifyChallenge(
+    signature,
+    signedBody,
+    fromDomain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
 
-  const fromUserId = (body.fromUserId as number) ?? 0;
+  const fromUserId = (signedBody.fromUserId as number) ?? 0;
 
   // Find or create shadow user for the sender (identified by UUID)
   const shadowUser = await findOrCreateShadowUser(
@@ -887,12 +931,12 @@ const federationReportUserHandler = async (
   }
 
   const body = await parseBody(req);
-  const { fromDomain, username, reason, signature } = body as {
-    fromDomain: string;
-    username: string;
-    reason: string;
+  const { signature, ...signedBody } = body as Record<string, unknown> & {
     signature: string;
   };
+  const fromDomain = signedBody.fromDomain as string;
+  const username = signedBody.username as string;
+  const reason = signedBody.reason as string;
 
   if (!fromDomain || !username || !reason || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -913,7 +957,12 @@ const federationReportUserHandler = async (
     return jsonResponse(res, 403, { error: 'Not a trusted instance' });
   }
 
-  const isValid = await verifyChallenge(signature, instance.publicKey);
+  const isValid = await verifyChallenge(
+    signature,
+    signedBody,
+    fromDomain,
+    instance.publicKey
+  );
   if (!isValid) {
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }

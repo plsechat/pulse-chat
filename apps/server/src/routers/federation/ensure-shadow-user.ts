@@ -54,9 +54,11 @@ const ensureShadowUserRoute = protectedProcedure
     const protocol = input.instanceDomain.includes('localhost')
       ? 'http'
       : 'https';
-    const signature = await signChallenge(
-      JSON.stringify({ publicId: input.remotePublicId })
-    );
+    const bodyToSign = {
+      publicId: input.remotePublicId,
+      fromDomain: config.federation.domain
+    };
+    const signature = await signChallenge(bodyToSign, input.instanceDomain);
 
     let verifiedName: string | undefined;
     try {
@@ -66,8 +68,7 @@ const ensureShadowUserRoute = protectedProcedure
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            publicId: input.remotePublicId,
-            fromDomain: config.federation.domain,
+            ...bodyToSign,
             signature
           }),
           signal: AbortSignal.timeout(10_000)
