@@ -1049,6 +1049,10 @@ const e2eeSenderKeys = pgTable(
     toUserId: integer('to_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Phase B: sender-assigned chain identifier. Bumps on every
+    // rotation (kick/leave). One row per (channel, from, to,
+    // senderKeyId) — pre-Phase-B rows backfill to 1.
+    senderKeyId: integer('sender_key_id').notNull().default(1),
     distributionMessage: text('distribution_message').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull()
   },
@@ -1078,6 +1082,9 @@ const dmE2eeSenderKeys = pgTable(
     toUserId: integer('to_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // Phase B: see e2eeSenderKeys.senderKeyId. Same semantics on
+    // dm-group chains.
+    senderKeyId: integer('sender_key_id').notNull().default(1),
     distributionMessage: text('distribution_message').notNull(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull()
   },

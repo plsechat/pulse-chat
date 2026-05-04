@@ -328,6 +328,70 @@ describe('e2ee router', () => {
     expect(pendingForUser1.length).toBe(1);
   });
 
+  // --- Phase B sender_key_id chain rotations ---
+
+  test('senderKeyId defaults to 1 and round-trips through getPendingSenderKeys', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    // Omit senderKeyId — should default to 1.
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      distributionMessage: 'phase-a-fallback'
+    });
+
+    const pending = await caller2.e2ee.getPendingSenderKeys({});
+    expect(pending.length).toBe(1);
+    expect(pending[0]!.senderKeyId).toBe(1);
+  });
+
+  test('explicit senderKeyId is preserved on roundtrip (rotation case)', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    // First chain (initial creation).
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      senderKeyId: 1,
+      distributionMessage: 'chain-v1'
+    });
+
+    // Rotation — kicked someone, generated a fresh chain.
+    await caller1.e2ee.distributeSenderKey({
+      channelId: 1,
+      toUserId: 2,
+      senderKeyId: 2,
+      distributionMessage: 'chain-v2'
+    });
+
+    const pending = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
+    // Both rows must be returned — late v1 messages still need v1.
+    const ids = pending.map((p) => p.senderKeyId).sort();
+    expect(ids).toEqual([1, 2]);
+  });
+
+  test('distributeSenderKeysBatch threads senderKeyId across all recipients', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      senderKeyId: 7,
+      distributions: [
+        { toUserId: 2, distributionMessage: 'to-user-2' },
+        { toUserId: 3, distributionMessage: 'to-user-3' }
+      ]
+    });
+
+    const p2 = await caller2.e2ee.getPendingSenderKeys({});
+    const p3 = await caller3.e2ee.getPendingSenderKeys({});
+    expect(p2[0]!.senderKeyId).toBe(7);
+    expect(p3[0]!.senderKeyId).toBe(7);
+  });
+
   // --- Key regeneration ---
 
   test('should allow re-registration without signed pre-key conflict', async () => {

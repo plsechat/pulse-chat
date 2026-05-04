@@ -3,7 +3,10 @@ import { appSliceActions } from '@/features/app/slice';
 import { updateFriend } from '@/features/friends/actions';
 import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
-import { distributeSenderKeysToOnlineMember } from '@/lib/e2ee';
+import {
+  distributeSenderKeysToOnlineMember,
+  markChainForRotation
+} from '@/lib/e2ee';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getTRPCClient } from '@/lib/trpc';
 import { UserStatus } from '@pulse/shared';
@@ -60,6 +63,23 @@ const subscribeToUsers = () => {
       const activeServerId = store.getState().app.activeServerId;
       if (serverId !== activeServerId) return;
       removeUser(userId);
+      // Phase B B4 — lazy rotation on kick/leave. Mark every E2EE
+      // channel in this server dirty so the next encrypt rotates the
+      // chain (new senderKeyId) and SKDMs only the still-visible
+      // members. Some channels may not have included the leaver, but
+      // over-rotation is cheap and the alternative (per-channel
+      // membership query) round-trips for every kick.
+      const e2eeChannels = store
+        .getState()
+        .server.channels.filter((c) => c.e2ee);
+      for (const channel of e2eeChannels) {
+        markChainForRotation('channel', channel.id).catch((err) => {
+          console.warn(
+            `[E2EE] Failed to mark channel ${channel.id} dirty after kick of ${userId}:`,
+            err
+          );
+        });
+      }
     }),
     subscribe('onKicked', trpc.users.onKicked, ({ serverId, reason }) => {
       toast.error(

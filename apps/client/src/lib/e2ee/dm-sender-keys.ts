@@ -1,138 +1,198 @@
-import { signalStore } from './store';
-import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
-
-// Mirror of sender-keys.ts but operating on DM channels. The crypto
-// is identical (AES-256-GCM with 12-byte IV) — the only thing that
-// differs is the IDB keying (`dm:${id}:${user}` vs `${id}:${user}`).
-// Group DMs always live on the home instance, so these helpers go
-// straight to `signalStore` rather than the active-instance store.
-
-const IV_LENGTH = 12;
-
-// AAD-bind every DM-group ciphertext to its (dmChannelId, senderId)
-// pair. See sender-keys.ts for the rationale. Pre-AAD ciphertexts
-// will fail to decrypt — clean break for alpha.
-function buildDmAad(dmChannelId: number, senderId: number): Uint8Array {
-  return new TextEncoder().encode(`dm:${dmChannelId}:${senderId}`);
-}
-
-const cryptoKeyCache = new Map<string, CryptoKey>();
-
-async function importKey(keyBase64: string): Promise<CryptoKey> {
-  const cached = cryptoKeyCache.get(keyBase64);
-  if (cached) return cached;
-  const rawKey = base64ToArrayBuffer(keyBase64);
-  const key = await crypto.subtle.importKey(
-    'raw',
-    rawKey,
-    { name: 'AES-GCM' },
-    false,
-    ['encrypt', 'decrypt']
-  );
-  cryptoKeyCache.set(keyBase64, key);
-  return key;
-}
-
 /**
- * Generate a fresh AES-256-GCM sender key for a DM channel and store
- * it locally as our (ownUserId) outbound key.
+ * DM-group sender-key glue. Symmetric to `sender-keys.ts` but scoped
+ * to DM channels. The IDB keying uses `kind = 'dm'` so a DM channel
+ * id and a server channel id with the same numeric value can never
+ * collide. Group DMs always live on the home instance, so all chain
+ * state is in the home `signalStore` (no per-instance fanout).
+ *
+ * No `cryptoKeyCache` / `clearDmCryptoKeyCache` exports anymore
+ * (Phase A holdover) — chains hold their own forward state.
  */
-export async function generateDmSenderKey(
+
+import { signalStore, type SignalProtocolStore } from './store';
+import {
+  decodeWire,
+  SenderKeyChain,
+  type AadContext,
+  type ChainKind,
+  type SenderKeyDistribution
+} from './sender-key-chain';
+import { base64ToArrayBuffer } from './utils';
+
+const KIND: ChainKind = 'dm';
+
+function aad(
   dmChannelId: number,
-  ownUserId: number
-): Promise<string> {
-  const cryptoKey = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-  const raw = await crypto.subtle.exportKey('raw', cryptoKey);
-  const keyBase64 = arrayBufferToBase64(raw);
-  await signalStore.storeDmSenderKey(dmChannelId, ownUserId, keyBase64);
-  return keyBase64;
+  senderId: number
+): Omit<AadContext, 'senderKeyId'> {
+  return { kind: KIND, scopeId: dmChannelId, senderId };
 }
 
-export async function hasDmSenderKey(
-  dmChannelId: number,
-  userId: number
-): Promise<boolean> {
-  const k = await signalStore.getDmSenderKey(dmChannelId, userId);
-  return !!k;
+function b64ToBytes(b64: string): Uint8Array {
+  return new Uint8Array(base64ToArrayBuffer(b64));
 }
 
-export async function storeDmSenderKeyForUser(
-  dmChannelId: number,
-  userId: number,
-  keyBase64: string
-): Promise<void> {
-  await signalStore.storeDmSenderKey(dmChannelId, userId, keyBase64);
-}
-
-/**
- * Encrypt with the caller's own sender key for a DM channel.
- * Format: base64(iv || ciphertext).
- */
-export async function encryptWithDmSenderKey(
+export async function getOrCreateOutboundDmChain(
   dmChannelId: number,
   ownUserId: number,
-  plaintext: string
-): Promise<string> {
-  const keyBase64 = await signalStore.getDmSenderKey(dmChannelId, ownUserId);
-  if (!keyBase64) {
-    throw new Error(`No sender key found for DM channel ${dmChannelId}`);
-  }
-  const key = await importKey(keyBase64);
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const encoded = new TextEncoder().encode(plaintext);
-  const ciphertext = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv,
-      additionalData: buildDmAad(dmChannelId, ownUserId)
-    },
-    key,
-    encoded
+  store: SignalProtocolStore = signalStore
+): Promise<SenderKeyChain> {
+  const senderKeyId = await store.getOwnSenderKeyId(
+    KIND,
+    dmChannelId,
+    ownUserId
   );
-  const combined = new Uint8Array(IV_LENGTH + ciphertext.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(ciphertext), IV_LENGTH);
-  return arrayBufferToBase64(combined.buffer);
+  if (senderKeyId !== undefined) {
+    const data = await store.getChain(
+      KIND,
+      dmChannelId,
+      ownUserId,
+      senderKeyId
+    );
+    if (data) return SenderKeyChain.fromIdb(data);
+  }
+  const chain = await SenderKeyChain.createOutbound(1);
+  await store.storeChain(KIND, dmChannelId, ownUserId, 1, chain.toIdb());
+  await store.setOwnSenderKeyId(KIND, dmChannelId, ownUserId, 1);
+  return chain;
 }
 
-/**
- * Decrypt using the named sender's distributed key for this DM channel.
- */
-export async function decryptWithDmSenderKey(
+export async function rotateOutboundDmChain(
+  dmChannelId: number,
+  ownUserId: number,
+  store: SignalProtocolStore = signalStore
+): Promise<SenderKeyChain> {
+  const current =
+    (await store.getOwnSenderKeyId(KIND, dmChannelId, ownUserId)) ?? 0;
+  const nextId = current + 1;
+  const chain = await SenderKeyChain.createOutbound(nextId);
+  await store.storeChain(
+    KIND,
+    dmChannelId,
+    ownUserId,
+    nextId,
+    chain.toIdb()
+  );
+  await store.setOwnSenderKeyId(KIND, dmChannelId, ownUserId, nextId);
+  return chain;
+}
+
+export async function acceptInboundDmChain(
   dmChannelId: number,
   fromUserId: number,
-  ciphertextBase64: string
-): Promise<string> {
-  const keyBase64 = await signalStore.getDmSenderKey(dmChannelId, fromUserId);
-  if (!keyBase64) {
-    throw new Error(
-      `No sender key for user ${fromUserId} in DM channel ${dmChannelId}`
-    );
-  }
-  const key = await importKey(keyBase64);
-  const combined = new Uint8Array(base64ToArrayBuffer(ciphertextBase64));
-  const iv = combined.slice(0, IV_LENGTH);
-  const ciphertext = combined.slice(IV_LENGTH);
-  const plaintext = await crypto.subtle.decrypt(
-    {
-      name: 'AES-GCM',
-      iv,
-      additionalData: buildDmAad(dmChannelId, fromUserId)
-    },
-    key,
-    ciphertext
+  distribution: SenderKeyDistribution,
+  store: SignalProtocolStore = signalStore
+): Promise<void> {
+  const chain = SenderKeyChain.acceptInbound(
+    distribution.senderKeyId,
+    b64ToBytes(distribution.chainKey),
+    distribution.iteration,
+    b64ToBytes(distribution.signingPublicKey)
   );
-  return new TextDecoder().decode(plaintext);
+  await store.storeChain(
+    KIND,
+    dmChannelId,
+    fromUserId,
+    distribution.senderKeyId,
+    chain.toIdb()
+  );
 }
 
-/**
- * Drop crypto-key cache entries — called from finalizeRestoredKeys
- * after IDB has been rewritten wholesale.
- */
-export function clearDmCryptoKeyCache(): void {
-  cryptoKeyCache.clear();
+export async function encryptDmGroupMessage(
+  dmChannelId: number,
+  ownUserId: number,
+  plaintext: string,
+  store: SignalProtocolStore = signalStore
+): Promise<string> {
+  const senderKeyId = await store.getOwnSenderKeyId(
+    KIND,
+    dmChannelId,
+    ownUserId
+  );
+  if (senderKeyId === undefined) {
+    throw new Error(
+      `No outbound chain for DM channel ${dmChannelId} — call ensureDmGroupSenderKey first`
+    );
+  }
+  const data = await store.getChain(
+    KIND,
+    dmChannelId,
+    ownUserId,
+    senderKeyId
+  );
+  if (!data) {
+    throw new Error(
+      `Outbound chain missing in IDB for dmChannel=${dmChannelId} senderKeyId=${senderKeyId}`
+    );
+  }
+  const chain = SenderKeyChain.fromIdb(data);
+  const wire = await chain.encrypt(plaintext, aad(dmChannelId, ownUserId));
+  await store.storeChain(
+    KIND,
+    dmChannelId,
+    ownUserId,
+    senderKeyId,
+    chain.toIdb()
+  );
+  return wire;
+}
+
+export class MissingDmChainError extends Error {
+  constructor(
+    public readonly dmChannelId: number,
+    public readonly fromUserId: number,
+    public readonly senderKeyId: number
+  ) {
+    super(
+      `No DM chain for channel=${dmChannelId} sender=${fromUserId} senderKeyId=${senderKeyId}`
+    );
+    this.name = 'MissingDmChainError';
+  }
+}
+
+export async function decryptDmGroupMessage(
+  dmChannelId: number,
+  fromUserId: number,
+  wire: string,
+  store: SignalProtocolStore = signalStore
+): Promise<string> {
+  const decoded = decodeWire(wire);
+  const data = await store.getChain(
+    KIND,
+    dmChannelId,
+    fromUserId,
+    decoded.senderKeyId
+  );
+  if (!data) {
+    throw new MissingDmChainError(
+      dmChannelId,
+      fromUserId,
+      decoded.senderKeyId
+    );
+  }
+  const chain = SenderKeyChain.fromIdb(data);
+  const plaintext = await chain.decrypt(wire, aad(dmChannelId, fromUserId));
+  await store.storeChain(
+    KIND,
+    dmChannelId,
+    fromUserId,
+    decoded.senderKeyId,
+    chain.toIdb()
+  );
+  return plaintext;
+}
+
+export async function hasDmChain(
+  dmChannelId: number,
+  fromUserId: number,
+  senderKeyId: number,
+  store: SignalProtocolStore = signalStore
+): Promise<boolean> {
+  const data = await store.getChain(
+    KIND,
+    dmChannelId,
+    fromUserId,
+    senderKeyId
+  );
+  return !!data;
 }

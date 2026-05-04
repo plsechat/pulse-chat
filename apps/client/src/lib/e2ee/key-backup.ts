@@ -2,8 +2,37 @@ import { openDB } from 'idb';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 
+// All object stores at the current DB version — needed by the upgrade
+// callback so we open the database with the same shape `store.ts`
+// uses, regardless of whether we're reading or writing.
+const ALL_STORES = [
+  'identityKey',
+  'registrationId',
+  'preKeys',
+  'signedPreKeys',
+  'sessions',
+  'identities',
+  'senderKeys',
+  'distributedMembers',
+  'meta',
+  'chainState',
+  'ownChainCursor',
+  'chainDistribution',
+  'dirtyChains'
+] as const;
+
+// Stores that actually flow through backup. Phase B chain stores
+// (chainState, ownChainCursor, chainDistribution, dirtyChains) are
+// EXCLUDED for two reasons:
+//   1. chainState holds non-extractable `CryptoKey` (Ed25519 signing
+//      private key). JSON.stringify drops it to `{}`, so a backup
+//      would silently lose the signing material.
+//   2. After restore, finalizeRestoredKeys calls clearAllChains()
+//      anyway — restored chains would be wiped immediately. Carrying
+//      them is wasted bytes.
+// Chains rebuild lazily on next message via SKDM exchange.
 const STORE_NAMES = [
   'identityKey',
   'registrationId',
@@ -11,10 +40,14 @@ const STORE_NAMES = [
   'signedPreKeys',
   'sessions',
   'identities',
-  'senderKeys'
+  'senderKeys',
+  'distributedMembers',
+  'meta'
 ] as const;
 
-// V1 stores (before senderKeys was added)
+// Required-store sets per backup-payload version. v1 predates
+// senderKeys; v2 predates meta; v3 is the current set (still
+// excludes Phase B chains by design — see STORE_NAMES comment).
 const V1_STORE_NAMES = [
   'identityKey',
   'registrationId',
@@ -24,12 +57,17 @@ const V1_STORE_NAMES = [
   'identities'
 ] as const;
 
+const V2_STORE_NAMES = [
+  ...V1_STORE_NAMES,
+  'senderKeys'
+] as const;
+
 export const PBKDF2_ITERATIONS = 600_000;
 
 export const BACKUP_STORE_NAMES = STORE_NAMES;
 
 export type BackupPayload = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -85,7 +123,7 @@ export async function encryptBackupData(
   );
 
   return {
-    version: 2,
+    version: 3,
     salt: arrayBufferToBase64(salt.buffer),
     iv: arrayBufferToBase64(iv.buffer),
     ciphertext: arrayBufferToBase64(ciphertext)
@@ -96,7 +134,7 @@ export async function decryptBackupPayload(
   payload: BackupPayload,
   passphrase: string
 ): Promise<Record<string, unknown[]>> {
-  if (payload.version !== 1 && payload.version !== 2) {
+  if (payload.version !== 1 && payload.version !== 2 && payload.version !== 3) {
     throw new Error(`Unsupported backup version: ${payload.version}`);
   }
 
@@ -130,9 +168,16 @@ export async function decryptBackupPayload(
     throw new Error('Decrypted data is not valid JSON');
   }
 
-  // Validate stores — v1 backups won't have senderKeys, which is fine
+  // Validate only the stores that existed in this payload's version.
+  // Stores added in later versions are simply absent — restore writes
+  // them as empty, which is correct (e.g. a v2 backup restored on v3
+  // gets empty meta/chain stores; both are rebuilt lazily).
   const requiredStores =
-    payload.version === 1 ? V1_STORE_NAMES : STORE_NAMES;
+    payload.version === 1
+      ? V1_STORE_NAMES
+      : payload.version === 2
+        ? V2_STORE_NAMES
+        : STORE_NAMES;
   for (const storeName of requiredStores) {
     if (!Array.isArray(data[storeName])) {
       throw new Error(`Backup is missing store: ${storeName}`);
@@ -146,8 +191,12 @@ async function readAllStores(
   dbName: string
 ): Promise<Record<string, unknown[]>> {
   const db = await openDB(dbName, DB_VERSION, {
+    // Always materialize the full v5 schema (ALL_STORES) regardless of
+    // whether the store is in the backup payload. Otherwise the
+    // upgrade callback would leave new stores missing and subsequent
+    // reads via store.ts would fail.
     upgrade(db) {
-      for (const storeName of STORE_NAMES) {
+      for (const storeName of ALL_STORES) {
         if (!db.objectStoreNames.contains(storeName)) {
           db.createObjectStore(storeName);
         }
@@ -176,7 +225,7 @@ async function writeAllStores(
 ): Promise<void> {
   const db = await openDB(dbName, DB_VERSION, {
     upgrade(db) {
-      for (const storeName of STORE_NAMES) {
+      for (const storeName of ALL_STORES) {
         if (!db.objectStoreNames.contains(storeName)) {
           db.createObjectStore(storeName);
         }
@@ -184,7 +233,9 @@ async function writeAllStores(
     }
   });
 
-  // Clear all stores and write new data in one transaction
+  // Clear & write only the BACKUP-bearing stores. Chain stores are
+  // intentionally left as-is here; finalizeRestoredKeys clears them
+  // explicitly afterward as part of the restore flow.
   const tx = db.transaction([...STORE_NAMES], 'readwrite');
 
   for (const storeName of STORE_NAMES) {

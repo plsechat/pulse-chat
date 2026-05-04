@@ -6,10 +6,14 @@ import type {
   StorageType
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { store as reduxStore } from '@/features/store';
+import type {
+  ChainKind,
+  SerializedChain
+} from './sender-key-chain';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const STORES = {
   IDENTITY_KEY: 'identityKey',
@@ -18,9 +22,17 @@ const STORES = {
   SIGNED_PRE_KEYS: 'signedPreKeys',
   SESSIONS: 'sessions',
   IDENTITIES: 'identities',
+  // Legacy Phase A stores — kept to avoid an IDB structural delete at
+  // upgrade (which would block tabs holding open transactions).
+  // Stale data sits inert; no read/write paths reference them in B+.
   SENDER_KEYS: 'senderKeys',
   DISTRIBUTED_MEMBERS: 'distributedMembers',
-  META: 'meta'
+  META: 'meta',
+  // Phase B chain stores.
+  CHAIN_STATE: 'chainState', // ${kind}:${scopeId}:${senderId}:${senderKeyId} → SerializedChain
+  OWN_CHAIN_CURSOR: 'ownChainCursor', // ${kind}:${scopeId}:${senderId} → number (latest own senderKeyId)
+  CHAIN_DISTRIBUTION: 'chainDistribution', // ${kind}:${scopeId}:${senderKeyId} → number[] (members SKDM'd)
+  DIRTY_CHAINS: 'dirtyChains' // ${kind}:${scopeId} → true (rotate-on-next-encrypt marker)
 } as const;
 
 const META_KEYS = {
@@ -373,6 +385,158 @@ export class SignalProtocolStore implements StorageType {
   async clearAllSessions(): Promise<void> {
     const db = await this.getDb();
     await db.clear(STORES.SESSIONS);
+  }
+
+  /**
+   * Wipe every Phase B sender-key chain in IDB. Used after a key
+   * restore for the same reason as clearAllSessions: chains held by
+   * peers describe a ratchet state we no longer agree with after the
+   * restore, so we have to drop everything and let SKDMs rebuild on
+   * next interaction.
+   */
+  async clearAllChains(): Promise<void> {
+    const db = await this.getDb();
+    await Promise.all([
+      db.clear(STORES.CHAIN_STATE),
+      db.clear(STORES.OWN_CHAIN_CURSOR),
+      db.clear(STORES.CHAIN_DISTRIBUTION),
+      db.clear(STORES.DIRTY_CHAINS)
+    ]);
+  }
+
+  // --- Phase B chain state ---
+
+  /** Compose the IDB key for a specific chain. */
+  private chainKey(
+    kind: ChainKind,
+    scopeId: number,
+    senderId: number,
+    senderKeyId: number
+  ): string {
+    return `${kind}:${scopeId}:${senderId}:${senderKeyId}`;
+  }
+
+  async getChain(
+    kind: ChainKind,
+    scopeId: number,
+    senderId: number,
+    senderKeyId: number
+  ): Promise<SerializedChain | undefined> {
+    const db = await this.getDb();
+    return db.get(
+      STORES.CHAIN_STATE,
+      this.chainKey(kind, scopeId, senderId, senderKeyId)
+    );
+  }
+
+  async storeChain(
+    kind: ChainKind,
+    scopeId: number,
+    senderId: number,
+    senderKeyId: number,
+    chain: SerializedChain
+  ): Promise<void> {
+    const db = await this.getDb();
+    await db.put(
+      STORES.CHAIN_STATE,
+      chain,
+      this.chainKey(kind, scopeId, senderId, senderKeyId)
+    );
+  }
+
+  /** Latest senderKeyId we've issued for our own outbound chain on
+   *  (kind, scopeId, ownUserId). Returns undefined when no outbound
+   *  chain has ever been generated for this scope. */
+  async getOwnSenderKeyId(
+    kind: ChainKind,
+    scopeId: number,
+    ownUserId: number
+  ): Promise<number | undefined> {
+    const db = await this.getDb();
+    const v = await db.get(
+      STORES.OWN_CHAIN_CURSOR,
+      `${kind}:${scopeId}:${ownUserId}`
+    );
+    return typeof v === 'number' ? v : undefined;
+  }
+
+  async setOwnSenderKeyId(
+    kind: ChainKind,
+    scopeId: number,
+    ownUserId: number,
+    senderKeyId: number
+  ): Promise<void> {
+    const db = await this.getDb();
+    await db.put(
+      STORES.OWN_CHAIN_CURSOR,
+      senderKeyId,
+      `${kind}:${scopeId}:${ownUserId}`
+    );
+  }
+
+  async getChainDistribution(
+    kind: ChainKind,
+    scopeId: number,
+    senderKeyId: number
+  ): Promise<number[]> {
+    const db = await this.getDb();
+    const v = await db.get(
+      STORES.CHAIN_DISTRIBUTION,
+      `${kind}:${scopeId}:${senderKeyId}`
+    );
+    return v ?? [];
+  }
+
+  async setChainDistribution(
+    kind: ChainKind,
+    scopeId: number,
+    senderKeyId: number,
+    memberIds: number[]
+  ): Promise<void> {
+    const db = await this.getDb();
+    await db.put(
+      STORES.CHAIN_DISTRIBUTION,
+      memberIds,
+      `${kind}:${scopeId}:${senderKeyId}`
+    );
+  }
+
+  /** Drop one user from every chainDistribution row. Used when a peer
+   *  resets their identity — we need to redistribute every active
+   *  chain to them again so they can decrypt under their new keys. */
+  async clearChainDistributionForUser(userId: number): Promise<void> {
+    const db = await this.getDb();
+    const tx = db.transaction(STORES.CHAIN_DISTRIBUTION, 'readwrite');
+    const store = tx.objectStore(STORES.CHAIN_DISTRIBUTION);
+    let cursor = await store.openCursor();
+    while (cursor) {
+      const members: number[] = cursor.value;
+      const filtered = members.filter((id) => id !== userId);
+      if (filtered.length !== members.length) {
+        await cursor.update(filtered);
+      }
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+
+  /** Mark a (kind, scopeId) as needing rotation on the owner's next
+   *  encrypt. Set when a member is kicked/leaves so we can lazily
+   *  bump senderKeyId without a synchronous N-way fan-out. */
+  async markChainDirty(kind: ChainKind, scopeId: number): Promise<void> {
+    const db = await this.getDb();
+    await db.put(STORES.DIRTY_CHAINS, true, `${kind}:${scopeId}`);
+  }
+
+  async isChainDirty(kind: ChainKind, scopeId: number): Promise<boolean> {
+    const db = await this.getDb();
+    const v = await db.get(STORES.DIRTY_CHAINS, `${kind}:${scopeId}`);
+    return v === true;
+  }
+
+  async clearChainDirty(kind: ChainKind, scopeId: number): Promise<void> {
+    const db = await this.getDb();
+    await db.delete(STORES.DIRTY_CHAINS, `${kind}:${scopeId}`);
   }
 
   // --- META: per-store counters that must survive page reloads ---

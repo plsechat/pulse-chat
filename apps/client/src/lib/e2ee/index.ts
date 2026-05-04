@@ -1,5 +1,24 @@
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
-import type { E2EEPlaintext, PreKeyBundle } from './types';
+import {
+  acceptInboundChannelChain,
+  encryptChannelMessage as encryptChannelWithChain,
+  decryptChannelMessage as decryptChannelWithChain,
+  getOrCreateOutboundChannelChain,
+  hasChannelChain,
+  MissingChainError,
+  rotateOutboundChannelChain
+} from './sender-keys';
+import {
+  acceptInboundDmChain,
+  encryptDmGroupMessage as encryptDmGroupWithChain,
+  decryptDmGroupMessage as decryptDmGroupWithChain,
+  getOrCreateOutboundDmChain,
+  hasDmChain,
+  MissingDmChainError,
+  rotateOutboundDmChain
+} from './dm-sender-keys';
+import type { ChainKind, SenderKeyDistribution } from './sender-key-chain';
+import { decodeWire } from './sender-key-chain';
 import {
   buildSession,
   decryptMessage,
@@ -12,26 +31,12 @@ import {
   hasSession
 } from './signal-protocol';
 import {
-  clearCryptoKeyCache,
-  decryptWithSenderKey,
-  encryptWithSenderKey,
-  generateSenderKey,
-  hasSenderKey,
-  storeSenderKeyForUser
-} from './sender-keys';
-import {
-  decryptWithDmSenderKey,
-  encryptWithDmSenderKey,
-  generateDmSenderKey,
-  hasDmSenderKey,
-  storeDmSenderKeyForUser
-} from './dm-sender-keys';
-import {
   getActiveStore,
   getStoreForInstance,
   signalStore,
   type SignalProtocolStore
 } from './store';
+import type { E2EEPlaintext, PreKeyBundle } from './types';
 
 const OTP_REPLENISH_THRESHOLD = 25;
 const OTP_REPLENISH_COUNT = 100;
@@ -41,6 +46,9 @@ const INITIAL_OTP_BATCH_NEXT_ID = OTP_REPLENISH_COUNT + 1;
 // recommend and is well below the time-to-compromise of an attacker
 // with read-only access to a leaked DB snapshot.
 const SIGNED_PRE_KEY_ROTATE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const KIND_CHANNEL: ChainKind = 'channel';
+const KIND_DM: ChainKind = 'dm';
 
 /**
  * Reserve the next contiguous block of OTP key IDs for `store`. Persists
@@ -144,10 +152,11 @@ export async function setupE2EEKeys(
  *    keeps grabbing rows that were encrypted to the wrong identity.
  *
  * Steps:
- *  1. Drop in-memory caches that may hold pre-restore bytes.
- *  2. Wipe all Signal sessions — restored sessions describe a ratchet
+ *  1. Wipe all Signal sessions — restored sessions describe a ratchet
  *     state peers no longer agree with, so we have to rebuild via X3DH
  *     next encrypt.
+ *  2. Wipe all Phase B chains — for the same reason; peers will re-SKDM
+ *     us under the restored identity once they receive E2EE_IDENTITY_RESET.
  *  3. Re-register the restored identity with a fresh signed-prekey + OTP
  *     batch signed under it. Server flips back to the restored identity,
  *     clears stale e2ee_sender_keys rows, and broadcasts
@@ -155,14 +164,14 @@ export async function setupE2EEKeys(
  *     re-distribute their sender keys to our restored prekey-bundle).
  *  4. Push our (restored) sender keys back to peers, overwriting whatever
  *     they had from the regen-era distribution. Sessions rebuild lazily
- *     in ensureSession because step 2 cleared them.
+ *     in ensureSession because step 1 cleared them.
  *
  * Suppresses our own tab from auto-reloading on the E2EE_IDENTITY_RESET
  * broadcast we trigger here.
  */
 export async function finalizeRestoredKeys(): Promise<void> {
-  clearCryptoKeyCache();
   await signalStore.clearAllSessions();
+  await signalStore.clearAllChains();
 
   const trpc = getHomeTRPCClient();
   if (!trpc) {
@@ -477,140 +486,169 @@ export async function decryptDmMessage(
   }
 }
 
-// --- Channel E2EE (Sender Keys) ---
+// --- Channel E2EE (Sender Keys, Phase B) ---
 
 /**
- * Track which members have successfully received our sender key per channel.
- * Write-through cache backed by IDB — survives page reloads.
- */
-const distributedMembers = new Map<number, Set<number>>();
-
-async function loadDistributedMembers(
-  channelId: number
-): Promise<Set<number>> {
-  const cached = distributedMembers.get(channelId);
-  if (cached) return cached;
-
-  const store = getActiveStore();
-  const persisted = await store.getDistributedMembers(channelId);
-  const set = new Set(persisted);
-  distributedMembers.set(channelId, set);
-  return set;
-}
-
-async function saveDistributedMembers(
-  channelId: number,
-  members: Set<number>
-): Promise<void> {
-  distributedMembers.set(channelId, members);
-  const store = getActiveStore();
-  await store.setDistributedMembers(channelId, [...members]);
-}
-
-/**
- * Remove a user from all distributedMembers sets, forcing re-distribution
- * on the next ensureChannelSenderKey call. Used when a user's identity
- * may have changed (key reset, reconnect).
+ * Mark a peer as no longer covered by ANY of our chain distributions.
+ * Triggered after a peer identity reset / reconnect — the next ensure*
+ * pass will re-encrypt every active SKDM to the new prekey bundle.
+ *
+ * Persists asynchronously so callers can stay synchronous; failures
+ * (e.g. IDB tear-down mid-write) are non-fatal and recover on the
+ * next ensure pass via membership re-check.
  */
 export function clearDistributedMember(userId: number): void {
-  for (const members of distributedMembers.values()) {
-    members.delete(userId);
-  }
-  // Persist asynchronously (fire-and-forget)
-  getActiveStore().clearDistributedMemberFromAll(userId).catch(() => {});
+  getActiveStore().clearChainDistributionForUser(userId).catch(() => {});
+  signalStore.clearChainDistributionForUser(userId).catch(() => {});
 }
 
 /**
- * Ensure we have a sender key for this channel and that it has been
- * distributed to all channel members.
- *
- * On first call: generates a new AES-256-GCM key and distributes it.
- * On subsequent calls: re-distributes to any members who haven't received
- * the key yet (e.g. new members, or members whose first distribution failed).
- *
- * Fetches the authoritative member list from the server (respects channel
- * permissions for private channels). Uses the active instance store so it
- * works on federated servers.
+ * DM-channel-equivalent of clearDistributedMember. Same behavior; DM
+ * group chains live in the home store only, so we only touch
+ * signalStore.
  */
-export async function ensureChannelSenderKey(
-  channelId: number,
-  ownUserId: number
-): Promise<void> {
-  // Don't prompt for key setup here — callers that need the modal
-  // (e.g. encryptChannelMessage) call ensureE2EEKeys() themselves.
-  // Background callers (user join distribution) check hasKeys() first.
-  if (!(await hasKeys())) return;
-  const store = getActiveStore();
-  const hasKey = await hasSenderKey(channelId, ownUserId, store);
+export function clearDmDistributedMember(userId: number): void {
+  signalStore.clearChainDistributionForUser(userId).catch(() => {});
+}
 
-  let keyBase64: string | undefined;
+/**
+ * Distribute the latest SKDM for a chain to every member who hasn't
+ * received it yet. Used on initial chain creation, on rotation, and
+ * on member-add events. Idempotent — re-running after a network blip
+ * just re-targets the still-pending recipients.
+ *
+ * `getMembers` is supplied so this helper can serve both channels
+ * (server-fetched authoritative member list) and DM groups (caller
+ * passes the channel's stored member list).
+ */
+async function distributeChainToMembers(args: {
+  kind: ChainKind;
+  scopeId: number;
+  ownUserId: number;
+  store: SignalProtocolStore;
+  trpc: ReturnType<typeof getHomeTRPCClient>;
+  distribution: SenderKeyDistribution;
+  getMembers: () => Promise<number[]>;
+  send: (
+    distributions: { toUserId: number; distributionMessage: string }[]
+  ) => Promise<void>;
+}): Promise<void> {
+  if (!args.trpc) return;
 
-  if (!hasKey) {
-    keyBase64 = await generateSenderKey(channelId, ownUserId, store);
-    distributedMembers.set(channelId, new Set());
-  }
-
-  // Fetch authoritative member list from server
-  const memberUserIds = await getChannelMemberIds(channelId);
-
-  // Determine which members still need the key (load from IDB on first access)
-  const distributed = await loadDistributedMembers(channelId);
-  const otherMembers = memberUserIds.filter(
-    (id) => id !== ownUserId && !distributed.has(id)
+  const members = await args.getMembers();
+  const distributed = await args.store.getChainDistribution(
+    args.kind,
+    args.scopeId,
+    args.distribution.senderKeyId
   );
+  const distributedSet = new Set(distributed);
+  const targets = members.filter(
+    (id) => id !== args.ownUserId && !distributedSet.has(id)
+  );
+  if (targets.length === 0) return;
 
-  if (otherMembers.length === 0) return;
-
-  // Read key from store if we didn't just generate it
-  if (!keyBase64) {
-    keyBase64 = await store.getSenderKey(channelId, ownUserId);
-    if (!keyBase64) {
-      throw new Error(`Sender key not found for channel ${channelId}`);
-    }
-  }
-
-  // Distribute the key to each member via Signal Protocol
-  // Encrypt in parallel (batches of 10 to avoid overwhelming the server),
-  // then send all distributions in a single batch API call.
-  const trpc = getTRPCClient();
-  if (!trpc) return;
+  // Each SKDM is encrypted to a recipient via X3DH. We batch the
+  // encryption (10 in flight) to keep memory bounded but pipeline
+  // round-trips on slow networks. The wire payload is the JSON form
+  // of the chain's SenderKeyDistribution.
+  const skdmPlaintext = JSON.stringify(args.distribution);
   const CONCURRENCY = 10;
-  const distributions: { toUserId: number; distributionMessage: string }[] = [];
+  const wirePackets: { toUserId: number; distributionMessage: string }[] = [];
 
-  for (let i = 0; i < otherMembers.length; i += CONCURRENCY) {
-    const chunk = otherMembers.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < targets.length; i += CONCURRENCY) {
+    const chunk = targets.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       chunk.map(async (memberId) => {
-        await ensureSession(memberId, { store, trpc, verifyIdentity: true });
-        const encrypted = await encryptMessage(memberId, keyBase64!, store);
+        await ensureSession(memberId, {
+          store: args.store,
+          trpc: args.trpc,
+          verifyIdentity: true
+        });
+        const encrypted = await encryptMessage(
+          memberId,
+          skdmPlaintext,
+          args.store
+        );
         return { toUserId: memberId, distributionMessage: encrypted };
       })
     );
     for (const r of results) {
       if (r.status === 'fulfilled') {
-        distributions.push(r.value);
+        wirePackets.push(r.value);
       } else {
-        console.warn('[E2EE] Failed to encrypt sender key:', r.reason);
+        console.warn('[E2EE] Failed to encrypt SKDM:', r.reason);
       }
     }
   }
 
-  // Single batch API call instead of N individual calls
-  if (distributions.length > 0) {
-    try {
+  if (wirePackets.length === 0) return;
+
+  try {
+    await args.send(wirePackets);
+    for (const p of wirePackets) distributedSet.add(p.toUserId);
+    await args.store.setChainDistribution(
+      args.kind,
+      args.scopeId,
+      args.distribution.senderKeyId,
+      [...distributedSet]
+    );
+  } catch (err) {
+    console.warn('[E2EE] Distribute mutation failed:', err);
+  }
+}
+
+/**
+ * Ensure we have an outbound chain for this channel and that the
+ * latest SKDM has been delivered to every visible member. Generates
+ * a fresh chain on first call. If the chain is marked dirty (B4
+ * lazy-rotation marker, set on kick/leave), rotates first, clearing
+ * the marker.
+ *
+ * Member list comes from the server (`channels.getVisibleUsers`),
+ * which respects channel-level permissions — kicked/private-denied
+ * users naturally drop off and don't get the new SKDM.
+ */
+export async function ensureChannelSenderKey(
+  channelId: number,
+  ownUserId: number
+): Promise<void> {
+  if (!(await hasKeys())) return;
+  const store = getActiveStore();
+  const trpc = getTRPCClient();
+  if (!trpc) return;
+
+  // Lazy rotation. A marker set by the kick/leave subscription
+  // handlers means our current chain leaks to a now-removed member.
+  // Bump senderKeyId, generate a fresh chain, clear the marker.
+  // Distribution that follows targets only the *current* member list
+  // — the kicked user is no longer visible, so the new SKDM never
+  // reaches them.
+  let chain;
+  if (await store.isChainDirty(KIND_CHANNEL, channelId)) {
+    chain = await rotateOutboundChannelChain(channelId, ownUserId, store);
+    await store.clearChainDirty(KIND_CHANNEL, channelId);
+    // Member list may be stale post-kick — drop the cache.
+    invalidateChannelMembers(channelId);
+  } else {
+    chain = await getOrCreateOutboundChannelChain(channelId, ownUserId, store);
+  }
+
+  await distributeChainToMembers({
+    kind: KIND_CHANNEL,
+    scopeId: channelId,
+    ownUserId,
+    store,
+    trpc,
+    distribution: chain.buildDistribution(),
+    getMembers: () => getChannelMemberIds(channelId),
+    send: async (distributions) => {
       await trpc.e2ee.distributeSenderKeysBatch.mutate({
         channelId,
+        senderKeyId: chain.state.senderKeyId,
         distributions
       });
-      for (const d of distributions) {
-        distributed.add(d.toUserId);
-      }
-    } catch (err) {
-      console.warn('[E2EE] Batch distribution failed:', err);
     }
-  }
-
-  await saveDistributedMembers(channelId, distributed);
+  });
 }
 
 /**
@@ -618,11 +656,6 @@ export async function ensureChannelSenderKey(
  * for every E2EE channel we're a member of. Closes the gap between
  * "member joins / reconnects" and "first message send" so the new user
  * can decrypt messages immediately.
- *
- * Pure helper — `e2eeChannelIds` and `ownUserId` are passed in by the
- * caller (typically the USER_JOIN subscription) so this module stays
- * decoupled from Redux. No-ops if E2EE keys aren't set up yet (we don't
- * want a background event to pop the key-setup modal).
  */
 export async function distributeSenderKeysToOnlineMember(
   joinedUserId: number,
@@ -633,9 +666,9 @@ export async function distributeSenderKeysToOnlineMember(
   if (e2eeChannelIds.length === 0) return;
   if (!(await hasKeys())) return;
 
-  // Clear the user from distributedMembers so we don't skip them.
-  // If their identity changed (key reset), ensureSession with
-  // verifyIdentity: true will detect the mismatch and rebuild.
+  // Forget that we've SKDM'd this peer in any of our channels — the
+  // identity check inside ensureSession will detect any drift and
+  // rebuild via X3DH before redistribution.
   clearDistributedMember(joinedUserId);
 
   for (const channelId of e2eeChannelIds) {
@@ -651,9 +684,13 @@ export async function distributeSenderKeysToOnlineMember(
 }
 
 /**
- * Process a received sender key distribution message.
- * Decrypts the key using Signal Protocol and stores it.
- * Uses the active instance store.
+ * Process a received sender-key distribution message from a peer.
+ * The wire `distributionMessage` is a Signal envelope encrypting the
+ * JSON-serialized `SenderKeyDistribution`. After X3DH-decryption we
+ * persist an inbound chain at the embedded senderKeyId.
+ *
+ * Channel-side: uses the active store (federated channels live in
+ * per-instance stores).
  */
 export async function processIncomingSenderKey(
   channelId: number,
@@ -661,12 +698,13 @@ export async function processIncomingSenderKey(
   distributionMessage: string
 ): Promise<void> {
   const store = getActiveStore();
-  const keyBase64 = await decryptMessage(
+  const decryptedJson = await decryptMessage(
     fromUserId,
     distributionMessage,
     store
   );
-  await storeSenderKeyForUser(channelId, fromUserId, keyBase64, store);
+  const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
+  await acceptInboundChannelChain(channelId, fromUserId, distribution, store);
 }
 
 /**
@@ -711,15 +749,16 @@ async function doFetchAndProcessPendingSenderKeys(
 
   for (const key of pending) {
     try {
-      const keyBase64 = await decryptMessage(
+      const decryptedJson = await decryptMessage(
         key.fromUserId,
         key.distributionMessage,
         store
       );
-      await storeSenderKeyForUser(
+      const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
+      await acceptInboundChannelChain(
         key.channelId,
         key.fromUserId,
-        keyBase64,
+        distribution,
         store
       );
       processedIds.push(key.id);
@@ -728,11 +767,9 @@ async function doFetchAndProcessPendingSenderKeys(
         `[E2EE] Failed to process sender key from user ${key.fromUserId}:`,
         err
       );
-      // Don't add to processedIds — key stays on server for retry
     }
   }
 
-  // Acknowledge successfully processed keys so the server can delete them
   if (processedIds.length > 0) {
     try {
       await trpc.e2ee.acknowledgeSenderKeys.mutate({ ids: processedIds });
@@ -743,8 +780,7 @@ async function doFetchAndProcessPendingSenderKeys(
 }
 
 /**
- * Encrypt a channel message payload using sender keys.
- * Uses the active instance store.
+ * Encrypt a channel message under our latest outbound chain.
  */
 export async function encryptChannelMessage(
   channelId: number,
@@ -753,15 +789,18 @@ export async function encryptChannelMessage(
 ): Promise<string> {
   await ensureE2EEKeys();
   const store = getActiveStore();
-  const plaintext = JSON.stringify(payload);
-  return encryptWithSenderKey(channelId, ownUserId, plaintext, store);
+  return encryptChannelWithChain(
+    channelId,
+    ownUserId,
+    JSON.stringify(payload),
+    store
+  );
 }
 
 /**
- * Decrypt a channel message using the sender's key.
- * If the key is missing, tries to fetch pending keys with bounded
- * exponential backoff (max ~3.5s total wait).
- * Uses the active instance store.
+ * Decrypt a channel message. Loads the sender's chain at the
+ * senderKeyId embedded in the wire — if missing, fetches pending
+ * SKDMs (bounded exponential backoff up to ~3.5s) and retries.
  */
 export async function decryptChannelMessage(
   channelId: number,
@@ -769,14 +808,19 @@ export async function decryptChannelMessage(
   encryptedContent: string
 ): Promise<E2EEPlaintext> {
   const store = getActiveStore();
+  const decoded = decodeWire(encryptedContent);
   const MAX_RETRIES = 3;
   const BASE_DELAY = 500;
 
-  // Try to acquire the sender key with bounded retries
+  // Acquire the chain at this senderKeyId via bounded retries.
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    if (await hasSenderKey(channelId, fromUserId, store)) break;
+    if (await hasChannelChain(channelId, fromUserId, decoded.senderKeyId, store)) {
+      break;
+    }
     await fetchAndProcessPendingSenderKeys(channelId);
-    if (await hasSenderKey(channelId, fromUserId, store)) break;
+    if (await hasChannelChain(channelId, fromUserId, decoded.senderKeyId, store)) {
+      break;
+    }
     if (attempt < MAX_RETRIES) {
       await new Promise((r) =>
         setTimeout(r, BASE_DELAY * Math.pow(2, attempt))
@@ -785,24 +829,27 @@ export async function decryptChannelMessage(
   }
 
   try {
-    const plaintext = await decryptWithSenderKey(
+    const plaintext = await decryptChannelWithChain(
       channelId,
       fromUserId,
       encryptedContent,
       store
     );
     return JSON.parse(plaintext) as E2EEPlaintext;
-  } catch {
-    // Decryption failed — the sender may have reset keys. Fetch fresh
-    // sender keys (which now always overwrites old keys) and retry once.
-    await fetchAndProcessPendingSenderKeys(channelId);
-    const plaintext = await decryptWithSenderKey(
-      channelId,
-      fromUserId,
-      encryptedContent,
-      store
-    );
-    return JSON.parse(plaintext) as E2EEPlaintext;
+  } catch (err) {
+    if (err instanceof MissingChainError) {
+      // One last fetch attempt before giving up — the SKDM might
+      // have arrived after the bounded-retry loop above ended.
+      await fetchAndProcessPendingSenderKeys(channelId);
+      const plaintext = await decryptChannelWithChain(
+        channelId,
+        fromUserId,
+        encryptedContent,
+        store
+      );
+      return JSON.parse(plaintext) as E2EEPlaintext;
+    }
+    throw err;
   }
 }
 
@@ -823,8 +870,10 @@ export function setLocalResetFlag(value: boolean): void {
  * Handle a peer (or own other-tab) identity reset broadcast.
  * - If userId matches our own and we didn't initiate it locally: reload
  *   (another tab reset our keys — IDB already updated, clear in-memory state)
- * - If peer: clear Signal session, clear distributedMembers for that user,
- *   then re-distribute own sender keys to them for all E2EE channels.
+ * - If peer: clear Signal session, clear our chain-distribution
+ *   tracking for them (so the next encrypt re-SKDMs under their
+ *   restored identity), then re-distribute own sender keys to them
+ *   for all E2EE channels.
  */
 export async function handlePeerIdentityReset(
   userId: number
@@ -854,10 +903,6 @@ export async function handlePeerIdentityReset(
   // Invalidate member cache in case the reset user's permissions changed
   invalidateChannelMembers();
 
-  // Re-distribute own sender keys to ALL e2ee channels the caller can
-  // view, across every server they're a member of. Using the server-side
-  // listMyE2eeChannelIds avoids the prior bug of only redistributing for
-  // the active server while channels in other servers kept stale keys.
   const trpc = getHomeTRPCClient();
   const channelIds = trpc
     ? await trpc.e2ee.listMyE2eeChannelIds.query()
@@ -876,13 +921,9 @@ export async function handlePeerIdentityReset(
 }
 
 /**
- * After own key reset: clear all distributedMembers and re-distribute
- * new sender keys to all members of all E2EE channels.
- *
- * Iterates every e2ee channel the caller can view across all joined
- * servers (not just the active one). Falls back to the active-server
- * channel list only if no tRPC client is available — preserves prior
- * behavior in the offline edge case.
+ * After own key reset: rotate every outbound chain (new senderKeyId)
+ * and redistribute. Iterates every e2ee channel we can view across
+ * all joined servers.
  */
 export async function redistributeOwnSenderKeys(): Promise<void> {
   const { store: reduxStore } = await import('@/features/store');
@@ -890,9 +931,6 @@ export async function redistributeOwnSenderKeys(): Promise<void> {
   const ownUserId = state.server.ownUserId;
   if (!ownUserId) return;
 
-  // Clear all distribution tracking — we have new keys
-  distributedMembers.clear();
-  await getActiveStore().clearAllDistributedMembers();
   invalidateChannelMembers();
 
   const trpc = getHomeTRPCClient();
@@ -900,8 +938,12 @@ export async function redistributeOwnSenderKeys(): Promise<void> {
     ? await trpc.e2ee.listMyE2eeChannelIds.query()
     : state.server.channels.filter((c) => c.e2ee).map((c) => c.id);
 
+  const store = getActiveStore();
   for (const channelId of channelIds) {
+    // Rotate first so peers receive a brand-new chain rather than a
+    // re-SKDM of the same chainKey under our new identity.
     try {
+      await rotateOutboundChannelChain(channelId, ownUserId, store);
       await ensureChannelSenderKey(channelId, ownUserId);
     } catch (err) {
       console.warn(
@@ -912,54 +954,16 @@ export async function redistributeOwnSenderKeys(): Promise<void> {
   }
 }
 
-// --- DM Group E2EE (Sender Keys) ---
-//
-// Mirrors the channel sender-key flow but routes everything through
-// the home tRPC client + home signalStore (DMs always live on home).
-// IDB keying is namespaced via `dm:${id}` in store.ts so DM sender
-// keys can't collide with server-channel sender keys for the same
-// numeric id.
-
-const dmDistributedMembers = new Map<number, Set<number>>();
-
-async function loadDmDistributedMembers(
-  dmChannelId: number
-): Promise<Set<number>> {
-  const cached = dmDistributedMembers.get(dmChannelId);
-  if (cached) return cached;
-  const persisted = await signalStore.getDmDistributedMembers(dmChannelId);
-  const set = new Set(persisted);
-  dmDistributedMembers.set(dmChannelId, set);
-  return set;
-}
-
-async function saveDmDistributedMembers(
-  dmChannelId: number,
-  members: Set<number>
-): Promise<void> {
-  dmDistributedMembers.set(dmChannelId, members);
-  await signalStore.setDmDistributedMembers(dmChannelId, [...members]);
-}
+// --- DM Group E2EE (Sender Keys, Phase B) ---
 
 /**
- * Forget that we've distributed our sender key to `userId` in any
- * DM. The next ensureDmGroupSenderKey call will redistribute. Used
- * after identity reset for that user, or when they're re-added to a
- * group after a remove.
- */
-export function clearDmDistributedMember(userId: number): void {
-  for (const set of dmDistributedMembers.values()) set.delete(userId);
-}
-
-/**
- * Ensure we have a sender key for this DM group and that every other
- * member has received it. Generates on first call, redistributes to
- * any members not already covered (new joiner, prior failure).
+ * Get-or-create our outbound chain for a DM group, then SKDM the
+ * latest distribution to every other member who hasn't received it.
+ * Honors a dirty marker (B4 lazy rotation) and rotates if set.
  *
- * `memberIds` is supplied by the caller — we don't have a DM
- * equivalent of `getVisibleUsers` since DMs use the channel's
- * member list directly. Pass the full member list including self;
- * we'll filter ourselves out.
+ * Member list is supplied by the caller — DMs don't have a server
+ * `getVisibleUsers` route; the channel's stored member list is the
+ * authoritative source.
  */
 export async function ensureDmGroupSenderKey(
   dmChannelId: number,
@@ -967,82 +971,47 @@ export async function ensureDmGroupSenderKey(
   memberIds: number[]
 ): Promise<void> {
   if (!(await hasKeys())) return;
-
-  const hasOwnKey = await hasDmSenderKey(dmChannelId, ownUserId);
-  let keyBase64: string | undefined;
-
-  if (!hasOwnKey) {
-    keyBase64 = await generateDmSenderKey(dmChannelId, ownUserId);
-    dmDistributedMembers.set(dmChannelId, new Set());
-  }
-
-  const distributed = await loadDmDistributedMembers(dmChannelId);
-  const targets = memberIds.filter(
-    (id) => id !== ownUserId && !distributed.has(id)
-  );
-  if (targets.length === 0) return;
-
-  if (!keyBase64) {
-    keyBase64 = await signalStore.getDmSenderKey(dmChannelId, ownUserId);
-    if (!keyBase64) {
-      throw new Error(`Sender key missing for DM channel ${dmChannelId}`);
-    }
-  }
-
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
 
-  const CONCURRENCY = 10;
-  const distributions: { toUserId: number; distributionMessage: string }[] = [];
+  let chain;
+  if (await signalStore.isChainDirty(KIND_DM, dmChannelId)) {
+    chain = await rotateOutboundDmChain(dmChannelId, ownUserId);
+    await signalStore.clearChainDirty(KIND_DM, dmChannelId);
+  } else {
+    chain = await getOrCreateOutboundDmChain(dmChannelId, ownUserId);
+  }
 
-  for (let i = 0; i < targets.length; i += CONCURRENCY) {
-    const chunk = targets.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
-      chunk.map(async (memberId) => {
-        await ensureSession(memberId, { verifyIdentity: true });
-        const encrypted = await encryptMessage(memberId, keyBase64!);
-        return { toUserId: memberId, distributionMessage: encrypted };
-      })
-    );
-    for (const r of results) {
-      if (r.status === 'fulfilled') distributions.push(r.value);
-      else console.warn('[E2EE/DM] Failed to encrypt sender key:', r.reason);
+  await distributeChainToMembers({
+    kind: KIND_DM,
+    scopeId: dmChannelId,
+    ownUserId,
+    store: signalStore,
+    trpc,
+    distribution: chain.buildDistribution(),
+    getMembers: async () => memberIds,
+    send: async (distributions) => {
+      await trpc.dms.distributeSenderKeys.mutate({
+        dmChannelId,
+        senderKeyId: chain.state.senderKeyId,
+        distributions
+      });
     }
-  }
-
-  if (distributions.length === 0) return;
-
-  try {
-    await trpc.dms.distributeSenderKeys.mutate({
-      dmChannelId,
-      distributions
-    });
-    for (const d of distributions) distributed.add(d.toUserId);
-  } catch (err) {
-    console.warn('[E2EE/DM] Distribute mutation failed:', err);
-    return;
-  }
-
-  await saveDmDistributedMembers(dmChannelId, distributed);
+  });
 }
 
 /**
- * Rotate the caller's sender key for this DM group: drop the old
- * key + distribution tracking and force a fresh generate+distribute
- * to remaining members on next ensure. Called when a member is
- * removed so the leaver can no longer decrypt new messages with the
- * cached old key.
+ * Forced rotation entry point — used when a DM-group member is
+ * removed by a path that doesn't first set the dirty marker (e.g.
+ * the member-removal subscription handler fires this directly).
  */
 export async function rotateDmGroupSenderKey(
   dmChannelId: number,
   ownUserId: number,
   remainingMemberIds: number[]
 ): Promise<void> {
-  // Drop our key locally — the next encrypt path generates fresh.
-  await signalStore.storeDmSenderKey(dmChannelId, ownUserId, '');
-  dmDistributedMembers.set(dmChannelId, new Set());
-  await signalStore.setDmDistributedMembers(dmChannelId, []);
-  // Distribute the regenerated key to remaining members.
+  await rotateOutboundDmChain(dmChannelId, ownUserId);
+  await signalStore.clearChainDirty(KIND_DM, dmChannelId);
   await ensureDmGroupSenderKey(dmChannelId, ownUserId, remainingMemberIds);
 }
 
@@ -1073,14 +1042,15 @@ async function doFetchAndProcessPendingDmSenderKeys(
   const processedIds: number[] = [];
   for (const key of pending) {
     try {
-      const keyBase64 = await decryptMessage(
+      const decryptedJson = await decryptMessage(
         key.fromUserId,
         key.distributionMessage
       );
-      await storeDmSenderKeyForUser(
+      const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
+      await acceptInboundDmChain(
         key.dmChannelId,
         key.fromUserId,
-        keyBase64
+        distribution
       );
       processedIds.push(key.id);
     } catch (err) {
@@ -1106,7 +1076,7 @@ export async function encryptDmGroupMessage(
   payload: E2EEPlaintext
 ): Promise<string> {
   await ensureE2EEKeys();
-  return encryptWithDmSenderKey(
+  return encryptDmGroupWithChain(
     dmChannelId,
     ownUserId,
     JSON.stringify(payload)
@@ -1118,12 +1088,13 @@ export async function decryptDmGroupMessage(
   fromUserId: number,
   encryptedContent: string
 ): Promise<E2EEPlaintext> {
+  const decoded = decodeWire(encryptedContent);
   const MAX_RETRIES = 3;
   const BASE_DELAY = 500;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    if (await hasDmSenderKey(dmChannelId, fromUserId)) break;
+    if (await hasDmChain(dmChannelId, fromUserId, decoded.senderKeyId)) break;
     await fetchAndProcessPendingDmSenderKeys(dmChannelId);
-    if (await hasDmSenderKey(dmChannelId, fromUserId)) break;
+    if (await hasDmChain(dmChannelId, fromUserId, decoded.senderKeyId)) break;
     if (attempt < MAX_RETRIES) {
       await new Promise((r) =>
         setTimeout(r, BASE_DELAY * Math.pow(2, attempt))
@@ -1132,21 +1103,42 @@ export async function decryptDmGroupMessage(
   }
 
   try {
-    const plaintext = await decryptWithDmSenderKey(
+    const plaintext = await decryptDmGroupWithChain(
       dmChannelId,
       fromUserId,
       encryptedContent
     );
     return JSON.parse(plaintext) as E2EEPlaintext;
-  } catch {
-    await fetchAndProcessPendingDmSenderKeys(dmChannelId);
-    const plaintext = await decryptWithDmSenderKey(
-      dmChannelId,
-      fromUserId,
-      encryptedContent
-    );
-    return JSON.parse(plaintext) as E2EEPlaintext;
+  } catch (err) {
+    if (err instanceof MissingDmChainError) {
+      await fetchAndProcessPendingDmSenderKeys(dmChannelId);
+      const plaintext = await decryptDmGroupWithChain(
+        dmChannelId,
+        fromUserId,
+        encryptedContent
+      );
+      return JSON.parse(plaintext) as E2EEPlaintext;
+    }
+    throw err;
   }
+}
+
+/**
+ * B4 hook — the kick/leave/role-change subscription handlers call
+ * this with `(kind, scopeId)` of the affected scope. The next encrypt
+ * pass will rotate (new senderKeyId, new chain, distribute SKDM only
+ * to members still visible).
+ *
+ * Idempotent — repeated calls before the next encrypt are coalesced
+ * into a single rotation by `ensureChannelSenderKey` /
+ * `ensureDmGroupSenderKey`.
+ */
+export async function markChainForRotation(
+  kind: ChainKind,
+  scopeId: number
+): Promise<void> {
+  const store = kind === KIND_DM ? signalStore : getActiveStore();
+  await store.markChainDirty(kind, scopeId);
 }
 
 // Re-export types and utilities

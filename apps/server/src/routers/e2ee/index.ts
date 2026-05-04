@@ -324,6 +324,11 @@ const distributeSenderKeyRoute = protectedProcedure
   .input(
     z.object({
       channelId: z.number(),
+      // Phase B: bumps on every chain rotation. Defaults to 1 so any
+      // pre-Phase-B clients still in the wild keep working until they
+      // upgrade — and there's no clean way to make this `required`
+      // without breaking the wire-compat split with their bundles.
+      senderKeyId: z.number().int().min(1).default(1),
       toUserId: z.number(),
       distributionMessage: z.string()
     })
@@ -337,6 +342,7 @@ const distributeSenderKeyRoute = protectedProcedure
 
     await db.insert(e2eeSenderKeys).values({
       channelId: input.channelId,
+      senderKeyId: input.senderKeyId,
       fromUserId: ctx.userId,
       toUserId: input.toUserId,
       distributionMessage: input.distributionMessage,
@@ -357,6 +363,7 @@ const distributeSenderKeysBatchRoute = protectedProcedure
   .input(
     z.object({
       channelId: z.number(),
+      senderKeyId: z.number().int().min(1).default(1),
       distributions: z.array(
         z.object({
           toUserId: z.number(),
@@ -377,6 +384,7 @@ const distributeSenderKeysBatchRoute = protectedProcedure
     await db.insert(e2eeSenderKeys).values(
       input.distributions.map((d) => ({
         channelId: input.channelId,
+        senderKeyId: input.senderKeyId,
         fromUserId: ctx.userId,
         toUserId: d.toUserId,
         distributionMessage: d.distributionMessage,
@@ -413,6 +421,7 @@ const getPendingSenderKeysRoute = protectedProcedure
     return keys.map((k) => ({
       id: k.id,
       channelId: k.channelId,
+      senderKeyId: k.senderKeyId,
       fromUserId: k.fromUserId,
       distributionMessage: k.distributionMessage
     }));

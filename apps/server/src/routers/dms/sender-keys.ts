@@ -15,6 +15,9 @@ const distributeSenderKeysRoute = protectedProcedure
   .input(
     z.object({
       dmChannelId: z.number(),
+      // Phase B chain rotation id. Defaults to 1 for the first chain
+      // and pre-Phase-B clients still in the wild.
+      senderKeyId: z.number().int().min(1).default(1),
       distributions: z.array(
         z.object({
           toUserId: z.number(),
@@ -46,6 +49,7 @@ const distributeSenderKeysRoute = protectedProcedure
     await db.insert(dmE2eeSenderKeys).values(
       input.distributions.map((d) => ({
         dmChannelId: input.dmChannelId,
+        senderKeyId: input.senderKeyId,
         fromUserId: ctx.userId,
         toUserId: d.toUserId,
         distributionMessage: d.distributionMessage,
@@ -77,6 +81,7 @@ const getPendingSenderKeysRoute = protectedProcedure
     return rows.map((r) => ({
       id: r.id,
       dmChannelId: r.dmChannelId,
+      senderKeyId: r.senderKeyId,
       fromUserId: r.fromUserId,
       distributionMessage: r.distributionMessage
     }));
