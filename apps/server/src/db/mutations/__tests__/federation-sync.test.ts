@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import dns from 'dns/promises';
 import { eq } from 'drizzle-orm';
 import { db } from '../..';
@@ -18,9 +18,6 @@ const originalFetch = globalThis.fetch;
 // which is exactly the kind of environment leakage tests shouldn't have.
 const REMOTE_DOMAIN = 'example.com';
 const REMOTE_PUBLIC_ID = 'remote-user-pub-id-001';
-
-let instanceId: number;
-let shadowUserId: number;
 
 // Tiny 1x1 PNG for mock file downloads
 const TINY_PNG = new Uint8Array([
@@ -52,11 +49,12 @@ function makeUserInfoResponse(opts?: {
   };
 }
 
-beforeEach(async () => {
-  // Pin DNS lookups to a known-public address so validateFederationUrl
-  // doesn't depend on the runner's actual resolver. 93.184.216.34 is
-  // example.com's historical address; what matters is that it's
-  // public (not in the SSRF blocklist) so the validator passes.
+// Inline per-test setup. A per-file `beforeEach` here was inserting
+// federation_instances rows that competed with the global setup.ts
+// TRUNCATE in parallel test files, producing intermittent
+// `deadlock detected` errors between tests. See
+// feedback-test-setup-inline.md.
+async function setupTest() {
   spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
   spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
 
@@ -72,13 +70,13 @@ beforeEach(async () => {
       createdAt: Date.now()
     })
     .returning();
-  instanceId = instance!.id;
+  const instanceId = instance!.id;
 
   const shadow = await findOrCreateShadowUser(
     instanceId, 42, 'RemoteUser', undefined, REMOTE_PUBLIC_ID
   );
-  shadowUserId = shadow.id;
-});
+  return { instanceId, shadowUserId: shadow.id };
+}
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -87,6 +85,7 @@ afterEach(() => {
 
 describe('syncShadowUserProfile', () => {
   test('syncs avatar when shadow user has none', async () => {
+    const { shadowUserId } = await setupTest();
     const profile = makeUserInfoResponse({ avatarName: 'remote-avatar.png' });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetchAs(mock(async (url: string | URL | Request) => {
@@ -114,6 +113,7 @@ describe('syncShadowUserProfile', () => {
   });
 
   test('syncs banner when shadow user has none', async () => {
+    const { shadowUserId } = await setupTest();
     const profile = makeUserInfoResponse({ bannerName: 'remote-banner.png' });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetchAs(mock(async (url: string | URL | Request) => {
@@ -139,6 +139,7 @@ describe('syncShadowUserProfile', () => {
   });
 
   test('syncs bio and bannerColor', async () => {
+    const { shadowUserId } = await setupTest();
     const profile = makeUserInfoResponse({ bio: 'Hello from remote!', bannerColor: '#ff5500' });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetchAs(mock(async (url: string | URL | Request) => {
@@ -156,6 +157,7 @@ describe('syncShadowUserProfile', () => {
   });
 
   test('updates avatar when remote has changed', async () => {
+    const { shadowUserId } = await setupTest();
     const profile1 = makeUserInfoResponse({ avatarName: 'old-avatar.png' });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetchAs(mock(async (url: string | URL | Request) => {
@@ -199,6 +201,7 @@ describe('syncShadowUserProfile', () => {
   });
 
   test('respects debounce — skips sync if recently updated', async () => {
+    const { shadowUserId } = await setupTest();
     await db.update(users).set({ updatedAt: Date.now() }).where(eq(users.id, shadowUserId));
 
     let fetchCalled = false;
@@ -213,6 +216,7 @@ describe('syncShadowUserProfile', () => {
   });
 
   test('handles HTTP error gracefully', async () => {
+    const { shadowUserId } = await setupTest();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetchAs(mock(async (url: string | URL | Request) => {
       const urlStr = url.toString();
@@ -231,6 +235,7 @@ describe('syncShadowUserProfile', () => {
   });
 
   test('skips avatar download when unchanged', async () => {
+    const { shadowUserId } = await setupTest();
     const profile = makeUserInfoResponse({ avatarName: 'same-avatar.png' });
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mockFetchAs(mock(async (url: string | URL | Request) => {
