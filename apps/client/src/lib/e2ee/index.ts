@@ -670,11 +670,15 @@ async function distributeChainToMembers(args: {
  */
 export async function ensureChannelSenderKey(
   channelId: number,
-  ownUserId: number
+  ownUserId: number,
+  opts?: {
+    store?: SignalProtocolStore;
+    trpc?: ReturnType<typeof getTRPCClient>;
+  }
 ): Promise<void> {
-  if (!(await hasKeys())) return;
-  const store = getActiveStore();
-  const trpc = getTRPCClient();
+  if (!(await hasKeys(opts?.store))) return;
+  const store = opts?.store ?? getActiveStore();
+  const trpc = opts?.trpc ?? getTRPCClient();
   if (!trpc) return;
 
   // Lazy rotation. A marker set by the kick/leave subscription
@@ -1058,35 +1062,113 @@ export async function handlePeerIdentityReset(
 
 /**
  * After own key reset: rotate every outbound chain (new senderKeyId)
- * and redistribute. Iterates every e2ee channel we can view across
- * all joined servers.
+ * and redistribute across home + every connected federated instance.
+ * Each instance has its own SignalProtocolStore + its own ownUserId
+ * for us, so we redistribute per-instance scoped to that instance's
+ * tRPC client.
+ *
+ * Best-effort: a failing instance is logged and skipped so the rest
+ * still get redistributed.
  */
 export async function redistributeOwnSenderKeys(): Promise<void> {
   const { store: reduxStore } = await import('@/features/store');
+  const { connectionManager } = await import('@/lib/connection-manager');
+  const { appSliceActions } = await import('@/features/app/slice');
   const state = reduxStore.getState();
-  const ownUserId = state.server.ownUserId;
-  if (!ownUserId) return;
 
   invalidateChannelMembers();
 
-  const trpc = getHomeTRPCClient();
-  const channelIds = trpc
-    ? await trpc.e2ee.listMyE2eeChannelIds.query()
-    : state.server.channels.filter((c) => c.e2ee).map((c) => c.id);
-
-  const store = getActiveStore();
-  for (const channelId of channelIds) {
-    // Rotate first so peers receive a brand-new chain rather than a
-    // re-SKDM of the same chainKey under our new identity.
+  const redistributeForInstance = async (
+    label: string,
+    instanceTrpc: ReturnType<typeof getHomeTRPCClient>,
+    instanceStore: SignalProtocolStore,
+    instanceOwnUserId: number
+  ) => {
+    if (!instanceTrpc) return;
+    let channelIds: number[];
     try {
-      await rotateOutboundChannelChain(channelId, ownUserId, store);
-      await ensureChannelSenderKey(channelId, ownUserId);
+      channelIds = await instanceTrpc.e2ee.listMyE2eeChannelIds.query();
     } catch (err) {
       console.warn(
-        `[E2EE] Failed to redistribute sender key for channel ${channelId}:`,
+        `[E2EE] ${label}: failed to list E2EE channels for redistribute:`,
         err
       );
+      return;
     }
+    for (const channelId of channelIds) {
+      try {
+        // Rotate first so peers receive a brand-new chain rather than a
+        // re-SKDM of the same chainKey under our new identity.
+        await rotateOutboundChannelChain(
+          channelId,
+          instanceOwnUserId,
+          instanceStore
+        );
+        await ensureChannelSenderKey(channelId, instanceOwnUserId, {
+          store: instanceStore,
+          trpc: instanceTrpc
+        });
+      } catch (err) {
+        console.warn(
+          `[E2EE] ${label}: failed to redistribute for channel ${channelId}:`,
+          err
+        );
+      }
+    }
+  };
+
+  // Home instance — uses Redux's ownUserId since home is always the
+  // active source-of-truth for the user's primary identity.
+  const homeOwnUserId = state.server.ownUserId;
+  if (homeOwnUserId) {
+    await redistributeForInstance(
+      'home',
+      getHomeTRPCClient(),
+      signalStore,
+      homeOwnUserId
+    );
+  }
+
+  // Federated instances. Each entry carries its own ownUserId (cached
+  // at federated joinServer time). For entries missing it (e.g. loaded
+  // from localStorage but never connected this session), fall back to
+  // a lightweight users.getMyId query and cache the result.
+  for (const entry of state.app.federatedServers) {
+    const remoteTrpc = connectionManager.getRemoteTRPCClient(
+      entry.instanceDomain
+    );
+    if (!remoteTrpc) continue;
+
+    let federatedOwnUserId = entry.ownUserId;
+    if (federatedOwnUserId === undefined) {
+      try {
+        const result = await remoteTrpc.users.getMyId.query();
+        federatedOwnUserId = result.userId;
+        reduxStore.dispatch(
+          appSliceActions.setFederatedOwnUserId({
+            instanceDomain: entry.instanceDomain,
+            ownUserId: federatedOwnUserId
+          })
+        );
+      } catch (err) {
+        // Older federated peer without users.getMyId — skip; the next
+        // user-initiated visit to this instance will populate ownUserId
+        // via the joinServer path.
+        console.warn(
+          `[E2EE] federated ${entry.instanceDomain}: users.getMyId unavailable, skipping redistribute:`,
+          err
+        );
+        continue;
+      }
+    }
+
+    const federatedStore = getStoreForInstance(entry.instanceDomain);
+    await redistributeForInstance(
+      `federated ${entry.instanceDomain}`,
+      remoteTrpc,
+      federatedStore,
+      federatedOwnUserId
+    );
   }
 }
 

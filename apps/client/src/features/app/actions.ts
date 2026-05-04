@@ -517,6 +517,16 @@ export const switchToFederatedServer = async (
     });
 
     store.dispatch(serverSliceActions.setInitialData(data));
+    // Cache our user id within this federated instance so flows like
+    // Phase B redistribute can target each instance's chains under
+    // the right author id without re-fetching joinServer.
+    store.dispatch(
+      appSliceActions.setFederatedOwnUserId({
+        instanceDomain,
+        ownUserId: data.ownUserId
+      })
+    );
+    saveFederatedServers();
 
     // Fetch deferred data (members, emojis, voice state) from the remote instance
     fetchDeferredServerData(remoteTrpc, data.serverId);
