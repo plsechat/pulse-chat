@@ -124,4 +124,24 @@ jobs:
 
       - name: Run shard
         working-directory: apps/server
-        run: bun test ${{ join(matrix.shard, ' ') }}
+        # Run each file in its own bun-test invocation. Bun runs test
+        # files in parallel within a single process by default, which
+        # reintroduces the cross-file TRUNCATE deadlock the per-shard
+        # postgres isolation was meant to avoid. Per-file invocation
+        # serializes them, paying ~50ms per file in startup cost — a
+        # cheap trade for reliability.
+        run: |
+          set -e
+          first_failure=
+          for file in ${{ join(matrix.shard, ' ') }}; do
+            echo "::group::$file"
+            if ! bun test "$file"; then
+              first_failure=${first_failure:-$file}
+              echo "::error::$file failed"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$first_failure" ]; then
+            echo "Shard failed; first failing file: $first_failure"
+            exit 1
+          fi
