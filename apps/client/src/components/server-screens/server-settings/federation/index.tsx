@@ -10,7 +10,7 @@ import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
 import { LoadingCard } from '@/components/ui/loading-card';
 import { Switch } from '@/components/ui/switch';
-import { getTRPCClient, getHomeTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import type {
   TFederationConfig,
   TFederationInstanceSummary
@@ -57,7 +57,7 @@ const Federation = memo(() => {
 
   const fetchData = useCallback(async () => {
     try {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
       const [configResult, instancesResult] = await Promise.all([
         trpc.federation.getConfig.query(),
@@ -93,7 +93,7 @@ const Federation = memo(() => {
 
   const handleSaveConfig = useCallback(async () => {
     try {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
       await trpc.federation.setConfig.mutate({ enabled, domain });
       toast.success('Federation settings saved');
@@ -109,7 +109,7 @@ const Federation = memo(() => {
 
     setAdding(true);
     try {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
       await trpc.federation.addInstance.mutate({ remoteUrl: addUrl });
       setAddUrl('');
@@ -127,7 +127,7 @@ const Federation = memo(() => {
   const handleAccept = useCallback(
     async (instanceId: number) => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.federation.acceptInstance.mutate({ instanceId });
         toast.success('Federation accepted');
@@ -143,7 +143,7 @@ const Federation = memo(() => {
   const handleBlock = useCallback(
     async (instanceId: number) => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.federation.blockInstance.mutate({ instanceId });
         toast.success('Instance blocked');
@@ -159,7 +159,7 @@ const Federation = memo(() => {
   const handleRemove = useCallback(
     async (instanceId: number) => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.federation.removeInstance.mutate({ instanceId });
         toast.success('Instance removed');

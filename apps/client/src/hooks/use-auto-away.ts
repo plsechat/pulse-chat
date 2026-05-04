@@ -1,4 +1,4 @@
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { UserStatus } from '@pulse/shared';
 import { useEffect, useRef } from 'react';
 import { useSelector } from 'react-redux';
@@ -30,7 +30,7 @@ export const useAutoAway = () => {
 
   useEffect(() => {
     const setStatus = (status: SetableStatus) => {
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) return;
       trpc.users.setStatus.mutate({ status }).catch(() => {});
     };

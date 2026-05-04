@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
 import { useUserById } from '@/features/server/users/hooks';
 import { longDateTime } from '@/helpers/time-format';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
 import { format } from 'date-fns';
 import parse from 'html-react-parser';
@@ -71,7 +71,7 @@ const DmSearchPopover = memo(
         setLoading(true);
 
         try {
-          const trpc = getTRPCClient();
+          const trpc = getHomeTRPCClient();
           if (!trpc) {
             setLoading(false);
             return;

@@ -4,7 +4,7 @@ import { getFileUrl } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { TJoinedPublicUser } from '@pulse/shared';
 import { Upload } from 'lucide-react';
@@ -19,7 +19,7 @@ const BannerManager = memo(({ user }: TBannerManagerProps) => {
   const openFilePicker = useFilePicker();
 
   const removeBanner = useCallback(async () => {
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
 
     try {
@@ -32,7 +32,7 @@ const BannerManager = memo(({ user }: TBannerManagerProps) => {
   }, []);
 
   const onBannerClick = useCallback(async () => {
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
 
     try {
