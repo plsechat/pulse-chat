@@ -25,6 +25,7 @@
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, type JWK } from 'jose';
+import { config } from '../../config';
 import { db } from '../../db';
 import {
   dmChannelMembers,
@@ -45,6 +46,14 @@ import {
 } from '../../utils/federation';
 import { _resetBundleFetchRateLimit } from '../../utils/bundle-fetch-rate-limit';
 import { pubsub } from '../../utils/pubsub';
+
+// The mock-modules default has federation disabled; the handlers
+// short-circuit with 403 in that state. Every assertion in this file
+// expects the handler logic past the enabled-check, so flip the flag
+// at module load. Bun's per-test-file matrix and the chunked-shard
+// matrix both isolate the mutation to this Bun process; no other
+// test asserts on the "Federation not enabled" branch.
+config.federation.enabled = true;
 
 const PEER_DOMAIN = 'peer.example';
 const TEST_LOCAL_DOMAIN = 'test.local'; // matches setup.ts mock
