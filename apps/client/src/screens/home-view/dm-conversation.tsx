@@ -68,8 +68,8 @@ import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 import parse from 'html-react-parser';
-import { fullDateTime, longDateTime } from '@/helpers/time-format';
-import { format, formatDistance, subDays } from 'date-fns';
+import { dateTime, fullDateTime, longDateTime, timeOnly } from '@/helpers/time-format';
+import { format, isToday, isYesterday } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { Copy, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
@@ -887,8 +887,14 @@ const DmMessagesGroup = memo(
 
     if (!user) return null;
 
+    const timeStr = isToday(date)
+      ? `Today at ${format(date, timeOnly())}`
+      : isYesterday(date)
+        ? `Yesterday at ${format(date, timeOnly())}`
+        : format(date, dateTime());
+
     return (
-      <div className="flex min-w-0 gap-1 pl-2 pt-2 pr-2">
+      <div className="flex min-w-0 gap-1 pl-2 pt-2 pr-2 group/msggroup">
         <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline pl-1 select-none">
@@ -903,10 +909,8 @@ const DmMessagesGroup = memo(
               </span>
             </UserPopover>
             <Tooltip content={format(date, fullDateTime())}>
-              <span className="text-primary/60 text-xs">
-                {formatDistance(subDays(date, 0), new Date(), {
-                  addSuffix: true
-                })}
+              <span className="text-muted-foreground/50 text-xs opacity-60 group-hover/msggroup:opacity-100 transition-opacity">
+                {timeStr}
               </span>
             </Tooltip>
           </div>
