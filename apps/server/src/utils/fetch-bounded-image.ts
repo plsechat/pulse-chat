@@ -150,31 +150,32 @@ export async function fetchBoundedImage(
   let earlyRejected = false;
 
   try {
-    // Stream until done or we hit a fail-fast condition. The
-    // condition expression below cannot be `true` because the
-    // no-constant-condition rule rejects it; using `!earlyRejected`
-    // is functionally equivalent (the in-loop fail-fast paths set
-    // it before they break) and keeps the lint happy.
-    while (!earlyRejected) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
+    // Stream until the reader signals done or we hit a fail-fast
+    // condition. The loop condition is a real runtime check on the
+    // reader-returned `done` flag rather than `while (true)` (rejects
+    // by no-constant-condition) or `while (!earlyRejected)` (rejects
+    // by CodeQL useless-conditional, since the flag is false at loop
+    // entry). The fail-fast branches break out early.
+    let result = await reader.read();
+    while (!result.done) {
+      if (result.value) {
+        chunks.push(result.value);
+        totalLen += result.value.byteLength;
 
-      chunks.push(value);
-      totalLen += value.byteLength;
+        if (totalLen > maxBytes) {
+          earlyRejected = true;
+          break;
+        }
 
-      if (totalLen > maxBytes) {
-        earlyRejected = true;
-        break;
+        // After we have at least 12 bytes, fail fast on non-image
+        // content rather than streaming the whole body to discover
+        // it wasn't an image.
+        if (totalLen >= 12 && chunks.length === 1 && definitelyNotImage(chunks[0]!)) {
+          earlyRejected = true;
+          break;
+        }
       }
-
-      // After we have at least 12 bytes, fail fast on non-image
-      // content rather than streaming the whole body to discover it
-      // wasn't an image.
-      if (totalLen >= 12 && chunks.length === 1 && definitelyNotImage(chunks[0]!)) {
-        earlyRejected = true;
-        break;
-      }
+      result = await reader.read();
     }
   } finally {
     try {
