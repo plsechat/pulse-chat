@@ -18,6 +18,12 @@ import {
   federationServersHandler,
   federationUserInfoHandler
 } from './federation';
+import {
+  federationDmGroupAddMemberHandler,
+  federationDmGroupCreateHandler,
+  federationDmGroupRemoveMemberHandler,
+  federationDmSenderKeyHandler
+} from './federation-dm-group';
 import { healthRouteHandler } from './healthz';
 import { infoRouteHandler } from './info';
 import { interfaceRouteHandler } from './interface';
@@ -129,6 +135,26 @@ const createHttpServer = async (port: number = config.server.port) => {
           if (req.method === 'POST' && req.url === '/federation/get-prekey-bundle') {
             if (!checkRateLimit(req, res, federationRateLimit)) return;
             return await federationGetPreKeyBundleHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/dm-group-create') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationDmGroupCreateHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/dm-group-add-member') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationDmGroupAddMemberHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/dm-group-remove-member') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationDmGroupRemoveMemberHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/dm-sender-key') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationDmSenderKeyHandler(req, res);
           }
 
           if (req.method === 'POST' && req.url === '/federation/report-user') {

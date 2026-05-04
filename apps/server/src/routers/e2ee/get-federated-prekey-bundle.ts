@@ -1,41 +1,67 @@
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../../config';
+import { db } from '../../db';
+import { federationInstances, users } from '../../db/schema';
 import { queryInstance } from '../../utils/federation';
 import { protectedProcedure } from '../../utils/trpc';
 
 /**
- * Fetch a pre-key bundle for a user on a federated peer instance.
- * Phase D / D1.
+ * Fetch a pre-key bundle for a federated user. Phase D / D1.
  *
- * Calls the remote peer's `POST /federation/get-prekey-bundle` via
- * `queryInstance`, which signs the request and verifies the signed
- * response against the peer's stored federation public key. Returns
- * the verified bundle on success, or `null` on any failure (peer
- * offline, signature invalid, peer unknown, target user not found,
- * pool exhausted with no signed pre-key, etc).
+ * Input is the local shadow-user id, which the home server resolves
+ * into the federated identifiers (`federatedInstanceId` →
+ * `instanceDomain`, `federatedPublicId`) before calling the peer's
+ * `POST /federation/get-prekey-bundle` via `queryInstance`. The
+ * response is signature-verified against the peer's stored
+ * federation public key (Phase D / D0).
  *
- * The route is intentionally minimal — no application-level
- * authorization beyond `protectedProcedure`. Federation hardening
- * (peer rate-limit, DNS revalidation, body cap, signature
- * verification) is layered in the underlying helpers. The peer side
- * separately enforces a per-publicId rate limit to protect its OTPK
- * pools.
+ * Returns the verified bundle on success, or `null` on any failure
+ * (peer offline, signature invalid, peer unknown, target user has
+ * no bundle, target is not actually a federated user, etc.). Per
+ * Decision 2, the caller surfaces null as a hard "encrypted DM
+ * unavailable" failure — there is no silent fallback to plaintext.
  *
  * Returned shape mirrors the same-instance `e2ee.getPreKeyBundle`
  * route plus a `fromDomain` field that the response signature is
- * bound to (the responding instance's own domain). Callers can
- * ignore `fromDomain`; it's there so the verifier had something to
- * commit to as part of the digest.
+ * bound to. Callers can ignore `fromDomain`; it's present so the
+ * verifier had something to commit to as part of the digest.
  */
 const getFederatedPreKeyBundleRoute = protectedProcedure
-  .input(
-    z.object({
-      instanceDomain: z.string().min(1),
-      targetPublicId: z.string().min(1)
-    })
-  )
+  .input(z.object({ userId: z.number() }))
   .query(async ({ input }) => {
     if (!config.federation.enabled) {
+      return null;
+    }
+
+    const [user] = await db
+      .select({
+        isFederated: users.isFederated,
+        federatedInstanceId: users.federatedInstanceId,
+        federatedPublicId: users.federatedPublicId
+      })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .limit(1);
+
+    if (
+      !user?.isFederated ||
+      !user.federatedInstanceId ||
+      !user.federatedPublicId
+    ) {
+      return null;
+    }
+
+    const [instance] = await db
+      .select({
+        domain: federationInstances.domain,
+        status: federationInstances.status
+      })
+      .from(federationInstances)
+      .where(eq(federationInstances.id, user.federatedInstanceId))
+      .limit(1);
+
+    if (!instance || instance.status !== 'active') {
       return null;
     }
 
@@ -56,9 +82,9 @@ const getFederatedPreKeyBundleRoute = protectedProcedure
     };
 
     const result = await queryInstance<FederatedBundle>(
-      input.instanceDomain,
+      instance.domain,
       '/federation/get-prekey-bundle',
-      { targetPublicId: input.targetPublicId }
+      { targetPublicId: user.federatedPublicId }
     );
 
     return result;

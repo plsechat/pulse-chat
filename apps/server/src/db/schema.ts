@@ -662,20 +662,33 @@ const channelNotificationSettings = pgTable(
   ]
 );
 
-const dmChannels = pgTable('dm_channels', {
-  id: serial('id').primaryKey(),
-  name: text('name'),
-  ownerId: integer('owner_id').references(() => users.id, {
-    onDelete: 'set null'
-  }),
-  iconFileId: integer('icon_file_id').references(() => files.id, {
-    onDelete: 'set null'
-  }),
-  isGroup: boolean('is_group').notNull().default(false),
-  e2ee: boolean('e2ee').notNull().default(false),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-  updatedAt: bigint('updated_at', { mode: 'number' })
-});
+const dmChannels = pgTable(
+  'dm_channels',
+  {
+    id: serial('id').primaryKey(),
+    name: text('name'),
+    ownerId: integer('owner_id').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    iconFileId: integer('icon_file_id').references(() => files.id, {
+      onDelete: 'set null'
+    }),
+    isGroup: boolean('is_group').notNull().default(false),
+    e2ee: boolean('e2ee').notNull().default(false),
+    // Phase D / D2 — federation-spanning UUID for group DMs that
+    // include members from at least one other instance. Each peer
+    // instance's mirror channel for the same logical group carries
+    // the same value; dm-relay + dm-sender-key federation routes
+    // look up the local mirror by this column. Null for same-
+    // instance groups and all 1:1 DMs.
+    federationGroupId: text('federation_group_id'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' })
+  },
+  (t) => [
+    index('dm_channels_federation_group_id_idx').on(t.federationGroupId)
+  ]
+);
 
 const dmChannelMembers = pgTable(
   'dm_channel_members',

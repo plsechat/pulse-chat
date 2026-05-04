@@ -834,6 +834,14 @@ const federationDmRelayHandler = async (
   // defaults false to preserve the pre-Phase-D plaintext behaviour
   // for in-flight v0.2 traffic.
   const isE2ee = signedBody.e2ee === true;
+  // Phase D / D2 — populated for group DMs that span instances. The
+  // receiving instance looks up its local mirror by this ID instead
+  // of `findDmChannelBetween` (which is hardcoded to 1:1). Null /
+  // undefined for 1:1 DMs and same-instance groups.
+  const federationGroupId =
+    typeof signedBody.federationGroupId === 'string'
+      ? signedBody.federationGroupId
+      : null;
 
   if (!fromDomain || !fromUsername || !content || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -897,15 +905,40 @@ const federationDmRelayHandler = async (
     return jsonResponse(res, 404, { error: 'Local user not found' });
   }
 
-  // Find or create DM channel between shadow user and local user
+  // Find or create DM channel between shadow user and local user.
+  // Phase D / D2 — for group DMs the sender includes a
+  // `federationGroupId` and we look up the local mirror channel by
+  // that column instead of `findDmChannelBetween` (which is
+  // hardcoded to 1:1 and would otherwise route group messages into
+  // a brand-new 1:1 channel).
   const { findDmChannelBetween, getDmMessage } = await import('../db/queries/dms');
   const { dmChannels, dmChannelMembers, dmMessages } = await import('../db/schema');
 
-  let dmChannelId = await findDmChannelBetween(shadowUser.id, localUser.id);
+  let dmChannelId: number | null = null;
+  if (federationGroupId) {
+    const [mirror] = await db
+      .select({ id: dmChannels.id })
+      .from(dmChannels)
+      .where(eq(dmChannels.federationGroupId, federationGroupId))
+      .limit(1);
+    dmChannelId = mirror?.id ?? null;
+    if (!dmChannelId) {
+      // The peer must announce the group via /federation/dm-group-
+      // create before relaying messages. If we never received that
+      // announcement (or it was lost), refuse the message rather
+      // than silently routing into a wrong 1:1 channel.
+      return jsonResponse(res, 404, {
+        error: 'Group mirror not found — was the group announced first?'
+      });
+    }
+  } else {
+    dmChannelId = await findDmChannelBetween(shadowUser.id, localUser.id);
+  }
+
   let channelE2eeFlipped = false;
 
   if (!dmChannelId) {
-    // New channel — initialise its e2ee flag from the incoming envelope.
+    // New 1:1 channel — initialise its e2ee flag from the incoming envelope.
     const [newChannel] = await db
       .insert(dmChannels)
       .values({ createdAt: Date.now(), e2ee: isE2ee })
