@@ -51,6 +51,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { TiptapInput } from '../tiptap-input';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { UserAvatar } from '../user-avatar';
 import { UserStatusBadge } from '../user-status';
 
@@ -210,7 +211,11 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       const localId = await resolveLocalUserId();
       const channel = await getOrCreateDmChannel(localId);
       if (channel) {
-        await sendDmMessage(channel.id, popoverMessage);
+        // Convert tiptap HTML output to the token-content format the
+        // server stores. The main DM composer does the same — without
+        // it, popover-sent messages would land in the DB as raw HTML
+        // (e.g. "<p>asdf</p>") and render with the literal tags.
+        await sendDmMessage(channel.id, tiptapHtmlToTokens(popoverMessage));
         setPopoverMessage('');
         setActiveView('home');
       }
