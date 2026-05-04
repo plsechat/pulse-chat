@@ -16,6 +16,7 @@ import { getCoMemberIds } from '../../db/queries/servers';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, t } from '../../utils/trpc';
+import { getFederatedPreKeyBundleRoute } from './get-federated-prekey-bundle';
 import { insertIdentityResetMessages } from './identity-reset-messages';
 
 const registerKeysRoute = protectedProcedure
@@ -504,6 +505,7 @@ const onIdentityResetRoute = protectedProcedure.subscription(
 export const e2eeRouter = t.router({
   registerKeys: registerKeysRoute,
   getPreKeyBundle: getPreKeyBundleRoute,
+  getFederatedPreKeyBundle: getFederatedPreKeyBundleRoute,
   getIdentityPublicKey: getIdentityPublicKeyRoute,
   uploadOneTimePreKeys: uploadOneTimePreKeysRoute,
   getPreKeyCount: getPreKeyCountRoute,
