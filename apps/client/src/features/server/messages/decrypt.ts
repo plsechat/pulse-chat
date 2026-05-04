@@ -29,7 +29,8 @@ async function maybeDecryptReplyTo(
     const payload = await decryptChannelMessage(
       channelId,
       replyTo.userId,
-      replyTo.content
+      replyTo.content,
+      replyTo.id
     );
     return { ...replyTo, content: payload.content };
   } catch {
@@ -64,7 +65,8 @@ export async function decryptChannelMessages(
         const payload = await decryptChannelMessage(
           msg.channelId,
           msg.userId,
-          msg.content
+          msg.content,
+          msg.id
         );
         setFileKeys(msg.id, payload.fileKeys);
         const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);

@@ -6,6 +6,7 @@ import type {
   StorageType
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { store as reduxStore } from '@/features/store';
+import { clearAllOwnPlaintexts } from './own-plaintext-cache';
 import type {
   ChainKind,
   SerializedChain
@@ -610,7 +611,8 @@ export function getActiveStore(): SignalProtocolStore {
  * Wipe IDB for the home store and every federated-instance store
  * created in this session. Used on sign-out so the next user on the
  * same browser cannot inherit the previous user's identity, sessions,
- * or sender keys.
+ * or sender keys. Also clears the Phase B own-message plaintext
+ * cache (which lives in its own IDB).
  */
 export async function clearAllStores(): Promise<void> {
   await signalStore.clearAll();
@@ -623,4 +625,5 @@ export async function clearAllStores(): Promise<void> {
     }
   }
   instanceStores.clear();
+  await clearAllOwnPlaintexts();
 }

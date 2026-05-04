@@ -17,6 +17,13 @@ import {
   MissingDmChainError,
   rotateOutboundDmChain
 } from './dm-sender-keys';
+import {
+  captureOwnPlaintextByCiphertext,
+  clearAllOwnPlaintexts,
+  getPersistedOwnPlaintextById,
+  persistOwnPlaintextById,
+  takeOwnPlaintextByCiphertext
+} from './own-plaintext-cache';
 import type { ChainKind, SenderKeyDistribution } from './sender-key-chain';
 import { decodeWire } from './sender-key-chain';
 import {
@@ -172,6 +179,10 @@ export async function setupE2EEKeys(
 export async function finalizeRestoredKeys(): Promise<void> {
   await signalStore.clearAllSessions();
   await signalStore.clearAllChains();
+  // Own-message cache is identity-scoped — restoring a different
+  // identity must not surface plaintexts encrypted under the prior
+  // identity's chains as if they were the restored identity's.
+  await clearAllOwnPlaintexts();
 
   const trpc = getHomeTRPCClient();
   if (!trpc) {
@@ -780,7 +791,11 @@ async function doFetchAndProcessPendingSenderKeys(
 }
 
 /**
- * Encrypt a channel message under our latest outbound chain.
+ * Encrypt a channel message under our latest outbound chain. Captures
+ * the plaintext into the own-message cache keyed by wire bytes so the
+ * subscription echo can self-decrypt — sender-key chains advance on
+ * every encrypt and can't be re-derived to read our own messages
+ * back, unlike the symmetric AES Phase A used.
  */
 export async function encryptChannelMessage(
   channelId: number,
@@ -789,24 +804,50 @@ export async function encryptChannelMessage(
 ): Promise<string> {
   await ensureE2EEKeys();
   const store = getActiveStore();
-  return encryptChannelWithChain(
+  const plaintext = JSON.stringify(payload);
+  const wire = await encryptChannelWithChain(
     channelId,
     ownUserId,
-    JSON.stringify(payload),
+    plaintext,
     store
   );
+  captureOwnPlaintextByCiphertext(wire, plaintext);
+  return wire;
 }
 
 /**
  * Decrypt a channel message. Loads the sender's chain at the
  * senderKeyId embedded in the wire — if missing, fetches pending
  * SKDMs (bounded exponential backoff up to ~3.5s) and retries.
+ *
+ * `messageId` is optional — when provided, the own-message cache
+ * persists the plaintext keyed by id so reload survives. Live-path
+ * subscription handlers always pass it; legacy callers may not.
  */
 export async function decryptChannelMessage(
   channelId: number,
   fromUserId: number,
-  encryptedContent: string
+  encryptedContent: string,
+  messageId?: number
 ): Promise<E2EEPlaintext> {
+  // Own-message fast path — see encryptChannelMessage. The wire bytes
+  // we just captured during encrypt are exactly what comes back via
+  // the subscription echo. Chain decrypt would throw "replay" because
+  // the chain advanced past this iteration on encrypt.
+  const cachedByCiphertext = takeOwnPlaintextByCiphertext(encryptedContent);
+  if (cachedByCiphertext !== undefined) {
+    if (messageId !== undefined) {
+      void persistOwnPlaintextById(messageId, cachedByCiphertext);
+    }
+    return JSON.parse(cachedByCiphertext) as E2EEPlaintext;
+  }
+  if (messageId !== undefined) {
+    const persisted = await getPersistedOwnPlaintextById(messageId);
+    if (persisted !== undefined) {
+      return JSON.parse(persisted) as E2EEPlaintext;
+    }
+  }
+
   const store = getActiveStore();
   const decoded = decodeWire(encryptedContent);
   const MAX_RETRIES = 3;
@@ -1076,18 +1117,40 @@ export async function encryptDmGroupMessage(
   payload: E2EEPlaintext
 ): Promise<string> {
   await ensureE2EEKeys();
-  return encryptDmGroupWithChain(
+  const plaintext = JSON.stringify(payload);
+  const wire = await encryptDmGroupWithChain(
     dmChannelId,
     ownUserId,
-    JSON.stringify(payload)
+    plaintext
   );
+  captureOwnPlaintextByCiphertext(wire, plaintext);
+  return wire;
 }
 
 export async function decryptDmGroupMessage(
   dmChannelId: number,
   fromUserId: number,
-  encryptedContent: string
+  encryptedContent: string,
+  messageId?: number
 ): Promise<E2EEPlaintext> {
+  // Own-message fast path — see encryptDmGroupMessage. Same shape
+  // as decryptChannelMessage's own-cache: chain ratchet has moved
+  // past the iteration we just sent, so subscription-echo decrypt
+  // through the chain throws.
+  const cachedByCiphertext = takeOwnPlaintextByCiphertext(encryptedContent);
+  if (cachedByCiphertext !== undefined) {
+    if (messageId !== undefined) {
+      void persistOwnPlaintextById(messageId, cachedByCiphertext);
+    }
+    return JSON.parse(cachedByCiphertext) as E2EEPlaintext;
+  }
+  if (messageId !== undefined) {
+    const persisted = await getPersistedOwnPlaintextById(messageId);
+    if (persisted !== undefined) {
+      return JSON.parse(persisted) as E2EEPlaintext;
+    }
+  }
+
   const decoded = decodeWire(encryptedContent);
   const MAX_RETRIES = 3;
   const BASE_DELAY = 500;

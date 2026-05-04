@@ -322,7 +322,8 @@ async function decryptReplyToInPlace<R extends TReplyToShape>(
       const payload = await decryptDmGroupMessage(
         dmChannelId,
         replyTo.userId,
-        replyTo.content
+        replyTo.content,
+        replyTo.id
       );
       return { ...replyTo, content: payload.content };
     } catch {
@@ -370,7 +371,8 @@ export async function decryptDmMessageInPlace<
       const payload = await decryptDmGroupMessage(
         message.dmChannelId,
         message.userId,
-        message.content
+        message.content,
+        message.id
       );
       setFileKeys(message.id, payload.fileKeys);
       const files = message.files
