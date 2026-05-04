@@ -741,4 +741,13 @@ body,
   opacity: 0.5;
   pointer-events: none;
   height: 0;
+  /* Without nowrap+ellipsis, "Message @LongUsername" wraps inside
+     narrow containers (the user-popover quick-send is the worst
+     offender) — the float-with-zero-height layout doesn't reserve
+     space for the second line, so it spills below and the input
+     looks weirdly tall. Single-line + ellipsis keeps the rhythm. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
