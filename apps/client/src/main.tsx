@@ -8,7 +8,6 @@ import { ContextMenuSuppressor } from './components/context-menu-suppressor.tsx'
 import { StoreDebug } from './components/debug/store-debug.tsx';
 import { DevicesProvider } from './components/devices-provider/index.tsx';
 import { DialogsProvider } from './components/dialogs/index.tsx';
-import { IncomingCallModal } from './components/dm-call/incoming-call-modal.tsx';
 import { E2EESetupModal } from './components/e2ee-setup-modal.tsx';
 import { Routing } from './components/routing/index.tsx';
 import { ServerScreensProvider } from './components/server-screens/index.tsx';
@@ -30,7 +29,6 @@ createRoot(document.getElementById('root')!).render(
           <ContextMenuSuppressor />
           <DialogsProvider />
           <E2EESetupModal />
-          <IncomingCallModal />
           <ServerScreensProvider />
           <Routing />
         </DevicesProvider>

@@ -12,6 +12,7 @@ import { useVoice } from '@/features/server/voice/hooks';
 import { Phone, PhoneOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { useOutgoingCallTimeout } from './use-outgoing-call-timeout';
 
 const RING_INTERVAL_MS = 2500;
 
@@ -34,6 +35,13 @@ const RING_INTERVAL_MS = 2500;
  *   reducer drops the entry from ringingCalls and the modal hides.
  */
 const IncomingCallModal = memo(() => {
+  // Caller-side: auto-end an outgoing call with a "No answer" toast
+  // if no one joins within the timeout. Lives next to the modal
+  // because both belong to the call-lifecycle UX and need to be
+  // mounted inside VoiceProvider so leaveDmVoiceCall reaches the
+  // real Mediasoup transports.
+  useOutgoingCallTimeout();
+
   const ringingCalls = useRingingCalls();
   // Show only the most recent ringing call (rare: someone might
   // start two calls before answering one). Stack behavior could

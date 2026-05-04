@@ -1,3 +1,4 @@
+import { IncomingCallModal } from '@/components/dm-call/incoming-call-modal';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
@@ -35,6 +36,7 @@ const MainViewInner = memo(() => {
   return (
     <>
       <PersistentAudioStreams />
+      <IncomingCallModal />
       <div className="flex h-dvh bg-background text-foreground">
         {/*
           Was `hidden md:flex` (≥ 768px), then `sm:flex` (≥ 640px) —
