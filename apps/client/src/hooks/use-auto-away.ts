@@ -31,6 +31,7 @@ export const useAutoAway = () => {
   useEffect(() => {
     const setStatus = (status: SetableStatus) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       trpc.users.setStatus.mutate({ status }).catch(() => {});
     };
 

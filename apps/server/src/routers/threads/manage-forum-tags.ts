@@ -1,13 +1,33 @@
 import { ChannelType, Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channels, forumTags } from '../../db/schema';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const getForumTagsRoute = protectedProcedure
   .input(z.object({ channelId: z.number() }))
-  .query(async ({ input }) => {
+  .query(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    // Confirm the channel is in the active server before exposing its tags.
+    const [channel] = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
+      .limit(1);
+
+    if (!channel) return [];
+
     return db
       .select()
       .from(forumTags)
@@ -23,10 +43,20 @@ const createForumTagRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [channel] = await db
       .select({ serverId: channels.serverId, type: channels.type })
       .from(channels)
-      .where(eq(channels.id, input.channelId))
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!channel || channel.type !== ChannelType.FORUM) {
@@ -57,6 +87,11 @@ const updateForumTagRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [tag] = await db
       .select()
       .from(forumTags)
@@ -70,7 +105,12 @@ const updateForumTagRoute = protectedProcedure
     const [channel] = await db
       .select({ serverId: channels.serverId })
       .from(channels)
-      .where(eq(channels.id, tag.channelId))
+      .where(
+        and(
+          eq(channels.id, tag.channelId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!channel) {
@@ -95,6 +135,11 @@ const updateForumTagRoute = protectedProcedure
 const deleteForumTagRoute = protectedProcedure
   .input(z.object({ tagId: z.number() }))
   .mutation(async ({ input, ctx }) => {
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
     const [tag] = await db
       .select()
       .from(forumTags)
@@ -108,7 +153,12 @@ const deleteForumTagRoute = protectedProcedure
     const [channel] = await db
       .select({ serverId: channels.serverId })
       .from(channels)
-      .where(eq(channels.id, tag.channelId))
+      .where(
+        and(
+          eq(channels.id, tag.channelId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
 
     if (!channel) {

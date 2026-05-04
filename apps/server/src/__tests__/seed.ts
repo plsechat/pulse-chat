@@ -3,7 +3,6 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
   OWNER_ROLE_ID,
   Permission,
-  sha256,
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MIN_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
@@ -31,8 +30,6 @@ import {
   users
 } from '../db/schema';
 
-const TEST_SECRET_TOKEN = 'test-secret-token-for-unit-tests';
-
 const seedDatabase = async (db: PostgresJsDatabase) => {
   // Clear the in-memory supabase auth store so stale entries from a prior seed
   // don't collide with the fresh UUIDs generated below.
@@ -45,7 +42,6 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     description: 'Test server description',
     password: '',
     serverId: randomUUIDv7(),
-    secretToken: await sha256(TEST_SECRET_TOKEN),
     allowNewUsers: true,
     storageUploadEnabled: true,
     storageQuota: STORAGE_QUOTA,
@@ -63,7 +59,7 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     description: initialSettings.description,
     password: initialSettings.password,
     publicId: initialSettings.serverId,
-    secretToken: initialSettings.secretToken,
+    secretToken: randomUUIDv7(),
     allowNewUsers: initialSettings.allowNewUsers,
     storageUploadEnabled: initialSettings.storageUploadEnabled,
     storageQuota: initialSettings.storageQuota,
@@ -297,9 +293,8 @@ const seedDatabase = async (db: PostgresJsDatabase) => {
     ownerRole,
     defaultRole: insertedDefaultRole!,
     categories: initialCategories,
-    channels: initialChannels,
-    originalToken: TEST_SECRET_TOKEN
+    channels: initialChannels
   };
 };
 
-export { seedDatabase, TEST_SECRET_TOKEN };
+export { seedDatabase };

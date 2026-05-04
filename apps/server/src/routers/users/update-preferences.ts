@@ -12,7 +12,8 @@ const preferencesSchema = z.object({
       messageSpacing: z.enum(['tight', 'normal', 'relaxed']),
       fontScale: z.number().min(50).max(200),
       zoomLevel: z.number().min(50).max(200),
-      timeFormat: z.enum(['12h', '24h'])
+      timeFormat: z.enum(['12h', '24h']),
+      showFormattingHints: z.boolean()
     })
     .partial()
     .optional(),

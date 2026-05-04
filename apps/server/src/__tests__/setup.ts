@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import fs from 'node:fs/promises';
+import { warmFileHmacSecret } from '../db/queries/server';
 import { DATA_PATH } from '../helpers/paths';
 import { createHttpServer } from '../http';
 import { loadMediasoup } from '../utils/mediasoup';
@@ -26,28 +27,88 @@ beforeAll(async () => {
   testsBaseUrl = 'http://localhost:9999';
 });
 
+// Retry helper for deadlocks during beforeEach. The HTTP test server
+// and the `tdb` client share a postgres-js pool (mock-db.ts forwards
+// `db` -> `tdb`), so a TRUNCATE in beforeEach can collide with a still-
+// in-flight HTTP-handler query from the previous test. Postgres rolls
+// back one side; retrying almost always succeeds on the second try.
+//
+// As the suite has grown, the contention window has too — three retries
+// with linear backoff ran out for runs that happened to land mid-query.
+// Bumped to six attempts with exponential backoff (100, 200, 400, 800,
+// 1600 ms) so the cumulative wait covers any reasonable in-flight
+// HTTP-handler tail.
+const POSTGRES_DEADLOCK_CODE = '40P01';
+
+// Drizzle wraps the underlying postgres-js error in a DrizzleQueryError
+// whose `.code` is undefined — the postgres `code` lives on `.cause`.
+// Walk the cause chain so we catch deadlocks regardless of how many
+// layers wrap them.
+function isDeadlockError(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let depth = 0; cur && depth < 4; depth++) {
+    const code = (cur as { code?: string }).code;
+    if (code === POSTGRES_DEADLOCK_CODE) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+async function executeWithDeadlockRetry(
+  fn: () => Promise<void>,
+  retries = 6
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await fn();
+      return;
+    } catch (err: unknown) {
+      if (!isDeadlockError(err) || attempt >= retries) throw err;
+      // Exponential backoff: 100, 200, 400, 800, 1600 ms — gives the
+      // colliding transaction enough time to finish before we retry.
+      await new Promise((r) => setTimeout(r, 100 * 2 ** (attempt - 1)));
+    }
+  }
+}
+
 beforeEach(async () => {
   const tdb = getTestDb();
 
-  // Truncate all tables in reverse dependency order
-  await tdb.execute(sql`TRUNCATE TABLE
+  // Truncate all tables in reverse dependency order. Keep this list in
+  // sync with the schema — leftover rows in tables that aren't truncated
+  // here lengthen CASCADE chains and widen deadlock windows.
+  await executeWithDeadlockRetry(() => tdb.execute(sql`TRUNCATE TABLE
     e2ee_sender_keys,
+    user_key_backups,
     user_one_time_pre_keys,
     user_signed_pre_keys,
     user_identity_keys,
+    user_preferences,
+    user_notes,
     plugin_data,
     thread_followers,
     forum_post_tags,
     forum_tags,
+    channel_notification_settings,
     channel_read_states,
     channel_user_permissions,
     channel_role_permissions,
     message_reactions,
     message_files,
+    dm_read_states,
+    dm_message_reactions,
+    dm_message_files,
+    dm_messages,
+    dm_channel_members,
+    dm_channels,
+    friend_requests,
+    friendships,
     activity_log,
     logins,
     server_members,
     user_roles,
+    webhooks,
+    automod_rules,
     messages,
     emojis,
     invites,
@@ -62,9 +123,17 @@ beforeEach(async () => {
     categories,
     servers,
     settings
-    RESTART IDENTITY CASCADE`);
+    RESTART IDENTITY CASCADE`).then(() => undefined));
 
   await seedDatabase(tdb);
+
+  // Warm the file-HMAC cache. Production never calls this explicitly either;
+  // tests that exercised generateFileToken used to depend on cross-file mock
+  // leakage from files-crypto.test.ts. With more test files in the suite
+  // that order is no longer deterministic, so we warm it here. Cache is
+  // module-scoped and persists across tests, so this is a one-time cost
+  // on first call.
+  await warmFileHmacSecret();
 });
 
 afterEach(() => {

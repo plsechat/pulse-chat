@@ -2,7 +2,8 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { setModViewOpen } from '@/features/app/actions';
 import { useModViewOpen } from '@/features/app/hooks';
 import { useAdminUserInfo } from '@/features/server/admin/hooks';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { useEscapeKey } from '@/hooks/use-escape-key';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { ModViewContext, ModViewScreen, type TModViewContext } from './context';
 import { ModViewContent } from './mod-view-content';
 
@@ -79,18 +80,7 @@ const ModViewSheet = memo(() => {
     setModViewOpen(false);
   }, []);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        handleClose();
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [isOpen, handleClose]);
+  useEscapeKey(handleClose, isOpen);
 
   return (
     <Sheet defaultOpen={false} open={isOpen}>

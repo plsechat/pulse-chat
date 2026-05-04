@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { generateFileToken, verifyFileToken } from '../files-crypto';
 
-const mockGetServerTokenSync = mock(() => 'test-server-token-12345');
+const mockGetFileHmacSecretSync = mock(() => 'test-server-token-12345');
 
 mock.module('../../db/queries/server', () => ({
-  getServerTokenSync: mockGetServerTokenSync
+  getFileHmacSecretSync: mockGetFileHmacSecretSync
 }));
 
 describe('files-crypto', () => {
   beforeEach(() => {
-    mockGetServerTokenSync.mockClear();
+    mockGetFileHmacSecretSync.mockClear();
   });
 
   describe('generateFileToken', () => {
@@ -22,7 +22,7 @@ describe('files-crypto', () => {
       expect(token).toBeDefined();
       expect(typeof token).toBe('string');
       expect(token.length).toBe(64);
-      expect(mockGetServerTokenSync).toHaveBeenCalledTimes(1);
+      expect(mockGetFileHmacSecretSync).toHaveBeenCalledTimes(1);
     });
 
     test('should generate different tokens for different fileIds', () => {
@@ -53,13 +53,13 @@ describe('files-crypto', () => {
       expect(token1).toBe(token2);
     });
 
-    test('should use server token from getServerTokenSync', () => {
+    test('should use server token from getFileHmacSecretSync', () => {
       const fileId = 123;
       const channelAccessToken = 'channel-token-abc';
 
       generateFileToken(fileId, channelAccessToken);
 
-      expect(mockGetServerTokenSync).toHaveBeenCalledTimes(1);
+      expect(mockGetFileHmacSecretSync).toHaveBeenCalledTimes(1);
     });
   });
 

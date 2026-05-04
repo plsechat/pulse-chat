@@ -41,6 +41,10 @@ const Security = memo(({ channelId }: TSecurityProps) => {
   useEffect(() => {
     const fetchChannel = async () => {
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setLoadingE2ee(false);
+        return;
+      }
       try {
         const channel = await trpc.channels.get.query({ channelId });
         setE2ee(channel.e2ee);
@@ -55,6 +59,7 @@ const Security = memo(({ channelId }: TSecurityProps) => {
 
   const onRotateToken = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.channels.rotateFileAccessToken.mutate({ channelId });
@@ -76,6 +81,7 @@ const Security = memo(({ channelId }: TSecurityProps) => {
     if (!confirmed) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     try {
       await trpc.channels.update.mutate({
         channelId,

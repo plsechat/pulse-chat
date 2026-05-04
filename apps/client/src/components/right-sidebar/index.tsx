@@ -1,3 +1,4 @@
+import { VerifiedMemberDot } from '@/components/e2ee-status-badge';
 import { UserAvatar } from '@/components/user-avatar';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useUserDisplayRole } from '@/features/server/hooks';
@@ -20,9 +21,10 @@ type TUserProps = {
   banned: boolean;
   status?: UserStatus;
   _identity?: string;
+  e2ee?: boolean;
 };
 
-const User = memo(({ userId, name, banned, status, _identity }: TUserProps) => {
+const User = memo(({ userId, name, banned, status, _identity, e2ee }: TUserProps) => {
   const displayRole = useUserDisplayRole(userId);
   const nameColor =
     displayRole?.color && displayRole.color !== '#ffffff'
@@ -55,6 +57,7 @@ const User = memo(({ userId, name, banned, status, _identity }: TUserProps) => {
           {_identity?.includes('@') && (
             <Globe className="h-3 w-3 text-blue-500 shrink-0" />
           )}
+          {e2ee && <VerifiedMemberDot userId={userId} />}
         </div>
       </div>
     </UserPopover>
@@ -66,23 +69,34 @@ const RoleGroupSection = memo(
     label,
     color,
     users,
-    dimmed
+    dimmed,
+    e2ee
   }: {
     label: string;
     color?: string;
     users: TJoinedPublicUser[];
     dimmed?: boolean;
+    e2ee?: boolean;
   }) => (
     <div className={cn(dimmed && 'opacity-50')}>
-      <h4
-        className={cn(
-          'px-2 pt-4 pb-1 text-[11px] font-bold uppercase tracking-widest',
-          !(color && color !== '#ffffff') && 'text-muted-foreground'
-        )}
-        style={color && color !== '#ffffff' ? { color } : undefined}
-      >
-        {label} — {users.length}
-      </h4>
+      {/* Old shape was bold uppercase tracking-widest with an em-dash
+          before the count — read as a corporate section header. The
+          casual rebuild: sentence-case label, count as a soft chip.
+          More "lived-in," still scannable. */}
+      <div className="flex items-center gap-2 px-2 pt-4 pb-1.5">
+        <h4
+          className={cn(
+            'text-xs font-semibold',
+            !(color && color !== '#ffffff') && 'text-muted-foreground/80'
+          )}
+          style={color && color !== '#ffffff' ? { color } : undefined}
+        >
+          {label}
+        </h4>
+        <span className="text-[10px] tabular-nums font-medium text-muted-foreground/70 px-1.5 py-px rounded-full bg-muted/60 ring-1 ring-border/30">
+          {users.length}
+        </span>
+      </div>
       <div className="space-y-0.5">
         {users.map((user) => (
           <User
@@ -92,6 +106,7 @@ const RoleGroupSection = memo(
             banned={user.banned}
             status={user.status}
             _identity={user._identity}
+            e2ee={e2ee}
           />
         ))}
       </div>
@@ -121,6 +136,7 @@ const RightSidebar = memo(
 
       let cancelled = false;
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       trpc.channels.getVisibleUsers
         .query({ channelId: selectedChannel.id })
@@ -182,6 +198,7 @@ const RightSidebar = memo(
                     label={group.role?.name ?? 'Online'}
                     color={group.role?.color}
                     users={group.users}
+                    e2ee={selectedChannel?.e2ee}
                   />
                 ))}
                 {filteredOfflineUsers.length > 0 && (
@@ -189,6 +206,7 @@ const RightSidebar = memo(
                     label="Offline"
                     users={filteredOfflineUsers}
                     dimmed
+                    e2ee={selectedChannel?.e2ee}
                   />
                 )}
               </div>

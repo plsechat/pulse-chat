@@ -5,6 +5,7 @@ import { Protect } from '@/components/protect';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useActiveThread } from '@/features/server/channels/hooks';
 import { useMessagesByChannelId } from '@/features/server/messages/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { requestConfirmation } from '@/features/dialogs/actions';
@@ -25,6 +26,7 @@ const ForumThreadView = memo(() => {
     if (!thread) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.threads.archive.mutate({
@@ -36,8 +38,8 @@ const ForumThreadView = memo(() => {
         thread.archived ? 'Thread unarchived' : 'Thread archived'
       );
       setShowMenu(false);
-    } catch {
-      toast.error('Failed to update thread');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to update thread'));
     }
   }, [thread]);
 
@@ -56,13 +58,14 @@ const ForumThreadView = memo(() => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.threads.deleteThread.mutate({ threadId: thread.id });
       toast.success('Thread deleted');
       setActiveThreadId(undefined);
-    } catch {
-      toast.error('Failed to delete thread');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete thread'));
     }
   }, [thread]);
 

@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Select,
   SelectContent,
@@ -7,9 +8,10 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useChannels } from '@/features/server/channels/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TWebhook } from '@pulse/shared';
-import { Copy, Plus, Trash } from 'lucide-react';
+import { Copy, Plus, Trash, Webhook } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -21,11 +23,15 @@ const Webhooks = memo(() => {
 
   const fetchWebhooks = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      return;
+    }
     try {
       const result = await trpc.webhooks.list.query({});
       setWebhooks(result);
-    } catch {
-      toast.error('Failed to load webhooks');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to load webhooks'));
     } finally {
       setLoading(false);
     }
@@ -38,12 +44,13 @@ const Webhooks = memo(() => {
   const handleDelete = useCallback(
     async (webhookId: number) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       try {
         await trpc.webhooks.delete.mutate({ webhookId });
         setWebhooks((prev) => prev.filter((w) => w.id !== webhookId));
         toast.success('Webhook deleted');
-      } catch {
-        toast.error('Failed to delete webhook');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete webhook'));
       }
     },
     []
@@ -94,9 +101,12 @@ const Webhooks = memo(() => {
       )}
 
       {webhooks.length === 0 && !showCreate && (
-        <div className="text-center py-8 text-sm text-muted-foreground">
-          No webhooks yet. Create one to get started.
-        </div>
+        <EmptyState
+          icon={Webhook}
+          title="No webhooks yet"
+          description="Create one to start posting to a channel from an external service."
+          size="sm"
+        />
       )}
 
       <div className="space-y-2">
@@ -162,6 +172,10 @@ const CreateWebhookForm = memo(
       if (!name.trim() || !channelId || creating) return;
       setCreating(true);
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreating(false);
+        return;
+      }
       try {
         const webhook = await trpc.webhooks.create.mutate({
           name: name.trim(),
@@ -169,8 +183,8 @@ const CreateWebhookForm = memo(
         });
         onCreated(webhook);
         toast.success('Webhook created');
-      } catch {
-        toast.error('Failed to create webhook');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create webhook'));
       } finally {
         setCreating(false);
       }

@@ -13,6 +13,7 @@ import {
 import { openServerScreen } from '@/features/server-screens/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { memo, useCallback } from 'react';
@@ -40,12 +41,13 @@ const ChannelContextMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.channels.delete.mutate({ channelId });
         toast.success('Channel deleted');
-      } catch {
-        toast.error('Failed to delete channel');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete channel'));
       }
     }, [channelId]);
 
@@ -71,6 +73,7 @@ const ChannelContextMenu = memo(
       }
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.messages.purge.mutate({
@@ -78,8 +81,8 @@ const ChannelContextMenu = memo(
           confirmChannelName: enteredName
         });
         toast.success('All messages purged');
-      } catch {
-        toast.error('Failed to purge messages');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to purge messages'));
       }
     }, [channelId, channel]);
 

@@ -32,12 +32,7 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
     message: 'Channel is not a voice channel'
   });
 
-  const runtime = VoiceRuntime.findById(ctx.currentVoiceChannelId);
-
-  invariant(runtime, {
-    code: 'INTERNAL_SERVER_ERROR',
-    message: 'Voice runtime not found for this channel'
-  });
+  const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
 
   const userInChannel = runtime.getUser(ctx.user.id);
 

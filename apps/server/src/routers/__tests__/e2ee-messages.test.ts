@@ -175,6 +175,7 @@ describe('e2ee messages', () => {
 
     // Create a DM channel between user 1 and user 2
     const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    await caller1.dms.enableEncryption({ dmChannelId: channel.id });
 
     await caller1.dms.sendMessage({
       dmChannelId: channel.id,
@@ -216,6 +217,7 @@ describe('e2ee messages', () => {
     const { caller } = await initTest();
 
     const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
+    await caller.dms.enableEncryption({ dmChannelId: channel.id });
 
     await expect(
       caller.dms.sendMessage({
@@ -241,6 +243,7 @@ describe('e2ee messages', () => {
     const { caller } = await initTest();
 
     const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
+    await caller.dms.enableEncryption({ dmChannelId: channel.id });
 
     await caller.dms.sendMessage({
       dmChannelId: channel.id,
@@ -273,13 +276,15 @@ describe('e2ee messages', () => {
 
     const channel = await caller.dms.getOrCreateChannel({ userId: 2 });
 
-    // Send plaintext DM
+    // Send plaintext DM while channel is unencrypted
     await caller.dms.sendMessage({
       dmChannelId: channel.id,
       content: 'searchable dm message'
     });
 
-    // Send E2EE DM
+    // Flip channel to e2ee then send an encrypted message — exercises
+    // the historical case where a user enables encryption mid-conversation.
+    await caller.dms.enableEncryption({ dmChannelId: channel.id });
     await caller.dms.sendMessage({
       dmChannelId: channel.id,
       content: 'encrypted-not-searchable',

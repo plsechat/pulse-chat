@@ -145,9 +145,22 @@ const getPinnedMessagesRoute = protectedProcedure
         .from(messages)
         .where(inArray(messages.id, replyToIds));
 
+      const fileRowsForReplies = await db
+        .select({ messageId: messageFiles.messageId })
+        .from(messageFiles)
+        .where(inArray(messageFiles.messageId, replyToIds));
+      const repliesWithFiles = new Set(
+        fileRowsForReplies.map((r) => r.messageId)
+      );
+
       replyToMap = replyRows.reduce<Record<number, TMessageReplyPreview>>(
         (acc, r) => {
-          acc[r.id] = { id: r.id, content: r.content, userId: r.userId };
+          acc[r.id] = {
+            id: r.id,
+            content: r.content,
+            userId: r.userId,
+            hasFiles: repliesWithFiles.has(r.id)
+          };
           return acc;
         },
         {}

@@ -218,3 +218,55 @@ describe('federation membership', () => {
     expect(joined[0]!.remoteServerId).toBe(2);
   });
 });
+
+describe('listInstances permission gate (F8)', () => {
+  test('owner (user 1) can list federation peers', async () => {
+    const { caller } = await initTest();
+    await createTestInstance('peer.example.com', 'Peer');
+    const instances = await caller.federation.listInstances();
+    expect(instances.length).toBeGreaterThanOrEqual(1);
+    expect(instances.some((i) => i.domain === 'peer.example.com')).toBe(true);
+  });
+
+  test('non-MANAGE_SETTINGS user is rejected', async () => {
+    const { caller } = await initTest(2);
+    await expect(caller.federation.listInstances()).rejects.toThrow(
+      'Insufficient permissions'
+    );
+  });
+});
+
+describe('ensureShadowUser remote verification (F5)', () => {
+  test('refuses to create shadow when remote instance is unreachable', async () => {
+    const { caller } = await initTest();
+    // Create an active instance row but the actual host won't respond
+    // — the new route must call federationFetch to verify the user
+    // exists, and that call will throw, which the route surfaces.
+    await createTestInstance(
+      'unreachable-test-peer.example.com',
+      'Unreachable Peer'
+    );
+
+    await expect(
+      caller.federation.ensureShadowUser({
+        instanceDomain: 'unreachable-test-peer.example.com',
+        remoteUserId: 99,
+        username: 'attacker-controlled-name',
+        remotePublicId: 'pub-99'
+      })
+    ).rejects.toThrow();
+  });
+
+  test('refuses when instance is not registered as active', async () => {
+    const { caller } = await initTest();
+    // No federation_instances row at all
+    await expect(
+      caller.federation.ensureShadowUser({
+        instanceDomain: 'never-registered.example.com',
+        remoteUserId: 99,
+        username: 'x',
+        remotePublicId: 'pub-99'
+      })
+    ).rejects.toThrow();
+  });
+});

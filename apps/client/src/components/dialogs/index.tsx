@@ -2,13 +2,13 @@ import { closeDialogs } from '@/features/dialogs/actions';
 import { useDialogInfo } from '@/features/dialogs/hooks';
 import { createElement, memo } from 'react';
 import { AssignRoleDialog } from './assign-role';
-import { ClaimAdminDialog } from './claim-admin';
 import ConfirmActionDialog from './confirm-action';
 import { CreateCategoryDialog } from './create-category';
 import { CreateChannelDialog } from './create-channel';
 import { CreateInviteDialog } from './create-invite-dialog';
 import { CreateServerDialog } from './create-server';
 import { Dialog } from './dialogs';
+import IdentityChangedDialog from './identity-changed';
 import { PluginCommandsDialog } from './plugin-commands';
 import { PluginLogsDialog } from './plugin-logs';
 import { PluginSettingsDialog } from './plugin-settings';
@@ -25,8 +25,8 @@ const DialogsMap: any = {
   [Dialog.PLUGIN_LOGS]: PluginLogsDialog,
   [Dialog.PLUGIN_COMMANDS]: PluginCommandsDialog,
   [Dialog.PLUGIN_SETTINGS]: PluginSettingsDialog,
-  [Dialog.CLAIM_ADMIN]: ClaimAdminDialog,
-  [Dialog.CREATE_SERVER]: CreateServerDialog
+  [Dialog.CREATE_SERVER]: CreateServerDialog,
+  [Dialog.IDENTITY_CHANGED]: IdentityChangedDialog
 };
 
 const DialogsProvider = memo(() => {

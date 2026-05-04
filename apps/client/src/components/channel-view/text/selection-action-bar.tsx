@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Trash, X } from 'lucide-react';
 import { memo, useCallback } from 'react';
@@ -21,6 +22,7 @@ const SelectionActionBar = memo(() => {
     if (!choice) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
     const ids = Array.from(selectedIds);
 
     try {
@@ -30,8 +32,8 @@ const SelectionActionBar = memo(() => {
       }
       toast.success(`Deleted ${count} messages`);
       exitSelectionMode();
-    } catch {
-      toast.error('Failed to delete messages');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete messages'));
     }
   }, [selectedIds, count, exitSelectionMode]);
 

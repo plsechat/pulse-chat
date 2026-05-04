@@ -58,6 +58,7 @@ const Federation = memo(() => {
   const fetchData = useCallback(async () => {
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       const [configResult, instancesResult] = await Promise.all([
         trpc.federation.getConfig.query(),
         trpc.federation.listInstances.query()
@@ -80,6 +81,7 @@ const Federation = memo(() => {
   // Subscribe to real-time federation instance updates
   useEffect(() => {
     const trpc = getHomeTRPCClient();
+    if (!trpc) return;
     const sub = trpc.federation.onInstanceUpdate.subscribe(undefined, {
       onData: () => fetchData(),
       onError: (err) =>
@@ -92,6 +94,7 @@ const Federation = memo(() => {
   const handleSaveConfig = useCallback(async () => {
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       await trpc.federation.setConfig.mutate({ enabled, domain });
       toast.success('Federation settings saved');
       fetchData();
@@ -107,6 +110,7 @@ const Federation = memo(() => {
     setAdding(true);
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       await trpc.federation.addInstance.mutate({ remoteUrl: addUrl });
       setAddUrl('');
       toast.success('Federation request sent');
@@ -124,6 +128,7 @@ const Federation = memo(() => {
     async (instanceId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.federation.acceptInstance.mutate({ instanceId });
         toast.success('Federation accepted');
         fetchData();
@@ -139,6 +144,7 @@ const Federation = memo(() => {
     async (instanceId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.federation.blockInstance.mutate({ instanceId });
         toast.success('Instance blocked');
         fetchData();
@@ -154,6 +160,7 @@ const Federation = memo(() => {
     async (instanceId: number) => {
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
         await trpc.federation.removeInstance.mutate({ instanceId });
         toast.success('Instance removed');
         fetchData();

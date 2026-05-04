@@ -188,6 +188,7 @@ const OverridesList = memo(
     const onSelect = useCallback(
       async (type: TChannelPermissionType, targetId: number) => {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         try {
           const payload = {

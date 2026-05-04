@@ -7,6 +7,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import {
   useAppearanceSettings,
   type MessageSpacing,
@@ -111,7 +112,8 @@ const Appearance = memo(() => {
     setMessageSpacing,
     setFontScale,
     setZoomLevel,
-    setTimeFormat
+    setTimeFormat,
+    setShowFormattingHints
   } = useAppearanceSettings();
   const isOwner = useIsOwnUserOwner();
 
@@ -272,6 +274,30 @@ const Appearance = memo(() => {
               <span className="text-sm font-medium">{option.label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Miscellaneous */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Miscellaneous</h3>
+          <p className="text-sm text-muted-foreground">
+            Optional helpers for the message composer.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Switch
+            id="show-formatting-hints"
+            checked={settings.showFormattingHints}
+            onCheckedChange={setShowFormattingHints}
+          />
+          <label
+            htmlFor="show-formatting-hints"
+            className="text-sm font-medium cursor-pointer"
+          >
+            Show formatting shortcuts above the message input
+          </label>
         </div>
       </div>
 

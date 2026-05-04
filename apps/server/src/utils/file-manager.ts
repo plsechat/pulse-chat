@@ -64,12 +64,14 @@ class TemporaryFileManager {
     filePath,
     size,
     originalName,
-    userId
+    userId,
+    encrypted = false
   }: {
     filePath: string;
     size: number;
     originalName: string;
     userId: number;
+    encrypted?: boolean;
   }): Promise<TTempFile> => {
     const md5 = await md5File(filePath);
     const fileId = randomUUIDv7();
@@ -84,7 +86,8 @@ class TemporaryFileManager {
       md5,
       path: tempFilePath,
       extension: ext,
-      userId
+      userId,
+      encrypted
     };
 
     await fs.rename(filePath, tempFile.path);
@@ -229,6 +232,12 @@ class FileManager {
 
     const bunFile = Bun.file(destinationPath);
 
+    // Encrypted uploads come in with placeholder metadata
+    // (`originalName = "<uuid>.bin"`, ext = ".bin", upload Content-Type
+    // = application/octet-stream). The real values live encrypted
+    // inside the E2EE message envelope's fileKeys and are decrypted
+    // client-side. We persist the placeholders as-is so the server
+    // never holds the real names/types.
     const [file] = await db
       .insert(files)
       .values({
@@ -238,7 +247,10 @@ class FileManager {
         size: tempFile.size,
         originalName: tempFile.originalName,
         userId,
-        mimeType: bunFile?.type || 'application/octet-stream',
+        mimeType: tempFile.encrypted
+          ? 'application/octet-stream'
+          : bunFile?.type || 'application/octet-stream',
+        encrypted: tempFile.encrypted ?? false,
         createdAt: Date.now()
       })
       .returning();

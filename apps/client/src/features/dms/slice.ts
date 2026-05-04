@@ -25,6 +25,10 @@ export interface TDmsState {
   activeCalls: TDmCallsMap;
   ownDmCallChannelId: number | undefined;
   dmTypingMap: Record<number, number[]>;
+  // dmChannelIds with a fresh call_started event we haven't yet
+  // accepted or dismissed. Drives the global IncomingCallModal so
+  // the ring follows the user across views.
+  ringingCalls: number[];
   loading: boolean;
 }
 
@@ -35,6 +39,7 @@ const initialState: TDmsState = {
   activeCalls: {},
   ownDmCallChannelId: undefined,
   dmTypingMap: {},
+  ringingCalls: [],
   loading: false
 };
 
@@ -222,6 +227,16 @@ export const dmsSlice = createSlice({
           (id) => id !== userId
         );
       }
+    },
+    addRingingCall: (state, action: PayloadAction<number>) => {
+      if (!state.ringingCalls.includes(action.payload)) {
+        state.ringingCalls.push(action.payload);
+      }
+    },
+    removeRingingCall: (state, action: PayloadAction<number>) => {
+      state.ringingCalls = state.ringingCalls.filter(
+        (id) => id !== action.payload
+      );
     }
   }
 });

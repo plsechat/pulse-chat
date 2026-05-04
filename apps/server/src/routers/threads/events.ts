@@ -1,22 +1,8 @@
 import { ServerEvents } from '@pulse/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { userSubscription } from '../../utils/trpc';
 
-const onThreadCreateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.THREAD_CREATE);
-  }
-);
-
-const onThreadUpdateRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.THREAD_UPDATE);
-  }
-);
-
-const onThreadDeleteRoute = protectedProcedure.subscription(
-  async ({ ctx }) => {
-    return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.THREAD_DELETE);
-  }
-);
+const onThreadCreateRoute = userSubscription(ServerEvents.THREAD_CREATE);
+const onThreadUpdateRoute = userSubscription(ServerEvents.THREAD_UPDATE);
+const onThreadDeleteRoute = userSubscription(ServerEvents.THREAD_DELETE);
 
 export { onThreadCreateRoute, onThreadDeleteRoute, onThreadUpdateRoute };

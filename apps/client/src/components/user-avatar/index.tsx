@@ -3,10 +3,14 @@ import { useUserById } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
-import { AvatarImage } from '@radix-ui/react-avatar';
 import { UserStatus } from '@pulse/shared';
 import { memo } from 'react';
-import { Avatar, AvatarFallback } from '../ui/avatar';
+// Use the local AvatarImage wrapper (not the raw radix primitive) so
+// the `object-cover object-center` styling lands. Importing directly
+// from @radix-ui/react-avatar leaves the <img> with browser-default
+// `object-fit: fill`, which warps non-square uploads into a strip on
+// the left of the circle — the original "right quarter empty" report.
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { UserPopover } from '../user-popover';
 import { UserStatusBadge } from '../user-status';
 

@@ -1,3 +1,4 @@
+import { IncomingCallModal } from '@/components/dm-call/incoming-call-modal';
 import { KeyboardShortcutsDialog } from '@/components/keyboard-shortcuts-dialog';
 import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
@@ -35,16 +36,37 @@ const MainViewInner = memo(() => {
   return (
     <>
       <PersistentAudioStreams />
+      <IncomingCallModal />
       <div className="flex h-dvh bg-background text-foreground">
-        <div className="hidden md:flex">
+        {/*
+          Was `hidden md:flex` (≥ 768px), then `sm:flex` (≥ 640px) —
+          but a fully collapsed desktop window goes below 640px and
+          left users with no path to the server picker (MobileBottomNav
+          isn't always obvious). At `min-[480px]` the strip stays
+          visible across all realistic desktop widths and only hides
+          on actual phones, where MobileBottomNav's Servers button
+          is the documented entry point.
+        */}
+        <div className="hidden min-[480px]:flex">
           <ServerStrip />
         </div>
         <div className="flex flex-1 flex-col overflow-hidden">
           {renderView()}
           <MobileBottomNav />
         </div>
+        {/*
+          Width math on the floating user-control box below: server
+          strip 72px + LeftSidebar 15rem (240px) - 1.5rem (24px) =
+          288px. With `left-2` (8px), the box's right edge sits at
+          x=296. The visible message-input left edge is at x=328
+          (sidebar ends at x=312, input has 16px left padding). That
+          puts the 32px gap perfectly centered around x=312 — the
+          channel-list right edge. Earlier `-0.5rem` stretched the
+          box to x=312 directly, leaving the gap entirely on the
+          right of the sidebar line; the user flagged the asymmetry.
+        */}
         {activeView !== 'discover' && (
-          <div className="hidden md:block fixed bottom-6 left-2 z-20 w-[calc(72px+15rem-0.5rem)] rounded-xl bg-card border border-border overflow-hidden shadow-lg">
+          <div className="hidden md:block fixed bottom-6 left-2 z-20 w-[calc(72px+15rem-1.5rem)] rounded-xl bg-card border border-border overflow-hidden shadow-lg">
             <VoiceControl />
             <UserControl />
           </div>

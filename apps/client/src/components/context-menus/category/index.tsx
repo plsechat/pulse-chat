@@ -8,6 +8,7 @@ import {
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
 import { useCan } from '@/features/server/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { memo, useCallback } from 'react';
@@ -34,12 +35,13 @@ const CategoryContextMenu = memo(
       if (!choice) return;
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         await trpc.categories.delete.mutate({ categoryId });
         toast.success('Category deleted');
-      } catch {
-        toast.error('Failed to delete category');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete category'));
       }
     }, [categoryId]);
 

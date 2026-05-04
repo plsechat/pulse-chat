@@ -141,6 +141,7 @@ const Categories = memo(() => {
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         await trpc.categories.reorder.mutate({ categoryIds: reorderedIds });
       } catch (error) {

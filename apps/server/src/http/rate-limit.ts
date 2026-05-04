@@ -72,4 +72,9 @@ const federationRateLimit: RateLimitConfig = {
   maxRequests: 60
 };
 
-export { checkRateLimit, authRateLimit, federationRateLimit };
+const uploadRateLimit: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 30
+};
+
+export { checkRateLimit, authRateLimit, federationRateLimit, uploadRateLimit };

@@ -46,6 +46,7 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
     if (!answer) return;
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.invites.delete.mutate({ inviteId: invite.id });

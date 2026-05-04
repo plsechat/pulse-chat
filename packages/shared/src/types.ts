@@ -90,6 +90,14 @@ export type TTempFile = {
   path: string;
   extension: string;
   userId: number;
+  /**
+   * Set when the upload was an encrypted file (E2EE message attachment).
+   * The on-disk blob is ciphertext; `originalName`, `extension`, and the
+   * eventual `files.mime_type` are placeholders. The real metadata
+   * travels inside the message envelope's `fileKeys` and is decrypted
+   * client-side at render time.
+   */
+  encrypted?: boolean;
 };
 
 export type TServerInfo = Pick<

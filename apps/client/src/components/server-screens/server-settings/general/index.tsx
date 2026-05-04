@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -9,6 +8,7 @@ import {
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
 import { LoadingCard } from '@/components/ui/loading-card';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useActiveServerId } from '@/features/app/hooks';
@@ -94,14 +94,11 @@ const General = memo(() => {
           />
         </Group>
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={loading}>
-            Save Changes
-          </Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={submit}
+          saving={loading}
+        />
       </CardContent>
     </Card>
   );

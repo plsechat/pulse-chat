@@ -230,18 +230,47 @@ const publishRole = async (
   pubsub.publishFor(memberIds, targetEvent, role);
 };
 
+/**
+ * Fan a user-related event to interested clients.
+ *
+ * - `scopeServerId` set: server-scoped event (kick/ban/leave). Recipients are
+ *   the members of that server (plus the user themselves so their own client
+ *   can react). For type='delete' the payload includes the serverId so
+ *   clients can ignore it when viewing a different server — without that
+ *   filter, a kick in server A would clear user X from the local roster of
+ *   server B (audit H1).
+ * - `scopeServerId` unset: global event (profile / status / account-create).
+ *   Recipients are every co-member across every shared server. type='delete'
+ *   without a scope is rejected — there is no current "globally remove from
+ *   every roster" use case and silently fanning out would re-introduce the
+ *   pre-fix bleed.
+ */
 const publishUser = async (
   userId: number | undefined,
   type: 'create' | 'update' | 'delete',
-  statusOverride?: UserStatus
+  opts?: { scopeServerId?: number; statusOverride?: UserStatus }
 ) => {
   if (!userId) return;
 
-  const coMemberIds = await getCoMemberIds(userId);
-  const recipients = [...coMemberIds, userId];
+  const scopeServerId = opts?.scopeServerId;
+
+  if (type === 'delete' && scopeServerId === undefined) {
+    logger.warn(
+      `[publishUser] delete called without scopeServerId for user ${userId} — skipping to avoid cross-server fanout`
+    );
+    return;
+  }
+
+  const baseRecipients = scopeServerId
+    ? await getServerMemberIds(scopeServerId)
+    : await getCoMemberIds(userId);
+  const recipients = Array.from(new Set([...baseRecipients, userId]));
 
   if (type === 'delete') {
-    pubsub.publishFor(recipients, ServerEvents.USER_DELETE, userId);
+    pubsub.publishFor(recipients, ServerEvents.USER_DELETE, {
+      serverId: scopeServerId!,
+      userId
+    });
     return;
   }
 
@@ -249,11 +278,12 @@ const publishUser = async (
 
   if (!user) return;
 
-  if (statusOverride !== undefined) {
+  if (opts?.statusOverride !== undefined) {
     // Invisible should appear as offline to other users
-    user.status = statusOverride === UserStatus.INVISIBLE
-      ? UserStatus.OFFLINE
-      : statusOverride;
+    user.status =
+      opts.statusOverride === UserStatus.INVISIBLE
+        ? UserStatus.OFFLINE
+        : opts.statusOverride;
   }
 
   const targetEvent =

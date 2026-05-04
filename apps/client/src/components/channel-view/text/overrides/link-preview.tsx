@@ -1,6 +1,7 @@
 import type { TMessageMetadata } from '@pulse/shared';
 import { ExternalLink } from 'lucide-react';
 import { memo, useState } from 'react';
+import { ImageContextMenu } from '../image-context-menu';
 
 type TLinkPreviewProps = {
   metadata: TMessageMetadata;
@@ -28,12 +29,23 @@ const LinkPreview = memo(({ metadata }: TLinkPreviewProps) => {
       className="flex gap-3 max-w-md border border-border rounded-lg overflow-hidden bg-card hover:bg-accent/30 transition-colors group"
     >
       {thumbnail && !imgError && (
-        <img
-          src={thumbnail}
-          alt=""
-          onError={() => setImgError(true)}
-          className="w-20 h-20 object-cover shrink-0"
-        />
+        <ImageContextMenu src={thumbnail}>
+          <img
+            src={thumbnail}
+            alt=""
+            onError={() => setImgError(true)}
+            className="w-20 h-20 object-cover shrink-0"
+            // The anchor wrapping this preview opens on left-click; without
+            // a contextmenu stop it'd race the inner ImageContextMenu and
+            // open the link too. Stop propagation here so right-click stays
+            // a pure context-menu action.
+            onContextMenu={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              if (e.button === 0) return;
+              e.preventDefault();
+            }}
+          />
+        </ImageContextMenu>
       )}
       <div className="flex flex-col justify-center py-2 pr-3 min-w-0">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

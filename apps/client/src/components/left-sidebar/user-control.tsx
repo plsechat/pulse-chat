@@ -55,6 +55,7 @@ const UserControl = memo(() => {
 
   const handleStatusChange = useCallback(async (status: (typeof statusOptions)[number]) => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
     await trpc.users.setStatus.mutate({ status });
   }, []);
 
@@ -144,9 +145,9 @@ const UserControl = memo(() => {
             disabled={!channelCan(ChannelPermission.SPEAK)}
           >
             {ownVoiceState.micMuted ? (
-              <MicOff className="h-4 w-4" />
+              <MicOff className="h-4 w-4 icon-anim-wiggle" />
             ) : (
-              <Mic className="h-4 w-4" />
+              <Mic className="h-4 w-4 icon-anim-wiggle" />
             )}
           </Button>
           <DropdownMenu>
@@ -208,9 +209,9 @@ const UserControl = memo(() => {
             }
           >
             {ownVoiceState.soundMuted ? (
-              <HeadphoneOff className="h-4 w-4" />
+              <HeadphoneOff className="h-4 w-4 icon-anim-jiggle" />
             ) : (
-              <Headphones className="h-4 w-4" />
+              <Headphones className="h-4 w-4 icon-anim-jiggle" />
             )}
           </Button>
           <DropdownMenu>
@@ -260,7 +261,7 @@ const UserControl = memo(() => {
           onClick={handleSettingsClick}
           title="User settings"
         >
-          <Settings className="h-4 w-4" />
+          <Settings className="h-4 w-4 icon-anim-spin" />
         </Button>
       </div>
     </div>

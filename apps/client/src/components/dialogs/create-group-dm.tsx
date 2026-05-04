@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
 import { useFriends } from '@/features/friends/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Check, X } from 'lucide-react';
@@ -35,6 +36,10 @@ const CreateGroupDmDialog = memo(
       setCreating(true);
 
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreating(false);
+        return;
+      }
 
       try {
         const channel = await trpc.dms.createGroup.mutate({
@@ -44,8 +49,8 @@ const CreateGroupDmDialog = memo(
 
         onCreated(channel.id);
         toast.success('Group DM created');
-      } catch {
-        toast.error('Failed to create group DM');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create group DM'));
       } finally {
         setCreating(false);
       }

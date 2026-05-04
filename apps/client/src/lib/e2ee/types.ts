@@ -5,6 +5,18 @@ export type E2EEPlaintext = {
     key: string;
     nonce: string;
     mimeType: string;
+    /**
+     * Real filename, encrypted in transit. Server stores a placeholder
+     * UUID name in `files.original_name`; this field is the only place
+     * the real name lives. Always present on uploads sent post-E8.
+     */
+    originalName?: string;
+    /**
+     * Real extension (with leading dot, e.g. `.png`). Server stores a
+     * placeholder `.bin` in `files.extension`; this is the real one.
+     * Always present on uploads sent post-E8.
+     */
+    extension?: string;
   }[];
 };
 

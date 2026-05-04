@@ -29,6 +29,29 @@ const getMessageByFileId = async (
   return row?.message;
 };
 
+/**
+ * Fetch a single message scoped to a server. Returns undefined if the
+ * message doesn't exist OR belongs to a channel in a different server —
+ * callers treat both cases as "not found" so a user with the matching
+ * permission in server B can't read/mutate messages from server A by
+ * id (audit recurring rule: pulse-rule-cross-server-scope). Replaces
+ * the 5-site inline `select.from(messages).innerJoin(channels)` pattern
+ * across pin/unpin/delete/edit/toggle-reaction.
+ */
+const getMessageInActiveServer = async (
+  messageId: number,
+  serverId: number
+): Promise<TMessage | undefined> => {
+  const [row] = await db
+    .select({ message: messages })
+    .from(messages)
+    .innerJoin(channels, eq(messages.channelId, channels.id))
+    .where(and(eq(messages.id, messageId), eq(channels.serverId, serverId)))
+    .limit(1);
+
+  return row?.message;
+};
+
 const getMessage = async (
   messageId: number
 ): Promise<TJoinedMessage | undefined> => {
@@ -92,7 +115,7 @@ const getMessage = async (
     file: r.file
   }));
 
-  let replyTo = null;
+  let replyTo: TJoinedMessage['replyTo'] = null;
 
   if (message.replyToId) {
     const [replyRow] = await db
@@ -105,7 +128,18 @@ const getMessage = async (
       .where(eq(messages.id, message.replyToId))
       .limit(1);
 
-    replyTo = replyRow ?? null;
+    if (replyRow) {
+      const [hasFileRow] = await db
+        .select({ messageId: messageFiles.messageId })
+        .from(messageFiles)
+        .where(eq(messageFiles.messageId, message.replyToId))
+        .limit(1);
+
+      replyTo = {
+        ...replyRow,
+        hasFiles: !!hasFileRow
+      };
+    }
   }
 
   return {
@@ -143,4 +177,10 @@ const getReaction = async (
   return reaction;
 };
 
-export { getMessage, getMessageByFileId, getMessagesByUserId, getReaction };
+export {
+  getMessage,
+  getMessageByFileId,
+  getMessageInActiveServer,
+  getMessagesByUserId,
+  getReaction
+};

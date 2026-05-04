@@ -1,7 +1,7 @@
-import { Button } from '@/components/ui/button';
 import Color from '@/components/ui/color';
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { Textarea } from '@/components/ui/textarea';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
@@ -22,6 +22,7 @@ const Profile = memo(() => {
 
   const onUpdateUser = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       await trpc.users.update.mutate(values);
@@ -51,12 +52,10 @@ const Profile = memo(() => {
 
         <BannerManager user={ownPublicUser} />
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={onUpdateUser}>Save Changes</Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={onUpdateUser}
+        />
     </div>
   );
 });

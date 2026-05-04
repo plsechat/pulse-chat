@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import Spinner from '@/components/ui/spinner';
 import {
   setActiveThreadId
@@ -9,12 +10,12 @@ import { useMessagesByChannelId } from '@/features/server/messages/hooks';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission } from '@pulse/shared';
-import { ArrowDownUp, MessageSquareText, Search, Tags } from 'lucide-react';
+import { ArrowDownUp, LayoutList, MessageSquareText, Search, Tags } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
 import { EditPostTagsDialog } from './edit-post-tags-dialog';
 import { ForumPostCard } from './forum-post-card';
-import { ForumPostMenu } from './forum-post-context-menu';
+import { ForumPostContextMenu, ForumPostMenu } from './forum-post-context-menu';
 import { ManageTagsDialog } from './manage-tags-dialog';
 
 type TForumChannelProps = {
@@ -61,6 +62,10 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
   const fetchData = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      return;
+    }
 
     try {
       const [threadsResult, tagsResult] = await Promise.all([
@@ -280,35 +285,46 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         {/* Post list */}
         <div className="flex-1 overflow-y-auto">
           {sortedThreads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <p className="text-sm">
-                {searchQuery.trim() ? 'No matching posts' : 'No posts yet'}
-              </p>
-              {!searchQuery.trim() && can(Permission.SEND_MESSAGES) && (
-                <p className="text-xs mt-1">
-                  Be the first to start a discussion
-                </p>
-              )}
-            </div>
+            <EmptyState
+              icon={LayoutList}
+              title={searchQuery.trim() ? 'No matching posts' : 'No posts yet'}
+              description={
+                !searchQuery.trim() && can(Permission.SEND_MESSAGES)
+                  ? 'Be the first to start a discussion'
+                  : undefined
+              }
+              className="h-full"
+            />
           ) : (
             <div className="flex flex-col">
               {sortedThreads.map((thread) => (
-                <div key={thread.id} className="relative group">
-                  <ForumPostCard
-                    thread={thread}
-                    isActive={activeThreadId === thread.id}
-                    onClick={onPostClick}
-                  />
-                  <ForumPostMenu
-                    threadId={thread.id}
-                    threadName={thread.name}
-                    creatorId={thread.creatorId}
-                    currentTagIds={thread.tags?.map((t) => t.id) ?? []}
-                    channelId={channelId}
-                    onEditTags={onEditTags}
-                    onPostDeleted={onPostDeleted}
-                  />
-                </div>
+                <ForumPostContextMenu
+                  key={thread.id}
+                  threadId={thread.id}
+                  threadName={thread.name}
+                  creatorId={thread.creatorId}
+                  currentTagIds={thread.tags?.map((t) => t.id) ?? []}
+                  channelId={channelId}
+                  onEditTags={onEditTags}
+                  onPostDeleted={onPostDeleted}
+                >
+                  <div className="relative group">
+                    <ForumPostCard
+                      thread={thread}
+                      isActive={activeThreadId === thread.id}
+                      onClick={onPostClick}
+                    />
+                    <ForumPostMenu
+                      threadId={thread.id}
+                      threadName={thread.name}
+                      creatorId={thread.creatorId}
+                      currentTagIds={thread.tags?.map((t) => t.id) ?? []}
+                      channelId={channelId}
+                      onEditTags={onEditTags}
+                      onPostDeleted={onPostDeleted}
+                    />
+                  </div>
+                </ForumPostContextMenu>
               ))}
             </div>
           )}

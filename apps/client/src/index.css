@@ -46,7 +46,7 @@
   --radius: 0.5rem;
   --background: #ffffff;
   --foreground: #0a0a0a;
-  --card: #f4f4f5;
+  --card: #e8e8ea;
   --card-foreground: #0a0a0a;
   --popover: #ffffff;
   --popover-foreground: #0a0a0a;
@@ -56,7 +56,7 @@
   --secondary-foreground: #52525b;
   --muted: #f4f4f5;
   --muted-foreground: #71717a;
-  --accent: #e4e4e7;
+  --accent: #d4d4d8;
   --accent-foreground: #0a0a0a;
   --destructive: #dc2626;
   --border: #e4e4e7;
@@ -67,7 +67,7 @@
   --chart-3: #ea580c;
   --chart-4: #db2777;
   --chart-5: #dc2626;
-  --sidebar: #fafafa;
+  --sidebar: #f3f3f4;
   --sidebar-foreground: #0a0a0a;
   --sidebar-primary: #0d9488;
   --sidebar-primary-foreground: #ffffff;
@@ -97,7 +97,7 @@
 .onyx {
   --background: #000000;
   --foreground: #e4e4e7;
-  --card: #0a0a0a;
+  --card: #161618;
   --card-foreground: #e4e4e7;
   --popover: #050505;
   --popover-foreground: #e4e4e7;
@@ -107,10 +107,10 @@
   --secondary-foreground: #d4d4d8;
   --muted: #0f0f0f;
   --muted-foreground: #71717a;
-  --accent: #1a1a1a;
+  --accent: #1f1f22;
   --accent-foreground: #e4e4e7;
   --destructive: #ef4444;
-  --border: #1a1a1a;
+  --border: #1f1f22;
   --input: #141414;
   --ring: #2dd4bf;
   --chart-1: #2dd4bf;
@@ -118,7 +118,7 @@
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #000000;
+  --sidebar: #0a0a0c;
   --sidebar-foreground: #e4e4e7;
   --sidebar-primary: #2dd4bf;
   --sidebar-primary-foreground: #042f2e;
@@ -146,30 +146,30 @@
 }
 
 .dark {
-  --background: #09090b;
+  --background: #16161a;
   --foreground: #fafafa;
-  --card: #111113;
+  --card: #26262c;
   --card-foreground: #fafafa;
-  --popover: #0c0c0e;
+  --popover: #1a1a1e;
   --popover-foreground: #fafafa;
   --primary: #14b8a6;
   --primary-foreground: #ffffff;
-  --secondary: #1c1c1f;
+  --secondary: #26262b;
   --secondary-foreground: #d4d4d8;
-  --muted: #18181b;
+  --muted: #1f1f23;
   --muted-foreground: #a1a1aa;
-  --accent: #1f1f23;
+  --accent: #2c2c33;
   --accent-foreground: #fafafa;
   --destructive: #ef4444;
-  --border: #1f1f23;
-  --input: #1c1c1f;
+  --border: #2c2c33;
+  --input: #26262b;
   --ring: #14b8a6;
   --chart-1: #14b8a6;
   --chart-2: #4ade80;
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #0a0a0b;
+  --sidebar: #1d1d22;
   --sidebar-foreground: #fafafa;
   --sidebar-primary: #14b8a6;
   --sidebar-primary-foreground: #ffffff;
@@ -206,6 +206,28 @@
   }
   button {
     cursor: pointer;
+  }
+  /*
+   * Default keyboard-focus ring for any interactive element that opted
+   * out of the browser's chunky blue outline (via `outline-none`) but
+   * never set its own focus-visible style. The Button primitive in
+   * components/ui/button.tsx already paints its own ring; this layer
+   * is the floor for ad-hoc <button>s, anchors, and role="button"
+   * divs scattered through the app so keyboard users always see where
+   * focus is. Mouse users get nothing (it's `:focus-visible`, not
+   * `:focus`).
+   *
+   * `[contenteditable]` and `.ProseMirror` are explicitly excluded —
+   * they paint a misaligned ring around the inner editor content box
+   * which doesn't match the visible composer border. The composer
+   * wrapper paints its own `:focus-within` state instead.
+   */
+  button:focus-visible,
+  a:focus-visible,
+  [role='button']:focus-visible,
+  [role='menuitem']:focus-visible,
+  [tabindex]:focus-visible:not([contenteditable]):not(.ProseMirror) {
+    @apply outline-none ring-2 ring-ring/60 ring-offset-2 ring-offset-background;
   }
 }
 
@@ -672,6 +694,67 @@ body,
   animation: msg-highlight 2.5s ease-out forwards;
 }
 
+/* Hover animations for the user-control row icons. Each animation
+   only runs while the icon's button is hovered, then resets — so
+   you get a quick personality cue on hover without the icon ever
+   feeling busy at rest. Animations honor prefers-reduced-motion via
+   the global media query at the bottom of this stylesheet. */
+
+@keyframes icon-wiggle {
+  0% { transform: rotate(0deg); }
+  20% { transform: rotate(-12deg); }
+  40% { transform: rotate(10deg); }
+  60% { transform: rotate(-6deg); }
+  80% { transform: rotate(4deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@keyframes icon-jiggle {
+  0% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) rotate(-4deg); }
+  50% { transform: translateY(0) rotate(0deg); }
+  75% { transform: translateY(-1px) rotate(4deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes icon-spin-once {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(180deg); }
+}
+
+/* Trigger animations from the BUTTON's hover, not the SVG itself.
+   Hovering a button-with-icon means the cursor is over the button's
+   padding box; the SVG only registers :hover when the cursor is
+   directly over the rendered glyph, which leaves the animation
+   inert most of the time. The parent-hover pattern fires
+   reliably whenever the button shows its hover state. */
+
+button:hover .icon-anim-wiggle,
+[role='button']:hover .icon-anim-wiggle {
+  animation: icon-wiggle 0.5s ease-in-out;
+}
+
+button:hover .icon-anim-jiggle,
+[role='button']:hover .icon-anim-jiggle {
+  animation: icon-jiggle 0.45s ease-in-out;
+}
+
+button:hover .icon-anim-spin,
+[role='button']:hover .icon-anim-spin {
+  animation: icon-spin-once 0.5s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:hover .icon-anim-wiggle,
+  button:hover .icon-anim-jiggle,
+  button:hover .icon-anim-spin,
+  [role='button']:hover .icon-anim-wiggle,
+  [role='button']:hover .icon-anim-jiggle,
+  [role='button']:hover .icon-anim-spin {
+    animation: none;
+  }
+}
+
 /* mentions */
 
 .mention {
@@ -711,12 +794,29 @@ body,
 
 /* tiptap placeholder — targets the empty <p> node decorated by @tiptap/extension-placeholder */
 
+/* The empty <p> needs to be a positioning context so the
+   placeholder pseudo can layer over it without shifting layout. */
+.tiptap p.is-editor-empty:first-child,
+.tiptap p.is-empty:first-child {
+  position: relative;
+}
+
 .tiptap p.is-editor-empty:first-child::before,
 .tiptap p.is-empty:first-child::before {
   content: attr(data-placeholder);
-  float: left;
+  /* Absolute over the empty paragraph so the placeholder doesn't
+     contribute to layout (no extra height, no wrap pushing things
+     down). The previous `float:left + height:0` trick + overflow
+     clipping made the text invisible in narrow containers; this
+     positioning is layout-agnostic. */
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  pointer-events: none;
   color: var(--muted-foreground);
   opacity: 0.5;
-  pointer-events: none;
-  height: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -73,6 +73,7 @@ const PluginCommandsDialog = memo(
 
       try {
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         const response = await trpc.plugins.executeCommand.mutate({
           pluginId,

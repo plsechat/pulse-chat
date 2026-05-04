@@ -1,70 +1,53 @@
-import { getHomeTRPCClient } from '@/lib/trpc';
+import { fetchDmChannels } from '@/features/dms/actions';
 import { ownUserIdSelector } from '@/features/server/users/selectors';
 import { store } from '@/features/store';
-import type { TJoinedFriendRequest } from '@pulse/shared';
+import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import {
   addFriend,
   addRequest,
+  fetchBlockedUsers,
   removeFriend,
   removeRequest
 } from './actions';
-import { fetchDmChannels } from '@/features/dms/actions';
 
 const subscribeToFriends = () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return () => {};
 
-  const onRequestReceivedSub = trpc.friends.onRequestReceived.subscribe(
-    undefined,
-    {
-      onData: (request: TJoinedFriendRequest) => addRequest(request),
-      onError: (err) =>
-        console.error('onFriendRequestReceived subscription error:', err)
-    }
-  );
-
-  const onRequestAcceptedSub = trpc.friends.onRequestAccepted.subscribe(
-    undefined,
-    {
-      onData: (request: TJoinedFriendRequest) => {
-        const ownUserId = ownUserIdSelector(store.getState());
-        const friend =
-          request.senderId === ownUserId ? request.receiver : request.sender;
-        addFriend(friend);
-        removeRequest(request.id);
-        // Refresh DM channels so the new conversation appears
-        fetchDmChannels();
-      },
-      onError: (err) =>
-        console.error('onFriendRequestAccepted subscription error:', err)
-    }
-  );
-
-  const onRequestRejectedSub = trpc.friends.onRequestRejected.subscribe(
-    undefined,
-    {
-      onData: (request: TJoinedFriendRequest) =>
-        removeRequest(request.id),
-      onError: (err) =>
-        console.error('onFriendRequestRejected subscription error:', err)
-    }
-  );
-
-  const onRemovedSub = trpc.friends.onRemoved.subscribe(undefined, {
-    onData: (data: { userId: number; friendId: number }) => {
+  return combineUnsubscribes(
+    subscribe('onFriendRequestReceived', trpc.friends.onRequestReceived, (request) =>
+      addRequest(request)
+    ),
+    subscribe('onFriendRequestAccepted', trpc.friends.onRequestAccepted, (request) => {
+      const ownUserId = ownUserIdSelector(store.getState());
+      const friend =
+        request.senderId === ownUserId ? request.receiver : request.sender;
+      addFriend(friend);
+      removeRequest(request.id);
+      // Refresh DM channels so the new conversation appears
+      fetchDmChannels();
+    }),
+    subscribe('onFriendRequestRejected', trpc.friends.onRequestRejected, (request) =>
+      removeRequest(request.id)
+    ),
+    subscribe('onFriendRemoved', trpc.friends.onRemoved, (data) => {
       const ownUserId = ownUserIdSelector(store.getState());
       const friendToRemove =
         data.userId === ownUserId ? data.friendId : data.userId;
       removeFriend(friendToRemove);
-    },
-    onError: (err) => console.error('onFriendRemoved subscription error:', err)
-  });
-
-  return () => {
-    onRequestReceivedSub.unsubscribe();
-    onRequestAcceptedSub.unsubscribe();
-    onRequestRejectedSub.unsubscribe();
-    onRemovedSub.unsubscribe();
-  };
+    }),
+    // The block events stream is mounted alongside friends because the
+    // two state machines are coupled (block → drop friendship + reject
+    // pending request) and the UI surfaces are colocated.
+    subscribe('onBlockChanged', trpc.blocks.onBlockChanged, () => {
+      // Always refetch the canonical list rather than tracking add/remove
+      // separately — block lists are tiny and the refetch keeps the
+      // friends slice and the blocked list in sync after a block tears
+      // down a friendship.
+      fetchBlockedUsers();
+    })
+  );
 };
 
 export { subscribeToFriends };

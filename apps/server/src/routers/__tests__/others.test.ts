@@ -6,7 +6,6 @@ import {
   login,
   uploadFile
 } from '../../__tests__/helpers';
-import { TEST_SECRET_TOKEN } from '../../__tests__/seed';
 
 describe('others router', () => {
   test('should throw when user tries to join with no handshake', async () => {
@@ -93,26 +92,6 @@ describe('others router', () => {
     expect(settings.storageUploadEnabled).toBe(
       newSettings.storageUploadEnabled
     );
-  });
-
-  test('should throw when using invalid secret token', async () => {
-    const { caller } = await initTest(2);
-
-    await expect(
-      caller.others.useSecretToken({ token: 'invalid-token' })
-    ).rejects.toThrow('Invalid secret token');
-  });
-
-  test('should accept valid secret token and assign owner role', async () => {
-    const { caller } = await initTest(2);
-
-    await caller.others.useSecretToken({ token: TEST_SECRET_TOKEN });
-
-    const allUsers = await caller.users.getAll();
-    const updatedUser = allUsers.find((u) => u.id === 2);
-
-    expect(updatedUser).toBeDefined();
-    expect(updatedUser?.roleIds).toContain(1);
   });
 
   test('should change logo', async () => {

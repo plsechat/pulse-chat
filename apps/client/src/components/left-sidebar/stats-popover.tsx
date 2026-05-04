@@ -8,7 +8,7 @@ type StatsPopoverProps = {
 };
 
 const StatsPopover = memo(({ children }: StatsPopoverProps) => {
-  const { transportStats } = useVoice();
+  const { transportStats, ownVoiceState } = useVoice();
 
   const {
     producer,
@@ -18,6 +18,12 @@ const StatsPopover = memo(({ children }: StatsPopoverProps) => {
     currentBitrateSent,
     currentBitrateReceived
   } = transportStats;
+
+  // RTT only propagates while screen-sharing because that's the only
+  // producer that triggers periodic STUN/RTCP roundtrip reports for
+  // Mediasoup's transport. Hide the row otherwise — showing 0.0 ms
+  // misled the user into thinking the metric was broken.
+  const showRtt = ownVoiceState.sharingScreen;
 
   return (
     <Popover>
@@ -34,7 +40,7 @@ const StatsPopover = memo(({ children }: StatsPopoverProps) => {
                 <div className="space-y-1 text-muted-foreground">
                   <div>Rate: {filesize(currentBitrateSent)}/s</div>
                   <div>Packets: {producer.packetsSent}</div>
-                  <div>RTT: {producer.rtt.toFixed(1)} ms</div>
+                  {showRtt && <div>RTT: {producer.rtt.toFixed(1)} ms</div>}
                 </div>
               ) : (
                 <div className="text-muted-foreground">No data</div>

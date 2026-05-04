@@ -3,6 +3,7 @@ import z from 'zod';
 import { protectedProcedure } from '../../utils/trpc';
 import { config } from '../../config';
 import { getFederationInstanceById } from '../../db/queries/federation';
+import { federationFetch } from '../../utils/federation-fetch';
 import { logger } from '../../logger';
 
 const discoverRemoteRoute = protectedProcedure
@@ -28,8 +29,9 @@ const discoverRemoteRoute = protectedProcedure
     const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
 
     try {
-      const res = await fetch(
-        `${protocol}://${instance!.domain}/federation/servers?requesterDomain=${encodeURIComponent(config.federation.domain)}`
+      const res = await federationFetch(
+        `${protocol}://${instance!.domain}/federation/servers?requesterDomain=${encodeURIComponent(config.federation.domain)}`,
+        { signal: AbortSignal.timeout(10_000) }
       );
 
       if (!res.ok) {

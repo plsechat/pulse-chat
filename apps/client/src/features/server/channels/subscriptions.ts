@@ -1,4 +1,5 @@
 import { activeServerIdSelector } from '@/features/app/selectors';
+import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getTRPCClient } from '@/lib/trpc';
 import { store } from '../../store';
 import {
@@ -12,50 +13,37 @@ import {
 
 const subscribeToChannels = () => {
   const trpc = getTRPCClient();
+  if (!trpc) return () => {};
 
-  const onChannelCreateSub = trpc.channels.onCreate.subscribe(undefined, {
-    onData: (channel) => {
+  return combineUnsubscribes(
+    subscribe('onChannelCreate', trpc.channels.onCreate, (channel) => {
+      // Drop channels that don't belong to the active server. Without
+      // this guard a federated server with the same numeric id as a
+      // home channel could inject channels into the home roster.
       const activeServerId = activeServerIdSelector(store.getState());
       if (activeServerId && channel.serverId !== activeServerId) return;
       addChannel(channel);
-    },
-    onError: (err) => console.error('onChannelCreate subscription error:', err)
-  });
-
-  const onChannelDeleteSub = trpc.channels.onDelete.subscribe(undefined, {
-    onData: (channelId) => removeChannel(channelId),
-    onError: (err) => console.error('onChannelDelete subscription error:', err)
-  });
-
-  const onChannelUpdateSub = trpc.channels.onUpdate.subscribe(undefined, {
-    onData: (channel) => updateChannel(channel.id, channel),
-    onError: (err) => console.error('onChannelUpdate subscription error:', err)
-  });
-
-  const onChannelPermissionsUpdateSub =
-    trpc.channels.onPermissionsUpdate.subscribe(undefined, {
-      onData: (data) => setChannelPermissions(data),
-      onError: (err) =>
-        console.error('onChannelPermissionsUpdate subscription error:', err)
-    });
-
-  const onChannelReadStatesUpdateSub =
-    trpc.channels.onReadStateUpdate.subscribe(undefined, {
-      onData: (data) => {
+    }),
+    subscribe('onChannelDelete', trpc.channels.onDelete, (channelId) =>
+      removeChannel(channelId)
+    ),
+    subscribe('onChannelUpdate', trpc.channels.onUpdate, (channel) =>
+      updateChannel(channel.id, channel)
+    ),
+    subscribe(
+      'onChannelPermissionsUpdate',
+      trpc.channels.onPermissionsUpdate,
+      (data) => setChannelPermissions(data)
+    ),
+    subscribe(
+      'onChannelReadStatesUpdate',
+      trpc.channels.onReadStateUpdate,
+      (data) => {
         setChannelReadState(data.channelId, data.count);
         setChannelMentionState(data.channelId, data.mentionCount);
-      },
-      onError: (err) =>
-        console.error('onChannelReadStatesUpdate subscription error:', err)
-    });
-
-  return () => {
-    onChannelCreateSub.unsubscribe();
-    onChannelDeleteSub.unsubscribe();
-    onChannelUpdateSub.unsubscribe();
-    onChannelPermissionsUpdateSub.unsubscribe();
-    onChannelReadStatesUpdateSub.unsubscribe();
-  };
+      }
+    )
+  );
 };
 
 export { subscribeToChannels };

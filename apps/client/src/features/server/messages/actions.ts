@@ -35,8 +35,17 @@ export const addMessages = (
     const targetMessage = messages[0];
     const isFromOwnUser = ownUserId != null && ownUserId === targetMessage.userId;
 
+    // selectedChannelId / activeThreadId are sticky per-server state
+    // (kept so re-entering the server lands you in the same place).
+    // To decide whether the user is *currently looking at* this channel,
+    // also require activeView==='server' AND the message's server matches
+    // activeServerId — otherwise navigating to home or a different server
+    // would silently suppress notifications for the channel you left.
+    const channel = state.server.channels.find((c) => c.id === channelId);
     const isViewingChannel =
-      channelId === selectedChannelId || channelId === activeThreadId;
+      state.app.activeView === 'server' &&
+      channel?.serverId === state.app.activeServerId &&
+      (channelId === selectedChannelId || channelId === activeThreadId);
 
     if (!isFromOwnUser && ownUserId != null && !isViewingChannel) {
       playSound(SoundType.MESSAGE_RECEIVED);
@@ -44,7 +53,6 @@ export const addMessages = (
         (u) => u.id === targetMessage.userId
       );
       const senderName = sender?.name || 'Someone';
-      const channel = state.server.channels.find((c) => c.id === channelId);
 
       let title: string;
       if (channel?.type === 'THREAD' && channel.parentChannelId) {
@@ -71,6 +79,7 @@ export const addMessages = (
     if (isViewingChannel && !isFromOwnUser) {
       // user is viewing this channel - mark messages as read
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         trpc.channels.markAsRead.mutate({ channelId });

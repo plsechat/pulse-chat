@@ -1,14 +1,15 @@
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
+import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
+import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
 import { useUserById } from '@/features/server/users/hooks';
+import { longDateTime } from '@/helpers/time-format';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
-import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import parse from 'html-react-parser';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 
 type TDmSearchPopoverProps = {
   dmChannelId: number;
@@ -71,6 +72,10 @@ const DmSearchPopover = memo(
 
         try {
           const trpc = getTRPCClient();
+          if (!trpc) {
+            setLoading(false);
+            return;
+          }
           const result = await trpc.dms.searchMessages.query({
             query: searchQuery.trim(),
             dmChannelId,
@@ -141,58 +146,35 @@ const DmSearchPopover = memo(
       };
     }, []);
 
+    const customHeader = (
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Search messages..."
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+        />
+        {loading && (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+    );
+
+    const showStartHint = !searched && !loading && results.length === 0;
+    const showNoResults = searched && !loading && results.length === 0;
+
     return (
-      <div className="absolute right-0 top-full mt-1 z-50 w-[28rem] rounded-lg border border-border bg-popover shadow-lg flex flex-col max-h-[32rem]">
-        <div className="flex items-center gap-2 p-3 border-b border-border/30">
-          <Search className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="Search messages..."
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-          />
-          {loading && (
-            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={onClose}
-          >
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {!searched && !loading && (
-            <div className="p-6 text-center text-sm text-muted-foreground">
-              <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              <p>Start typing to search messages</p>
-            </div>
-          )}
-
-          {searched && results.length === 0 && !loading && (
-            <div className="p-6 text-center text-sm text-muted-foreground">
-              <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              <p>No messages found</p>
-              <p className="text-xs mt-1">Try a different search term</p>
-            </div>
-          )}
-
-          {results.map((message) => (
-            <DmSearchResult
-              key={message.id}
-              message={message}
-              query={query}
-            />
-          ))}
-
-          {nextCursor && !loading && (
-            <div className="p-2 text-center">
+      <PopoverPanelShell
+        customHeader={customHeader}
+        onClose={onClose}
+        className="w-[28rem] max-h-[32rem]"
+        footer={
+          nextCursor && !loading ? (
+            <div className="p-2 text-center border-t border-border/20">
               <Button
                 variant="ghost"
                 size="sm"
@@ -202,9 +184,28 @@ const DmSearchPopover = memo(
                 Load more results
               </Button>
             </div>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      >
+        {showStartHint && (
+          <div className="p-6 text-center text-sm text-muted-foreground">
+            <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
+            <p>Start typing to search messages</p>
+          </div>
+        )}
+
+        {showNoResults && (
+          <div className="p-6 text-center text-sm text-muted-foreground">
+            <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
+            <p>No messages found</p>
+            <p className="text-xs mt-1">Try a different search term</p>
+          </div>
+        )}
+
+        {results.map((message) => (
+          <DmSearchResult key={message.id} message={message} query={query} />
+        ))}
+      </PopoverPanelShell>
     );
   }
 );

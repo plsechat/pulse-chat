@@ -83,8 +83,6 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
         sideOffset={8}
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onFocusOutside={(e) => e.preventDefault()}
       >
         <Picker
           data={data}

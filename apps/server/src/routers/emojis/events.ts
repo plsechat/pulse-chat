@@ -1,16 +1,8 @@
 import { ServerEvents } from '@pulse/shared';
-import { protectedProcedure } from '../../utils/trpc';
+import { userSubscription } from '../../utils/trpc';
 
-const onEmojiCreateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.EMOJI_CREATE);
-});
-
-const onEmojiDeleteRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.EMOJI_DELETE);
-});
-
-const onEmojiUpdateRoute = protectedProcedure.subscription(async ({ ctx }) => {
-  return ctx.pubsub.subscribeFor(ctx.userId, ServerEvents.EMOJI_UPDATE);
-});
+const onEmojiCreateRoute = userSubscription(ServerEvents.EMOJI_CREATE);
+const onEmojiDeleteRoute = userSubscription(ServerEvents.EMOJI_DELETE);
+const onEmojiUpdateRoute = userSubscription(ServerEvents.EMOJI_UPDATE);
 
 export { onEmojiCreateRoute, onEmojiDeleteRoute, onEmojiUpdateRoute };

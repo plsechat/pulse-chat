@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider } from 'react-redux';
 
+import { ContextMenuSuppressor } from './components/context-menu-suppressor.tsx';
 import { StoreDebug } from './components/debug/store-debug.tsx';
 import { DevicesProvider } from './components/devices-provider/index.tsx';
 import { DialogsProvider } from './components/dialogs/index.tsx';
@@ -25,6 +26,7 @@ createRoot(document.getElementById('root')!).render(
       <Provider store={store}>
         <StoreDebug />
         <DevicesProvider>
+          <ContextMenuSuppressor />
           <DialogsProvider />
           <E2EESetupModal />
           <ServerScreensProvider />

@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button';
+import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import {
   Card,
   CardContent,
@@ -161,14 +161,11 @@ const Storage = memo(() => {
           </Select>
         </Group>
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={closeServerScreens}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={loading}>
-            Save Changes
-          </Button>
-        </div>
+        <SettingsFormFooter
+          onCancel={closeServerScreens}
+          onSave={submit}
+          saving={loading}
+        />
       </CardContent>
     </Card>
   );

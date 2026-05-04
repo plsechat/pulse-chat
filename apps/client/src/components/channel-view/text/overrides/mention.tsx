@@ -1,9 +1,14 @@
 import { UserPopover } from '@/components/user-popover';
-import { setActiveThreadId, setSelectedChannelId } from '@/features/server/channels/actions';
+import {
+  setActiveThreadId,
+  setHighlightedMessageId,
+  setSelectedChannelId
+} from '@/features/server/channels/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { LayoutList, MessageSquare } from 'lucide-react';
 import { memo, useCallback } from 'react';
 
 type TMentionOverrideProps = {
@@ -97,4 +102,70 @@ const ChannelMention = memo(({ id, name }: { id: number; name: string }) => {
   );
 });
 
-export { MentionOverride, ChannelMention };
+/**
+ * Renders a `<#post:channelId/threadId>` token as a clickable badge that
+ * navigates to the forum and opens the post. The companion to
+ * `<#msg:.../...>` (MessageLink). Both replace the previous "Copy Post
+ * ID" / "Copy Message ID" patterns that copied bare `N/M` strings the
+ * renderer didn't recognize.
+ */
+const ForumPostLink = memo(
+  ({ channelId, threadId }: { channelId: number; threadId: number }) => {
+    const thread = useChannelById(threadId);
+    const handleClick = useCallback(() => {
+      setSelectedChannelId(channelId);
+      setActiveThreadId(threadId);
+    }, [channelId, threadId]);
+
+    return (
+      <span
+        className="mention inline-flex items-center gap-1"
+        onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleClick();
+        }}
+      >
+        <LayoutList className="h-3 w-3" />
+        {thread?.name ?? `Post #${threadId}`}
+      </span>
+    );
+  }
+);
+
+/**
+ * Renders a `<#msg:channelId/messageId>` token. Click switches to the
+ * channel and uses the existing scroll-to-message highlight pulse to
+ * land on the message. Falls back to a label-only badge if the channel
+ * isn't loaded.
+ */
+const MessageLink = memo(
+  ({ channelId, messageId }: { channelId: number; messageId: number }) => {
+    const channel = useChannelById(channelId);
+    const handleClick = useCallback(() => {
+      setSelectedChannelId(channelId);
+      // Channel selection is async (messages load); the highlight effect
+      // tolerates the message not being in the DOM yet — it'll latch on
+      // when the row mounts. Same hook the existing reply-jump uses.
+      setHighlightedMessageId(messageId);
+    }, [channelId, messageId]);
+
+    return (
+      <span
+        className="mention inline-flex items-center gap-1"
+        onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleClick();
+        }}
+      >
+        <MessageSquare className="h-3 w-3" />
+        Message in {channel?.name ?? `#${channelId}`}
+      </span>
+    );
+  }
+);
+
+export { ChannelMention, ForumPostLink, MentionOverride, MessageLink };

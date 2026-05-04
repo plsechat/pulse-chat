@@ -1,11 +1,13 @@
 import { t } from '../../utils/trpc';
 import { addMemberRoute } from './add-member';
 import { createGroupRoute } from './create-group';
+import { declineCallRoute } from './decline-call';
 import { deleteChannelRoute } from './delete-channel';
 import { deleteMessageRoute } from './delete-message';
 import { editMessageRoute } from './edit-message';
 import { enableEncryptionRoute } from './enable-encryption';
 import {
+  onDmCallDeclinedRoute,
   onDmCallEndedRoute,
   onDmCallStartedRoute,
   onDmCallUserJoinedRoute,
@@ -31,6 +33,12 @@ import { pinDmMessageRoute } from './pin-dm-message';
 import { removeMemberRoute } from './remove-member';
 import { searchDmMessagesRoute } from './search-messages';
 import { sendMessageRoute } from './send-message';
+import {
+  acknowledgeDmSenderKeysRoute,
+  distributeDmSenderKeysRoute,
+  getPendingDmSenderKeysRoute,
+  onDmSenderKeyDistributionRoute
+} from './sender-keys';
 import { signalDmTypingRoute } from './signal-typing';
 import { toggleDmReactionRoute } from './toggle-reaction';
 import { unpinDmMessageRoute } from './unpin-dm-message';
@@ -52,11 +60,12 @@ export const dmsRouter = t.router({
   addMember: addMemberRoute,
   removeMember: removeMemberRoute,
   updateGroup: updateGroupRoute,
-  leaveGroup: leaveGroupRoute,
+  leave: leaveGroupRoute,
   markAllAsRead: markAllAsReadRoute,
   markChannelAsRead: markChannelAsReadRoute,
   voiceJoin: dmVoiceJoinRoute,
   voiceLeave: dmVoiceLeaveRoute,
+  declineCall: declineCallRoute,
   toggleReaction: toggleDmReactionRoute,
   pinMessage: pinDmMessageRoute,
   unpinMessage: unpinDmMessageRoute,
@@ -71,8 +80,13 @@ export const dmsRouter = t.router({
   onCallEnded: onDmCallEndedRoute,
   onCallUserJoined: onDmCallUserJoinedRoute,
   onCallUserLeft: onDmCallUserLeftRoute,
+  onCallDeclined: onDmCallDeclinedRoute,
   onChannelUpdate: onDmChannelUpdateRoute,
   onChannelDelete: onDmChannelDeleteRoute,
   onMemberAdd: onDmMemberAddRoute,
-  onMemberRemove: onDmMemberRemoveRoute
+  onMemberRemove: onDmMemberRemoveRoute,
+  distributeSenderKeys: distributeDmSenderKeysRoute,
+  getPendingSenderKeys: getPendingDmSenderKeysRoute,
+  acknowledgeSenderKeys: acknowledgeDmSenderKeysRoute,
+  onSenderKeyDistribution: onDmSenderKeyDistributionRoute
 });

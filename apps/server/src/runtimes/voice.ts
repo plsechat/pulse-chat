@@ -25,6 +25,7 @@ import { channels } from '../db/schema';
 import { logger } from '../logger';
 import { eventBus } from '../plugins/event-bus';
 import { IS_PRODUCTION } from '../utils/env';
+import { invariant } from '../utils/invariant';
 import { mediaSoupWorker } from '../utils/mediasoup';
 import { pubsub } from '../utils/pubsub';
 
@@ -156,6 +157,23 @@ class VoiceRuntime {
 
   public static findById = (channelId: number): VoiceRuntime | undefined => {
     return voiceRuntimes.get(channelId);
+  };
+
+  /**
+   * Like findById but throws INTERNAL_SERVER_ERROR when no runtime
+   * exists. Replaces the 14-site pattern of `findById + invariant`
+   * across voice/dms/server/channel routes with a single call.
+   */
+  public static requireById = (
+    channelId: number | undefined
+  ): VoiceRuntime => {
+    const runtime =
+      channelId !== undefined ? voiceRuntimes.get(channelId) : undefined;
+    invariant(runtime, {
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Voice runtime not found for this channel'
+    });
+    return runtime;
   };
 
   public static findRuntimeByUserId = (

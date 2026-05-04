@@ -34,6 +34,7 @@ export const resetFriendsState = () =>
 
 export const fetchFriends = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   setFriendsLoading(true);
   try {
     const friends = await trpc.friends.getAll.query();
@@ -47,6 +48,7 @@ export const fetchFriends = async () => {
 
 export const fetchFriendRequests = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   try {
     const requests = await trpc.friends.getRequests.query();
     setRequests(requests);
@@ -57,20 +59,59 @@ export const fetchFriendRequests = async () => {
 
 export const sendFriendRequest = async (userId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.friends.sendRequest.mutate({ userId });
 };
 
 export const acceptFriendRequest = async (requestId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.friends.acceptRequest.mutate({ requestId });
 };
 
 export const rejectFriendRequest = async (requestId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.friends.rejectRequest.mutate({ requestId });
 };
 
 export const removeFriendAction = async (userId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.friends.remove.mutate({ userId });
+};
+
+export const setBlockedUsers = (users: TJoinedPublicUser[]) =>
+  store.dispatch(friendsSliceActions.setBlocked(users));
+
+export const addBlockedUser = (user: TJoinedPublicUser) =>
+  store.dispatch(friendsSliceActions.addBlocked(user));
+
+export const removeBlockedUser = (userId: number) =>
+  store.dispatch(friendsSliceActions.removeBlocked(userId));
+
+export const fetchBlockedUsers = async () => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  try {
+    const blocked = await trpc.blocks.getBlocked.query();
+    setBlockedUsers(blocked);
+  } catch (err) {
+    console.error('Failed to fetch blocked users:', err);
+  }
+};
+
+export const blockUser = async (userId: number) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  await trpc.blocks.block.mutate({ userId });
+  // The server fires USER_BLOCK_CHANGED to the blocker; the subscription
+  // handler refetches the canonical list. Returning here lets the caller
+  // surface a toast immediately without waiting for the round-trip.
+};
+
+export const unblockUser = async (userId: number) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  await trpc.blocks.unblock.mutate({ userId });
 };

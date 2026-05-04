@@ -1,9 +1,10 @@
-import { Permission } from '@pulse/shared';
+import { OWNER_ROLE_ID, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
 import { roles, userRoles } from '../../db/schema';
+import { assertNotFederatedTarget } from '../../utils/federation-guard';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -20,6 +21,18 @@ const addRoleRoute = protectedProcedure
     invariant(ctx.activeServerId, {
       code: 'BAD_REQUEST',
       message: 'No active server'
+    });
+
+    await assertNotFederatedTarget(input.userId, 'Add role');
+
+    // The Owner role can only be acquired through ownership transfer, never
+    // granted via add-role — even by callers with MANAGE_USERS. The active-
+    // server scope on the role lookup below is necessary but not sufficient
+    // because OWNER_ROLE_ID = 1 is the bootstrap server's owner role and
+    // would pass the scope check there.
+    invariant(input.roleId !== OWNER_ROLE_ID, {
+      code: 'FORBIDDEN',
+      message: 'The Owner role cannot be granted via add-role'
     });
 
     // Verify the role belongs to the caller's active server

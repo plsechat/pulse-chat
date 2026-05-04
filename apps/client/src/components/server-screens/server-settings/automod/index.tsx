@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { AutomodRuleType, type TAutomodRule } from '@pulse/shared';
 import { Plus, Shield, Trash } from 'lucide-react';
@@ -19,11 +20,15 @@ const AutoMod = memo(() => {
 
   const fetchRules = useCallback(async () => {
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      return;
+    }
     try {
       const result = await trpc.automod.listRules.query();
       setRules(result as TAutomodRule[]);
-    } catch {
-      toast.error('Failed to load auto-mod rules');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to load auto-mod rules'));
     } finally {
       setLoading(false);
     }
@@ -36,13 +41,14 @@ const AutoMod = memo(() => {
   const handleToggle = useCallback(
     async (ruleId: number, enabled: boolean) => {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       try {
         await trpc.automod.toggleRule.mutate({ ruleId, enabled });
         setRules((prev) =>
           prev.map((r) => (r.id === ruleId ? { ...r, enabled } : r))
         );
-      } catch {
-        toast.error('Failed to toggle rule');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to toggle rule'));
       }
     },
     []
@@ -50,12 +56,13 @@ const AutoMod = memo(() => {
 
   const handleDelete = useCallback(async (ruleId: number) => {
     const trpc = getTRPCClient();
+    if (!trpc) return;
     try {
       await trpc.automod.deleteRule.mutate({ ruleId });
       setRules((prev) => prev.filter((r) => r.id !== ruleId));
       toast.success('Rule deleted');
-    } catch {
-      toast.error('Failed to delete rule');
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to delete rule'));
     }
   }, []);
 
@@ -158,6 +165,7 @@ const CreateAutomodRuleForm = memo(
       AutomodRuleType.KEYWORD_FILTER
     );
     const [keywords, setKeywords] = useState('');
+    const [regexPatterns, setRegexPatterns] = useState('');
     const [maxMentions, setMaxMentions] = useState(10);
     const [blockedLinks, setBlockedLinks] = useState('');
     const [creating, setCreating] = useState(false);
@@ -166,13 +174,23 @@ const CreateAutomodRuleForm = memo(
       if (!name.trim() || creating) return;
       setCreating(true);
       const trpc = getTRPCClient();
+      if (!trpc) {
+        setCreating(false);
+        return;
+      }
 
       const config: Record<string, unknown> = {};
       if (type === AutomodRuleType.KEYWORD_FILTER) {
-        config.keywords = keywords
+        const kws = keywords
           .split('\n')
           .map((k) => k.trim())
           .filter(Boolean);
+        const rxs = regexPatterns
+          .split('\n')
+          .map((r) => r.trim())
+          .filter(Boolean);
+        if (kws.length > 0) config.keywords = kws;
+        if (rxs.length > 0) config.regexPatterns = rxs;
       } else if (type === AutomodRuleType.MENTION_SPAM) {
         config.maxMentions = maxMentions;
       } else if (type === AutomodRuleType.LINK_FILTER) {
@@ -191,12 +209,21 @@ const CreateAutomodRuleForm = memo(
         });
         onCreated(rule as TAutomodRule);
         toast.success('Rule created');
-      } catch {
-        toast.error('Failed to create rule');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to create rule'));
       } finally {
         setCreating(false);
       }
-    }, [name, type, keywords, maxMentions, blockedLinks, creating, onCreated]);
+    }, [
+      name,
+      type,
+      keywords,
+      regexPatterns,
+      maxMentions,
+      blockedLinks,
+      creating,
+      onCreated
+    ]);
 
     return (
       <div className="rounded-lg border border-border p-4 space-y-3">
@@ -222,13 +249,33 @@ const CreateAutomodRuleForm = memo(
         </select>
 
         {type === AutomodRuleType.KEYWORD_FILTER && (
-          <textarea
-            value={keywords}
-            onChange={(e) => setKeywords(e.target.value)}
-            placeholder="Keywords (one per line)"
-            rows={4}
-            className="w-full px-3 py-2 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
-          />
+          <>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Keywords (literal substring match, one per line)
+              </label>
+              <textarea
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="hello world"
+                rows={3}
+                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Regex patterns (one per line; case-insensitive)
+              </label>
+              <textarea
+                value={regexPatterns}
+                onChange={(e) => setRegexPatterns(e.target.value)}
+                placeholder={'\\b(badword)\\b\nhttps?://bad\\.example\\.com'}
+                rows={3}
+                spellCheck={false}
+                className="w-full px-3 py-2 text-sm font-mono bg-muted/30 border border-border/50 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none"
+              />
+            </div>
+          </>
         )}
 
         {type === AutomodRuleType.MENTION_SPAM && (

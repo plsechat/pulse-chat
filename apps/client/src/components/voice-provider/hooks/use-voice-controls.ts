@@ -48,6 +48,7 @@ const useVoiceControls = ({
   const toggleMic = useCallback(async () => {
     const newState = !ownVoiceState.micMuted;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     updateOwnVoiceState({ micMuted: newState });
     playSound(
@@ -117,6 +118,7 @@ const useVoiceControls = ({
   const toggleSound = useCallback(async () => {
     const newState = !ownVoiceState.soundMuted;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     updateOwnVoiceState({ soundMuted: newState });
     playSound(
@@ -141,6 +143,7 @@ const useVoiceControls = ({
 
     const newState = !ownVoiceState.webcamEnabled;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     updateOwnVoiceState({ webcamEnabled: newState });
 
@@ -173,6 +176,7 @@ const useVoiceControls = ({
   const toggleScreenShare = useCallback(async () => {
     const newState = !ownVoiceState.sharingScreen;
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     if (newState) {
       // macOS Electron: prompt to install audio driver if not yet active

@@ -38,3 +38,6 @@ export const dmTypingUsersSelector = (
   state: IRootState,
   dmChannelId: number
 ) => state.dms.dmTypingMap[dmChannelId] || DEFAULT_ARRAY;
+
+export const ringingCallsSelector = (state: IRootState) =>
+  state.dms.ringingCalls;

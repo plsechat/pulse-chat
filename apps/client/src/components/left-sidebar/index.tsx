@@ -54,6 +54,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
 
     try {
       const trpc = getTRPCClient();
+      if (!trpc) return;
       await trpc.servers.delete.mutate({ serverId: activeServerId });
       await fetchJoinedServers();
       toast.success('Server deleted');
@@ -118,7 +119,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
     >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex w-full justify-between h-12 items-center border-b border-border px-4 hover:bg-accent transition-colors cursor-pointer">
+          <button className="flex w-full justify-between h-12 items-center border-b border-border/60 px-4 hover:bg-accent transition-colors cursor-pointer">
             <h2 className="text-[15px] font-semibold text-foreground tracking-tight truncate">{serverName}</h2>
             <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           </button>
@@ -176,7 +177,15 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
               )}
             </DropdownMenuContent>
       </DropdownMenu>
-      <div className="flex-1 overflow-y-auto">
+      {/*
+        `pt-2` here matches the visual gap between the bottom of the
+        channel list and the floating user-control bar (which sits over
+        the 5.5rem spacer below). Without it, the server-name border
+        sat directly against the first category header — visibly tighter
+        than the bottom — and the sidebar looked top-heavy. The mobile
+        branch doesn't get a floating bar, so it doesn't need symmetry.
+      */}
+      <div className="flex-1 overflow-y-auto md:pt-2">
         <Categories />
       </div>
       <div className="md:hidden">

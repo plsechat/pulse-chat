@@ -1,9 +1,18 @@
-import { encryptDmMessage, decryptDmMessage } from '@/lib/e2ee';
+import {
+  decryptDmGroupMessage,
+  decryptDmMessage,
+  encryptDmGroupMessage,
+  encryptDmMessage,
+  ensureDmGroupSenderKey,
+  isSenderKeyWire,
+  rotateDmGroupSenderKey
+} from '@/lib/e2ee';
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
-import { setFileKeys } from '@/lib/e2ee/file-key-store';
+import { patchFilesWithE2eeMetadata, setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { TYPING_MS, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
+import { toast } from 'sonner';
+import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
@@ -12,9 +21,12 @@ import { addUserToVoiceChannel } from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
 import {
+  deleteCachedPlaintext,
   getCachedPlaintext,
   getCachedPlaintextBatch,
-  setCachedPlaintext
+  setCachedPlaintext,
+  setCachedPlaintextBatch,
+  type CachedDmPlaintext
 } from './plaintext-cache';
 
 export const setDmChannels = (channels: TJoinedDmChannel[]) =>
@@ -23,6 +35,7 @@ export const setDmChannels = (channels: TJoinedDmChannel[]) =>
 /** Mark a single DM channel as read on the server (fire-and-forget). */
 const markDmChannelAsRead = (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   trpc.dms.markChannelAsRead.mutate({ dmChannelId }).catch(() => {
     // ignore errors — this is a best-effort background update
   });
@@ -34,6 +47,29 @@ export const addOrUpdateDmChannel = (channel: TJoinedDmChannel) =>
 export const setSelectedDmChannelId = (channelId: number | undefined) =>
   store.dispatch(dmsSliceActions.setSelectedChannelId(channelId));
 
+/**
+ * Open a DM in the home view from anywhere in the app. Used by:
+ *  - "Message" actions in user popovers and context menus
+ *  - The "Create Group DM" dialog after creation
+ *  - The IncomingCallModal accept handler
+ *
+ * HomeView owns the local-component state that picks which DM to
+ * render, so a Redux update alone won't switch views — the
+ * `dm-navigate` CustomEvent is the bridge.
+ */
+export const navigateToDm = async (dmChannelId: number) => {
+  const { setLocalStorageItem, LocalStorageKey } = await import(
+    '@/helpers/storage'
+  );
+  setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
+  setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(dmChannelId));
+  window.dispatchEvent(
+    new CustomEvent('dm-navigate', { detail: { dmChannelId } })
+  );
+  const { setActiveView } = await import('../app/actions');
+  setActiveView('home');
+};
+
 export const addDmMessages = (
   dmChannelId: number,
   messages: TJoinedDmMessage[],
@@ -43,9 +79,15 @@ export const addDmMessages = (
   if (isSubscription && messages.length > 0) {
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);
+    const selectedId = state.dms.selectedChannelId;
     if (ownUserId != null && messages[0].userId !== ownUserId) {
-      const selectedId = state.dms.selectedChannelId;
-      const isViewingThisChannel = selectedId === dmChannelId;
+      // selectedChannelId is sticky across navigation (kept so the user
+      // returns to the same DM next time), so it alone can't tell us
+      // whether the DM is *currently on screen*. Gate on activeView too:
+      // if the user clicked into a server, home isn't the active view
+      // and they should still get the notification.
+      const isViewingThisChannel =
+        state.app.activeView === 'home' && selectedId === dmChannelId;
 
       if (!isViewingThisChannel) {
         playSound(SoundType.MESSAGE_RECEIVED);
@@ -104,12 +146,39 @@ export const setDmsLoading = (loading: boolean) =>
 export const resetDmsState = () =>
   store.dispatch(dmsSliceActions.resetState());
 
+/**
+ * Decrypt the embedded `lastMessage` for E2EE channels.
+ *
+ * The server returns the libsignal envelope JSON in `content` for E2EE
+ * messages. Without this pass, the sidebar preview shows the raw
+ * `{"type":1,"body":"..."}` blob instead of the readable plaintext.
+ *
+ * Mirrors the per-message decrypt path used by `fetchDmMessages` /
+ * `decryptDmMessageInPlace`, including the persistent IDB cache and the
+ * own-message fallback (own ciphertext can't be self-decrypted via Signal —
+ * we rely on the cache populated at send time).
+ */
+async function decryptDmChannelLastMessages(
+  channels: TJoinedDmChannel[]
+): Promise<TJoinedDmChannel[]> {
+  return Promise.all(
+    channels.map(async (channel) => {
+      if (!channel.lastMessage) return channel;
+      const decryptedLast = await decryptDmMessageInPlace(channel.lastMessage);
+      if (decryptedLast === channel.lastMessage) return channel;
+      return { ...channel, lastMessage: decryptedLast };
+    })
+  );
+}
+
 export const fetchDmChannels = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   setDmsLoading(true);
   try {
     const channels = await trpc.dms.getChannels.query();
-    setDmChannels(channels);
+    const decrypted = await decryptDmChannelLastMessages(channels);
+    setDmChannels(decrypted);
   } catch (err) {
     console.error('Failed to fetch DM channels:', err);
   } finally {
@@ -119,6 +188,7 @@ export const fetchDmChannels = async () => {
 
 export const fetchActiveDmCalls = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   try {
     const activeCalls = await trpc.dms.getActiveCalls.query();
     for (const call of activeCalls) {
@@ -148,10 +218,12 @@ export const getOrCreateDmChannel = async (
   userId: number
 ): Promise<TJoinedDmChannel | undefined> => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return undefined;
   try {
     const channel = await trpc.dms.getOrCreateChannel.mutate({ userId });
-    addOrUpdateDmChannel(channel);
-    return channel;
+    const [decrypted] = await decryptDmChannelLastMessages([channel]);
+    addOrUpdateDmChannel(decrypted);
+    return decrypted;
   } catch (err) {
     console.error('Failed to get or create DM channel:', err);
   }
@@ -162,6 +234,7 @@ export const fetchDmMessages = async (
   cursor?: number | null
 ) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return undefined;
   try {
     const result = await trpc.dms.getMessages.query({ dmChannelId, cursor });
 
@@ -182,16 +255,20 @@ export const fetchDmMessages = async (
 };
 
 /**
- * Get the other user's ID in a 1-on-1 DM channel.
+ * Get the sole other member's id when the channel has exactly one recipient.
+ * Returns null for true groups (3+ members) where pairwise Signal can't be
+ * used. Works regardless of `channel.isGroup` — a 2-person channel created
+ * via the "Create Group DM" flow is still a 1:1 from a crypto standpoint.
  */
 function getDmRecipientUserId(dmChannelId: number): number | null {
   const state = store.getState();
   const ownUserId = ownUserIdSelector(state);
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
-  if (!channel || channel.isGroup) return null;
+  if (!channel) return null;
 
-  const otherMember = channel.members.find((m) => m.id !== ownUserId);
-  return otherMember?.id ?? null;
+  const otherMembers = channel.members.filter((m) => m.id !== ownUserId);
+  if (otherMembers.length !== 1) return null;
+  return otherMembers[0].id;
 }
 
 /**
@@ -206,17 +283,142 @@ const ownSentPlaintextCache = new Map<string, E2EEPlaintext>();
  * Decrypt an E2EE DM message in-place, replacing content with decrypted plaintext.
  * The server puts the ciphertext in the `content` field for E2EE messages
  * (the `e2ee` flag indicates whether decryption is needed).
+ *
+ * Generic over the message shape so it can also accept the bare `TDmMessage`
+ * that's embedded as `lastMessage` on a DM channel (no `files`/`reactions`).
  */
-export async function decryptDmMessageInPlace(
-  message: TJoinedDmMessage
-): Promise<TJoinedDmMessage> {
-  if (!message.e2ee || !message.content) return message;
+type TReplyToShape = {
+  id: number;
+  content: string | null;
+  userId: number;
+  e2ee?: boolean;
+  hasFiles?: boolean;
+};
 
-  // Check persistent cache first (works for both own and others' messages)
+/**
+ * Decrypt the inline reply-preview content. Server returns the parent
+ * message's ciphertext when e2ee=true, so without this we'd render the
+ * raw Signal envelope JSON in the reply preview.
+ *
+ * - 1:1: pairwise Signal would advance the ratchet on a re-decrypt and
+ *   break the parent message's later decrypt. So we ONLY consult the
+ *   IDB plaintext cache (populated when the parent was first
+ *   decrypted) and fall back to a placeholder on miss.
+ * - Group: AES-GCM sender-key decrypt is idempotent — safe to re-run.
+ */
+async function decryptReplyToInPlace<R extends TReplyToShape>(
+  replyTo: R,
+  dmChannelId: number
+): Promise<R> {
+  if (!replyTo.e2ee || !replyTo.content) return replyTo;
+
+  const cached = await getCachedPlaintext(replyTo.id);
+  if (cached !== undefined) {
+    return { ...replyTo, content: cached.content };
+  }
+
+  // Dispatch on wire format, NOT on current channel.isGroup state.
+  // After a group→1:1 demotion the channel still holds messages
+  // encrypted under sender-key chains; current state would route
+  // them down the pairwise path and they'd fail to decrypt.
+  if (isSenderKeyWire(replyTo.content)) {
+    try {
+      const payload = await decryptDmGroupMessage(
+        dmChannelId,
+        replyTo.userId,
+        replyTo.content,
+        replyTo.id
+      );
+      return { ...replyTo, content: payload.content };
+    } catch {
+      return { ...replyTo, content: '[Unable to decrypt]' };
+    }
+  }
+
+  return { ...replyTo, content: '[Encrypted message]' };
+}
+
+export async function decryptDmMessageInPlace<
+  T extends {
+    id: number;
+    userId: number;
+    dmChannelId: number;
+    e2ee: boolean;
+    content: string | null;
+    files?: TFile[];
+    replyTo?: TReplyToShape | null;
+  }
+>(message: T): Promise<T> {
+  // Decrypt the reply-preview ciphertext alongside the main message so
+  // the renderer doesn't have to know about e2ee. Done up front because
+  // some main-message paths rely on cache hits we may have populated
+  // for the parent — looking up the cache is cheap and idempotent.
+  const replyTo = message.replyTo
+    ? await decryptReplyToInPlace(message.replyTo, message.dmChannelId)
+    : message.replyTo;
+
+  if (!message.e2ee || !message.content) {
+    return replyTo === message.replyTo ? message : { ...message, replyTo };
+  }
+
+  // Sender-key-encrypted messages always decrypt via the chain path,
+  // regardless of whether the channel is currently in group or 1:1
+  // mode. After a group→1:1 demotion, historical messages still have
+  // v2 wire format and need the chain to decrypt — current channel
+  // state isn't authoritative for past messages. The chain wrapper
+  // owns its own own-message + persistent caches so re-decrypts are
+  // cheap.
+  if (isSenderKeyWire(message.content)) {
+    try {
+      const payload = await decryptDmGroupMessage(
+        message.dmChannelId,
+        message.userId,
+        message.content,
+        message.id
+      );
+      setFileKeys(message.id, payload.fileKeys);
+      const files = message.files
+        ? patchFilesWithE2eeMetadata(message.files, payload.fileKeys)
+        : undefined;
+      return {
+        ...message,
+        content: payload.content,
+        ...(files ? { files } : {}),
+        replyTo
+      };
+    } catch (err) {
+      console.error('[E2EE/DM] Failed to decrypt group DM message:', err);
+      return { ...message, content: '[Unable to decrypt]', replyTo };
+    }
+  }
+
+  // 1:1 path — pairwise Signal Protocol. Own messages are encrypted
+  // *to the recipient*, so we cannot self-decrypt; we rely on the
+  // ciphertext-keyed plaintext cache populated at send time.
+  // Check persistent cache first (works for both own and others' messages).
+  // The cached entry stores the ciphertext it came from — when a message
+  // is edited the server replaces content with a fresh ciphertext under
+  // the same id, and we must re-decrypt the new ciphertext rather than
+  // return the stale plaintext.
   const persisted = await getCachedPlaintext(message.id);
   if (persisted !== undefined) {
-    setFileKeys(message.id, persisted.fileKeys);
-    return { ...message, content: persisted.content };
+    const matches =
+      persisted.ciphertext === undefined ||
+      persisted.ciphertext === message.content;
+    if (matches) {
+      setFileKeys(message.id, persisted.fileKeys);
+      const files = message.files
+        ? patchFilesWithE2eeMetadata(message.files, persisted.fileKeys)
+        : undefined;
+      return {
+        ...message,
+        content: persisted.content,
+        ...(files ? { files } : {}),
+        replyTo
+      };
+    }
+    // Stale entry from before an edit — drop it before falling through.
+    await deleteCachedPlaintext(message.id).catch(() => {});
   }
 
   const ownUserId = ownUserIdSelector(store.getState());
@@ -226,23 +428,51 @@ export async function decryptDmMessageInPlace(
   if (message.userId === ownUserId) {
     const cached = ownSentPlaintextCache.get(message.content);
     if (cached !== undefined) {
-      // Persist so it survives page refresh
-      setCachedPlaintext(message.id, cached).catch(() => {});
+      // AWAIT the persist so the entry survives a refresh that races
+      // the subscription echo. Without this, the user can refresh in
+      // the ~1ms window after decrypt and lose the plaintext for any
+      // own message that hasn't yet been decrypted by the recipient.
+      await setCachedPlaintext(message.id, {
+        ...cached,
+        ciphertext: message.content
+      }).catch(() => {});
       setFileKeys(message.id, cached.fileKeys);
-      return { ...message, content: cached.content };
+      const files = message.files
+        ? patchFilesWithE2eeMetadata(message.files, cached.fileKeys)
+        : undefined;
+      return {
+        ...message,
+        content: cached.content,
+        ...(files ? { files } : {}),
+        replyTo
+      };
     }
-    return { ...message, content: '[Encrypted message]' };
+    return { ...message, content: '[Encrypted message]', replyTo };
   }
 
   try {
     const payload = await decryptDmMessage(message.userId, message.content);
-    // Persist the decrypted plaintext — the ratchet key is now consumed
-    setCachedPlaintext(message.id, payload).catch(() => {});
+    // Persist the decrypted plaintext — the ratchet key is now consumed,
+    // so a refresh-without-cache would force a libsignal call on a key
+    // that no longer exists. Await keeps the IDB write inside the
+    // subscription handler's lifetime.
+    await setCachedPlaintext(message.id, {
+      ...payload,
+      ciphertext: message.content
+    }).catch(() => {});
     setFileKeys(message.id, payload.fileKeys);
-    return { ...message, content: payload.content };
+    const files = message.files
+      ? patchFilesWithE2eeMetadata(message.files, payload.fileKeys)
+      : undefined;
+    return {
+      ...message,
+      content: payload.content,
+      ...(files ? { files } : {}),
+      replyTo
+    };
   } catch (err) {
     console.error('[E2EE] Failed to decrypt DM message:', err);
-    return { ...message, content: '[Unable to decrypt]' };
+    return { ...message, content: '[Unable to decrypt]', replyTo };
   }
 }
 
@@ -256,7 +486,14 @@ export async function decryptDmMessageInPlace(
  * We also batch-read the IDB plaintext cache upfront so that cache hits
  * (the common case on page reload) don't each await a separate IDB get.
  */
-async function decryptDmMessages(
+/**
+ * Single source of truth for "decrypt a batch of DM messages for
+ * display." Used by every consumer that fetches DM messages from the
+ * server: history pagination, the pin banner, the pinned-panel, etc.
+ * Wiring new fetchers through this avoids the bug class where a path
+ * forgets to decrypt and shows raw Signal envelope JSON.
+ */
+export async function decryptDmMessages(
   messages: TJoinedDmMessage[]
 ): Promise<TJoinedDmMessage[]> {
   const e2eeMessages = messages.filter((m) => m.e2ee && m.content);
@@ -272,16 +509,45 @@ async function decryptDmMessages(
   // Group messages by sender to parallelize across senders
   const bySender = new Map<number, { index: number; msg: TJoinedDmMessage }[]>();
   const results = [...messages];
+  // Cache writes accumulated across all senders, flushed once at the end so
+  // a refresh that interrupts the loop still has every per-message plaintext
+  // pinned to its ciphertext on disk.
+  const pendingCacheWrites: {
+    messageId: number;
+    plaintext: CachedDmPlaintext;
+  }[] = [];
+
+  // Sender-key-encrypted messages (group DMs, plus historical group
+  // messages that survived a 1:1 demotion) need to go through their
+  // own decrypt path. Bucket them out in a first pass so the
+  // libsignal pairwise decrypt loop below only sees actual pairwise
+  // messages.
+  const senderKeyMessages: { index: number; msg: TJoinedDmMessage }[] = [];
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (!msg.e2ee || !msg.content) continue;
 
-    // Resolve cache hits immediately (no decryption needed)
+    // Resolve cache hits immediately (no decryption needed). Stale entries
+    // from before an edit (cached.ciphertext mismatch) fall through to
+    // the decrypt path below.
     const cached = cachedMap.get(msg.id);
-    if (cached !== undefined) {
+    if (
+      cached !== undefined &&
+      (cached.ciphertext === undefined || cached.ciphertext === msg.content)
+    ) {
       setFileKeys(msg.id, cached.fileKeys);
-      results[i] = { ...msg, content: cached.content };
+      const files = patchFilesWithE2eeMetadata(msg.files, cached.fileKeys);
+      results[i] = { ...msg, content: cached.content, files };
+      continue;
+    }
+
+    // Phase B sender-key wire (group DM / post-demotion historical):
+    // route through decryptDmGroupMessage which carries its own
+    // own-message + persistent caches. Don't take the libsignal
+    // pairwise path for these — it'd just throw.
+    if (isSenderKeyWire(msg.content)) {
+      senderKeyMessages.push({ index: i, msg });
       continue;
     }
 
@@ -289,29 +555,60 @@ async function decryptDmMessages(
     if (msg.userId === ownUserId) {
       const sent = ownSentPlaintextCache.get(msg.content);
       if (sent !== undefined) {
-        setCachedPlaintext(msg.id, sent).catch(() => {});
+        pendingCacheWrites.push({
+          messageId: msg.id,
+          plaintext: { ...sent, ciphertext: msg.content }
+        });
         setFileKeys(msg.id, sent.fileKeys);
-        results[i] = { ...msg, content: sent.content };
+        const files = patchFilesWithE2eeMetadata(msg.files, sent.fileKeys);
+        results[i] = { ...msg, content: sent.content, files };
       } else {
         results[i] = { ...msg, content: '[Encrypted message]' };
       }
       continue;
     }
 
-    // Needs actual decryption — group by sender
+    // Needs actual pairwise decryption — group by sender
     if (!bySender.has(msg.userId)) bySender.set(msg.userId, []);
     bySender.get(msg.userId)!.push({ index: i, msg });
   }
 
-  // Decrypt each sender's chain sequentially, but all senders in parallel
+  // Sender-key (group DM) decrypts. Each chain is independent so
+  // these can run in parallel. The chain wrapper persists plaintext
+  // by messageId on success — re-decrypts hit cache.
+  await Promise.all(
+    senderKeyMessages.map(async ({ index, msg }) => {
+      try {
+        const payload = await decryptDmGroupMessage(
+          msg.dmChannelId,
+          msg.userId,
+          msg.content!,
+          msg.id
+        );
+        setFileKeys(msg.id, payload.fileKeys);
+        const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);
+        results[index] = { ...msg, content: payload.content, files };
+      } catch (err) {
+        console.error('[E2EE/DM] Failed to decrypt group DM message:', err);
+        results[index] = { ...msg, content: '[Unable to decrypt]' };
+      }
+    })
+  );
+
+  // Pairwise libsignal decrypts. Same-sender ratchet must be in
+  // order; different senders parallelize.
   await Promise.all(
     [...bySender.values()].map(async (chain) => {
       for (const { index, msg } of chain) {
         try {
           const payload = await decryptDmMessage(msg.userId, msg.content!);
-          setCachedPlaintext(msg.id, payload).catch(() => {});
+          pendingCacheWrites.push({
+            messageId: msg.id,
+            plaintext: { ...payload, ciphertext: msg.content! }
+          });
           setFileKeys(msg.id, payload.fileKeys);
-          results[index] = { ...msg, content: payload.content };
+          const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);
+          results[index] = { ...msg, content: payload.content, files };
         } catch (err) {
           console.error('[E2EE] Failed to decrypt DM message:', err);
           results[index] = { ...msg, content: '[Unable to decrypt]' };
@@ -319,6 +616,52 @@ async function decryptDmMessages(
       }
     })
   );
+
+  // Flush all decrypted plaintexts to IDB before returning so a refresh
+  // immediately after this call can re-hydrate without re-running the
+  // (now-consumed) Signal Protocol decryption.
+  if (pendingCacheWrites.length > 0) {
+    await setCachedPlaintextBatch(pendingCacheWrites).catch(() => {});
+  }
+
+  // Reply-preview decryption pass. The parent of a reply is often in
+  // the same batch — its plaintext is in `results` but its IDB cache
+  // entry was just written above (and decryptReplyToInPlace's IDB
+  // lookup may race the write), so build a local map of decrypted
+  // plaintext from this batch and consult it first.
+  const localPlaintextById = new Map<number, string>();
+  for (const r of results) {
+    if (
+      r.e2ee &&
+      typeof r.content === 'string' &&
+      r.content !== '[Encrypted message]' &&
+      r.content !== '[Unable to decrypt]'
+    ) {
+      localPlaintextById.set(r.id, r.content);
+    }
+  }
+
+  for (let i = 0; i < results.length; i++) {
+    const msg = results[i];
+    if (!msg.replyTo?.e2ee || !msg.replyTo.content) continue;
+
+    const local = localPlaintextById.get(msg.replyTo.id);
+    if (local !== undefined) {
+      results[i] = {
+        ...msg,
+        replyTo: { ...msg.replyTo, content: local }
+      };
+      continue;
+    }
+
+    const newReplyTo = await decryptReplyToInPlace(
+      msg.replyTo,
+      msg.dmChannelId
+    );
+    if (newReplyTo !== msg.replyTo) {
+      results[i] = { ...msg, replyTo: newReplyTo };
+    }
+  }
 
   return results;
 }
@@ -331,18 +674,35 @@ export const sendDmMessage = async (
   fileKeys?: E2EEPlaintext['fileKeys']
 ) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   const state = store.getState();
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   const recipientUserId = getDmRecipientUserId(dmChannelId);
 
-  // Only encrypt when E2EE is explicitly enabled on the channel
-  if (recipientUserId && channel?.e2ee) {
-    try {
-      const plaintext: E2EEPlaintext = { content, fileKeys };
-      const encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
-      // Cache plaintext so we can display our own message when the
-      // subscription echo arrives (own messages can't be self-decrypted).
-      ownSentPlaintextCache.set(encryptedContent, plaintext);
+  // Encrypt when E2EE is explicitly enabled on the channel. Errors
+  // propagate to the caller (toast) — silently falling back to plaintext
+  // would land cleartext in the DB on a conversation the user believes
+  // is encrypted, and the server-side e2ee enforcement would reject it
+  // anyway. Surface the failure so the user knows.
+  if (channel?.e2ee) {
+    const plaintext: E2EEPlaintext = { content, fileKeys };
+    const ownUserId = ownUserIdSelector(state);
+    const isGroup = channel.members.length > 2;
+
+    if (isGroup) {
+      if (ownUserId == null) {
+        throw new Error('Cannot send encrypted message before login completes');
+      }
+      // Make sure our sender key has been distributed to every member.
+      // Idempotent — covers first send + new joiners since last send.
+      const memberIds = channel.members.map((m) => m.id);
+      await ensureDmGroupSenderKey(dmChannelId, ownUserId, memberIds);
+
+      const encryptedContent = await encryptDmGroupMessage(
+        dmChannelId,
+        ownUserId,
+        plaintext
+      );
       await trpc.dms.sendMessage.mutate({
         dmChannelId,
         content: encryptedContent,
@@ -351,10 +711,26 @@ export const sendDmMessage = async (
         replyToId
       });
       return;
-    } catch (err) {
-      console.error('[E2EE] Encryption failed, sending plaintext:', err);
-      // Fall through to plaintext if encryption fails
     }
+
+    if (!recipientUserId) {
+      throw new Error(
+        'Cannot send encrypted message: recipient unavailable'
+      );
+    }
+    const encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
+    // Cache plaintext so we can display our own message when the
+    // subscription echo arrives (own messages can't be self-decrypted
+    // in the pairwise scheme).
+    ownSentPlaintextCache.set(encryptedContent, plaintext);
+    await trpc.dms.sendMessage.mutate({
+      dmChannelId,
+      content: encryptedContent,
+      e2ee: true,
+      files,
+      replyToId
+    });
+    return;
   }
 
   await trpc.dms.sendMessage.mutate({ dmChannelId, content, files, replyToId });
@@ -362,6 +738,7 @@ export const sendDmMessage = async (
 
 export const editDmMessage = async (messageId: number, content: string) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
 
   // Check if the original message was E2EE
   const state = store.getState();
@@ -399,6 +776,7 @@ export const editDmMessage = async (messageId: number, content: string) => {
 
 export const deleteDmMessageAction = async (messageId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.deleteMessage.mutate({ messageId });
 };
 
@@ -407,13 +785,111 @@ export const removeDmChannel = (dmChannelId: number) =>
 
 export const deleteDmChannel = async (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.deleteChannel.mutate({ dmChannelId });
+  removeDmChannel(dmChannelId);
+};
+
+export const leaveDmChannel = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  await trpc.dms.leave.mutate({ dmChannelId });
+  // Server publishes DM_CHANNEL_DELETE to the leaver, but drop the
+  // channel synchronously here too so the toast lands on a UI that
+  // already reflects the leave (no flicker between toast and the
+  // pubsub round-trip).
   removeDmChannel(dmChannelId);
 };
 
 export const enableDmEncryption = async (dmChannelId: number) => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.enableEncryption.mutate({ dmChannelId });
+  // Refresh local state so `channel.e2ee` flips to true immediately.
+  // Without this we'd rely on the DM_CHANNEL_UPDATE pubsub round-trip,
+  // and any send() before that arrives would go out as plaintext.
+  await fetchDmChannels();
+
+  // Group DMs: pre-generate and distribute our sender key so the first
+  // send doesn't have to wait for the round-trip. ensureDmGroupSenderKey
+  // is idempotent — safe to call before any group send anyway.
+  const state = store.getState();
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  const ownUserId = ownUserIdSelector(state);
+  if (channel && channel.members.length > 2 && ownUserId != null) {
+    try {
+      await ensureDmGroupSenderKey(
+        dmChannelId,
+        ownUserId,
+        channel.members.map((m) => m.id)
+      );
+    } catch (err) {
+      console.warn('[E2EE/DM] Initial sender-key distribution failed:', err);
+      // Non-fatal: ensureDmGroupSenderKey will retry on send.
+    }
+  }
+};
+
+/**
+ * On DM_MEMBER_ADD: if the channel is e2ee and we have a sender key,
+ * distribute it to the joiner so they can decrypt our future messages.
+ * No-op for non-encrypted DMs and for the joiner themselves.
+ */
+export const syncDmGroupSenderKeysOnMemberAdd = async (
+  dmChannelId: number,
+  addedUserId: number
+) => {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  if (ownUserId == null || addedUserId === ownUserId) return;
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  if (!channel?.e2ee) return;
+  // Only distribute if the channel is now a real group (≥3 members);
+  // 2-person channels use pairwise. Once a 1:1 grows to 3, the user who
+  // had encryption on a pairwise basis needs to start a sender-key
+  // session — ensureDmGroupSenderKey handles both fresh-generate and
+  // distribute-to-missing-members.
+  if (channel.members.length < 3) return;
+  try {
+    await ensureDmGroupSenderKey(
+      dmChannelId,
+      ownUserId,
+      channel.members.map((m) => m.id)
+    );
+  } catch (err) {
+    console.warn(
+      '[E2EE/DM] Failed to distribute sender key to new member:',
+      err
+    );
+  }
+};
+
+/**
+ * On DM_MEMBER_REMOVE: rotate our sender key so the leaver can no longer
+ * decrypt future messages with the cached old key (forward secrecy).
+ * No-op for non-encrypted DMs, for the case where we are the leaver
+ * (we're out of the channel anyway), or when the channel drops below
+ * group threshold (back to pairwise).
+ */
+export const syncDmGroupSenderKeysOnMemberRemove = async (
+  dmChannelId: number,
+  removedUserId: number
+) => {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  if (ownUserId == null || removedUserId === ownUserId) return;
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  if (!channel?.e2ee) return;
+  if (channel.members.length < 3) return;
+  try {
+    await rotateDmGroupSenderKey(
+      dmChannelId,
+      ownUserId,
+      channel.members.map((m) => m.id)
+    );
+  } catch (err) {
+    console.warn('[E2EE/DM] Failed to rotate sender key on remove:', err);
+  }
 };
 
 export const joinDmVoiceCall = async (dmChannelId: number) => {
@@ -436,11 +912,14 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
   }
 
   const trpc = getHomeTRPCClient();
+  if (!trpc) return undefined;
   const result = await trpc.dms.voiceJoin.mutate({
     dmChannelId,
     state: { micMuted: false, soundMuted: false }
   });
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(dmChannelId));
+  // Joining covers an in-flight ring — drop it from the modal.
+  store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
   // Also set the server voice channel ID so useVoiceEvents subscribes
   setCurrentVoiceChannelId(dmChannelId);
   return result;
@@ -448,17 +927,87 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
 
 export const leaveDmVoiceCall = async () => {
   const trpc = getHomeTRPCClient();
+  if (!trpc) return;
   await trpc.dms.voiceLeave.mutate();
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(undefined));
   setCurrentVoiceChannelId(undefined);
   setCurrentVoiceServerId(undefined);
 };
 
-export const dmCallStarted = (dmChannelId: number, startedBy: number) =>
+export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
   store.dispatch(dmsSliceActions.dmCallStarted({ dmChannelId, startedBy }));
 
-export const dmCallEnded = (dmChannelId: number) =>
+  // Decide whether this user should hear the ring. Skip if:
+  //  - we're the caller (the publish goes to all members, including
+  //    self, so the originator doesn't ring themselves)
+  //  - we're already in this exact call (e.g. accepted from another
+  //    tab / rejoin after a brief disconnect)
+  const state = store.getState();
+  const ownUserId = state.server.ownUserId;
+  const ownDmCallChannelId = state.dms.ownDmCallChannelId;
+  if (ownUserId == null || startedBy === ownUserId) return;
+  if (ownDmCallChannelId === dmChannelId) return;
+
+  store.dispatch(dmsSliceActions.addRingingCall(dmChannelId));
+};
+
+export const dmCallEnded = (dmChannelId: number) => {
   store.dispatch(dmsSliceActions.dmCallEnded({ dmChannelId }));
+  // Auto-dismiss any incoming-call modal for this channel — the call
+  // is over, no point ringing for it.
+  store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+};
+
+export const dismissRingingCall = (dmChannelId: number) =>
+  store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+
+/**
+ * Clear an unread badge on a DM the user is actively looking at —
+ * both locally and server-side. Defensive against races where
+ * isViewingThisChannel is false in addDmMessages but the user is
+ * really on the channel (state propagation lag, tab focus quirks,
+ * etc): the consumer (DmConversation) calls this on every render
+ * where unreadCount > 0, so the badge can never linger.
+ */
+export const clearDmChannelUnread = (dmChannelId: number) => {
+  store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+  markDmChannelAsRead(dmChannelId);
+};
+
+/**
+ * Handle a peer declining a call we may be in. Two side effects:
+ *  - Toast "<Name> declined" so the user gets immediate feedback.
+ *  - For 1:1 DMs (members.length === 2), auto-leave the call —
+ *    the only possible joiner just said no, no point waiting for
+ *    the 30s solo-leave timeout. For groups, just toast; other
+ *    members may still answer.
+ *
+ * Skips the toast for own decline events (the publish goes to all
+ * members including the decliner, so we'd otherwise toast ourselves).
+ */
+export const dmCallDeclined = (
+  dmChannelId: number,
+  declinedByUserId: number
+) => {
+  const state = store.getState();
+  const ownUserId = ownUserIdSelector(state);
+  if (declinedByUserId === ownUserId) return;
+
+  const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+  const decliner = channel?.members.find((m) => m.id === declinedByUserId);
+  const name = decliner?.name ?? 'A user';
+  toast.info(`${name} declined`);
+
+  // Auto-leave if this is the call we're in and there's no point
+  // staying — i.e. effectively-1:1 (member count of 2).
+  const ownInCall = state.dms.ownDmCallChannelId === dmChannelId;
+  const isOneOnOne = (channel?.members.length ?? 0) === 2;
+  if (ownInCall && isOneOnOne) {
+    leaveDmVoiceCall().catch(() => {
+      // Best-effort — toast already informed the user.
+    });
+  }
+};
 
 export const dmCallUserJoined = (
   dmChannelId: number,

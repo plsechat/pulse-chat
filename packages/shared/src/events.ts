@@ -61,6 +61,7 @@ export enum ServerEvents {
   DM_CALL_ENDED = "dmCallEnded",
   DM_CALL_USER_JOINED = "dmCallUserJoined",
   DM_CALL_USER_LEFT = "dmCallUserLeft",
+  DM_CALL_DECLINED = "dmCallDeclined",
   DM_MESSAGE_TYPING = "dmMessageTyping",
 
   SERVER_MEMBER_JOIN = "serverMemberJoin",
@@ -78,6 +79,7 @@ export enum ServerEvents {
 
   E2EE_SENDER_KEY_DISTRIBUTION = "e2eeSenderKeyDistribution",
   E2EE_IDENTITY_RESET = "e2eeIdentityReset",
+  DM_SENDER_KEY_DISTRIBUTION = "dmSenderKeyDistribution",
 
   INVITE_CREATE = "inviteCreate",
   INVITE_DELETE = "inviteDelete",
@@ -85,6 +87,8 @@ export enum ServerEvents {
   USER_NOTE_UPDATE = "userNoteUpdate",
 
   USER_KICKED = "userKicked",
+
+  USER_BLOCK_CHANGED = "userBlockChanged",
 }
 
 export type TNewMessage = {

@@ -28,6 +28,10 @@ const Emojis = memo(() => {
     setIsUploading(true);
 
     const trpc = getTRPCClient();
+    if (!trpc) {
+      setIsUploading(false);
+      return;
+    }
 
     try {
       const temporaryFiles = await uploadFiles(files);

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
+import { getMessageInActiveServer } from '../../db/queries/messages';
 import { messages } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { eventBus } from '../../plugins/event-bus';
@@ -18,16 +19,15 @@ const editMessageRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    const [message] = await db
-      .select({
-        userId: messages.userId,
-        channelId: messages.channelId,
-        editable: messages.editable,
-        e2ee: messages.e2ee
-      })
-      .from(messages)
-      .where(eq(messages.id, input.messageId))
-      .limit(1);
+    invariant(ctx.activeServerId, {
+      code: 'BAD_REQUEST',
+      message: 'No active server'
+    });
+
+    const message = await getMessageInActiveServer(
+      input.messageId,
+      ctx.activeServerId
+    );
 
     invariant(message, {
       code: 'NOT_FOUND',

@@ -52,6 +52,7 @@ const useTransports = ({
     logVoice('Creating producer transport', { device });
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const params = await trpc.voice.createProducerTransport.mutate();
@@ -85,6 +86,7 @@ const useTransports = ({
           logVoice('Producer transport disconnected, attempting ICE restart');
           try {
             const trpc = getTRPCClient();
+            if (!trpc) return;
             const result = await trpc.voice.restartIce.mutate({ type: 'producer' });
             if (result?.iceParameters && producerTransport.current && !producerTransport.current.closed) {
               await producerTransport.current.restartIce({ iceParameters: result.iceParameters });
@@ -152,6 +154,7 @@ const useTransports = ({
     logVoice('Creating consumer transport', { device });
 
     const trpc = getTRPCClient();
+    if (!trpc) return;
 
     try {
       const params = await trpc.voice.createConsumerTransport.mutate();
@@ -185,6 +188,7 @@ const useTransports = ({
           logVoice('Consumer transport disconnected, attempting ICE restart');
           try {
             const trpc = getTRPCClient();
+            if (!trpc) return;
             const result = await trpc.voice.restartIce.mutate({ type: 'consumer' });
             if (result?.iceParameters && consumerTransport.current && !consumerTransport.current.closed) {
               await consumerTransport.current.restartIce({ iceParameters: result.iceParameters });
@@ -254,6 +258,7 @@ const useTransports = ({
         logVoice('Consuming remote producer', { remoteId, kind });
 
         const trpc = getTRPCClient();
+        if (!trpc) return;
 
         const { producerId, consumerId, consumerKind, consumerRtpParameters } =
           await trpc.voice.consume.mutate({
@@ -359,6 +364,7 @@ const useTransports = ({
       logVoice('Consuming existing producers', { routerRtpCapabilities });
 
       const trpc = getTRPCClient();
+      if (!trpc) return;
 
       try {
         const {

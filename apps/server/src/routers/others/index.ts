@@ -11,7 +11,6 @@ import { handshakeRoute } from './handshake';
 import { joinServerRoute } from './join';
 import { updateServerRoute } from './update-server';
 import { updateSettingsRoute } from './update-settings';
-import { useSecretTokenRoute } from './use-secret-token';
 
 export const othersRouter = t.router({
   joinServer: joinServerRoute,
@@ -23,7 +22,6 @@ export const othersRouter = t.router({
   getServerEmojis: getServerEmojisRoute,
   getServerVoiceState: getServerVoiceStateRoute,
   onServerSettingsUpdate: onServerSettingsUpdateRoute,
-  useSecretToken: useSecretTokenRoute,
   getStorageSettings: getStorageSettingsRoute,
   getUpdate: getUpdateRoute,
   updateServer: updateServerRoute

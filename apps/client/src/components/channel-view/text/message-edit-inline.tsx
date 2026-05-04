@@ -1,6 +1,7 @@
 import { TiptapInput } from '@/components/tiptap-input';
 import { AutoFocus } from '@/components/ui/auto-focus';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { encryptChannelMessage } from '@/lib/e2ee';
 import { isLegacyHtml } from '@/lib/converters/token-content-renderer';
@@ -38,6 +39,10 @@ const MessageEditInline = memo(
         }
 
         const trpc = getTRPCClient();
+        if (!trpc) {
+          onBlur();
+          return;
+        }
 
         try {
           const content = tiptapHtmlToTokens(newValue);
@@ -66,8 +71,8 @@ const MessageEditInline = memo(
             });
           }
           toast.success('Message edited');
-        } catch {
-          toast.error('Failed to edit message');
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to edit message'));
         } finally {
           onBlur();
         }

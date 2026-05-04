@@ -1,4 +1,6 @@
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AddDmMembersDialog } from '@/components/dialogs/add-dm-members';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -7,19 +9,32 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { UserStatusBadge } from '@/components/user-status';
-import { deleteDmChannel, enableDmEncryption } from '@/features/dms/actions';
+import {
+  deleteDmChannel,
+  enableDmEncryption,
+  fetchDmChannels,
+  leaveDmChannel
+} from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
-import { useFriendRequests } from '@/features/friends/hooks';
+import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
 import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
-import { AvatarImage } from '@radix-ui/react-avatar';
-import { Lock, MessageSquare, Plus, Trash2, Users } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import {
+  DoorOpen,
+  Lock,
+  MessageSquare,
+  Plus,
+  Trash2,
+  UserPlus,
+  Users
+} from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { THomeTab } from '.';
 
@@ -39,9 +54,8 @@ const HomeSidebar = memo(
     onFriendsClick,
     onCreateGroupDm
   }: THomeSidebarProps) => {
-    const friendRequests = useFriendRequests();
+    const pendingCount = useIncomingFriendRequestCount();
     const dmChannels = useDmChannels();
-    const pendingCount = friendRequests.length;
 
     return (
       <>
@@ -99,13 +113,12 @@ const HomeSidebar = memo(
             ))}
 
             {dmChannels.length === 0 && (
-              <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                  <MessageSquare className="h-6 w-6" />
-                </div>
-                <p className="font-medium">No conversations yet</p>
-                <p className="text-xs mt-1">Start a DM to begin chatting</p>
-              </div>
+              <EmptyState
+                icon={MessageSquare}
+                title="No conversations yet"
+                description="Start a DM to begin chatting"
+                size="sm"
+              />
             )}
           </div>
         </div>
@@ -150,8 +163,8 @@ const DmChannelItem = memo(
       try {
         await deleteDmChannel(channel.id);
         toast.success('Conversation deleted');
-      } catch {
-        toast.error('Failed to delete conversation');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete conversation'));
       }
     }, [channel.id]);
 
@@ -167,10 +180,42 @@ const DmChannelItem = memo(
       try {
         await enableDmEncryption(channel.id);
         toast.success('Encryption enabled');
-      } catch {
-        toast.error('Failed to enable encryption');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to enable encryption'));
       }
     }, [channel.id]);
+
+    const handleLeave = useCallback(async () => {
+      // Group: leaver vanishes from member list, others keep going.
+      // 1:1: same — the other side keeps the chat, leaver just
+      // drops it from their list. Different from Delete (which
+      // tears down the channel for both sides).
+      const confirmed = await requestConfirmation({
+        title: channel.isGroup
+          ? 'Leave Group DM'
+          : 'Leave Conversation',
+        message: channel.isGroup
+          ? 'You will stop receiving messages and the conversation will disappear from your list. The group will continue without you.'
+          : 'You will stop receiving messages and the conversation will disappear from your list. The other person can still see the history on their side.',
+        confirmLabel: 'Leave',
+        variant: 'danger'
+      });
+      if (!confirmed) return;
+      try {
+        await leaveDmChannel(channel.id);
+        toast.success('You left the conversation');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to leave conversation'));
+      }
+    }, [channel.id, channel.isGroup]);
+
+    const [showAddDialog, setShowAddDialog] = useState(false);
+    const memberIds = useMemo(
+      () => channel.members.map((m) => m.id),
+      [channel.members]
+    );
+    const remainingCapacity = Math.max(0, 10 - channel.members.length);
+    const canAddMore = remainingCapacity > 0;
 
     if (otherMembers.length === 0) return null;
 
@@ -226,6 +271,14 @@ const DmChannelItem = memo(
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem
+            onClick={() => setShowAddDialog(true)}
+            disabled={!canAddMore}
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            {channel.isGroup ? 'Add People' : 'Add People (make group)'}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           {!channel.e2ee && (
             <>
               <ContextMenuItem onClick={handleEnableEncryption}>
@@ -235,6 +288,10 @@ const DmChannelItem = memo(
               <ContextMenuSeparator />
             </>
           )}
+          <ContextMenuItem onClick={handleLeave}>
+            <DoorOpen className="mr-2 h-4 w-4" />
+            {channel.isGroup ? 'Leave Group' : 'Leave Conversation'}
+          </ContextMenuItem>
           <ContextMenuItem
             onClick={handleDelete}
             className="text-destructive focus:text-destructive"
@@ -243,6 +300,21 @@ const DmChannelItem = memo(
             Delete Conversation
           </ContextMenuItem>
         </ContextMenuContent>
+        {showAddDialog && (
+          <AddDmMembersDialog
+            dmChannelId={channel.id}
+            existingMemberIds={memberIds}
+            maxAdd={remainingCapacity}
+            onClose={() => setShowAddDialog(false)}
+            onAdded={() => {
+              setShowAddDialog(false);
+              // The DM_MEMBER_ADD subscription already fires
+              // fetchDmChannels(), but covering it here too gives us
+              // a synchronous refresh before the toast hides.
+              fetchDmChannels();
+            }}
+          />
+        )}
       </ContextMenu>
     );
   }

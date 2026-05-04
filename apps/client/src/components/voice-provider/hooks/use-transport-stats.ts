@@ -68,6 +68,25 @@ const useTransportStats = () => {
       let rtt = 0;
       let jitter = 0;
 
+      // Two-pass walk: first find the transport's selected candidate
+      // pair so we read RTT from the *active* pair instead of "any
+      // pair that happens to be in succeeded state" (which gave 0
+      // or stale numbers depending on iteration order).
+      let selectedPairId: string | undefined;
+      for (const stat of statsReport.values()) {
+        if (stat.type === 'transport' && stat.selectedCandidatePairId) {
+          selectedPairId = stat.selectedCandidatePairId;
+          break;
+        }
+      }
+
+      // Track an RTCP-derived RTT as a fallback. candidate-pair RTT
+      // is only refreshed by STUN consent checks (~once every 5-30s),
+      // so it lingers at 0 right after connect; remote-inbound-rtp
+      // and remote-outbound-rtp update on every RTCP report and
+      // give us a number much sooner.
+      let rtcpRtt = 0;
+
       for (const stat of statsReport.values()) {
         if (stat.type === 'outbound-rtp' && isProducer) {
           bytesSent += stat.bytesSent || 0;
@@ -77,12 +96,43 @@ const useTransportStats = () => {
           packetsReceived += stat.packetsReceived || 0;
           packetsLost += stat.packetsLost || 0;
           jitter += stat.jitter || 0;
+        } else if (stat.type === 'candidate-pair') {
+          // Prefer the transport's explicitly-selected pair. Fall
+          // back to `nominated` if the transport stat is missing
+          // (some browsers expose one but not the other). Final
+          // fallback: any succeeded pair, so we don't return 0
+          // for browsers that omit both signals.
+          const isSelected = selectedPairId
+            ? stat.id === selectedPairId
+            : Boolean(stat.nominated) || stat.state === 'succeeded';
+          if (isSelected && typeof stat.currentRoundTripTime === 'number') {
+            rtt = stat.currentRoundTripTime * 1000;
+          }
         } else if (
-          stat.type === 'candidate-pair' &&
-          stat.state === 'succeeded'
+          stat.type === 'remote-inbound-rtp' &&
+          typeof stat.roundTripTime === 'number'
         ) {
-          rtt = (stat.currentRoundTripTime || 0) * 1000;
+          // Server-reported RTT for our outgoing streams (producer
+          // transport). This is the freshest available source.
+          rtcpRtt = Math.max(rtcpRtt, stat.roundTripTime * 1000);
+        } else if (
+          stat.type === 'remote-outbound-rtp' &&
+          typeof (stat as { roundTripTime?: number }).roundTripTime ===
+            'number'
+        ) {
+          // Same idea on the consumer transport — RTT derived from
+          // our outbound RTCP RR vs. the server's inbound SR.
+          rtcpRtt = Math.max(
+            rtcpRtt,
+            (stat as { roundTripTime: number }).roundTripTime * 1000
+          );
         }
+      }
+
+      // Use the RTCP-derived RTT when candidate-pair hasn't reported
+      // one yet (the common case in the first ~10s of a call).
+      if (rtt === 0 && rtcpRtt > 0) {
+        rtt = rtcpRtt;
       }
 
       return {

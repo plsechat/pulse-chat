@@ -4,8 +4,7 @@ import {
   useActiveView,
   useJoinedServers
 } from '@/features/app/hooks';
-import { useFriendRequests } from '@/features/friends/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { getHandshakeHash } from '@/features/server/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -23,11 +22,7 @@ import {
 
 const MobileBottomNav = memo(() => {
   const activeView = useActiveView();
-  const friendRequests = useFriendRequests();
-  const ownUserId = useOwnUserId();
-  const pendingCount = friendRequests.filter(
-    (r) => r.receiverId === ownUserId
-  ).length;
+  const pendingCount = useIncomingFriendRequestCount();
   const joinedServers = useJoinedServers();
   const activeServerId = useActiveServerId();
   const [showServerSheet, setShowServerSheet] = useState(false);
@@ -60,7 +55,7 @@ const MobileBottomNav = memo(() => {
   return (
     <>
       <nav className={cn(
-        'flex md:hidden h-14 w-full border-t border-border bg-sidebar items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] transition-all duration-200',
+        'flex min-[480px]:hidden h-14 w-full border-t border-border bg-sidebar items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] transition-all duration-200',
         isKeyboardVisible && 'h-0 overflow-hidden border-t-0 opacity-0 pointer-events-none'
       )}>
         <button
