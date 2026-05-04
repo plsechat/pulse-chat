@@ -6,6 +6,7 @@ import {
   removeServerMember
 } from '../../db/queries/servers';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { assertNotFederatedTarget } from '../../utils/federation-guard';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -23,6 +24,8 @@ const kickRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'No active server'
     });
+
+    await assertNotFederatedTarget(input.userId, 'Kick');
 
     const isMember = await isServerMember(ctx.activeServerId, input.userId);
     invariant(isMember, {

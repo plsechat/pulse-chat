@@ -6,6 +6,7 @@ import { publishUser } from '../../db/publishers';
 import { isServerMember } from '../../db/queries/servers';
 import { users } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { assertNotFederatedTarget } from '../../utils/federation-guard';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -23,6 +24,8 @@ const banRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'You cannot ban yourself.'
     });
+
+    await assertNotFederatedTarget(input.userId, 'Ban');
 
     // Verify target user is a member of the caller's active server
     const isMember = await isServerMember(ctx.activeServerId!, input.userId);

@@ -622,4 +622,54 @@ describe('users router', () => {
       expect(result).toEqual({ userId: 2 });
     });
   });
+
+  describe('federation guard (F9): refuses ban/kick/role on federated targets', () => {
+    async function insertFederatedShadow(): Promise<number> {
+      const tdb = getTestDb();
+      const instanceRows = (await tdb.execute(
+        sql`INSERT INTO federation_instances (domain, name, status, direction, created_at) VALUES ('peer.example.com', 'Peer', 'active', 'outgoing', ${Date.now()}) RETURNING id`
+      )) as unknown as Array<{ id: number }>;
+      const instanceId = instanceRows[0]!.id;
+
+      const supabaseId = `federated:${instanceId}:99`;
+      const now = Date.now();
+      const userRows = (await tdb.execute(
+        sql`INSERT INTO users (supabase_id, name, is_federated, federated_instance_id, federated_username, public_id, created_at, last_login_at) VALUES (${supabaseId}, 'shadow-user', TRUE, ${instanceId}, '99', ${`pid-${now}`}, ${now}, ${now}) RETURNING id`
+      )) as unknown as Array<{ id: number }>;
+
+      return userRows[0]!.id;
+    }
+
+    test('ban refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(caller.users.ban({ userId: shadowId })).rejects.toThrow(
+        /federated/i
+      );
+    });
+
+    test('kick refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(caller.users.kick({ userId: shadowId })).rejects.toThrow(
+        /federated/i
+      );
+    });
+
+    test('addRole refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(
+        caller.users.addRole({ userId: shadowId, roleId: 2 })
+      ).rejects.toThrow(/federated/i);
+    });
+
+    test('removeRole refuses federated target', async () => {
+      const { caller } = await initTest();
+      const shadowId = await insertFederatedShadow();
+      await expect(
+        caller.users.removeRole({ userId: shadowId, roleId: 2 })
+      ).rejects.toThrow(/federated/i);
+    });
+  });
 });

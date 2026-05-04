@@ -235,3 +235,38 @@ describe('listInstances permission gate (F8)', () => {
     );
   });
 });
+
+describe('ensureShadowUser remote verification (F5)', () => {
+  test('refuses to create shadow when remote instance is unreachable', async () => {
+    const { caller } = await initTest();
+    // Create an active instance row but the actual host won't respond
+    // — the new route must call federationFetch to verify the user
+    // exists, and that call will throw, which the route surfaces.
+    await createTestInstance(
+      'unreachable-test-peer.example.com',
+      'Unreachable Peer'
+    );
+
+    await expect(
+      caller.federation.ensureShadowUser({
+        instanceDomain: 'unreachable-test-peer.example.com',
+        remoteUserId: 99,
+        username: 'attacker-controlled-name',
+        remotePublicId: 'pub-99'
+      })
+    ).rejects.toThrow();
+  });
+
+  test('refuses when instance is not registered as active', async () => {
+    const { caller } = await initTest();
+    // No federation_instances row at all
+    await expect(
+      caller.federation.ensureShadowUser({
+        instanceDomain: 'never-registered.example.com',
+        remoteUserId: 99,
+        username: 'x',
+        remotePublicId: 'pub-99'
+      })
+    ).rejects.toThrow();
+  });
+});
