@@ -46,6 +46,29 @@ export const addOrUpdateDmChannel = (channel: TJoinedDmChannel) =>
 export const setSelectedDmChannelId = (channelId: number | undefined) =>
   store.dispatch(dmsSliceActions.setSelectedChannelId(channelId));
 
+/**
+ * Open a DM in the home view from anywhere in the app. Used by:
+ *  - "Message" actions in user popovers and context menus
+ *  - The "Create Group DM" dialog after creation
+ *  - The IncomingCallModal accept handler
+ *
+ * HomeView owns the local-component state that picks which DM to
+ * render, so a Redux update alone won't switch views — the
+ * `dm-navigate` CustomEvent is the bridge.
+ */
+export const navigateToDm = async (dmChannelId: number) => {
+  const { setLocalStorageItem, LocalStorageKey } = await import(
+    '@/helpers/storage'
+  );
+  setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
+  setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(dmChannelId));
+  window.dispatchEvent(
+    new CustomEvent('dm-navigate', { detail: { dmChannelId } })
+  );
+  const { setActiveView } = await import('../app/actions');
+  setActiveView('home');
+};
+
 export const addDmMessages = (
   dmChannelId: number,
   messages: TJoinedDmMessage[],

@@ -127,6 +127,11 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   const [sharingSystemAudio, setSharingSystemAudio] = useState(false);
   const [realOutputSinkId, setRealOutputSinkId] = useState<string | undefined>(undefined);
   const routerRtpCapabilities = useRef<RtpCapabilities | null>(null);
+  // Hold a ref to the loaded Device so screen-share produce can pull
+  // the H264 codec entry off it (see screenShare codec selection
+  // below). Without H264 we end up on VP8/VP9 which is software-only
+  // on Apple Silicon — the laptop-heat issue users reported.
+  const deviceRef = useRef<Device | null>(null);
   const audioVideoRefsMap = useRef<Map<number, AudioVideoRefs>>(new Map());
   const { devices } = useDevices();
 
@@ -451,9 +456,21 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
         logVoice('Screen share surface type', { displaySurface, hasAudio, isSystemAudio });
         setSharingSystemAudio(isSystemAudio);
 
+        // Prefer H264 for screen share. On Apple Silicon (and most
+        // recent x86 chips) H264 has dedicated hardware encoding;
+        // VP8/VP9 fall back to software, which pegs the CPU and
+        // turns the fan into a leaf-blower during a screen share.
+        // The router lists H264 first in its mediaCodecs, but
+        // mediasoup-client + browser negotiation can still land on
+        // VP8 — passing `codec` explicitly forces it.
+        const h264Codec = deviceRef.current?.rtpCapabilities.codecs?.find(
+          (c) => c.mimeType.toLowerCase() === 'video/h264'
+        );
+
         localScreenShareProducer.current =
           await producerTransport.current?.produce({
             track: videoTrack,
+            codec: h264Codec,
             appData: { kind: StreamKind.SCREEN }
           });
 
@@ -764,6 +781,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     clearRemoteUserStreams();
     clearExternalStreams();
     cleanupTransports();
+    deviceRef.current = null;
 
     setConnectionStatus(ConnectionStatus.DISCONNECTED);
   }, [
@@ -798,6 +816,8 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
         await device.load({
           routerRtpCapabilities: incomingRouterRtpCapabilities
         });
+
+        deviceRef.current = device;
 
         await createProducerTransport(device);
         await createConsumerTransport(device);

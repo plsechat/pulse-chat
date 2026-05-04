@@ -1,4 +1,4 @@
-import { setActiveView, setModViewOpen } from '@/features/app/actions';
+import { setModViewOpen } from '@/features/app/actions';
 import {
   useActiveInstanceDomain,
   useActiveServerId
@@ -7,7 +7,11 @@ import {
   requestConfirmation,
   requestTextInput
 } from '@/features/dialogs/actions';
-import { getOrCreateDmChannel, sendDmMessage } from '@/features/dms/actions';
+import {
+  getOrCreateDmChannel,
+  navigateToDm,
+  sendDmMessage
+} from '@/features/dms/actions';
 import { useFriends, useIsUserBlocked } from '@/features/friends/hooks';
 import {
   blockUser,
@@ -217,7 +221,8 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         // (e.g. "<p>asdf</p>") and render with the literal tags.
         await sendDmMessage(channel.id, tiptapHtmlToTokens(popoverMessage));
         setPopoverMessage('');
-        setActiveView('home');
+        // Land on the DM that was just opened, not just the home view.
+        await navigateToDm(channel.id);
       }
     } catch (err) {
       toast.error(getTrpcError(err, 'Failed to send message'));

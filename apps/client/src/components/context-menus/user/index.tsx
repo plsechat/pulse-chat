@@ -10,9 +10,8 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { Slider } from '@/components/ui/slider';
-import { setActiveView } from '@/features/app/actions';
 import { requestTextInput } from '@/features/dialogs/actions';
-import { getOrCreateDmChannel } from '@/features/dms/actions';
+import { getOrCreateDmChannel, navigateToDm } from '@/features/dms/actions';
 import { useCan, useUserRoles } from '@/features/server/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
@@ -67,7 +66,10 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const handleMessage = useCallback(async () => {
     const channel = await getOrCreateDmChannel(userId);
     if (channel) {
-      setActiveView('home');
+      // Land on the new DM, not just the home view in general.
+      // navigateToDm bridges through HomeView's local state via the
+      // dm-navigate CustomEvent — Redux alone doesn't re-render.
+      await navigateToDm(channel.id);
     }
   }, [userId]);
 
