@@ -30,27 +30,42 @@ jobs:
       - name: Lint
         run: bun run lint
 
+  # Enumerate every server test file so the downstream `test` job can
+  # fan out one runner per file. New test files get picked up
+  # automatically — no workflow edit needed when the suite grows.
+  discover-tests:
+    name: Discover test files
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.find.outputs.files }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - id: find
+        name: Enumerate test files
+        working-directory: apps/server
+        run: |
+          files=$(find src -name '*.test.ts' -type f \
+            | sort \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "Discovered $(echo "$files" | jq 'length') test files:"
+          echo "$files" | jq -r '.[]'
+
+  # One job per test file. Each job provisions its own postgres
+  # service container, so cross-file TRUNCATE deadlocks (which bit us
+  # at the 4-way-shard level) are impossible. fail-fast disabled so
+  # one bad test doesn't cancel the rest of the suite.
   test:
-    name: Run Tests (${{ matrix.shard.name }})
+    name: ${{ matrix.test-file }}
+    needs: discover-tests
     runs-on: ubuntu-latest
 
-    # Each shard gets its own postgres service container, so cross-file
-    # TRUNCATE deadlocks across shards are impossible. Within a shard,
-    # bun still runs files in parallel — but the shards are sized so
-    # that's a smaller pool. Adding the matrix keeps CI wall-clock
-    # close to the slowest shard's runtime instead of the sum of all.
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          - name: lightweight
-            paths: src/__tests__ src/db src/utils src/lib src/plugins src/http/__tests__
-          - name: dms-federation-e2ee
-            paths: src/routers/__tests__/dms.test.ts src/routers/__tests__/dms-federation-dispatch.test.ts src/routers/__tests__/e2ee.test.ts src/routers/__tests__/e2ee-messages.test.ts src/routers/__tests__/federation-membership.test.ts
-          - name: accounts
-            paths: src/routers/__tests__/users.test.ts src/routers/__tests__/authorization.test.ts src/routers/__tests__/access-control.test.ts src/routers/__tests__/nicknames.test.ts src/routers/__tests__/user-preferences.test.ts src/routers/__tests__/others.test.ts src/routers/__tests__/file-encryption.test.ts src/routers/__tests__/files.test.ts src/routers/__tests__/key-backup-crypto.test.ts src/routers/__tests__/deferred-data.test.ts
-          - name: content
-            paths: src/routers/__tests__/messages.test.ts src/routers/__tests__/channels.test.ts src/routers/__tests__/categories.test.ts src/routers/__tests__/emojis.test.ts src/routers/__tests__/roles.test.ts src/routers/__tests__/servers.test.ts src/routers/__tests__/invites.test.ts src/routers/__tests__/forums.test.ts
+        test-file: ${{ fromJSON(needs.discover-tests.outputs.files) }}
 
     services:
       postgres:
@@ -94,6 +109,6 @@ jobs:
         working-directory: apps/server
         run: bun run db:gen
 
-      - name: Run server tests
+      - name: Run test file
         working-directory: apps/server
-        run: bun test ${{ matrix.shard.paths }}
+        run: bun test ${{ matrix.test-file }}
