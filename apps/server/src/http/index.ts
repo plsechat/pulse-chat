@@ -11,6 +11,7 @@ import {
   federationFriendAcceptHandler,
   federationFriendRemoveHandler,
   federationFriendRequestHandler,
+  federationGetPreKeyBundleHandler,
   federationInfoHandler,
   federationReportUserHandler,
   federationRequestHandler,
@@ -123,6 +124,11 @@ const createHttpServer = async (port: number = config.server.port) => {
           if (req.method === 'POST' && req.url === '/federation/dm-relay') {
             if (!checkRateLimit(req, res, federationRateLimit)) return;
             return await federationDmRelayHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/get-prekey-bundle') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationGetPreKeyBundleHandler(req, res);
           }
 
           if (req.method === 'POST' && req.url === '/federation/report-user') {

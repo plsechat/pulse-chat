@@ -118,8 +118,14 @@ const sendMessageRoute = protectedProcedure
       enqueueProcessDmMetadata(input.content, message!.id, input.dmChannelId);
     }
 
-    // Relay to remote instances for federated members (skip for E2EE)
-    if (input.content && !isE2ee) {
+    // Relay to remote instances for federated members. Phase D / D1
+    // flipped the previous `!isE2ee` gate — encrypted messages now
+    // ride through the same `/federation/dm-relay` path with an
+    // explicit e2ee flag and the ciphertext envelope as `content`.
+    // The receiving instance never decrypts; it just routes the
+    // ciphertext to the recipient's WS and persists with e2ee=true.
+    // Plaintext path is unchanged.
+    if (input.content) {
       const sender = await getUserById(ctx.userId);
       if (sender) {
         for (const memberId of memberIds) {
@@ -148,7 +154,11 @@ const sendMessageRoute = protectedProcedure
                 fromAvatarFile: sender.avatar?.name ?? null,
                 fromUserId: ctx.userId,
                 toPublicId: member.federatedPublicId,
-                content: input.content
+                content: input.content,
+                // Phase D / D1: receiver uses this flag to persist
+                // the message with e2ee=true and to auto-upgrade the
+                // channel's encryption flag on first ciphertext.
+                e2ee: isE2ee
               }).catch((err) =>
                 logger.error('[sendDmMessage] federation relay failed: %o', err)
               );
