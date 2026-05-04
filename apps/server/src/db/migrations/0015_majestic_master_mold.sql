@@ -8,9 +8,9 @@
 -- "the group between these N members," which doesn't generalise
 -- across instances.
 --
--- Idempotent: db/index.ts:27 wipes drizzle's migration tracking on
--- every boot (pulse-issue-migration-pipeline), so the ALTER guards
--- against re-execution.
+-- Idempotent: db/index.ts wipes drizzle's migration tracking on every
+-- boot (pulse-issue-migration-pipeline), so the ALTER + CREATE INDEX
+-- guard against re-execution.
 
 DO $$ BEGIN
 	ALTER TABLE "dm_channels" ADD COLUMN "federation_group_id" text;
@@ -19,10 +19,8 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 
--- Index for the dm-relay / dm-sender-key lookup path. Sparse — only
--- federated groups have the column populated.
 DO $$ BEGIN
-	CREATE INDEX "dm_channels_federation_group_id_idx" ON "dm_channels" ("federation_group_id");
+	CREATE INDEX "dm_channels_federation_group_id_idx" ON "dm_channels" USING btree ("federation_group_id");
 EXCEPTION
 	WHEN duplicate_table THEN null;
 END $$;
