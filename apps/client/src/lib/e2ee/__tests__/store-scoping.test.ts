@@ -123,7 +123,7 @@ describe('SignalProtocolStore.verifiedIdentities — per-instance scoping', () =
 
     const after = await home.getVerifiedIdentity(5);
     expect(after?.acceptedChangeAt).toBeDefined();
-    expect(after?.acceptedChangeAt!).toBeGreaterThanOrEqual(t0);
+    expect(after?.acceptedChangeAt ?? 0).toBeGreaterThanOrEqual(t0);
   });
 
   test('markIdentityManual clears the acceptedChangeAt warning', async () => {

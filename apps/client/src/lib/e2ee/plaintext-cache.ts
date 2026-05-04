@@ -27,15 +27,31 @@
 
 import { openDB, type IDBPDatabase } from 'idb';
 
+// IDB name retained from before the file rename so existing user
+// caches survive the upgrade. The database is single-purpose; no
+// reason to break compatibility for cosmetic naming.
 const DB_NAME = 'pulse-own-sk-plaintext';
 const DB_VERSION = 1;
 const STORE_NAME = 'plaintexts';
 
 const MAX_IN_MEMORY = 1000;
 
+// Bounded IDB cache. Keys are server-assigned messageIds, which are
+// monotonically increasing — when we exceed `MAX_IDB_ENTRIES` we
+// sort numerically and delete the smallest (oldest message ids)
+// down to `TARGET_IDB_ENTRIES`. Compaction runs lazily: once at
+// startup if needed, and again after every `WRITES_PER_COMPACTION`
+// writes within a session. Active conversations therefore see
+// bounded memory without the hot-path paying for it.
+const MAX_IDB_ENTRIES = 10_000;
+const TARGET_IDB_ENTRIES = 8_000;
+const WRITES_PER_COMPACTION = 500;
+
 const inMemoryByCiphertext = new Map<string, string>();
 
 let dbInstance: IDBPDatabase | null = null;
+let writesSinceLastCompact = 0;
+let compactionInFlight: Promise<void> | null = null;
 
 async function getDb(): Promise<IDBPDatabase> {
   if (dbInstance) return dbInstance;
@@ -75,6 +91,9 @@ export function takeOwnPlaintextByCiphertext(
 /**
  * Persist the plaintext for `messageId` so a reload can still render
  * own messages from this session. Idempotent overwrite.
+ *
+ * Triggers lazy compaction every WRITES_PER_COMPACTION writes so the
+ * IDB store can't grow unboundedly across long-lived sessions.
  */
 export async function persistOwnPlaintextById(
   messageId: number,
@@ -82,7 +101,50 @@ export async function persistOwnPlaintextById(
 ): Promise<void> {
   const db = await getDb();
   await db.put(STORE_NAME, plaintext, String(messageId));
+
+  writesSinceLastCompact++;
+  if (writesSinceLastCompact >= WRITES_PER_COMPACTION) {
+    writesSinceLastCompact = 0;
+    void scheduleCompaction();
+  }
 }
+
+/**
+ * If the persisted store is over the soft cap, prune the smallest
+ * (oldest, since messageId is monotonically increasing) entries down
+ * to TARGET_IDB_ENTRIES. Single-flight: a second call while one is
+ * already running just awaits the in-flight promise.
+ */
+async function scheduleCompaction(): Promise<void> {
+  if (compactionInFlight) return compactionInFlight;
+  compactionInFlight = (async () => {
+    try {
+      const db = await getDb();
+      const count = await db.count(STORE_NAME);
+      if (count <= MAX_IDB_ENTRIES) return;
+
+      const keys = (await db.getAllKeys(STORE_NAME)) as string[];
+      // String-keyed by messageId.toString(); sort numerically so we
+      // drop the genuinely-oldest rows rather than lexicographically.
+      keys.sort((a, b) => Number(a) - Number(b));
+
+      const toDelete = keys.slice(0, count - TARGET_IDB_ENTRIES);
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      await Promise.all(toDelete.map((k) => tx.store.delete(k)));
+      await tx.done;
+    } catch (err) {
+      console.warn('[plaintext-cache] compaction failed:', err);
+    } finally {
+      compactionInFlight = null;
+    }
+  })();
+  return compactionInFlight;
+}
+
+// Boot-time compaction so a previous session's growth doesn't carry
+// uncompacted into a new one. Best-effort; any failure here just
+// means we'll try again at the next write threshold.
+void scheduleCompaction();
 
 export async function getPersistedOwnPlaintextById(
   messageId: number

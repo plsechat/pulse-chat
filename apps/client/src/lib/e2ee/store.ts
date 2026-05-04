@@ -6,7 +6,7 @@ import type {
   StorageType
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { store as reduxStore } from '@/features/store';
-import { clearAllOwnPlaintexts } from './own-plaintext-cache';
+import { clearAllOwnPlaintexts } from './plaintext-cache';
 import type {
   ChainKind,
   SerializedChain

@@ -23,7 +23,7 @@ import {
   getPersistedOwnPlaintextById,
   persistOwnPlaintextById,
   takeOwnPlaintextByCiphertext
-} from './own-plaintext-cache';
+} from './plaintext-cache';
 import type { ChainKind, SenderKeyDistribution } from './sender-key-chain';
 import { decodeWire } from './sender-key-chain';
 

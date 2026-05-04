@@ -608,4 +608,18 @@ describe('users router', () => {
     expect(info.user.bannerColor).toBe('#333333');
     expect(info.user.bio).toBe('Final Bio');
   });
+
+  describe('getMyId', () => {
+    test('returns the calling user id (user 1)', async () => {
+      const { caller } = await initTest();
+      const result = await caller.users.getMyId();
+      expect(result).toEqual({ userId: 1 });
+    });
+
+    test('returns the calling user id (user 2)', async () => {
+      const { caller } = await initTest(2);
+      const result = await caller.users.getMyId();
+      expect(result).toEqual({ userId: 2 });
+    });
+  });
 });
