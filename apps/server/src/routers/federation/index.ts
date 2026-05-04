@@ -11,6 +11,7 @@ import { getConfigRoute } from './get-config';
 import { getJoinedRoute } from './get-joined';
 import { joinRemoteRoute } from './join-remote';
 import { leaveRemoteRoute } from './leave-remote';
+import { listActiveInstancesRoute } from './list-active-instances';
 import { listInstancesRoute } from './list-instances';
 import { removeInstanceRoute } from './remove-instance';
 import { requestTokenRoute } from './request-token';
@@ -21,6 +22,7 @@ export const federationRouter = t.router({
   setConfig: setConfigRoute,
   generateKeys: generateKeysRoute,
   listInstances: listInstancesRoute,
+  listActiveInstances: listActiveInstancesRoute,
   addInstance: addInstanceRoute,
   acceptInstance: acceptInstanceRoute,
   removeInstance: removeInstanceRoute,

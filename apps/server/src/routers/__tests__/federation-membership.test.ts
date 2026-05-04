@@ -236,6 +236,54 @@ describe('listInstances permission gate (F8)', () => {
   });
 });
 
+describe('listActiveInstances (public discovery)', () => {
+  test('non-admin user CAN list active federation peers', async () => {
+    const { caller } = await initTest(2);
+    await createTestInstance('public-peer.example.com', 'Public Peer');
+    const instances = await caller.federation.listActiveInstances();
+    expect(instances.some((i) => i.domain === 'public-peer.example.com')).toBe(
+      true
+    );
+  });
+
+  test('omits pending and blocked peers', async () => {
+    const { caller } = await initTest(2);
+    await createTestInstance('active-peer.example.com', 'Active Peer');
+    await db.insert(federationInstances).values({
+      domain: 'pending-peer.example.com',
+      name: 'Pending Peer',
+      status: 'pending',
+      direction: 'outgoing',
+      createdAt: Date.now()
+    });
+    await db.insert(federationInstances).values({
+      domain: 'blocked-peer.example.com',
+      name: 'Blocked Peer',
+      status: 'blocked',
+      direction: 'outgoing',
+      createdAt: Date.now()
+    });
+
+    const instances = await caller.federation.listActiveInstances();
+    const domains = instances.map((i) => i.domain);
+    expect(domains).toContain('active-peer.example.com');
+    expect(domains).not.toContain('pending-peer.example.com');
+    expect(domains).not.toContain('blocked-peer.example.com');
+  });
+
+  test('does not expose operator metadata fields', async () => {
+    const { caller } = await initTest(2);
+    await createTestInstance('meta-peer.example.com', 'Meta Peer');
+    const instances = await caller.federation.listActiveInstances();
+    const peer = instances.find((i) => i.domain === 'meta-peer.example.com');
+    expect(peer).toBeDefined();
+    // status, direction, createdAt are operator-sensitive — must not leak
+    expect(peer).not.toHaveProperty('status');
+    expect(peer).not.toHaveProperty('direction');
+    expect(peer).not.toHaveProperty('createdAt');
+  });
+});
+
 describe('ensureShadowUser remote verification (F5)', () => {
   test('refuses to create shadow when remote instance is unreachable', async () => {
     const { caller } = await initTest();

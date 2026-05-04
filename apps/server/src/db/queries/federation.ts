@@ -41,9 +41,22 @@ async function listFederationInstances() {
   return db.select().from(federationInstances);
 }
 
+async function listActiveFederationInstances() {
+  return db
+    .select({
+      id: federationInstances.id,
+      domain: federationInstances.domain,
+      name: federationInstances.name,
+      lastSeenAt: federationInstances.lastSeenAt
+    })
+    .from(federationInstances)
+    .where(eq(federationInstances.status, 'active'));
+}
+
 export {
   getActiveFederationInstanceByDomain,
   getFederationInstanceByDomain,
   getFederationInstanceById,
+  listActiveFederationInstances,
   listFederationInstances
 };
