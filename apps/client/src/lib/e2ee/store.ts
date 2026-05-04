@@ -61,6 +61,11 @@ export type VerifiedIdentityRecord = {
   verifiedAt: number;
   /** TOFU = silently pinned on first session; manual = user confirmed in-person. */
   verifiedMethod: VerifiedIdentityMethod;
+  /** Unix ms of the most recent accept-identity-change event (modal Accept,
+   *  Verify Now, or auto-accept on broadcast). When set, the UI surfaces a
+   *  "recently changed" warning until the user explicitly re-verifies or
+   *  clears the pin. */
+  acceptedChangeAt?: number;
 };
 
 export type VerifiedIdentityEntry = VerifiedIdentityRecord & { userId: number };
@@ -146,14 +151,25 @@ export class SignalProtocolStore implements StorageType {
   }
 
   /** Accept an identity change for `userId`: drop the old pin and
-   *  re-TOFU under the new key. Used by the user's explicit "Accept"
-   *  action in the identity-changed modal, and by the auto-accept
-   *  path that handles legitimate peer-broadcast resets. */
+   *  re-TOFU under the new key, AND set the `acceptedChangeAt`
+   *  marker so the UI surfaces a sticky "recently changed" warning
+   *  until the user explicitly re-verifies (markIdentityManual) or
+   *  clears the pin. Used by the user's explicit "Accept" action in
+   *  the identity-changed modal, and by the auto-accept path that
+   *  handles legitimate peer-broadcast resets. */
   async acceptIdentityChange(
     userId: number,
     newIdentityPublicKey: string
   ): Promise<void> {
-    await this.markIdentityTofu(userId, newIdentityPublicKey);
+    const db = await this.getDb();
+    const now = Date.now();
+    const record: VerifiedIdentityRecord = {
+      identityPublicKey: newIdentityPublicKey,
+      verifiedAt: now,
+      verifiedMethod: 'tofu',
+      acceptedChangeAt: now
+    };
+    await db.put(STORES.VERIFIED_IDENTITIES, record, String(userId));
   }
 
   async saveIdentity(
@@ -614,8 +630,9 @@ export class SignalProtocolStore implements StorageType {
   }
 
   /** Mark a peer's identity as manually verified (e.g., the user
-   *  compared the safety number in person). Future identity changes
-   *  on a manually-verified peer should warn louder. */
+   *  compared the safety number in person). Clears any
+   *  acceptedChangeAt warning since manual verify is the strongest
+   *  trust signal. */
   async markIdentityManual(
     userId: number,
     identityPublicKey: string

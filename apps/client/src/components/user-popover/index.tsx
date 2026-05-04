@@ -1,4 +1,6 @@
 import { setModViewOpen } from '@/features/app/actions';
+import { ServerScreen } from '@/components/server-screens/screens';
+import { openServerScreen } from '@/features/server-screens/actions';
 import {
   useActiveInstanceDomain,
   useActiveServerId
@@ -30,6 +32,7 @@ import {
   Ban,
   Copy,
   Ellipsis,
+  Fingerprint,
   Globe,
   Pencil,
   Plus,
@@ -368,6 +371,17 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
                 {!isOwnUser && (
                   <>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() =>
+                        openServerScreen(ServerScreen.USER_SETTINGS, {
+                          initialSection: 'verify-identity',
+                          initialVerifyPeerId: userId
+                        })
+                      }
+                    >
+                      <Fingerprint className="h-4 w-4" />
+                      Verify Identity
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={handleBlockToggle}
                       variant={isBlocked ? undefined : 'destructive'}

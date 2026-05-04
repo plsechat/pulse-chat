@@ -17,6 +17,7 @@ import { base64ToArrayBuffer } from '@/lib/e2ee/utils';
 import { activeInstanceDomainSelector } from '@/features/app/selectors';
 import { format } from 'date-fns';
 import {
+  AlertTriangle,
   ChevronLeft,
   ShieldCheck,
   ShieldQuestion,
@@ -30,7 +31,21 @@ import type { IRootState } from '@/features/store';
 const ownUserIdSelector = (state: IRootState) => state.server.ownUserId;
 
 const StatusBadge = memo(
-  ({ method }: { method: 'tofu' | 'manual' }) => {
+  ({
+    method,
+    changed
+  }: {
+    method: 'tofu' | 'manual';
+    changed?: boolean;
+  }) => {
+    if (changed) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-500">
+          <AlertTriangle className="h-3 w-3" />
+          Identity changed
+        </span>
+      );
+    }
     if (method === 'manual') {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
@@ -75,7 +90,10 @@ const PeerRow = memo(
             Pinned {format(new Date(entry.verifiedAt), fullDateTime())}
           </span>
         </div>
-        <StatusBadge method={entry.verifiedMethod} />
+        <StatusBadge
+          method={entry.verifiedMethod}
+          changed={!!entry.acceptedChangeAt}
+        />
       </button>
     );
   }
@@ -181,7 +199,10 @@ const PeerDetail = memo(
           )}
           <div className="flex flex-col">
             <span className="font-semibold">{name}</span>
-            <StatusBadge method={entry.verifiedMethod} />
+            <StatusBadge
+          method={entry.verifiedMethod}
+          changed={!!entry.acceptedChangeAt}
+        />
           </div>
         </div>
 

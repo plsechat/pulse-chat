@@ -111,6 +111,40 @@ describe('SignalProtocolStore.verifiedIdentities — per-instance scoping', () =
     // the user re-confirms in person).
     expect(row?.verifiedMethod).toBe('tofu');
   });
+
+  test('acceptIdentityChange sets acceptedChangeAt warning marker', async () => {
+    const home = new SignalProtocolStore('test-home-6');
+    await home.markIdentityTofu(5, 'old-key');
+    const before = await home.getVerifiedIdentity(5);
+    expect(before?.acceptedChangeAt).toBeUndefined();
+
+    const t0 = Date.now();
+    await home.acceptIdentityChange(5, 'new-key');
+
+    const after = await home.getVerifiedIdentity(5);
+    expect(after?.acceptedChangeAt).toBeDefined();
+    expect(after?.acceptedChangeAt!).toBeGreaterThanOrEqual(t0);
+  });
+
+  test('markIdentityManual clears the acceptedChangeAt warning', async () => {
+    const home = new SignalProtocolStore('test-home-7');
+    await home.acceptIdentityChange(5, 'changed-key');
+    const afterAccept = await home.getVerifiedIdentity(5);
+    expect(afterAccept?.acceptedChangeAt).toBeDefined();
+
+    await home.markIdentityManual(5, 'changed-key');
+    const afterManual = await home.getVerifiedIdentity(5);
+    expect(afterManual?.verifiedMethod).toBe('manual');
+    expect(afterManual?.acceptedChangeAt).toBeUndefined();
+  });
+
+  test('markIdentityTofu (first-time pin) does not set acceptedChangeAt', async () => {
+    const home = new SignalProtocolStore('test-home-8');
+    await home.markIdentityTofu(5, 'first-key');
+    const row = await home.getVerifiedIdentity(5);
+    expect(row?.verifiedMethod).toBe('tofu');
+    expect(row?.acceptedChangeAt).toBeUndefined();
+  });
 });
 
 describe('getStoreForInstance — factory invariants', () => {
