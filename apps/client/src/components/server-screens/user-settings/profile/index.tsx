@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { useForm } from '@/hooks/use-form';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { AvatarManager } from './avatar-manager';
@@ -21,7 +21,7 @@ const Profile = memo(() => {
   });
 
   const onUpdateUser = useCallback(async () => {
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
 
     try {

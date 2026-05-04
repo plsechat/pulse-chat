@@ -3,7 +3,7 @@ import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
 import { decryptDmMessages } from '@/features/dms/actions';
 import { useUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
 import parse from 'html-react-parser';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,7 +21,7 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
 
   const fetchLatest = useCallback(async () => {
     if (!dmChannelId) return;
-    const trpc = getTRPCClient();
+    const trpc = getHomeTRPCClient();
     if (!trpc) return;
     try {
       const messages = await trpc.dms.getPinned.query({ dmChannelId });

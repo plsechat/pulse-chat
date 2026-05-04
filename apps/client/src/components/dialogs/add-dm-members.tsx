@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
 import { useFriends } from '@/features/friends/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Check, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -56,7 +56,7 @@ const AddDmMembersDialog = memo(
       if (selectedIds.length === 0 || adding) return;
       setAdding(true);
 
-      const trpc = getTRPCClient();
+      const trpc = getHomeTRPCClient();
       if (!trpc) {
         setAdding(false);
         return;
