@@ -14,7 +14,7 @@ import type {
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const STORES = {
   IDENTITY_KEY: 'identityKey',
@@ -33,7 +33,12 @@ const STORES = {
   CHAIN_STATE: 'chainState', // ${kind}:${scopeId}:${senderId}:${senderKeyId} → SerializedChain
   OWN_CHAIN_CURSOR: 'ownChainCursor', // ${kind}:${scopeId}:${senderId} → number (latest own senderKeyId)
   CHAIN_DISTRIBUTION: 'chainDistribution', // ${kind}:${scopeId}:${senderKeyId} → number[] (members SKDM'd)
-  DIRTY_CHAINS: 'dirtyChains' // ${kind}:${scopeId} → true (rotate-on-next-encrypt marker)
+  DIRTY_CHAINS: 'dirtyChains', // ${kind}:${scopeId} → true (rotate-on-next-encrypt marker)
+  // Phase C TOFU store. Keyed by `${userId}` → VerifiedIdentityRecord.
+  // Authoritative pinning state for `isTrustedIdentity`. Distinct from
+  // IDENTITIES (which mirrors whatever libsignal observed) — this one
+  // only changes via deliberate TOFU, manual verify, or accept-change.
+  VERIFIED_IDENTITIES: 'verifiedIdentities'
 } as const;
 
 const META_KEYS = {
@@ -46,6 +51,19 @@ type SerializedKeyPair = {
   pubKey: string;
   privKey: string;
 };
+
+export type VerifiedIdentityMethod = 'tofu' | 'manual';
+
+export type VerifiedIdentityRecord = {
+  /** Pinned identity public key, base64-encoded (matches IDENTITIES store format). */
+  identityPublicKey: string;
+  /** Unix ms when this identity was first pinned (TOFU) or manually verified. */
+  verifiedAt: number;
+  /** TOFU = silently pinned on first session; manual = user confirmed in-person. */
+  verifiedMethod: VerifiedIdentityMethod;
+};
+
+export type VerifiedIdentityEntry = VerifiedIdentityRecord & { userId: number };
 
 function serializeKeyPair(kp: KeyPairType): SerializedKeyPair {
   return {
@@ -100,14 +118,42 @@ export class SignalProtocolStore implements StorageType {
   }
 
   async isTrustedIdentity(
-    _identifier: string,
-    _identityKey: ArrayBuffer,
+    identifier: string,
+    identityKey: ArrayBuffer,
     _direction: Direction
   ): Promise<boolean> {
-    // Always trust — accept new and changed identities.
-    // saveIdentity() will store/update the key, and the Signal library
-    // handles session renegotiation via PreKeyWhisperMessages.
-    return true;
+    // Phase C TOFU. The libsignal address format is `${userId}.${deviceId}`.
+    // Anything we can't parse falls back to permissive trust so a
+    // malformed address can't break session establishment during an
+    // upgrade window. The TOFU path means: first observation pins
+    // silently; subsequent observations must match the pinned key.
+    const dot = identifier.indexOf('.');
+    const userIdStr = dot >= 0 ? identifier.slice(0, dot) : identifier;
+    const userId = Number(userIdStr);
+    if (!Number.isFinite(userId) || userId <= 0) return true;
+
+    const incomingB64 = arrayBufferToBase64(identityKey);
+    const verified = await this.getVerifiedIdentity(userId);
+
+    if (!verified) {
+      await this.markIdentityTofu(userId, incomingB64);
+      return true;
+    }
+
+    // Mismatch causes libsignal to throw, which the caller catches and
+    // surfaces via the identity-changed modal (Phase C4).
+    return verified.identityPublicKey === incomingB64;
+  }
+
+  /** Accept an identity change for `userId`: drop the old pin and
+   *  re-TOFU under the new key. Used by the user's explicit "Accept"
+   *  action in the identity-changed modal, and by the auto-accept
+   *  path that handles legitimate peer-broadcast resets. */
+  async acceptIdentityChange(
+    userId: number,
+    newIdentityPublicKey: string
+  ): Promise<void> {
+    await this.markIdentityTofu(userId, newIdentityPublicKey);
   }
 
   async saveIdentity(
@@ -538,6 +584,69 @@ export class SignalProtocolStore implements StorageType {
   async clearChainDirty(kind: ChainKind, scopeId: number): Promise<void> {
     const db = await this.getDb();
     await db.delete(STORES.DIRTY_CHAINS, `${kind}:${scopeId}`);
+  }
+
+  // --- Phase C TOFU / safety-number pinning ---
+
+  async getVerifiedIdentity(
+    userId: number
+  ): Promise<VerifiedIdentityRecord | undefined> {
+    const db = await this.getDb();
+    const v = await db.get(STORES.VERIFIED_IDENTITIES, String(userId));
+    return v as VerifiedIdentityRecord | undefined;
+  }
+
+  /** Pin a peer's identity key under TOFU. First time we observe this
+   *  peer's identity, we record it silently — no UI prompt. Subsequent
+   *  identity changes will fail `isTrustedIdentity` until the user
+   *  explicitly accepts via `acceptIdentityChange`. */
+  async markIdentityTofu(
+    userId: number,
+    identityPublicKey: string
+  ): Promise<void> {
+    const db = await this.getDb();
+    const record: VerifiedIdentityRecord = {
+      identityPublicKey,
+      verifiedAt: Date.now(),
+      verifiedMethod: 'tofu'
+    };
+    await db.put(STORES.VERIFIED_IDENTITIES, record, String(userId));
+  }
+
+  /** Mark a peer's identity as manually verified (e.g., the user
+   *  compared the safety number in person). Future identity changes
+   *  on a manually-verified peer should warn louder. */
+  async markIdentityManual(
+    userId: number,
+    identityPublicKey: string
+  ): Promise<void> {
+    const db = await this.getDb();
+    const record: VerifiedIdentityRecord = {
+      identityPublicKey,
+      verifiedAt: Date.now(),
+      verifiedMethod: 'manual'
+    };
+    await db.put(STORES.VERIFIED_IDENTITIES, record, String(userId));
+  }
+
+  async clearVerifiedIdentity(userId: number): Promise<void> {
+    const db = await this.getDb();
+    await db.delete(STORES.VERIFIED_IDENTITIES, String(userId));
+  }
+
+  /** All pinned identities in this store. Used by the Verify Identity
+   *  settings page to render the per-peer status list. */
+  async listVerifiedIdentities(): Promise<VerifiedIdentityEntry[]> {
+    const db = await this.getDb();
+    const tx = db.transaction(STORES.VERIFIED_IDENTITIES, 'readonly');
+    const store = tx.objectStore(STORES.VERIFIED_IDENTITIES);
+    const keys = await store.getAllKeys();
+    const values = (await store.getAll()) as VerifiedIdentityRecord[];
+    await tx.done;
+    return keys.map((key, i) => ({
+      userId: Number(key),
+      ...values[i]
+    }));
   }
 
   // --- META: per-store counters that must survive page reloads ---

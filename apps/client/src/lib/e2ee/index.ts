@@ -956,6 +956,32 @@ export async function handlePeerIdentityReset(
     return;
   }
 
+  // Phase C: peer just rotated their identity. Fetch their NEW
+  // identity public key and re-pin BEFORE we touch sessions, so the
+  // SKDM-distribute below — which triggers libsignal session
+  // re-establishment under the new identity — passes
+  // `isTrustedIdentity` instead of throwing on the old pin.
+  // Best-effort: a lookup failure leaves the modal path (C4) to
+  // handle the mismatch the next time a message goes through.
+  const trpc = getHomeTRPCClient();
+  if (trpc) {
+    try {
+      const newIdentityKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
+      if (newIdentityKey) {
+        await signalStore.acceptIdentityChange(userId, newIdentityKey);
+        const active = getActiveStore();
+        if (active !== signalStore) {
+          await active.acceptIdentityChange(userId, newIdentityKey);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[E2EE] Failed to refresh pinned identity for reset peer ${userId}:`,
+        err
+      );
+    }
+  }
+
   // Peer reset their keys — clear our stale session with them.
   // Always clear from the home store (DM sessions live there) AND the
   // active store (channel sender key sessions may live in a federated store).
@@ -969,7 +995,6 @@ export async function handlePeerIdentityReset(
   // Invalidate member cache in case the reset user's permissions changed
   invalidateChannelMembers();
 
-  const trpc = getHomeTRPCClient();
   const channelIds = trpc
     ? await trpc.e2ee.listMyE2eeChannelIds.query()
     : state.server.channels.filter((c) => c.e2ee).map((c) => c.id);

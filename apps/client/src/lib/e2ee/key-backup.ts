@@ -2,7 +2,7 @@ import { openDB } from 'idb';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 // All object stores at the current DB version — needed by the upgrade
 // callback so we open the database with the same shape `store.ts`
@@ -20,7 +20,8 @@ const ALL_STORES = [
   'chainState',
   'ownChainCursor',
   'chainDistribution',
-  'dirtyChains'
+  'dirtyChains',
+  'verifiedIdentities'
 ] as const;
 
 // Stores that actually flow through backup. Phase B chain stores
@@ -33,6 +34,11 @@ const ALL_STORES = [
 //      anyway — restored chains would be wiped immediately. Carrying
 //      them is wasted bytes.
 // Chains rebuild lazily on next message via SKDM exchange.
+//
+// Phase C `verifiedIdentities` IS backup-able (plain JSON: base64
+// strings + numbers + literal method tags) and SHOULD be — losing
+// manual-verified status on restore would silently downgrade peers
+// back to TOFU and miss legitimate identity-change warnings.
 const STORE_NAMES = [
   'identityKey',
   'registrationId',
@@ -42,12 +48,14 @@ const STORE_NAMES = [
   'identities',
   'senderKeys',
   'distributedMembers',
-  'meta'
+  'meta',
+  'verifiedIdentities'
 ] as const;
 
 // Required-store sets per backup-payload version. v1 predates
-// senderKeys; v2 predates meta; v3 is the current set (still
-// excludes Phase B chains by design — see STORE_NAMES comment).
+// senderKeys; v2 predates meta; v3 predates verifiedIdentities; v4
+// is the current set (still excludes Phase B chains by design —
+// see STORE_NAMES comment).
 const V1_STORE_NAMES = [
   'identityKey',
   'registrationId',
@@ -62,12 +70,18 @@ const V2_STORE_NAMES = [
   'senderKeys'
 ] as const;
 
+const V3_STORE_NAMES = [
+  ...V2_STORE_NAMES,
+  'distributedMembers',
+  'meta'
+] as const;
+
 export const PBKDF2_ITERATIONS = 600_000;
 
 export const BACKUP_STORE_NAMES = STORE_NAMES;
 
 export type BackupPayload = {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -123,7 +137,7 @@ export async function encryptBackupData(
   );
 
   return {
-    version: 3,
+    version: 4,
     salt: arrayBufferToBase64(salt.buffer),
     iv: arrayBufferToBase64(iv.buffer),
     ciphertext: arrayBufferToBase64(ciphertext)
@@ -134,7 +148,7 @@ export async function decryptBackupPayload(
   payload: BackupPayload,
   passphrase: string
 ): Promise<Record<string, unknown[]>> {
-  if (payload.version !== 1 && payload.version !== 2 && payload.version !== 3) {
+  if (payload.version !== 1 && payload.version !== 2 && payload.version !== 3 && payload.version !== 4) {
     throw new Error(`Unsupported backup version: ${payload.version}`);
   }
 
@@ -170,14 +184,17 @@ export async function decryptBackupPayload(
 
   // Validate only the stores that existed in this payload's version.
   // Stores added in later versions are simply absent — restore writes
-  // them as empty, which is correct (e.g. a v2 backup restored on v3
-  // gets empty meta/chain stores; both are rebuilt lazily).
+  // them as empty, which is correct (e.g. a v2 backup restored on v4
+  // gets empty meta/verifiedIdentities; both are rebuilt lazily as
+  // peers reconnect and re-pin via TOFU).
   const requiredStores =
     payload.version === 1
       ? V1_STORE_NAMES
       : payload.version === 2
         ? V2_STORE_NAMES
-        : STORE_NAMES;
+        : payload.version === 3
+          ? V3_STORE_NAMES
+          : STORE_NAMES;
   for (const storeName of requiredStores) {
     if (!Array.isArray(data[storeName])) {
       throw new Error(`Backup is missing store: ${storeName}`);
