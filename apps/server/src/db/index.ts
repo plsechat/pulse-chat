@@ -5,7 +5,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { DRIZZLE_PATH } from '../helpers/paths';
 import { seedDatabase } from './seed';
-import { users } from './schema';
+import { channels, users } from './schema';
 
 let db: PostgresJsDatabase;
 
@@ -42,6 +42,22 @@ const loadDb = async () => {
       .update(users)
       .set({ publicId: randomUUIDv7() })
       .where(eq(users.id, user.id));
+  }
+
+  // Backfill publicId for existing channels that don't have one.
+  // Phase E / E1 — channels need a federation-spanning identifier so
+  // cross-instance SKDM addressing can reference the right channel
+  // without leaking host-local integer ids.
+  const channelsWithoutPublicId = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(isNull(channels.publicId));
+
+  for (const channel of channelsWithoutPublicId) {
+    await db
+      .update(channels)
+      .set({ publicId: randomUUIDv7() })
+      .where(eq(channels.id, channel.id));
   }
 };
 

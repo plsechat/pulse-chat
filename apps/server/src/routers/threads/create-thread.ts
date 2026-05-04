@@ -68,6 +68,7 @@ const createThreadRoute = protectedProcedure
           parentChannelId: parentChannel.id,
           archived: false,
           autoArchiveDuration: 1440,
+          publicId: randomUUIDv7(),
           createdAt: now
         })
         .returning();
