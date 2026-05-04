@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelsForUser } from '../../db/queries/dms';
 import { dmChannelMembers, dmChannels, friendships } from '../../db/schema';
+import {
+  announceFederatedGroupCreate,
+  assignFederationGroupIdIfNeeded
+} from '../../utils/federation-dm-group-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -76,6 +80,17 @@ const createGroupRoute = protectedProcedure
         name: channel!.name,
         iconFileId: null
       });
+    }
+
+    // Phase D / D2 — if any member is federated, assign a
+    // federationGroupId and announce the group to every involved
+    // peer instance so each builds a local mirror channel keyed by
+    // that ID. Best-effort; a failed peer announcement leaves the
+    // local group functional and the peer can still receive
+    // messages once they catch up via re-announce on next message.
+    const federationGroupId = await assignFederationGroupIdIfNeeded(channel!.id);
+    if (federationGroupId) {
+      void announceFederatedGroupCreate(channel!.id, ctx.userId);
     }
 
     const channels = await getDmChannelsForUser(ctx.userId);
