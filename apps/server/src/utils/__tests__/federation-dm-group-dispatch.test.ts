@@ -11,9 +11,16 @@
  *   - `buildFederatedMemberList` — returns the wire-shape member
  *     list with correct local-vs-federated domain attribution and
  *     a complete set of peer domains.
+ *
+ * Setup is done inside each test rather than in beforeEach. Following
+ * the federation-membership.test.ts pattern: avoids piling rows onto
+ * the shared CI postgres in a beforeEach hook that competes with
+ * other test files' TRUNCATE in setup.ts and triggers cross-file
+ * deadlock timeouts (see pulse-build-bun-stale-symlinks +
+ * federation-rate-limit notes for the same class of issue).
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import {
@@ -22,7 +29,6 @@ import {
   federationInstances,
   users
 } from '../../db/schema';
-import { initTest } from '../../__tests__/helpers';
 import { config } from '../../config';
 import {
   assignFederationGroupIdIfNeeded,
@@ -32,15 +38,11 @@ import {
 const PEER_DOMAIN_A = 'peer-a.example';
 const PEER_DOMAIN_B = 'peer-b.example';
 
-let federatedInstanceAId: number;
-let federatedInstanceBId: number;
-let localUserId: number;
-let federatedUserAId: number;
-let federatedUserBId: number;
-
-beforeEach(async () => {
-  await initTest();
-
+/**
+ * Seed two federation peers and two shadow users, returning their
+ * ids. Local user 1 is provided by the global seed.ts setup.
+ */
+async function seedFederatedScenario() {
   const [instA] = await db
     .insert(federationInstances)
     .values({
@@ -51,7 +53,6 @@ beforeEach(async () => {
       createdAt: Date.now()
     })
     .returning();
-  federatedInstanceAId = instA!.id;
 
   const [instB] = await db
     .insert(federationInstances)
@@ -63,11 +64,6 @@ beforeEach(async () => {
       createdAt: Date.now()
     })
     .returning();
-  federatedInstanceBId = instB!.id;
-
-  // initTest seeded user 1 (test owner). We add another local user
-  // and two federated shadow users.
-  localUserId = 1;
 
   const [fedA] = await db
     .insert(users)
@@ -76,12 +72,11 @@ beforeEach(async () => {
       name: 'fedAlice',
       publicId: 'fed-a-public',
       isFederated: true,
-      federatedInstanceId: federatedInstanceAId,
+      federatedInstanceId: instA!.id,
       federatedPublicId: 'remote-a-pid',
       createdAt: Date.now()
     })
     .returning();
-  federatedUserAId = fedA!.id;
 
   const [fedB] = await db
     .insert(users)
@@ -90,18 +85,20 @@ beforeEach(async () => {
       name: 'fedBob',
       publicId: 'fed-b-public',
       isFederated: true,
-      federatedInstanceId: federatedInstanceBId,
+      federatedInstanceId: instB!.id,
       federatedPublicId: 'remote-b-pid',
       createdAt: Date.now()
     })
     .returning();
-  federatedUserBId = fedB!.id;
-});
 
-afterEach(() => {
-  // initTest's beforeEach truncates everything before the next test;
-  // nothing to do here.
-});
+  return {
+    localUserId: 1,
+    federatedUserAId: fedA!.id,
+    federatedUserBId: fedB!.id,
+    instAId: instA!.id,
+    instBId: instB!.id
+  };
+}
 
 async function createChannel(args: {
   isGroup: boolean;
@@ -128,6 +125,7 @@ async function createChannel(args: {
 
 describe('assignFederationGroupIdIfNeeded', () => {
   test('returns null for a same-instance group', async () => {
+    const { localUserId } = await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: true,
       memberIds: [localUserId]
@@ -144,6 +142,7 @@ describe('assignFederationGroupIdIfNeeded', () => {
   test('returns null for a 1:1 channel even with a federated member', async () => {
     // 1:1 channels never get a federationGroupId — Phase D / D2 only
     // applies to groups (the column is null for 1:1s by design).
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: false,
       memberIds: [localUserId, federatedUserAId]
@@ -153,6 +152,7 @@ describe('assignFederationGroupIdIfNeeded', () => {
   });
 
   test('assigns a UUID when a group includes any federated member', async () => {
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: true,
       memberIds: [localUserId, federatedUserAId]
@@ -171,6 +171,7 @@ describe('assignFederationGroupIdIfNeeded', () => {
   });
 
   test('is idempotent — a second call returns the same value', async () => {
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: true,
       memberIds: [localUserId, federatedUserAId]
@@ -183,6 +184,8 @@ describe('assignFederationGroupIdIfNeeded', () => {
 
 describe('buildFederatedMemberList', () => {
   test('attributes local users to our domain and federated users to their home', async () => {
+    const { localUserId, federatedUserAId, federatedUserBId } =
+      await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: true,
       memberIds: [localUserId, federatedUserAId, federatedUserBId]
@@ -213,6 +216,7 @@ describe('buildFederatedMemberList', () => {
     // and `federatedPublicId` (the user's id at their home). The
     // wire-shape member descriptor has to use the federated one so
     // peers can match.
+    const { federatedUserAId } = await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: true,
       memberIds: [federatedUserAId]
@@ -224,6 +228,7 @@ describe('buildFederatedMemberList', () => {
   });
 
   test('peerDomains is empty for an all-local group', async () => {
+    const { localUserId } = await seedFederatedScenario();
     const channelId = await createChannel({
       isGroup: true,
       memberIds: [localUserId]
