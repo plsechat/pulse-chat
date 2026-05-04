@@ -24,7 +24,7 @@
  */
 
 import { ServerEvents } from '@pulse/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
 import {
@@ -539,9 +539,112 @@ const federationDmSenderKeyHandler = async (
   return signedJsonResponse(res, 200, { success: true }, fromDomain);
 };
 
+// POST /federation/identity-rotation-broadcast — receiver routes the
+// rotation to local users who share an active DM with the rotating
+// (federated) user. Phase D / D3.
+//
+// Reuses the same `E2EE_IDENTITY_RESET` event the same-instance
+// rotation uses, so the existing Phase C client handler picks it up
+// without changes. The new identity key is embedded in the payload
+// so the client doesn't have to round-trip back through federation
+// to fetch the bundle just to learn the new key.
+const federationIdentityRotationHandler = async (
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+) => {
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
+
+  const fromPublicId = signedBody.fromPublicId as string;
+  const newIdentityPublicKey = signedBody.newIdentityPublicKey as string;
+
+  if (!fromPublicId || !newIdentityPublicKey) {
+    return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+
+  // Find the shadow record we keep for this remote user. If we don't
+  // have one, the user has never DM'd anyone here and there's no one
+  // to notify — silent no-op.
+  const [shadow] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        eq(users.federatedInstanceId, instance.id),
+        eq(users.federatedPublicId, fromPublicId)
+      )
+    )
+    .limit(1);
+
+  if (!shadow) {
+    return signedJsonResponse(
+      res,
+      200,
+      { skipped: 'no shadow user' },
+      fromDomain
+    );
+  }
+
+  // Find every local user that shares a DM channel with the shadow
+  // user. They're the only ones whose verifiedIdentities pin needs
+  // to update.
+  const sharedChannels = await db
+    .select({ dmChannelId: dmChannelMembers.dmChannelId })
+    .from(dmChannelMembers)
+    .where(eq(dmChannelMembers.userId, shadow.id));
+
+  if (sharedChannels.length === 0) {
+    return signedJsonResponse(
+      res,
+      200,
+      { skipped: 'no shared channels' },
+      fromDomain
+    );
+  }
+
+  const channelIds = sharedChannels.map((c) => c.dmChannelId);
+  const localMemberRows = await db
+    .selectDistinct({ userId: dmChannelMembers.userId })
+    .from(dmChannelMembers)
+    .innerJoin(users, eq(users.id, dmChannelMembers.userId))
+    .where(
+      and(
+        inArray(dmChannelMembers.dmChannelId, channelIds),
+        eq(users.isFederated, false)
+      )
+    );
+
+  if (localMemberRows.length === 0) {
+    return signedJsonResponse(
+      res,
+      200,
+      { skipped: 'no local recipients' },
+      fromDomain
+    );
+  }
+
+  pubsub.publishFor(
+    localMemberRows.map((r) => r.userId),
+    ServerEvents.E2EE_IDENTITY_RESET,
+    {
+      userId: shadow.id,
+      newIdentityPublicKey
+    }
+  );
+
+  return signedJsonResponse(
+    res,
+    200,
+    { notified: localMemberRows.length },
+    fromDomain
+  );
+};
+
 export {
   federationDmGroupAddMemberHandler,
   federationDmGroupCreateHandler,
   federationDmGroupRemoveMemberHandler,
-  federationDmSenderKeyHandler
+  federationDmSenderKeyHandler,
+  federationIdentityRotationHandler
 };

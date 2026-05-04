@@ -1034,7 +1034,12 @@ export function setLocalResetFlag(value: boolean): void {
  *   for all E2EE channels.
  */
 export async function handlePeerIdentityReset(
-  userId: number
+  userId: number,
+  // Phase D / D3 — federated rotations carry the new identity key
+  // in the broadcast payload so the client doesn't have to round-
+  // trip back through federation. Same-instance rotations leave
+  // this undefined and the existing fetch path runs.
+  newIdentityPublicKeyFromBroadcast?: string
 ): Promise<void> {
   const { store: reduxStore } = await import('@/features/store');
   const state = reduxStore.getState();
@@ -1048,27 +1053,37 @@ export async function handlePeerIdentityReset(
     return;
   }
 
-  // Phase C: peer just rotated their identity. Fetch their NEW
-  // identity public key and re-pin BEFORE we touch sessions, so the
-  // SKDM-distribute below — which triggers libsignal session
-  // re-establishment under the new identity — passes
+  // Phase C: peer just rotated their identity. Re-pin BEFORE we touch
+  // sessions, so the SKDM-distribute below — which triggers libsignal
+  // session re-establishment under the new identity — passes
   // `isTrustedIdentity` instead of throwing on the old pin.
-  // Best-effort: a lookup failure leaves the modal path (C4) to
-  // handle the mismatch the next time a message goes through.
+  //
+  // Phase D / D3: prefer the key embedded in the broadcast payload
+  // (federated case). Fall back to the same-instance lookup when
+  // missing. A lookup failure leaves the modal path (C4) to handle
+  // the mismatch the next time a message goes through.
   const trpc = getHomeTRPCClient();
-  if (trpc) {
+  let newIdentityKey: string | null = newIdentityPublicKeyFromBroadcast ?? null;
+  if (!newIdentityKey && trpc) {
     try {
-      const newIdentityKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
-      if (newIdentityKey) {
-        await signalStore.acceptIdentityChange(userId, newIdentityKey);
-        const active = getActiveStore();
-        if (active !== signalStore) {
-          await active.acceptIdentityChange(userId, newIdentityKey);
-        }
-      }
+      newIdentityKey = await trpc.e2ee.getIdentityPublicKey.query({ userId });
     } catch (err) {
       console.warn(
         `[E2EE] Failed to refresh pinned identity for reset peer ${userId}:`,
+        err
+      );
+    }
+  }
+  if (newIdentityKey) {
+    try {
+      await signalStore.acceptIdentityChange(userId, newIdentityKey);
+      const active = getActiveStore();
+      if (active !== signalStore) {
+        await active.acceptIdentityChange(userId, newIdentityKey);
+      }
+    } catch (err) {
+      console.warn(
+        `[E2EE] Failed to apply new pinned identity for reset peer ${userId}:`,
         err
       );
     }

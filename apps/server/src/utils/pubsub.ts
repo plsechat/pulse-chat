@@ -213,6 +213,12 @@ type Events = {
 
   [ServerEvents.E2EE_IDENTITY_RESET]: {
     userId: number;
+    // Phase D / D3 — only set on federated rotations. The receiving
+    // client uses this directly so it doesn't have to round-trip
+    // back through federation just to learn the new key. Same-
+    // instance rotations leave this undefined and the existing
+    // Phase C client handler re-fetches via getIdentityPublicKey.
+    newIdentityPublicKey?: string;
   };
 
   [ServerEvents.DM_SENDER_KEY_DISTRIBUTION]: {

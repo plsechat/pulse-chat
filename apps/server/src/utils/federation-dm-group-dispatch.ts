@@ -397,12 +397,112 @@ async function getFederationGroupId(
   return row?.federationGroupId ?? null;
 }
 
+/**
+ * Phase D / D3 — find every active federated peer instance whose
+ * users share a DM channel with the rotating user. One entry per
+ * unique peer domain, regardless of how many of their users we DM.
+ *
+ * Scope: federated DM peers only. Federated channel members aren't
+ * enumerated — channel rotation propagation is part of the wider
+ * federation v3 work and tracked separately.
+ *
+ * Pulled out from `relayFederatedIdentityRotation` so tests can
+ * exercise the enumeration without going through the network layer.
+ */
+async function enumerateRotationPeers(
+  rotatingUserId: number
+): Promise<string[]> {
+  const peerRows = await db
+    .selectDistinct({
+      instanceId: users.federatedInstanceId
+    })
+    .from(dmChannelMembers)
+    .innerJoin(users, eq(users.id, dmChannelMembers.userId))
+    .where(
+      and(
+        eq(users.isFederated, true),
+        inArray(
+          dmChannelMembers.dmChannelId,
+          db
+            .select({ id: dmChannelMembers.dmChannelId })
+            .from(dmChannelMembers)
+            .where(eq(dmChannelMembers.userId, rotatingUserId))
+        )
+      )
+    );
+
+  const instanceIds = peerRows
+    .map((r) => r.instanceId)
+    .filter((id): id is number => id !== null);
+
+  if (instanceIds.length === 0) return [];
+
+  const peerInstances = await db
+    .select({
+      domain: federationInstances.domain,
+      status: federationInstances.status
+    })
+    .from(federationInstances)
+    .where(inArray(federationInstances.id, instanceIds));
+
+  return peerInstances
+    .filter((p) => p.status === 'active')
+    .map((p) => p.domain);
+}
+
+/**
+ * Phase D / D3 — broadcast an identity-rotation event to every
+ * federated peer instance the user has actively DM'd. Each peer
+ * routes the broadcast to its own local users that share a DM with
+ * the rotating user.
+ *
+ * Best-effort: a failed peer is logged and skipped.
+ */
+async function relayFederatedIdentityRotation(args: {
+  rotatingUserId: number;
+  newIdentityPublicKey: string;
+}): Promise<void> {
+  const activePeerDomains = await enumerateRotationPeers(args.rotatingUserId);
+  if (activePeerDomains.length === 0) return;
+
+  // Resolve our publicId for the rotating user — peers identify them
+  // by that.
+  const [rotating] = await db
+    .select({ publicId: users.publicId })
+    .from(users)
+    .where(eq(users.id, args.rotatingUserId))
+    .limit(1);
+
+  if (!rotating?.publicId) {
+    logger.warn(
+      '[relayFederatedIdentityRotation] user %s has no publicId — skipping federation broadcast',
+      args.rotatingUserId
+    );
+    return;
+  }
+
+  for (const peerDomain of activePeerDomains) {
+    relayToInstance(peerDomain, '/federation/identity-rotation-broadcast', {
+      fromPublicId: rotating.publicId,
+      newIdentityPublicKey: args.newIdentityPublicKey
+    }).catch((err) =>
+      logger.error(
+        '[relayFederatedIdentityRotation] relay to %s failed: %o',
+        peerDomain,
+        err
+      )
+    );
+  }
+}
+
 export {
   announceFederatedGroupAddMember,
   announceFederatedGroupCreate,
   announceFederatedGroupRemoveMember,
   assignFederationGroupIdIfNeeded,
   buildFederatedMemberList,
+  enumerateRotationPeers,
   getFederationGroupId,
+  relayFederatedIdentityRotation,
   relayFederatedSkdm
 };
