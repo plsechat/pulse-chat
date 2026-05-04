@@ -509,13 +509,14 @@ async function ensureSession(
     : await trpc.e2ee.getPreKeyBundle.query({ userId });
 
   if (!bundle) {
-    // Decision 2: hard fail. Caller surfaces this as a clear
-    // "encrypted DM unavailable" failure rather than silently
-    // falling through to plaintext.
+    // Decision 2: hard fail. The thrown message is user-facing —
+    // it surfaces verbatim through `getTrpcError` into the
+    // composer's toast on a failed send. Don't include internal
+    // userIds; do say what failed and (when federated) why.
     throw new Error(
       federated
-        ? `Cannot fetch pre-key bundle for federated user ${userId} — peer instance unreachable or has no bundle`
-        : `User ${userId} has no E2EE keys registered`
+        ? "Encrypted DM unavailable — the recipient's instance is unreachable or hasn't published encryption keys."
+        : "Encrypted DM unavailable — the recipient hasn't set up encryption yet."
     );
   }
 

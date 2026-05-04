@@ -9,6 +9,7 @@ import {
 } from '@/lib/e2ee/safety-number';
 import {
   getStoreForInstance,
+  signalStore,
   type SignalProtocolStore,
   type VerifiedIdentityEntry
 } from '@/lib/e2ee/store';
@@ -258,27 +259,56 @@ type TVerifyIdentityProps = {
 
 const VerifyIdentity = memo(({ initialPeerId }: TVerifyIdentityProps) => {
   const activeDomain = useSelector(activeInstanceDomainSelector);
-  const store = useMemo(
+  // Phase D / D4 — DM peer pins live in the HOME store regardless of
+  // which server you're browsing (Phase D / D2 store-scoping rule).
+  // Federated channel-member pins live in the per-instance store for
+  // that server. Surface entries from BOTH so a user can find any pin
+  // here without having to switch back to the home server first.
+  // We also remember which store an entry came from so the detail
+  // view writes back to the right place.
+  const activeStore = useMemo(
     () => getStoreForInstance(activeDomain),
     [activeDomain]
   );
   const [entries, setEntries] = useState<VerifiedIdentityEntry[] | null>(
     null
   );
+  const [storeByUserId, setStoreByUserId] = useState<
+    Map<number, SignalProtocolStore>
+  >(new Map());
   const [selectedUserId, setSelectedUserId] = useState<number | null>(
     initialPeerId ?? null
   );
 
   const refresh = useCallback(async () => {
     try {
-      const list = await store.listVerifiedIdentities();
-      list.sort((a, b) => b.verifiedAt - a.verifiedAt);
-      setEntries(list);
+      const homeList = await signalStore.listVerifiedIdentities();
+      const ownership = new Map<number, SignalProtocolStore>();
+      for (const e of homeList) ownership.set(e.userId, signalStore);
+
+      // When viewing a federated server, layer that server's
+      // channel-member pins on top of the home list. Home store wins
+      // ties (DM pins are authoritative for any user that's both a
+      // DM peer and a federated server member — rare but possible).
+      const merged: VerifiedIdentityEntry[] = [...homeList];
+      if (activeStore !== signalStore) {
+        const activeList = await activeStore.listVerifiedIdentities();
+        for (const e of activeList) {
+          if (ownership.has(e.userId)) continue;
+          ownership.set(e.userId, activeStore);
+          merged.push(e);
+        }
+      }
+
+      merged.sort((a, b) => b.verifiedAt - a.verifiedAt);
+      setEntries(merged);
+      setStoreByUserId(ownership);
     } catch (err) {
       console.error(err);
       setEntries([]);
+      setStoreByUserId(new Map());
     }
-  }, [store]);
+  }, [activeStore]);
 
   useEffect(() => {
     refresh();
@@ -293,10 +323,12 @@ const VerifyIdentity = memo(({ initialPeerId }: TVerifyIdentityProps) => {
   );
 
   if (selectedEntry) {
+    const detailStore =
+      storeByUserId.get(selectedEntry.userId) ?? signalStore;
     return (
       <PeerDetail
         entry={selectedEntry}
-        store={store}
+        store={detailStore}
         onBack={() => setSelectedUserId(null)}
         onChanged={refresh}
       />
