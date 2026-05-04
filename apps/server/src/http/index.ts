@@ -22,7 +22,8 @@ import {
   federationDmGroupAddMemberHandler,
   federationDmGroupCreateHandler,
   federationDmGroupRemoveMemberHandler,
-  federationDmSenderKeyHandler
+  federationDmSenderKeyHandler,
+  federationIdentityRotationHandler
 } from './federation-dm-group';
 import { healthRouteHandler } from './healthz';
 import { infoRouteHandler } from './info';
@@ -155,6 +156,11 @@ const createHttpServer = async (port: number = config.server.port) => {
           if (req.method === 'POST' && req.url === '/federation/dm-sender-key') {
             if (!checkRateLimit(req, res, federationRateLimit)) return;
             return await federationDmSenderKeyHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/identity-rotation-broadcast') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationIdentityRotationHandler(req, res);
           }
 
           if (req.method === 'POST' && req.url === '/federation/report-user') {

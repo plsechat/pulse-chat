@@ -32,7 +32,8 @@ import {
 import { config } from '../../config';
 import {
   assignFederationGroupIdIfNeeded,
-  buildFederatedMemberList
+  buildFederatedMemberList,
+  enumerateRotationPeers
 } from '../federation-dm-group-dispatch';
 
 const PEER_DOMAIN_A = 'peer-a.example';
@@ -235,5 +236,100 @@ describe('buildFederatedMemberList', () => {
     });
     const { peerDomains } = await buildFederatedMemberList(channelId);
     expect(peerDomains.size).toBe(0);
+  });
+});
+
+describe('enumerateRotationPeers (D3)', () => {
+  test('returns empty when the user has no federated DM peers', async () => {
+    const { localUserId } = await seedFederatedScenario();
+    // Local-only DM channel — no federated peers.
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId]
+    });
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers).toEqual([]);
+  });
+
+  test('returns the federated peer domain for a 1:1 federated DM', async () => {
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, federatedUserAId]
+    });
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers).toEqual([PEER_DOMAIN_A]);
+  });
+
+  test('dedupes by peer domain across multiple channels', async () => {
+    // Two separate channels with two different federated users on the
+    // SAME peer domain. The rotation broadcast should hit that peer
+    // exactly once, not once per shared user.
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
+
+    // Add a second federated user on PEER_DOMAIN_A by using the same
+    // federationInstanceId. We need its id, so query.
+    const [instA] = await db
+      .select({ id: federationInstances.id })
+      .from(federationInstances)
+      .where(eq(federationInstances.domain, PEER_DOMAIN_A))
+      .limit(1);
+    const [secondPeerOnA] = await db
+      .insert(users)
+      .values({
+        supabaseId: 'fed-a2-uuid',
+        name: 'fedAlice2',
+        publicId: 'fed-a2-public',
+        isFederated: true,
+        federatedInstanceId: instA!.id,
+        federatedPublicId: 'remote-a2-pid',
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, federatedUserAId]
+    });
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, secondPeerOnA!.id]
+    });
+
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers).toHaveLength(1);
+    expect(peers[0]).toBe(PEER_DOMAIN_A);
+  });
+
+  test('returns multiple distinct domains when DMs span multiple peers', async () => {
+    const { localUserId, federatedUserAId, federatedUserBId } =
+      await seedFederatedScenario();
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, federatedUserAId]
+    });
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, federatedUserBId]
+    });
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers.sort()).toEqual([PEER_DOMAIN_A, PEER_DOMAIN_B].sort());
+  });
+
+  test('skips inactive peers', async () => {
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, federatedUserAId]
+    });
+    // Mark peer A's instance as 'pending' — the broadcast must not
+    // target peers that aren't currently active.
+    await db
+      .update(federationInstances)
+      .set({ status: 'pending' })
+      .where(eq(federationInstances.domain, PEER_DOMAIN_A));
+
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers).toEqual([]);
   });
 });

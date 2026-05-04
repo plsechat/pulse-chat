@@ -315,6 +315,40 @@ export const _challengeInternals = {
   CHALLENGE_TTL_MS
 };
 
+/**
+ * Test-only: sign a payload claiming to be from `issuerDomain` using
+ * an arbitrary private JWK. Production code uses `signChallenge`,
+ * which is hard-wired to this instance's identity (iss = our domain,
+ * private key = our key). Tests use this helper to fabricate signed
+ * federation requests AS IF they came from a peer — required to
+ * exercise the inbound federation HTTP handlers without spinning up
+ * a second test instance.
+ *
+ * The receiver's `verifyChallenge` will accept the signature when:
+ *   - the federation_instances row for `issuerDomain` has its
+ *     `publicKey` field set to the matching public JWK (test seeds
+ *     this), AND
+ *   - `audienceDomain` matches the receiver's local domain.
+ */
+export async function _signChallengeAs(
+  payload: unknown,
+  issuerDomain: string,
+  audienceDomain: string,
+  privateKeyJwk: JWK
+): Promise<string> {
+  const privateKey = await importJWK(privateKeyJwk, 'EdDSA');
+  const sha256 = await payloadDigest(payload);
+
+  return new SignJWT({ sha256 })
+    .setProtectedHeader({ alg: 'EdDSA' })
+    .setIssuer(issuerDomain)
+    .setAudience(audienceDomain)
+    .setJti(randomUUIDv7())
+    .setIssuedAt()
+    .setExpirationTime(CHALLENGE_TTL)
+    .sign(privateKey);
+}
+
 // ─── Phase D / D0 — signed federation responses ──────────────────────────
 //
 // `signChallenge` / `verifyChallenge` above protect REQUESTS (sender ⇒

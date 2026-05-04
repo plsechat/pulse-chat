@@ -191,7 +191,14 @@ const useScrollController = ({
     }
   }, [fetching, messages.length, scrollToBottom, channelId, checkIsAtBottom]);
 
-  // auto-scroll on new messages if user is near bottom
+  // auto-scroll on new messages if user is near bottom.
+  // Depend on `messages.length`, NOT the whole `messages` array ref —
+  // reactions, edits, and pin toggles mutate an existing message in
+  // place, which still emits a new array ref through Redux Toolkit.
+  // Keying on length ignores those in-place updates so reacting to an
+  // older message while scrolled up doesn't snap the view to the bottom.
+  // Real triggers (a new message arrives, a message is deleted) change
+  // length and still drive the auto-follow behavior.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !hasInitialScroll.current || messages.length === 0)
@@ -203,7 +210,7 @@ const useScrollController = ({
         scrollToBottom();
       }, 10);
     }
-  }, [messages, scrollToBottom, checkIsAtBottom]);
+  }, [messages.length, scrollToBottom, checkIsAtBottom]);
 
   return {
     containerRef,
