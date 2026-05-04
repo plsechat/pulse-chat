@@ -1,23 +1,28 @@
 /**
- * Own-message plaintext cache for sender-key chains.
+ * Plaintext cache for sender-key encrypted messages — both own
+ * outbound (captured at encrypt time) and inbound (persisted after a
+ * successful chain decrypt).
  *
- * Phase B's SenderKeyChain advances chainKey + iteration on every
- * encrypt, so we cannot self-decrypt our own messages — by the time
- * the subscription echo arrives, the chain has moved past the
- * iteration we sent. This cache lets the decrypt path return our
- * plaintext directly without touching the chain.
+ * Phase B's SenderKeyChain is forward-secret: the chain advances on
+ * every encrypt and decrypt, so a previously-decrypted message can't
+ * be decrypted again later. Without this cache, every history
+ * re-fetch (page reload, navigation back, etc.) would re-throw
+ * `replay or expired skip` for messages whose chain state has moved
+ * past their iteration.
  *
  * Two-tier:
- *   - In-memory `Map<ciphertext, plaintext>` for the live-session echo
- *     window. Bounded LRU.
- *   - IDB `Map<messageId, plaintext>` for reload survival. Populated
- *     by the consumer once it has the server-assigned messageId.
+ *   - In-memory `Map<ciphertext, plaintext>` populated by encrypt;
+ *     enables the subscription echo to self-decrypt without round-
+ *     tripping IDB. Bounded LRU at 1000 entries.
+ *   - IDB `Map<messageId, plaintext>` populated by both encrypt
+ *     (after the consumer learns messageId from the server response)
+ *     and by the decrypt path (on every successful chain decrypt).
+ *     Reload-survival; key is the server-assigned messageId.
  *
  * Pairwise DM 1:1 messages have their own cache in
  * `features/dms/plaintext-cache.ts` — that one's keyed by messageId
  * via the ratchet-consume model. This module is for sender-key
- * scoped (channel + group DM) plaintexts where we have ciphertext at
- * encrypt time but no messageId yet.
+ * scoped (channel + group DM) plaintexts.
  */
 
 import { openDB, type IDBPDatabase } from 'idb';

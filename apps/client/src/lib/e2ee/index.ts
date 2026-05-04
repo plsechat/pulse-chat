@@ -26,6 +26,23 @@ import {
 } from './own-plaintext-cache';
 import type { ChainKind, SenderKeyDistribution } from './sender-key-chain';
 import { decodeWire } from './sender-key-chain';
+
+/**
+ * Phase B sender-key wire = base64(version 0x02 || senderKeyId || iter
+ * || iv || ct || sig). Pairwise libsignal envelope is JSON
+ * `{type,body}`. Detecting which we have lets the receive path
+ * dispatch correctly even after a group→1:1 demotion (where current
+ * channel state says "1:1" but historical messages were encrypted
+ * under a sender-key chain).
+ */
+export function isSenderKeyWire(content: string): boolean {
+  try {
+    decodeWire(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
 import {
   buildSession,
   decryptMessage,
@@ -869,29 +886,37 @@ export async function decryptChannelMessage(
     }
   }
 
+  let plaintext: string;
   try {
-    const plaintext = await decryptChannelWithChain(
+    plaintext = await decryptChannelWithChain(
       channelId,
       fromUserId,
       encryptedContent,
       store
     );
-    return JSON.parse(plaintext) as E2EEPlaintext;
   } catch (err) {
     if (err instanceof MissingChainError) {
       // One last fetch attempt before giving up — the SKDM might
       // have arrived after the bounded-retry loop above ended.
       await fetchAndProcessPendingSenderKeys(channelId);
-      const plaintext = await decryptChannelWithChain(
+      plaintext = await decryptChannelWithChain(
         channelId,
         fromUserId,
         encryptedContent,
         store
       );
-      return JSON.parse(plaintext) as E2EEPlaintext;
+    } else {
+      throw err;
     }
-    throw err;
   }
+  // Persist the plaintext keyed by messageId so future re-fetches
+  // (history reload, navigation back, pagination) hit cache instead
+  // of touching the chain. The chain advances on every decrypt and
+  // can't re-derive a previously-decrypted iteration.
+  if (messageId !== undefined) {
+    void persistOwnPlaintextById(messageId, plaintext);
+  }
+  return JSON.parse(plaintext) as E2EEPlaintext;
 }
 
 // --- Key Reset Handling ---
@@ -1165,25 +1190,32 @@ export async function decryptDmGroupMessage(
     }
   }
 
+  let plaintext: string;
   try {
-    const plaintext = await decryptDmGroupWithChain(
+    plaintext = await decryptDmGroupWithChain(
       dmChannelId,
       fromUserId,
       encryptedContent
     );
-    return JSON.parse(plaintext) as E2EEPlaintext;
   } catch (err) {
     if (err instanceof MissingDmChainError) {
       await fetchAndProcessPendingDmSenderKeys(dmChannelId);
-      const plaintext = await decryptDmGroupWithChain(
+      plaintext = await decryptDmGroupWithChain(
         dmChannelId,
         fromUserId,
         encryptedContent
       );
-      return JSON.parse(plaintext) as E2EEPlaintext;
+    } else {
+      throw err;
     }
-    throw err;
   }
+  // Persist the plaintext keyed by messageId — sender-key chains
+  // advance on decrypt, so subsequent re-fetches of the same wire
+  // would throw "replay" without this cache.
+  if (messageId !== undefined) {
+    void persistOwnPlaintextById(messageId, plaintext);
+  }
+  return JSON.parse(plaintext) as E2EEPlaintext;
 }
 
 /**

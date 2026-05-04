@@ -4,6 +4,7 @@ import {
   encryptDmGroupMessage,
   encryptDmMessage,
   ensureDmGroupSenderKey,
+  isSenderKeyWire,
   rotateDmGroupSenderKey
 } from '@/lib/e2ee';
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
@@ -307,8 +308,7 @@ type TReplyToShape = {
  */
 async function decryptReplyToInPlace<R extends TReplyToShape>(
   replyTo: R,
-  dmChannelId: number,
-  isGroup: boolean
+  dmChannelId: number
 ): Promise<R> {
   if (!replyTo.e2ee || !replyTo.content) return replyTo;
 
@@ -317,7 +317,11 @@ async function decryptReplyToInPlace<R extends TReplyToShape>(
     return { ...replyTo, content: cached.content };
   }
 
-  if (isGroup) {
+  // Dispatch on wire format, NOT on current channel.isGroup state.
+  // After a group→1:1 demotion the channel still holds messages
+  // encrypted under sender-key chains; current state would route
+  // them down the pairwise path and they'd fail to decrypt.
+  if (isSenderKeyWire(replyTo.content)) {
     try {
       const payload = await decryptDmGroupMessage(
         dmChannelId,
@@ -345,28 +349,26 @@ export async function decryptDmMessageInPlace<
     replyTo?: TReplyToShape | null;
   }
 >(message: T): Promise<T> {
-  const state = store.getState();
-  const channel = state.dms.channels.find((c) => c.id === message.dmChannelId);
-  const isGroup = (channel?.members.length ?? 0) > 2;
-
   // Decrypt the reply-preview ciphertext alongside the main message so
   // the renderer doesn't have to know about e2ee. Done up front because
   // some main-message paths rely on cache hits we may have populated
   // for the parent — looking up the cache is cheap and idempotent.
   const replyTo = message.replyTo
-    ? await decryptReplyToInPlace(message.replyTo, message.dmChannelId, isGroup)
+    ? await decryptReplyToInPlace(message.replyTo, message.dmChannelId)
     : message.replyTo;
 
   if (!message.e2ee || !message.content) {
     return replyTo === message.replyTo ? message : { ...message, replyTo };
   }
 
-  // Group DMs use sender-key encryption — both own and other messages
-  // are decryptable locally because we have our own sender key cached
-  // and peers' keys arrive via distributeSenderKeys. So no
-  // ownSentPlaintextCache trickery is needed for groups; it's a
-  // single uniform decrypt path.
-  if (isGroup) {
+  // Sender-key-encrypted messages always decrypt via the chain path,
+  // regardless of whether the channel is currently in group or 1:1
+  // mode. After a group→1:1 demotion, historical messages still have
+  // v2 wire format and need the chain to decrypt — current channel
+  // state isn't authoritative for past messages. The chain wrapper
+  // owns its own own-message + persistent caches so re-decrypts are
+  // cheap.
+  if (isSenderKeyWire(message.content)) {
     try {
       const payload = await decryptDmGroupMessage(
         message.dmChannelId,
@@ -419,7 +421,7 @@ export async function decryptDmMessageInPlace<
     await deleteCachedPlaintext(message.id).catch(() => {});
   }
 
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = ownUserIdSelector(store.getState());
 
   // Own messages are encrypted for the recipient — we cannot decrypt them.
   // Use the in-memory cache populated at send time for the current session.
@@ -515,6 +517,13 @@ export async function decryptDmMessages(
     plaintext: CachedDmPlaintext;
   }[] = [];
 
+  // Sender-key-encrypted messages (group DMs, plus historical group
+  // messages that survived a 1:1 demotion) need to go through their
+  // own decrypt path. Bucket them out in a first pass so the
+  // libsignal pairwise decrypt loop below only sees actual pairwise
+  // messages.
+  const senderKeyMessages: { index: number; msg: TJoinedDmMessage }[] = [];
+
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (!msg.e2ee || !msg.content) continue;
@@ -530,6 +539,15 @@ export async function decryptDmMessages(
       setFileKeys(msg.id, cached.fileKeys);
       const files = patchFilesWithE2eeMetadata(msg.files, cached.fileKeys);
       results[i] = { ...msg, content: cached.content, files };
+      continue;
+    }
+
+    // Phase B sender-key wire (group DM / post-demotion historical):
+    // route through decryptDmGroupMessage which carries its own
+    // own-message + persistent caches. Don't take the libsignal
+    // pairwise path for these — it'd just throw.
+    if (isSenderKeyWire(msg.content)) {
+      senderKeyMessages.push({ index: i, msg });
       continue;
     }
 
@@ -550,12 +568,35 @@ export async function decryptDmMessages(
       continue;
     }
 
-    // Needs actual decryption — group by sender
+    // Needs actual pairwise decryption — group by sender
     if (!bySender.has(msg.userId)) bySender.set(msg.userId, []);
     bySender.get(msg.userId)!.push({ index: i, msg });
   }
 
-  // Decrypt each sender's chain sequentially, but all senders in parallel
+  // Sender-key (group DM) decrypts. Each chain is independent so
+  // these can run in parallel. The chain wrapper persists plaintext
+  // by messageId on success — re-decrypts hit cache.
+  await Promise.all(
+    senderKeyMessages.map(async ({ index, msg }) => {
+      try {
+        const payload = await decryptDmGroupMessage(
+          msg.dmChannelId,
+          msg.userId,
+          msg.content!,
+          msg.id
+        );
+        setFileKeys(msg.id, payload.fileKeys);
+        const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);
+        results[index] = { ...msg, content: payload.content, files };
+      } catch (err) {
+        console.error('[E2EE/DM] Failed to decrypt group DM message:', err);
+        results[index] = { ...msg, content: '[Unable to decrypt]' };
+      }
+    })
+  );
+
+  // Pairwise libsignal decrypts. Same-sender ratchet must be in
+  // order; different senders parallelize.
   await Promise.all(
     [...bySender.values()].map(async (chain) => {
       for (const { index, msg } of chain) {
@@ -600,10 +641,6 @@ export async function decryptDmMessages(
     }
   }
 
-  const channelMap = new Map(
-    store.getState().dms.channels.map((c) => [c.id, c])
-  );
-
   for (let i = 0; i < results.length; i++) {
     const msg = results[i];
     if (!msg.replyTo?.e2ee || !msg.replyTo.content) continue;
@@ -617,12 +654,9 @@ export async function decryptDmMessages(
       continue;
     }
 
-    const channel = channelMap.get(msg.dmChannelId);
-    const isGroup = (channel?.members.length ?? 0) > 2;
     const newReplyTo = await decryptReplyToInPlace(
       msg.replyTo,
-      msg.dmChannelId,
-      isGroup
+      msg.dmChannelId
     );
     if (newReplyTo !== msg.replyTo) {
       results[i] = { ...msg, replyTo: newReplyTo };
