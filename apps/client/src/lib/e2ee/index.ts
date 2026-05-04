@@ -60,7 +60,13 @@ import {
   signalStore,
   type SignalProtocolStore
 } from './store';
+import {
+  presentIdentityChange,
+  UntrustedIdentityError
+} from './identity-change-dispatch';
 import type { E2EEPlaintext, PreKeyBundle } from './types';
+
+export { UntrustedIdentityError } from './identity-change-dispatch';
 
 const OTP_REPLENISH_THRESHOLD = 25;
 const OTP_REPLENISH_COUNT = 100;
@@ -466,7 +472,29 @@ async function ensureSession(
     throw new Error(`User ${userId} has no E2EE keys registered`);
   }
 
-  await buildSession(userId, bundle as PreKeyBundle, s);
+  const typedBundle = bundle as PreKeyBundle;
+  try {
+    await buildSession(userId, typedBundle, s);
+  } catch (err) {
+    // Phase C: TOFU mismatch — libsignal throws this exact string from
+    // session-builder.js:45 when isTrustedIdentity returns false.
+    // Surface the modal; on Accept, re-pin and retry the same bundle.
+    // On Block/Cancel, propagate as UntrustedIdentityError so callers
+    // can mark the in-flight operation as failed.
+    if (err instanceof Error && err.message === 'Identity key changed') {
+      const accepted = await presentIdentityChange(
+        userId,
+        typedBundle.identityPublicKey,
+        s
+      );
+      if (accepted) {
+        await buildSession(userId, typedBundle, s);
+        return;
+      }
+      throw new UntrustedIdentityError(userId, typedBundle.identityPublicKey);
+    }
+    throw err;
+  }
 }
 
 /**

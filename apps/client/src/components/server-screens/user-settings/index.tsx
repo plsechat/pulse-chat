@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
 import { getTRPCClient } from '@/lib/trpc';
-import { ChevronLeft, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
+import { ChevronLeft, Fingerprint, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
@@ -11,8 +11,9 @@ import { Encryption } from './encryption';
 import { Password } from './password';
 import { Profile } from './profile';
 import { SoundsNotifications } from './sounds-notifications';
+import { VerifyIdentity } from './verify-identity';
 
-type Section = 'profile' | 'password' | 'encryption' | 'appearance' | 'sounds' | 'devices';
+type Section = 'profile' | 'password' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices';
 
 type NavItem = {
   id: Section;
@@ -31,7 +32,8 @@ const NAV_SECTIONS: NavCategory[] = [
     items: [
       { id: 'profile', label: 'My Account', icon: <User className="h-4 w-4" /> },
       { id: 'password', label: 'Password', icon: <Lock className="h-4 w-4" /> },
-      { id: 'encryption', label: 'Encryption', icon: <ShieldCheck className="h-4 w-4" /> }
+      { id: 'encryption', label: 'Encryption', icon: <ShieldCheck className="h-4 w-4" /> },
+      { id: 'verify-identity', label: 'Verify Identity', icon: <Fingerprint className="h-4 w-4" /> }
     ]
   },
   {
@@ -48,6 +50,7 @@ const SECTION_TITLES: Record<Section, string> = {
   profile: 'My Account',
   password: 'Password',
   encryption: 'Encryption',
+  'verify-identity': 'Verify Identity',
   appearance: 'Appearance',
   sounds: 'Sounds & Notifications',
   devices: 'Voice & Video'
@@ -57,6 +60,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   profile: 'Update your personal information and settings.',
   password: 'Manage your account password.',
   encryption: 'Manage your end-to-end encryption keys.',
+  'verify-identity': 'Compare safety numbers with your peers to confirm their encryption keys.',
   appearance: 'Customize how the app looks.',
   sounds: 'Control sound effects and desktop notifications.',
   devices: 'Configure your audio and video devices.'
@@ -66,15 +70,21 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   profile: Profile,
   password: Password,
   encryption: Encryption,
+  'verify-identity': VerifyIdentity,
   appearance: Appearance,
   sounds: SoundsNotifications,
   devices: Devices
 };
 
-type TUserSettingsProps = TServerScreenBaseProps;
+type TUserSettingsProps = TServerScreenBaseProps & {
+  initialSection?: Section;
+  initialVerifyPeerId?: number;
+};
 
-const UserSettings = memo(({ close }: TUserSettingsProps) => {
-  const [activeSection, setActiveSection] = useState<Section>('profile');
+const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUserSettingsProps) => {
+  const [activeSection, setActiveSection] = useState<Section>(
+    initialSection ?? 'profile'
+  );
   // `null` while loading; once resolved, an empty array means we got
   // an answer back and the user has no email-password identity.
   // The Password tab is hidden until we've heard from the server, so a
@@ -125,6 +135,12 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
   }, [authProviders, hasPasswordAuth, activeSection]);
 
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
+  const renderActive = () => {
+    if (activeSection === 'verify-identity') {
+      return <VerifyIdentity initialPeerId={initialVerifyPeerId} />;
+    }
+    return <ActiveComponent />;
+  };
 
   const handleLogOut = useCallback(async () => {
     const confirmed = await requestConfirmation({
@@ -230,7 +246,7 @@ const UserSettings = memo(({ close }: TUserSettingsProps) => {
                 {SECTION_DESCRIPTIONS[activeSection]}
               </p>
             </div>
-            <ActiveComponent />
+            {renderActive()}
           </div>
         </main>
       </div>

@@ -1,3 +1,4 @@
+import { E2EEStatusBadge } from '@/components/e2ee-status-badge';
 import { FileCard } from '@/components/channel-view/text/file-card';
 import { FormattingHints } from '@/components/channel-view/text/formatting-hints';
 import {
@@ -658,9 +659,9 @@ const DmHeader = memo(({
       <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
         {displayName}
         {channel?.e2ee && (
-          <Tooltip content="End-to-end encrypted">
-            <Lock className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-          </Tooltip>
+          <E2EEStatusBadge
+            peerUserId={channel.isGroup ? undefined : otherMembers[0]?.id}
+          />
         )}
       </span>
       <Button
