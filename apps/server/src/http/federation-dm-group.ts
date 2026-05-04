@@ -35,7 +35,7 @@ import {
   users
 } from '../db/schema';
 import { config } from '../config';
-import { findOrCreateShadowUser } from '../db/mutations/federation';
+import { findOrCreateShadowUserByPublicId } from '../db/mutations/federation';
 import { logger } from '../logger';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { pubsub } from '../utils/pubsub';
@@ -208,12 +208,10 @@ async function resolveMemberToLocalUserId(
     instanceId = otherInstance.id;
   }
 
-  const shadow = await findOrCreateShadowUser(
+  const shadow = await findOrCreateShadowUserByPublicId(
     instanceId,
-    0,
-    member.name,
-    undefined,
-    member.publicId
+    member.publicId,
+    member.name
   );
   return shadow.id;
 }
@@ -499,11 +497,9 @@ const federationDmSenderKeyHandler = async (
   }
 
   // Sender lives on the requesting peer's instance; resolve via shadow.
-  const shadowSender = await findOrCreateShadowUser(
+  const shadowSender = await findOrCreateShadowUserByPublicId(
     instance.id,
-    0,
     fromPublicId,
-    undefined,
     fromPublicId
   );
 
