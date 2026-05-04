@@ -855,3 +855,171 @@ describe('POST /federation/dm-channel-state-update (E2)', () => {
     expect(res.body?.ignored).toBe('unknown_recipient');
   });
 });
+
+describe('POST /federation/user-info-update (E3)', () => {
+  test('updates a shadow user\'s persisted profile fields and pubsubs USER_UPDATE', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-subject-e3-1';
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'OldName',
+        supabaseId: 'shadow-e3-profile',
+        publicId: 'shadow-pid-e3-profile',
+        bio: 'old bio',
+        bannerColor: '#000000',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/user-info-update',
+        {
+          subjectPublicId: remoteSubjectPublicId,
+          name: 'NewName',
+          bio: 'new bio',
+          bannerColor: '#ff5500'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.applied).toBe(true);
+      return collected;
+    });
+
+    const [refreshed] = await db
+      .select({
+        name: users.name,
+        bio: users.bio,
+        bannerColor: users.bannerColor
+      })
+      .from(users)
+      .where(eq(users.id, shadow!.id))
+      .limit(1);
+    expect(refreshed!.name).toBe('NewName');
+    expect(refreshed!.bio).toBe('new bio');
+    expect(refreshed!.bannerColor).toBe('#ff5500');
+
+    expect(
+      events.some((e) => e.topic === ServerEvents.USER_UPDATE)
+    ).toBe(true);
+  });
+
+  test('status-only update fires USER_UPDATE without touching persisted fields', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-subject-e3-status';
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'StatusUser',
+        supabaseId: 'shadow-e3-status',
+        publicId: 'shadow-pid-e3-status',
+        bio: 'unchanged',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/user-info-update',
+        {
+          subjectPublicId: remoteSubjectPublicId,
+          status: 'idle'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.applied).toBe(true);
+      return collected;
+    });
+
+    const [refreshed] = await db
+      .select({ name: users.name, bio: users.bio })
+      .from(users)
+      .where(eq(users.id, shadow!.id))
+      .limit(1);
+    // Persisted fields untouched.
+    expect(refreshed!.name).toBe('StatusUser');
+    expect(refreshed!.bio).toBe('unchanged');
+
+    expect(
+      events.some((e) => e.topic === ServerEvents.USER_UPDATE)
+    ).toBe(true);
+  });
+
+  test('400 when subjectPublicId missing', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { name: 'orphan' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('400 when no changes specified', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'whatever' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('400 when status value is invalid', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'whatever', status: 'totally-not-a-status' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('200 ignored when shadow user does not exist for subjectPublicId', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'never-seen', status: 'idle' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.ignored).toBe('unknown_subject');
+  });
+
+  test('rejects unsigned requests', async () => {
+    await initTest();
+    await seedPeer();
+
+    const res = await fetch(`${testsBaseUrl}/federation/user-info-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromDomain: PEER_DOMAIN,
+        subjectPublicId: 'a',
+        status: 'idle'
+      })
+    });
+    expect(res.status).toBe(400);
+  });
+});

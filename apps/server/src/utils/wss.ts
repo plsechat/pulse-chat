@@ -47,6 +47,22 @@ const wsMapByUserId = new Map<number, Set<WebSocket>>();
 
 const usersIpMap = new Map<number, string>();
 
+/**
+ * Module-level mutator for the runtime user-status override map.
+ * Used by the federation user-info push handler (E3) to flip a
+ * federated shadow user's status when their home instance reports
+ * a change. The per-context `setUserStatus` closure inside
+ * `createContext` mutates the same map, so this is just a shared
+ * front door for callers without a context.
+ */
+const setRuntimeUserStatus = (userId: number, status: UserStatus) => {
+  if (status === UserStatus.ONLINE) {
+    userStatusOverrides.delete(userId);
+  } else {
+    userStatusOverrides.set(userId, status);
+  }
+};
+
 const getUserIp = (userId: number): string | undefined => {
   return usersIpMap.get(userId);
 };
@@ -535,4 +551,4 @@ const createWsServer = async (server: http.Server) => {
   });
 };
 
-export { createContext, createWsServer, getUserIp };
+export { createContext, createWsServer, getUserIp, setRuntimeUserStatus };

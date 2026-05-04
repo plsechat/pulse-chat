@@ -19,6 +19,7 @@ import {
   federationUserInfoHandler
 } from './federation';
 import { federationDmChannelStateUpdateHandler } from './federation-dm-channel-state';
+import { federationUserInfoUpdateHandler } from './federation-user-info-update';
 import {
   federationDmGroupAddMemberHandler,
   federationDmGroupCreateHandler,
@@ -167,6 +168,11 @@ const createHttpServer = async (port: number = config.server.port) => {
           if (req.method === 'POST' && req.url === '/federation/dm-channel-state-update') {
             if (!checkRateLimit(req, res, federationRateLimit)) return;
             return await federationDmChannelStateUpdateHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/user-info-update') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationUserInfoUpdateHandler(req, res);
           }
 
           if (req.method === 'POST' && req.url === '/federation/report-user') {
