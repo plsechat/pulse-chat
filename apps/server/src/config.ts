@@ -16,6 +16,10 @@ type TConfig = {
     port: number;
     debug: boolean;
     autoupdate: boolean;
+    debugLogMaxSizeMb: number;
+    debugLogMaxFiles: number;
+    debugLogIncludeBody: boolean;
+    redactExtra: string[];
   };
   http: {
     maxFiles: number;
@@ -46,7 +50,11 @@ let config: TConfig = {
   server: {
     port: 4991,
     debug: IS_DEVELOPMENT ? true : false,
-    autoupdate: false
+    autoupdate: false,
+    debugLogMaxSizeMb: 200,
+    debugLogMaxFiles: 10,
+    debugLogIncludeBody: true,
+    redactExtra: []
   },
   http: {
     maxFiles: 40,
@@ -84,8 +92,34 @@ const text = await fs.readFile(CONFIG_INI_PATH, {
   encoding: 'utf-8'
 });
 
-if (process.env.DEBUG) {
+// DEBUG_LOGGING is the canonical flag; DEBUG is kept as a backward-compat alias
+// so existing .env files keep working.
+if (process.env.DEBUG_LOGGING === 'true' || process.env.DEBUG === 'true' || process.env.DEBUG === '1') {
   config.server.debug = true;
+}
+
+if (process.env.DEBUG_LOG_MAX_SIZE_MB) {
+  const parsed = Number(process.env.DEBUG_LOG_MAX_SIZE_MB);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    config.server.debugLogMaxSizeMb = parsed;
+  }
+}
+
+if (process.env.DEBUG_LOG_MAX_FILES) {
+  const parsed = Number(process.env.DEBUG_LOG_MAX_FILES);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    config.server.debugLogMaxFiles = parsed;
+  }
+}
+
+if (process.env.DEBUG_LOG_INCLUDE_BODY === 'false') {
+  config.server.debugLogIncludeBody = false;
+}
+
+if (process.env.REDACT_EXTRA) {
+  config.server.redactExtra = process.env.REDACT_EXTRA.split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 const parsed = parse(text) as Record<string, unknown>;

@@ -24,7 +24,15 @@ global.console.debug = noop;
 // ── Mock config (avoids network calls and file system reads) ──
 mock.module('../config', () => ({
   config: {
-    server: { port: 9999, debug: false, autoupdate: false },
+    server: {
+      port: 9999,
+      debug: false,
+      autoupdate: false,
+      debugLogMaxSizeMb: 200,
+      debugLogMaxFiles: 10,
+      debugLogIncludeBody: true,
+      redactExtra: [] as string[]
+    },
     http: { maxFiles: 40, maxFileSize: 100 },
     mediasoup: {
       worker: { rtcMinPort: 40000, rtcMaxPort: 40020 },
@@ -48,7 +56,8 @@ mock.module('../logger', () => ({
     fatal: noop,
     time: noop,
     timeEnd: noop
-  }
+  },
+  setDebugVerbose: noop
 }));
 
 // ── Mock rate limiter (disable rate limiting during tests) ──

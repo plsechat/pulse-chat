@@ -120,11 +120,12 @@ const registerKeysRoute = protectedProcedure
 
     // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
+      logger.debug('[E2EE/registerKeys] identityChanged=true');
       try {
         await insertIdentityResetMessages(ctx.userId);
       } catch (err) {
         // Non-fatal: don't block key registration if system messages fail
-        console.error('[E2EE] insertIdentityResetMessages failed:', err);
+        logger.error('[E2EE] insertIdentityResetMessages failed: %o', err);
       }
 
       const coMemberIds = await getCoMemberIds(ctx.userId);
@@ -512,6 +513,13 @@ const distributeSenderKeysBatchRoute = protectedProcedure
     if (insertRows.length === 0) return;
 
     await db.insert(e2eeSenderKeys).values(insertRows);
+    logger.debug(
+      '[distributeSenderKeysBatch] channelId=%d senderKeyId=%d local=%d federated=%d',
+      input.channelId,
+      input.senderKeyId,
+      localPubsubTargets.length,
+      federatedTargets.length
+    );
 
     for (const userId of localPubsubTargets) {
       pubsub.publishFor(userId, ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION, {

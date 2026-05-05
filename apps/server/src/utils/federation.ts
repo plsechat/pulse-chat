@@ -14,6 +14,7 @@ import { db } from '../db';
 import { federationInstances, federationKeys } from '../db/schema';
 import { config } from '../config';
 import { federationFetch } from './federation-fetch';
+import { getLogContext, newRequestId } from './log-context';
 import { logger } from '../logger';
 
 async function generateFederationKeys(): Promise<{
@@ -109,12 +110,12 @@ async function verifyFederationToken(token: string): Promise<{
   instanceId: number;
 } | null> {
   try {
-    logger.info('[verifyFederationToken] verifying token, length=%d', token.length);
+    logger.debug('[verifyFederationToken] verifying token, length=%d', token.length);
 
     // Decode without verifying to get issuer
     const decoded = decodeJwt(token);
     const issuerDomain = decoded.iss;
-    logger.info('[verifyFederationToken] issuer=%s, aud=%s, sub=%s', sanitizeForLog(issuerDomain), sanitizeForLog(decoded.aud), sanitizeForLog(decoded.sub));
+    logger.debug('[verifyFederationToken] issuer=%s, aud=%s, sub=%s', sanitizeForLog(issuerDomain), sanitizeForLog(decoded.aud), sanitizeForLog(decoded.sub));
 
     if (!issuerDomain) {
       logger.warn('[verifyFederationToken] no issuer in token');
@@ -133,7 +134,7 @@ async function verifyFederationToken(token: string): Promise<{
       )
       .limit(1);
 
-    logger.info('[verifyFederationToken] instance lookup: found=%s, status=%s, hasPublicKey=%s',
+    logger.debug('[verifyFederationToken] instance lookup: found=%s, status=%s, hasPublicKey=%s',
       !!instance, instance?.status, !!instance?.publicKey);
 
     if (!instance || !instance.publicKey) {
@@ -146,11 +147,11 @@ async function verifyFederationToken(token: string): Promise<{
       JSON.parse(instance.publicKey) as JWK,
       'EdDSA'
     );
-    logger.info('[verifyFederationToken] verifying JWT with audience=%s', config.federation.domain);
+    logger.debug('[verifyFederationToken] verifying JWT with audience=%s', config.federation.domain);
     const { payload } = await jwtVerify(token, publicKey, {
       audience: config.federation.domain
     });
-    logger.info('[verifyFederationToken] JWT verified successfully, sub=%s, name=%s', payload.sub, (payload as Record<string, unknown>).name);
+    logger.debug('[verifyFederationToken] JWT verified successfully, sub=%s, name=%s', payload.sub, (payload as Record<string, unknown>).name);
 
     const publicId = ((payload as Record<string, unknown>).publicId as string) || null;
 
@@ -472,25 +473,46 @@ async function queryInstance<T extends Record<string, unknown>>(
     const signature = await signChallenge(bodyToSign, instanceDomain);
     const requestBody = { ...bodyToSign, signature };
 
+    const requestId = getLogContext()?.requestId ?? newRequestId();
+    logger.debug(
+      '[queryInstance] > %s%s requestId=%s',
+      instanceDomain,
+      path,
+      requestId
+    );
+    const startMs = performance.now();
     const response = await federationFetch(
       `${protocol}://${instanceDomain}${path}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Pulse-Request-Id': requestId
+        },
         body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(10_000)
       }
     );
+    const durationMs = (performance.now() - startMs).toFixed(2);
 
     if (!response.ok) {
       logger.warn(
-        '[queryInstance] %s%s returned %d',
+        '[queryInstance] %s%s returned %d (%sms)',
         instanceDomain,
         path,
-        response.status
+        response.status,
+        durationMs
       );
       return null;
     }
+
+    logger.debug(
+      '[queryInstance] < %s%s %d %sms',
+      instanceDomain,
+      path,
+      response.status,
+      durationMs
+    );
 
     const responseJson = (await response.json()) as Record<string, unknown>;
 
@@ -568,23 +590,43 @@ async function relayToInstance(
       signature
     };
 
+    const requestId = getLogContext()?.requestId ?? newRequestId();
+    logger.debug(
+      '[relayToInstance] > %s%s requestId=%s',
+      instanceDomain,
+      path,
+      requestId
+    );
+    const startMs = performance.now();
     const response = await federationFetch(`${protocol}://${instanceDomain}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Pulse-Request-Id': requestId
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000)
     });
+    const durationMs = (performance.now() - startMs).toFixed(2);
 
     if (!response.ok) {
       logger.warn(
-        '[relayToInstance] %s%s returned %d',
+        '[relayToInstance] %s%s returned %d (%sms)',
         instanceDomain,
         path,
-        response.status
+        response.status,
+        durationMs
       );
       return false;
     }
 
+    logger.debug(
+      '[relayToInstance] < %s%s %d %sms',
+      instanceDomain,
+      path,
+      response.status,
+      durationMs
+    );
     return true;
   } catch (error) {
     logger.error('[relayToInstance] failed to relay to %s%s: %o', instanceDomain, path, error);

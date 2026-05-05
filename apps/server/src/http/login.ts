@@ -7,7 +7,9 @@ import { getSettings } from '../db/queries/server';
 import { getUserBySupabaseId } from '../db/queries/users';
 import { invites } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
+import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { isRegistrationDisabled } from '../utils/env';
+import { logger } from '../logger';
 import { supabaseAdmin } from '../utils/supabase';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
@@ -26,6 +28,12 @@ const loginRouteHandler = async (
   const data = zBody.parse(await getJsonBody(req));
   const connectionInfo = getWsInfo(undefined, req);
 
+  logger.debug(
+    '[login] attempt email=%s ip=%s',
+    sanitizeForLog(data.email),
+    sanitizeForLog(connectionInfo?.ip)
+  );
+
   // Try to sign in with Supabase Auth
   const { data: signInData, error: signInError } =
     await supabaseAdmin.auth.signInWithPassword({
@@ -34,15 +42,22 @@ const loginRouteHandler = async (
     });
 
   if (signInError) {
+    logger.debug('[login] supabase signIn failed: %s', signInError.message);
     throw new HttpValidationError('email', 'Invalid email or password');
   }
 
   if (!signInData.session) {
+    logger.debug('[login] supabase signIn returned no session');
     throw new HttpValidationError('email', 'Failed to create session');
   }
 
   // Check if app-level user exists
   let existingUser = await getUserBySupabaseId(signInData.user.id);
+  logger.debug(
+    '[login] supabase user=%s existingAppUser=%s',
+    signInData.user.id,
+    !!existingUser
+  );
 
   if (!existingUser) {
     if (isRegistrationDisabled()) {

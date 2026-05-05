@@ -129,6 +129,10 @@ type TExternalStreamInternal = {
   producers: TExternalStreamProducers;
 };
 
+const logExternalStreamFanoutFailure = (err: unknown) => {
+  logger.debug('[voice] external-stream pubsub fan-out failed: %o', err);
+};
+
 class VoiceRuntime {
   public readonly id: number;
   public readonly isDmVoice: boolean;
@@ -718,7 +722,7 @@ class VoiceRuntime {
                 stream: existingStream
               }
             );
-          }).catch(() => {});
+          }).catch(logExternalStreamFanoutFailure);
         }
       }
     });
@@ -750,7 +754,7 @@ class VoiceRuntime {
         channelId: this.id,
         streamId
       });
-    }).catch(() => {});
+    }).catch(logExternalStreamFanoutFailure);
   };
 
   public updateExternalStream = (
@@ -847,7 +851,7 @@ class VoiceRuntime {
         streamId,
         stream: publicStream
       });
-    }).catch(() => {});
+    }).catch(logExternalStreamFanoutFailure);
   };
 
   public getExternalStreamProducer = (
