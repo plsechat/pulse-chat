@@ -177,12 +177,11 @@ const createContext = async ({
     const effectiveServerId = serverId ?? _activeServer.id;
 
     const user = await getCachedUser();
-
     if (!user) {
       logger.debug(
-        '[perm] denied (no user) target=%o serverId=%s',
-        targetPermission,
-        effectiveServerId
+        '[perm] denied reason=no-user serverId=%s target=%o',
+        effectiveServerId,
+        targetPermission
       );
       return false;
     }
@@ -192,7 +191,7 @@ const createContext = async ({
       const server = await getCachedServer(effectiveServerId);
       if (server && server.ownerId === user.id) {
         logger.debug(
-          '[perm] granted (owner-bypass) userId=%d serverId=%d target=%o',
+          '[perm] granted reason=owner userId=%d serverId=%s target=%o',
           user.id,
           effectiveServerId,
           targetPermission
@@ -202,9 +201,7 @@ const createContext = async ({
     }
 
     const roles = await getCachedUserRoles(user.id, effectiveServerId);
-
     const permissionsSet = new Set<Permission>();
-
     for (const role of roles) {
       for (const permission of role.permissions) {
         permissionsSet.add(permission);
@@ -215,7 +212,7 @@ const createContext = async ({
       ? targetPermission.every((p) => permissionsSet.has(p))
       : permissionsSet.has(targetPermission);
     logger.debug(
-      '[perm] %s userId=%d serverId=%s target=%o',
+      '[perm] %s reason=role userId=%d serverId=%s target=%o',
       granted ? 'granted' : 'denied',
       user.id,
       effectiveServerId,
@@ -238,29 +235,41 @@ const createContext = async ({
       .limit(1);
 
     if (!channelRecord) {
-      logger.debug('[chan-perm] denied (channel not found) channelId=%d', channelId);
+      logger.debug(
+        '[chan-perm] denied reason=channel-not-found channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
       return false;
     }
 
     // Ensure the channel belongs to the caller's active server
     if (_activeServer.id && channelRecord.serverId !== _activeServer.id) {
       logger.debug(
-        '[chan-perm] denied (cross-server) channelId=%d activeServerId=%d',
+        '[chan-perm] denied reason=cross-server channelId=%d activeServerId=%d target=%o',
         channelId,
-        _activeServer.id
+        _activeServer.id,
+        targetPermission
       );
       return false;
     }
 
     if (!channelRecord.private) {
-      logger.debug('[chan-perm] granted (public channel) channelId=%d target=%s', channelId, targetPermission);
+      logger.debug(
+        '[chan-perm] granted reason=public channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
       return true;
     }
 
     const user = await getCachedUser();
-
     if (!user) {
-      logger.debug('[chan-perm] denied (no user) channelId=%d', channelId);
+      logger.debug(
+        '[chan-perm] denied reason=no-user channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
       return false;
     }
 
@@ -268,7 +277,7 @@ const createContext = async ({
     const server = await getCachedServer(channelRecord.serverId);
     if (server && server.ownerId === user.id) {
       logger.debug(
-        '[chan-perm] granted (owner-bypass) userId=%d channelId=%d target=%s',
+        '[chan-perm] granted reason=owner userId=%d channelId=%d target=%o',
         user.id,
         channelId,
         targetPermission
@@ -277,21 +286,29 @@ const createContext = async ({
     }
 
     const userChannelPermissions = await getCachedChannelPermissions();
-
     const channelInfo = userChannelPermissions[channelId];
-
     if (!channelInfo) {
-      logger.debug('[chan-perm] denied (no permissions row) userId=%d channelId=%d', user.id, channelId);
+      logger.debug(
+        '[chan-perm] denied reason=no-permissions-row userId=%d channelId=%d target=%o',
+        user.id,
+        channelId,
+        targetPermission
+      );
       return false;
     }
     if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) {
-      logger.debug('[chan-perm] denied (cannot view) userId=%d channelId=%d', user.id, channelId);
+      logger.debug(
+        '[chan-perm] denied reason=cannot-view userId=%d channelId=%d target=%o',
+        user.id,
+        channelId,
+        targetPermission
+      );
       return false;
     }
 
     const granted = channelInfo.permissions[targetPermission] === true;
     logger.debug(
-      '[chan-perm] %s userId=%d channelId=%d target=%s',
+      '[chan-perm] %s reason=role userId=%d channelId=%d target=%o',
       granted ? 'granted' : 'denied',
       user.id,
       channelId,

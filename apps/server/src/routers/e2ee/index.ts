@@ -120,10 +120,7 @@ const registerKeysRoute = protectedProcedure
 
     // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
-      logger.debug(
-        '[E2EE/registerKeys] identity rotated userId=%d',
-        ctx.userId
-      );
+      logger.debug('[E2EE/registerKeys] identityChanged=true');
       try {
         await insertIdentityResetMessages(ctx.userId);
       } catch (err) {

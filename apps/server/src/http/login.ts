@@ -7,6 +7,7 @@ import { getSettings } from '../db/queries/server';
 import { getUserBySupabaseId } from '../db/queries/users';
 import { invites } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
+import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { isRegistrationDisabled } from '../utils/env';
 import { logger } from '../logger';
 import { supabaseAdmin } from '../utils/supabase';
@@ -27,7 +28,11 @@ const loginRouteHandler = async (
   const data = zBody.parse(await getJsonBody(req));
   const connectionInfo = getWsInfo(undefined, req);
 
-  logger.debug('[login] attempt email=%s ip=%s', data.email, connectionInfo?.ip);
+  logger.debug(
+    '[login] attempt email=%s ip=%s',
+    sanitizeForLog(data.email),
+    sanitizeForLog(connectionInfo?.ip)
+  );
 
   // Try to sign in with Supabase Auth
   const { data: signInData, error: signInError } =

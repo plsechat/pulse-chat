@@ -47,7 +47,7 @@ async function findOrCreateShadowUser(
         await db.update(users).set(updates).where(eq(users.id, byPublicId.id));
       }
       logger.debug(
-        '[shadowUser] hit byPublicId instanceId=%d remotePublicId=%s userId=%d',
+        '[shadowUser] hit variant=byPublicId instanceId=%d remotePublicId=%s userId=%d',
         instanceId,
         remotePublicId,
         byPublicId.id
@@ -82,7 +82,7 @@ async function findOrCreateShadowUser(
       await db.update(users).set(updates).where(eq(users.id, existing.id));
     }
     logger.debug(
-      '[shadowUser] hit byUsername instanceId=%d remoteUserId=%s userId=%d',
+      '[shadowUser] hit variant=byUsername instanceId=%d remoteUserId=%s userId=%d',
       instanceId,
       remoteUserId,
       existing.id
@@ -109,7 +109,7 @@ async function findOrCreateShadowUser(
 
   if (shadowUser) {
     logger.debug(
-      '[shadowUser] created instanceId=%d remoteUserId=%s userId=%d',
+      '[shadowUser] created variant=byUsername instanceId=%d remoteUserId=%s userId=%d',
       instanceId,
       remoteUserId,
       shadowUser.id
@@ -168,7 +168,7 @@ async function findOrCreateShadowUserByPublicId(
         .where(eq(users.id, existing.id));
     }
     logger.debug(
-      '[shadowUserByPid] hit instanceId=%d remotePublicId=%s userId=%d',
+      '[shadowUser] hit variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
       instanceId,
       remotePublicId,
       existing.id
@@ -195,7 +195,7 @@ async function findOrCreateShadowUserByPublicId(
 
   if (created) {
     logger.debug(
-      '[shadowUserByPid] created instanceId=%d remotePublicId=%s userId=%d',
+      '[shadowUser] created variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
       instanceId,
       remotePublicId,
       created.id
