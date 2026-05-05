@@ -15,7 +15,7 @@ declare module 'winston' {
   }
 }
 
-const { combine, colorize, printf, errors, splat, timestamp, json } = format;
+const { combine, colorize, printf, errors, splat, timestamp, json, uncolorize } = format;
 
 const consoleFormat = printf(({ level, message, stack }) => {
   return `${level}: ${stack || message}`;
@@ -35,24 +35,65 @@ let currentLevel: 'debug' | 'info' = config.server.debug ? 'debug' : 'info';
  * File-side format chain. Adds the active log-context fields, redacts
  * sensitive shapes, and serializes to one-line JSON. Splunk-friendly,
  * jq-greppable. Body inclusion is controlled by `DEBUG_LOG_INCLUDE_BODY`.
+ *
+ * Note: the logger's default format runs first (it owns colorize +
+ * splat for the console output). By the time this transport-specific
+ * format sees `info`, the message is already substituted and `level`
+ * is wrapped in ANSI escape codes. We:
+ *   - `uncolorize()` strips the ANSI from `level` / `message`
+ *   - skip a second `splat()` call (the default format already did it
+ *     once; running it twice is what caused numeric-key pollution
+ *     of the JSON output via Object.assign(info, ...args))
+ *   - explicitly rebuild the payload from known fields so any stray
+ *     numeric properties from earlier passes don't leak into the JSON
  */
 const fileJsonFormat = combine(
+  uncolorize(),
   errors({ stack: true }),
-  splat(),
   timestamp(),
   format((info) => {
     const ctx = getLogContext();
+
+    // Strip stray numeric-keyed properties left on info by winston's
+    // splat-merge of primitive args (Object.assign(info, "select…")
+    // spreads each character as info[0]='s', info[1]='e', ...).
+    for (const k of Object.keys(info)) {
+      if (/^\d+$/.test(k)) {
+        delete (info as Record<string, unknown>)[k];
+      }
+    }
+
     if (ctx) {
       info.requestId = ctx.requestId;
       if (ctx.userId !== undefined) info.userId = ctx.userId;
       if (ctx.route) info.route = ctx.route;
       if (ctx.instanceDomain) info.instanceDomain = ctx.instanceDomain;
     }
+
     if (!config.server.debugLogIncludeBody) {
-      // Strip everything except level/message/timestamp/context
-      const { level, message, timestamp: ts, requestId, userId, route, instanceDomain, stack } = info;
-      return { level, message, timestamp: ts, requestId, userId, route, instanceDomain, stack };
+      // Body off — strip everything except the canonical envelope.
+      const {
+        level,
+        message,
+        timestamp: ts,
+        requestId,
+        userId,
+        route,
+        instanceDomain,
+        stack
+      } = info as Record<string, unknown> & { level: string; message: string };
+      return {
+        level,
+        message,
+        timestamp: ts,
+        requestId,
+        userId,
+        route,
+        instanceDomain,
+        stack
+      } as typeof info;
     }
+
     return redact(info);
   })(),
   json()

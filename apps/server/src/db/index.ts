@@ -25,17 +25,23 @@ const loadDb = async () => {
     // Drizzle's logger fires before each query is sent. It's a
     // pre-execution hook — we don't get the elapsed time here, so
     // queries are emitted at debug level only when verbose logging
-    // is on. A proper slow-query hook (with timing past
-    // SLOW_QUERY_THRESHOLD_MS) needs a postgres-js / drizzle wrapper
-    // that intercepts the response, deferred to Phase 3.
+    // is on. A proper slow-query hook (with timing past a threshold)
+    // needs a postgres-js / drizzle wrapper that intercepts the
+    // response, deferred.
+    //
+    // Pre-format the message rather than using winston's printf-style
+    // %s/%o splat: when winston applies `Object.assign(info, ...args)`
+    // for the meta merge, a long string argument spreads char-by-char
+    // as numeric-keyed properties (info[0]='s', info[1]='e', ...) and
+    // pollutes the JSON. A single concatenated string keeps the JSON
+    // payload to {level, message, requestId, ...}.
     logger: config.server.debug
       ? {
           logQuery: (query, params) => {
-            logger.debug(
-              '[db/query] %s params=%o',
-              query.slice(0, 200),
-              params
-            );
+            const truncated =
+              query.length > 200 ? `${query.slice(0, 200)}…` : query;
+            const paramsStr = JSON.stringify(params);
+            logger.debug(`[db/query] ${truncated} params=${paramsStr}`);
           }
         }
       : false
