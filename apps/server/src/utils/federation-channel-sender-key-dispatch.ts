@@ -22,6 +22,56 @@ import { config } from '../config';
 import { logger } from '../logger';
 import { relayToInstance } from './federation';
 
+/**
+ * Resolve a sender on the host instance to the (publicId,
+ * instanceDomain) pair that other instances can use to identify
+ * them — the user's *home* identity, not their host-local one.
+ *
+ * For local senders (host == sender's home), publicId is just
+ * `users.publicId` and instanceDomain is our own.
+ *
+ * For federated senders (sender is a shadow on the host), the
+ * host-local `users.publicId` is a fresh UUID generated when the
+ * shadow was minted — it has no meaning outside this host. We
+ * need `users.federated_public_id` (the sender's home publicId)
+ * and the home's domain.
+ */
+async function resolveSenderHomeIdentity(
+  senderUserId: number
+): Promise<{ publicId: string; instanceDomain: string } | null> {
+  const [row] = await db
+    .select({
+      publicId: users.publicId,
+      isFederated: users.isFederated,
+      federatedPublicId: users.federatedPublicId,
+      federatedInstanceId: users.federatedInstanceId
+    })
+    .from(users)
+    .where(eq(users.id, senderUserId))
+    .limit(1);
+  if (!row) return null;
+
+  if (row.isFederated && row.federatedInstanceId) {
+    if (!row.federatedPublicId) return null;
+    const [instance] = await db
+      .select({ domain: federationInstances.domain })
+      .from(federationInstances)
+      .where(eq(federationInstances.id, row.federatedInstanceId))
+      .limit(1);
+    if (!instance) return null;
+    return {
+      publicId: row.federatedPublicId,
+      instanceDomain: instance.domain
+    };
+  }
+
+  if (!row.publicId) return null;
+  return {
+    publicId: row.publicId,
+    instanceDomain: config.federation.domain
+  };
+}
+
 type FederatedTarget = {
   toPublicId: string;
   toInstanceDomain: string;
@@ -63,19 +113,16 @@ async function relayFederatedChannelSenderKeyNotifications(
   }
   const hostChannelPublicId = channel.publicId;
 
-  const [sender] = await db
-    .select({ publicId: users.publicId })
-    .from(users)
-    .where(eq(users.id, args.fromUserId))
-    .limit(1);
-  if (!sender?.publicId) {
+  const senderIdentity = await resolveSenderHomeIdentity(args.fromUserId);
+  if (!senderIdentity) {
     logger.warn(
-      '[relayFederatedChannelSenderKeyNotifications] sender %d missing publicId',
+      '[relayFederatedChannelSenderKeyNotifications] sender %d unresolvable',
       args.fromUserId
     );
     return;
   }
-  const fromPublicId = sender.publicId;
+  const { publicId: fromPublicId, instanceDomain: fromInstanceDomain } =
+    senderIdentity;
 
   // Drop targets pointing back at our own domain — those are local
   // to this host and don't need a federation hop.
@@ -129,6 +176,7 @@ async function relayFederatedChannelSenderKeyNotifications(
       hostDomain: config.federation.domain,
       hostChannelPublicId,
       fromPublicId,
+      fromInstanceDomain,
       senderKeyId: args.senderKeyId,
       recipientPublicIds
     }).catch((err) =>

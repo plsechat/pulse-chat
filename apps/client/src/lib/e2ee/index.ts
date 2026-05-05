@@ -938,6 +938,83 @@ export async function processIncomingSenderKey(
 }
 
 /**
+ * Phase E / E1f — process a federated channel SKDM.
+ *
+ * Receiver flow: the sender's instance pubsub'd
+ * E2EE_FEDERATED_SENDER_KEY_AVAILABLE on our home WS. Our handler
+ * pulls the SKDM rows from the host (where they live) and routes
+ * each to this function:
+ *
+ *   1. Decrypt the SKDM ciphertext using *home* signal store with
+ *      the sender's home-resolved id. The ciphertext was encrypted
+ *      via X3DH against keys we published on home — host store
+ *      doesn't have our private prekeys.
+ *   2. Store the resulting chain key in the host's *instance* store
+ *      keyed by host-local (channelId, fromUserId), so the existing
+ *      channel-message decrypt path (which runs in the active store
+ *      of whatever instance the user is currently viewing) finds it
+ *      when a channel message arrives.
+ *
+ * `fromHomePublicId` + `fromInstanceDomain` come from the enriched
+ * `e2ee.getPendingSenderKeys` row. For federated senders,
+ * fromInstanceDomain is the sender's home; for local-on-host senders
+ * it's null (means "this host" — collapses to hostDomain).
+ */
+export async function processIncomingFederatedSenderKey(args: {
+  hostDomain: string;
+  hostChannelId: number;
+  hostFromUserId: number;
+  fromHomePublicId: string;
+  fromInstanceDomain: string | null;
+  distributionMessage: string;
+}): Promise<void> {
+  const homeTrpc = getHomeTRPCClient();
+  if (!homeTrpc) return;
+
+  const senderInstanceDomain =
+    args.fromInstanceDomain ?? args.hostDomain;
+
+  const result = await homeTrpc.users.resolveByDescriptor.mutate({
+    publicId: args.fromHomePublicId,
+    instanceDomain: senderInstanceDomain
+  });
+  if (result.id === null) {
+    console.warn(
+      '[E2EE] could not resolve federated SKDM sender on home',
+      args.fromHomePublicId
+    );
+    return;
+  }
+  const homeSenderUserId = result.id;
+
+  // Decrypt with home store at the home-resolved sender address.
+  const decryptedJson = await decryptMessage(
+    homeSenderUserId,
+    args.distributionMessage,
+    signalStore
+  );
+  const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
+
+  // Store chain key in the host's per-instance store keyed by host-
+  // local ids — so when a channel message from this sender arrives
+  // while the user is viewing the host, the active-store decrypt
+  // path finds the chain.
+  const hostStore = getStoreForInstance(args.hostDomain);
+  await acceptInboundChannelChain(
+    args.hostChannelId,
+    args.hostFromUserId,
+    distribution,
+    hostStore
+  );
+
+  retryFailedChannelDecrypts(args.hostChannelId, args.hostFromUserId).catch(
+    (err) => {
+      console.warn('[E2EE] Channel retry-decrypt loop errored:', err);
+    }
+  );
+}
+
+/**
  * Dedup map to prevent concurrent fetches for the same channel from racing.
  * Without this, the subscription handler and message decrypt handler can both
  * fire concurrent HTTP requests and redundantly process the same keys.

@@ -121,6 +121,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
     expect(notifies[0]!.url).toContain(PEER_DOMAIN_A);
     expect(notifies[0]!.body.hostChannelPublicId).toBe(channelPid);
     expect(notifies[0]!.body.fromPublicId).toBe(senderPid);
+    expect(typeof notifies[0]!.body.fromInstanceDomain).toBe('string');
     expect(notifies[0]!.body.senderKeyId).toBe(5);
     expect(notifies[0]!.body.recipientPublicIds).toEqual(['remote-recipient-1']);
   });

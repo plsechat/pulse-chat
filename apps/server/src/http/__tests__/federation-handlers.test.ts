@@ -1037,6 +1037,7 @@ describe('POST /federation/channel-sender-key-notify (E1)', () => {
           hostDomain: PEER_DOMAIN,
           hostChannelPublicId: 'host-channel-pid-1',
           fromPublicId: 'remote-sender-pid',
+          fromInstanceDomain: PEER_DOMAIN,
           senderKeyId: 7,
           recipientPublicIds: [localPublicId]
         },
@@ -1067,6 +1068,7 @@ describe('POST /federation/channel-sender-key-notify (E1)', () => {
         hostDomain: PEER_DOMAIN,
         hostChannelPublicId: 'pid',
         fromPublicId: 'sender',
+        fromInstanceDomain: PEER_DOMAIN,
         senderKeyId: 1,
         recipientPublicIds: []
       },
@@ -1086,6 +1088,7 @@ describe('POST /federation/channel-sender-key-notify (E1)', () => {
         hostDomain: PEER_DOMAIN,
         hostChannelPublicId: 'pid',
         fromPublicId: 'sender',
+        fromInstanceDomain: PEER_DOMAIN,
         senderKeyId: 1,
         recipientPublicIds: ['never-existed', 'also-never']
       },
@@ -1120,6 +1123,7 @@ describe('POST /federation/channel-sender-key-notify (E1)', () => {
         hostDomain: PEER_DOMAIN,
         hostChannelPublicId: 'pid',
         fromPublicId: 'sender',
+        fromInstanceDomain: PEER_DOMAIN,
         senderKeyId: 1,
         recipientPublicIds: [shadowPublicId]
       },

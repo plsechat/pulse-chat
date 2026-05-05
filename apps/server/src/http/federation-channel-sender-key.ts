@@ -46,6 +46,7 @@ const federationChannelSenderKeyNotifyHandler = async (
   const hostDomain = signedBody.hostDomain as string | undefined;
   const hostChannelPublicId = signedBody.hostChannelPublicId as string | undefined;
   const fromPublicId = signedBody.fromPublicId as string | undefined;
+  const fromInstanceDomain = signedBody.fromInstanceDomain as string | undefined;
   const senderKeyId = signedBody.senderKeyId as number | undefined;
   const recipientPublicIds = signedBody.recipientPublicIds as
     | string[]
@@ -55,6 +56,7 @@ const federationChannelSenderKeyNotifyHandler = async (
     !hostDomain ||
     !hostChannelPublicId ||
     !fromPublicId ||
+    !fromInstanceDomain ||
     typeof senderKeyId !== 'number' ||
     !Array.isArray(recipientPublicIds)
   ) {
@@ -98,6 +100,7 @@ const federationChannelSenderKeyNotifyHandler = async (
         hostDomain,
         hostChannelPublicId,
         fromPublicId,
+        fromInstanceDomain,
         senderKeyId
       }
     );
