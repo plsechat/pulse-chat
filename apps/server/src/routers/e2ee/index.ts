@@ -1,20 +1,25 @@
 import { ChannelPermission, ServerEvents } from '@pulse/shared';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { config } from '../../config';
 import { db } from '../../db';
 import {
   channels,
   e2eeSenderKeys,
+  federationInstances,
   serverMembers,
   userIdentityKeys,
   userKeyBackups,
   userOneTimePreKeys,
-  userSignedPreKeys
+  userSignedPreKeys,
+  users
 } from '../../db/schema';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getCoMemberIds } from '../../db/queries/servers';
+import { logger } from '../../logger';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
+import { relayFederatedChannelSenderKeyNotifications } from '../../utils/federation-channel-sender-key-dispatch';
 import { relayFederatedIdentityRotation } from '../../utils/federation-dm-group-dispatch';
 import { protectedProcedure, t } from '../../utils/trpc';
 import { getFederatedPreKeyBundleRoute } from './get-federated-prekey-bundle';
@@ -369,17 +374,30 @@ const distributeSenderKeyRoute = protectedProcedure
     );
   });
 
+// Phase E / E1b — distribution targets accept either the legacy
+// numeric `toUserId` shape or the new (toPublicId, toInstanceDomain)
+// shape. PublicId-keyed targets let federated members on other
+// instances be addressed without an active-server-local id; the
+// receiving instance gets a federation notification (Decision 1,
+// Option A: host-only SKDM storage with notify-on-availability).
+const distributionTargetSchema = z.union([
+  z.object({
+    toUserId: z.number(),
+    distributionMessage: z.string()
+  }),
+  z.object({
+    toPublicId: z.string().min(1),
+    toInstanceDomain: z.string().optional(),
+    distributionMessage: z.string()
+  })
+]);
+
 const distributeSenderKeysBatchRoute = protectedProcedure
   .input(
     z.object({
       channelId: z.number(),
       senderKeyId: z.number().int().min(1).default(1),
-      distributions: z.array(
-        z.object({
-          toUserId: z.number(),
-          distributionMessage: z.string()
-        })
-      )
+      distributions: z.array(distributionTargetSchema)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -391,25 +409,130 @@ const distributeSenderKeysBatchRoute = protectedProcedure
       ChannelPermission.VIEW_CHANNEL
     );
 
-    await db.insert(e2eeSenderKeys).values(
-      input.distributions.map((d) => ({
+    // Resolve each distribution target to a local user id (real for
+    // non-federated, shadow for federated). Collect federated targets
+    // separately so we can fire one notification per peer instance
+    // after the local DB write commits.
+    const insertRows: {
+      channelId: number;
+      senderKeyId: number;
+      fromUserId: number;
+      toUserId: number;
+      distributionMessage: string;
+      createdAt: number;
+    }[] = [];
+    const localPubsubTargets: number[] = [];
+    const federatedTargets: { toPublicId: string; toInstanceDomain: string }[] = [];
+    const now = Date.now();
+
+    for (const d of input.distributions) {
+      let resolvedUserId: number | null = null;
+      let federatedDomain: string | null = null;
+      let federatedPublicId: string | null = null;
+
+      if ('toUserId' in d) {
+        resolvedUserId = d.toUserId;
+      } else {
+        const toInstanceDomain = d.toInstanceDomain;
+        const isLocalTarget =
+          !toInstanceDomain || toInstanceDomain === config.federation.domain;
+
+        if (isLocalTarget) {
+          // Local user — resolve by publicId.
+          const [user] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.publicId, d.toPublicId))
+            .limit(1);
+          if (user) {
+            resolvedUserId = user.id;
+          }
+        } else {
+          // Federated user — resolve to the shadow user on this host
+          // by (federatedInstanceDomain, federatedPublicId).
+          const [peerInstance] = await db
+            .select({ id: federationInstances.id })
+            .from(federationInstances)
+            .where(eq(federationInstances.domain, toInstanceDomain))
+            .limit(1);
+          if (peerInstance) {
+            const [shadow] = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(
+                and(
+                  eq(users.federatedInstanceId, peerInstance.id),
+                  eq(users.federatedPublicId, d.toPublicId)
+                )
+              )
+              .limit(1);
+            if (shadow) {
+              resolvedUserId = shadow.id;
+              federatedDomain = toInstanceDomain;
+              federatedPublicId = d.toPublicId;
+            }
+          }
+        }
+      }
+
+      if (resolvedUserId === null) {
+        logger.warn(
+          '[distributeSenderKeysBatch] could not resolve target — skipping'
+        );
+        continue;
+      }
+
+      insertRows.push({
         channelId: input.channelId,
         senderKeyId: input.senderKeyId,
         fromUserId: ctx.userId,
-        toUserId: d.toUserId,
+        toUserId: resolvedUserId,
         distributionMessage: d.distributionMessage,
-        createdAt: Date.now()
-      }))
-    );
+        createdAt: now
+      });
 
-    for (const d of input.distributions) {
-      pubsub.publishFor(
-        d.toUserId,
-        ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION,
-        {
-          channelId: input.channelId,
-          fromUserId: ctx.userId
-        }
+      if (federatedDomain && federatedPublicId) {
+        // Federated recipient — they get a federation notification
+        // on their *home* (E1c). We deliberately do NOT fire local
+        // pubsub for the shadow user id: even when the federated
+        // user is connected to this host via a federation token,
+        // the existing E2EE_SENDER_KEY_DISTRIBUTION handler runs
+        // against the host's active store, which doesn't have
+        // their private keys (those live on home). The federation
+        // notification path routes them through the right store.
+        federatedTargets.push({
+          toPublicId: federatedPublicId,
+          toInstanceDomain: federatedDomain
+        });
+      } else {
+        localPubsubTargets.push(resolvedUserId);
+      }
+    }
+
+    if (insertRows.length === 0) return;
+
+    await db.insert(e2eeSenderKeys).values(insertRows);
+
+    for (const userId of localPubsubTargets) {
+      pubsub.publishFor(userId, ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION, {
+        channelId: input.channelId,
+        fromUserId: ctx.userId
+      });
+    }
+
+    if (federatedTargets.length > 0) {
+      // Fire-and-forget per peer; one failure doesn't block local
+      // recipients from receiving their pubsub.
+      relayFederatedChannelSenderKeyNotifications({
+        channelId: input.channelId,
+        fromUserId: ctx.userId,
+        senderKeyId: input.senderKeyId,
+        targets: federatedTargets
+      }).catch((err) =>
+        logger.error(
+          '[distributeSenderKeysBatch] federation relay failed: %o',
+          err
+        )
       );
     }
   });
@@ -423,18 +546,75 @@ const getPendingSenderKeysRoute = protectedProcedure
       conditions.push(eq(e2eeSenderKeys.channelId, input.channelId));
     }
 
+    // Phase E / E1f — federated recipients fetch their own SKDMs
+    // by connecting to the host as their shadow user. Decryption
+    // happens against the recipient's *home* signal store, which
+    // requires resolving the sender to a home-local id. We surface
+    // the sender's home publicId + instance domain alongside each
+    // row so the client doesn't need a second round-trip just to
+    // figure out who sent it. For local senders, fromInstanceDomain
+    // is null (means "this host" — receiver collapses to ownDomain).
+    // Pre-E1 callers ignore the new fields.
     const keys = await db
-      .select()
+      .select({
+        id: e2eeSenderKeys.id,
+        channelId: e2eeSenderKeys.channelId,
+        senderKeyId: e2eeSenderKeys.senderKeyId,
+        fromUserId: e2eeSenderKeys.fromUserId,
+        distributionMessage: e2eeSenderKeys.distributionMessage,
+        fromIsFederated: users.isFederated,
+        fromUserPublicId: users.publicId,
+        fromFederatedPublicId: users.federatedPublicId,
+        fromFederatedInstanceId: users.federatedInstanceId
+      })
       .from(e2eeSenderKeys)
+      .innerJoin(users, eq(users.id, e2eeSenderKeys.fromUserId))
       .where(and(...conditions));
 
-    return keys.map((k) => ({
-      id: k.id,
-      channelId: k.channelId,
-      senderKeyId: k.senderKeyId,
-      fromUserId: k.fromUserId,
-      distributionMessage: k.distributionMessage
-    }));
+    if (keys.length === 0) return [];
+
+    const fedInstanceIds = Array.from(
+      new Set(
+        keys
+          .filter((k) => k.fromIsFederated && k.fromFederatedInstanceId)
+          .map((k) => k.fromFederatedInstanceId as number)
+      )
+    );
+
+    const domainById = new Map<number, string>();
+    if (fedInstanceIds.length > 0) {
+      const rows = await db
+        .select({
+          id: federationInstances.id,
+          domain: federationInstances.domain
+        })
+        .from(federationInstances)
+        .where(inArray(federationInstances.id, fedInstanceIds));
+      for (const r of rows) domainById.set(r.id, r.domain);
+    }
+
+    return keys.map((k) => {
+      let fromHomePublicId: string | null = null;
+      let fromInstanceDomain: string | null = null;
+
+      if (k.fromIsFederated && k.fromFederatedInstanceId) {
+        fromHomePublicId = k.fromFederatedPublicId ?? null;
+        fromInstanceDomain = domainById.get(k.fromFederatedInstanceId) ?? null;
+      } else {
+        fromHomePublicId = k.fromUserPublicId ?? null;
+        fromInstanceDomain = null; // collapses to "this host" on the wire
+      }
+
+      return {
+        id: k.id,
+        channelId: k.channelId,
+        senderKeyId: k.senderKeyId,
+        fromUserId: k.fromUserId,
+        distributionMessage: k.distributionMessage,
+        fromHomePublicId,
+        fromInstanceDomain
+      };
+    });
   });
 
 const acknowledgeSenderKeysRoute = protectedProcedure
@@ -505,6 +685,20 @@ const onSenderKeyDistributionRoute = protectedProcedure.subscription(
   }
 );
 
+// Phase E / E1f — fired on the receiver's *home* instance when one
+// of its local users is a recipient of a fresh SKDM stored on a
+// federated host. Client subscribes on home; on receipt it opens
+// or reuses the active-server tRPC to `hostDomain` to fetch and
+// decrypt the SKDM.
+const onFederatedSenderKeyAvailableRoute = protectedProcedure.subscription(
+  async ({ ctx }) => {
+    return ctx.pubsub.subscribeFor(
+      ctx.userId,
+      ServerEvents.E2EE_FEDERATED_SENDER_KEY_AVAILABLE
+    );
+  }
+);
+
 const onIdentityResetRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
     return pubsub.subscribeFor(ctx.userId, ServerEvents.E2EE_IDENTITY_RESET);
@@ -528,5 +722,6 @@ export const e2eeRouter = t.router({
   getKeyBackup: getKeyBackupRoute,
   hasKeyBackup: hasKeyBackupRoute,
   onSenderKeyDistribution: onSenderKeyDistributionRoute,
+  onFederatedSenderKeyAvailable: onFederatedSenderKeyAvailableRoute,
   onIdentityReset: onIdentityResetRoute
 });

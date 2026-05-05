@@ -22,6 +22,7 @@ import {
   dmChannelMembers,
   dmChannels,
   federationInstances,
+  serverMembers,
   users
 } from '../db/schema';
 import { config } from '../config';
@@ -398,13 +399,17 @@ async function getFederationGroupId(
 }
 
 /**
- * Phase D / D3 — find every active federated peer instance whose
- * users share a DM channel with the rotating user. One entry per
- * unique peer domain, regardless of how many of their users we DM.
+ * Phase D / D3 + Phase E / E1h — find every active federated peer
+ * instance whose users share *either* a DM channel *or* a server
+ * with the rotating user. One entry per unique peer domain.
  *
- * Scope: federated DM peers only. Federated channel members aren't
- * enumerated — channel rotation propagation is part of the wider
- * federation v3 work and tracked separately.
+ * The two scopes:
+ *   - DM membership: covers the original Phase D rotation case
+ *     (federated 1:1 + group DMs).
+ *   - Server membership (E1h): covers federated channel members.
+ *     A user who shares a server with the rotating user but has
+ *     never DM'd them still needs the rotation event so their
+ *     channel-side TOFU pin can be refreshed proactively.
  *
  * Pulled out from `relayFederatedIdentityRotation` so tests can
  * exercise the enumeration without going through the network layer.
@@ -412,7 +417,7 @@ async function getFederationGroupId(
 async function enumerateRotationPeers(
   rotatingUserId: number
 ): Promise<string[]> {
-  const peerRows = await db
+  const dmPeerRows = await db
     .selectDistinct({
       instanceId: users.federatedInstanceId
     })
@@ -431,9 +436,32 @@ async function enumerateRotationPeers(
       )
     );
 
-  const instanceIds = peerRows
-    .map((r) => r.instanceId)
-    .filter((id): id is number => id !== null);
+  const serverPeerRows = await db
+    .selectDistinct({
+      instanceId: users.federatedInstanceId
+    })
+    .from(serverMembers)
+    .innerJoin(users, eq(users.id, serverMembers.userId))
+    .where(
+      and(
+        eq(users.isFederated, true),
+        inArray(
+          serverMembers.serverId,
+          db
+            .select({ id: serverMembers.serverId })
+            .from(serverMembers)
+            .where(eq(serverMembers.userId, rotatingUserId))
+        )
+      )
+    );
+
+  const instanceIds = Array.from(
+    new Set(
+      [...dmPeerRows, ...serverPeerRows]
+        .map((r) => r.instanceId)
+        .filter((id): id is number => id !== null)
+    )
+  );
 
   if (instanceIds.length === 0) return [];
 

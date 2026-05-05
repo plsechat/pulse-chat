@@ -193,6 +193,7 @@ const channels = pgTable(
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
     e2ee: boolean('e2ee').notNull().default(false),
+    publicId: text('public_id').unique(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -202,7 +203,8 @@ const channels = pgTable(
     index('channels_type_idx').on(t.type),
     index('channels_category_position_idx').on(t.categoryId, t.position),
     index('channels_server_idx').on(t.serverId),
-    index('channels_parent_idx').on(t.parentChannelId)
+    index('channels_parent_idx').on(t.parentChannelId),
+    uniqueIndex('channels_public_id_idx').on(t.publicId)
   ]
 );
 

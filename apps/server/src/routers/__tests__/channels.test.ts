@@ -1,5 +1,7 @@
 import { ChannelPermission, ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
+import { db } from '../../db';
+import { federationInstances, serverMembers, users } from '../../db/schema';
 import { initTest } from '../../__tests__/helpers';
 import { getChannelsReadStatesForUser } from '../../db/queries/channels';
 import { generateFileToken, verifyFileToken } from '../../helpers/files-crypto';
@@ -845,5 +847,75 @@ describe('channels router', () => {
     const privateTokenAfter = privateChannelAfter.fileAccessToken;
 
     expect(privateTokenAfter).not.toBe(privateTokenBefore);
+  });
+
+  describe('getVisibleUserDescriptors (E1e)', () => {
+    test('returns descriptors with publicId and instanceDomain for each visible member', async () => {
+      const { caller } = await initTest(1);
+
+      const descriptors = await caller.channels.getVisibleUserDescriptors({
+        channelId: 1
+      });
+
+      expect(descriptors.length).toBeGreaterThan(0);
+      for (const d of descriptors) {
+        expect(typeof d.id).toBe('number');
+        expect(typeof d.publicId).toBe('string');
+        expect(d.publicId.length).toBeGreaterThan(0);
+        expect(typeof d.instanceDomain).toBe('string');
+        expect(d.instanceDomain.length).toBeGreaterThan(0);
+      }
+      // The caller is a member, so they should appear with the
+      // local (home) instanceDomain.
+      const ownDescriptor = descriptors.find((d) => d.id === 1);
+      expect(ownDescriptor).toBeDefined();
+    });
+
+    test('descriptors include federated members with their home instance domain', async () => {
+      const { caller } = await initTest(1);
+
+      const PEER_DOMAIN = 'descriptors-test.example.com';
+      const [instance] = await db
+        .insert(federationInstances)
+        .values({
+          domain: PEER_DOMAIN,
+          name: PEER_DOMAIN,
+          status: 'active',
+          direction: 'outgoing',
+          publicKey: '{"kty":"OKP","crv":"Ed25519","x":"placeholder"}',
+          createdAt: Date.now()
+        })
+        .returning();
+
+      const REMOTE_PUBLIC_ID = 'descriptors-test-remote-pid';
+      const [shadow] = await db
+        .insert(users)
+        .values({
+          supabaseId: 'descriptors-test-shadow-supa',
+          name: 'ShadowUser',
+          publicId: 'shadow-pid-descriptors',
+          isFederated: true,
+          federatedInstanceId: instance!.id,
+          federatedPublicId: REMOTE_PUBLIC_ID,
+          createdAt: Date.now()
+        })
+        .returning();
+
+      await db.insert(serverMembers).values({
+        userId: shadow!.id,
+        serverId: 1,
+        nickname: null,
+        joinedAt: Date.now()
+      });
+
+      const descriptors = await caller.channels.getVisibleUserDescriptors({
+        channelId: 1
+      });
+
+      const fedDescriptor = descriptors.find((d) => d.id === shadow!.id);
+      expect(fedDescriptor).toBeDefined();
+      expect(fedDescriptor!.publicId).toBe(REMOTE_PUBLIC_ID);
+      expect(fedDescriptor!.instanceDomain).toBe(PEER_DOMAIN);
+    });
   });
 });

@@ -62,6 +62,7 @@ const addChannelRoute = protectedProcedure
           fileAccessTokenUpdatedAt: now,
           categoryId: input.categoryId,
           serverId: input.serverId,
+          publicId: randomUUIDv7(),
           createdAt: now
         })
         .returning();

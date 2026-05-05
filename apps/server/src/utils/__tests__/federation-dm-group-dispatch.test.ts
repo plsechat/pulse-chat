@@ -27,6 +27,7 @@ import {
   dmChannelMembers,
   dmChannels,
   federationInstances,
+  serverMembers,
   users
 } from '../../db/schema';
 import { config } from '../../config';
@@ -331,5 +332,43 @@ describe('enumerateRotationPeers (D3)', () => {
 
     const peers = await enumerateRotationPeers(localUserId);
     expect(peers).toEqual([]);
+  });
+
+  test('includes federated peers via shared server membership (E1h)', async () => {
+    // Phase E / E1h — a federated user who shares a server with the
+    // rotating user but has never DM'd them still needs the rotation
+    // event so their channel-side TOFU pin can refresh proactively.
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
+    // Add the federated user to a server the local user is in (the
+    // global seed puts user 1 in server 1). Crucially, NO DM channel
+    // is created between them — pre-E1h this would have returned [].
+    await db.insert(serverMembers).values({
+      userId: federatedUserAId,
+      serverId: 1,
+      nickname: null,
+      joinedAt: Date.now()
+    });
+
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers).toEqual([PEER_DOMAIN_A]);
+  });
+
+  test('dedupes when a peer is reachable via both DM and server membership', async () => {
+    const { localUserId, federatedUserAId } = await seedFederatedScenario();
+    // DM membership AND server membership — should still resolve to
+    // a single peer domain entry.
+    await createChannel({
+      isGroup: false,
+      memberIds: [localUserId, federatedUserAId]
+    });
+    await db.insert(serverMembers).values({
+      userId: federatedUserAId,
+      serverId: 1,
+      nickname: null,
+      joinedAt: Date.now()
+    });
+
+    const peers = await enumerateRotationPeers(localUserId);
+    expect(peers).toEqual([PEER_DOMAIN_A]);
   });
 });

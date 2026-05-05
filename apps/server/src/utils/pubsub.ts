@@ -211,6 +211,22 @@ type Events = {
     fromUserId: number;
   };
 
+  // Phase E / E1 — emitted on a peer instance when one of its
+  // local users has a fresh SKDM available on a federated host.
+  // Receiver opens or reuses an active-server tRPC to `hostDomain`
+  // and calls `e2ee.getPendingSenderKeys` to pull the actual SKDM.
+  // `fromInstanceDomain` is the sender's *home* domain (which may
+  // differ from `hostDomain` when the sender is themselves a
+  // federated participant in the channel) — needed to resolve
+  // their identity on the receiver's home for decrypt.
+  [ServerEvents.E2EE_FEDERATED_SENDER_KEY_AVAILABLE]: {
+    hostDomain: string;
+    hostChannelPublicId: string;
+    fromPublicId: string;
+    fromInstanceDomain: string;
+    senderKeyId: number;
+  };
+
   [ServerEvents.E2EE_IDENTITY_RESET]: {
     userId: number;
     // Phase D / D3 — only set on federated rotations. The receiving

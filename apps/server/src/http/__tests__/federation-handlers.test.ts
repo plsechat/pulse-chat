@@ -22,6 +22,7 @@
  * peer, idempotency).
  */
 
+import { ServerEvents } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { exportJWK, generateKeyPair, type JWK } from 'jose';
@@ -615,5 +616,591 @@ describe('POST /federation/identity-rotation-broadcast (D3)', () => {
     );
     expect(res.status).toBe(200);
     expect(res.body?.skipped).toBe('no shadow user');
+  });
+});
+
+describe('POST /federation/dm-channel-state-update (E2)', () => {
+  test('group: updates e2ee flag on a federationGroupId mirror and pubsubs to local members', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const federationGroupId = 'fed-group-state-1';
+    // Seed a mirror channel via the group-create handler so the
+    // shape matches a real federated group.
+    await postSignedAsPeer(
+      '/federation/dm-group-create',
+      {
+        federationGroupId,
+        name: 'State Test Group',
+        ownerPublicId: 'remote-owner-pid',
+        members: [
+          { publicId: 'remote-owner-pid', instanceDomain: PEER_DOMAIN, name: 'Remote' },
+          { publicId: localPublicId, instanceDomain: TEST_LOCAL_DOMAIN, name: 'Local' }
+        ]
+      },
+      peerPrivateJwk
+    );
+
+    _resetSeenJtis();
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/dm-channel-state-update',
+        { federationGroupId, e2ee: true },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.applied).toBe(true);
+      return collected;
+    });
+
+    const [channel] = await db
+      .select({ e2ee: dmChannels.e2ee, id: dmChannels.id })
+      .from(dmChannels)
+      .where(eq(dmChannels.federationGroupId, federationGroupId))
+      .limit(1);
+    expect(channel!.e2ee).toBe(true);
+
+    const dmUpdates = events.filter(
+      (e) => e.topic === ServerEvents.DM_CHANNEL_UPDATE
+    );
+    expect(dmUpdates.length).toBeGreaterThan(0);
+    expect(
+      dmUpdates.some(
+        (e) =>
+          (e.payload as { dmChannelId: number }).dmChannelId === channel!.id
+      )
+    ).toBe(true);
+  });
+
+  test('group: idempotent when current state already matches', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const federationGroupId = 'fed-group-idem-state';
+    await postSignedAsPeer(
+      '/federation/dm-group-create',
+      {
+        federationGroupId,
+        name: 'Idem Group',
+        ownerPublicId: 'remote-owner-pid',
+        members: [
+          { publicId: 'remote-owner-pid', instanceDomain: PEER_DOMAIN, name: 'Remote' },
+          { publicId: localPublicId, instanceDomain: TEST_LOCAL_DOMAIN, name: 'Local' }
+        ]
+      },
+      peerPrivateJwk
+    );
+
+    _resetSeenJtis();
+    const first = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      { federationGroupId, e2ee: true },
+      peerPrivateJwk
+    );
+    expect(first.status).toBe(200);
+    expect(first.body?.applied).toBe(true);
+
+    _resetSeenJtis();
+    const second = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      { federationGroupId, e2ee: true },
+      peerPrivateJwk
+    );
+    expect(second.status).toBe(200);
+    expect(second.body?.applied).toBe(false);
+  });
+
+  test('1:1: updates e2ee flag on a (fromPublicId, toPublicId) mirror', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    // Create a 1:1 DM mirror manually: the receiver instance
+    // (us) has a shadow user for the peer's sender + a real local
+    // user, joined into a non-group dm_channels row.
+    const remoteSenderPublicId = 'remote-sender-pid-state';
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'RemoteSender',
+        supabaseId: 'remote-sender-shadow-state',
+        publicId: 'shadow-' + remoteSenderPublicId,
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSenderPublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const [channel] = await db
+      .insert(dmChannels)
+      .values({ isGroup: false, e2ee: false, createdAt: Date.now() })
+      .returning();
+
+    await db.insert(dmChannelMembers).values([
+      { dmChannelId: channel!.id, userId: 1, createdAt: Date.now() },
+      { dmChannelId: channel!.id, userId: shadow!.id, createdAt: Date.now() }
+    ]);
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      {
+        fromPublicId: remoteSenderPublicId,
+        toPublicId: localPublicId,
+        e2ee: true
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.applied).toBe(true);
+
+    const [refreshed] = await db
+      .select({ e2ee: dmChannels.e2ee })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, channel!.id))
+      .limit(1);
+    expect(refreshed!.e2ee).toBe(true);
+  });
+
+  test('rejects unsigned requests', async () => {
+    await initTest();
+    await seedPeer();
+
+    const res = await fetch(
+      `${testsBaseUrl}/federation/dm-channel-state-update`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromDomain: PEER_DOMAIN,
+          federationGroupId: 'whatever',
+          e2ee: true
+        })
+      }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects when neither channel identifier nor a complete pair is supplied', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      { e2ee: true }, // no channel identifier
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects when both channel identifier paths are supplied', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      {
+        federationGroupId: 'a',
+        fromPublicId: 'b',
+        toPublicId: 'c',
+        e2ee: true
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects when no changes are specified', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      { federationGroupId: 'fed-no-change' }, // no e2ee field
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('200 ignored when the federationGroupId mirror does not exist', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      { federationGroupId: 'never-mirrored', e2ee: true },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.ignored).toBe('no_mirror_channel');
+  });
+
+  test('200 ignored when 1:1 toPublicId is unknown locally', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-channel-state-update',
+      {
+        fromPublicId: 'remote-x',
+        toPublicId: 'never-existed-local-pid',
+        e2ee: true
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.ignored).toBe('unknown_recipient');
+  });
+});
+
+describe('POST /federation/user-info-update (E3)', () => {
+  test('updates a shadow user\'s persisted profile fields and pubsubs USER_UPDATE', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-subject-e3-1';
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'OldName',
+        supabaseId: 'shadow-e3-profile',
+        publicId: 'shadow-pid-e3-profile',
+        bio: 'old bio',
+        bannerColor: '#000000',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/user-info-update',
+        {
+          subjectPublicId: remoteSubjectPublicId,
+          name: 'NewName',
+          bio: 'new bio',
+          bannerColor: '#ff5500'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.applied).toBe(true);
+      return collected;
+    });
+
+    const [refreshed] = await db
+      .select({
+        name: users.name,
+        bio: users.bio,
+        bannerColor: users.bannerColor
+      })
+      .from(users)
+      .where(eq(users.id, shadow!.id))
+      .limit(1);
+    expect(refreshed!.name).toBe('NewName');
+    expect(refreshed!.bio).toBe('new bio');
+    expect(refreshed!.bannerColor).toBe('#ff5500');
+
+    expect(
+      events.some((e) => e.topic === ServerEvents.USER_UPDATE)
+    ).toBe(true);
+  });
+
+  test('status-only update fires USER_UPDATE without touching persisted fields', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-subject-e3-status';
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'StatusUser',
+        supabaseId: 'shadow-e3-status',
+        publicId: 'shadow-pid-e3-status',
+        bio: 'unchanged',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/user-info-update',
+        {
+          subjectPublicId: remoteSubjectPublicId,
+          status: 'idle'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.applied).toBe(true);
+      return collected;
+    });
+
+    const [refreshed] = await db
+      .select({ name: users.name, bio: users.bio })
+      .from(users)
+      .where(eq(users.id, shadow!.id))
+      .limit(1);
+    // Persisted fields untouched.
+    expect(refreshed!.name).toBe('StatusUser');
+    expect(refreshed!.bio).toBe('unchanged');
+
+    expect(
+      events.some((e) => e.topic === ServerEvents.USER_UPDATE)
+    ).toBe(true);
+  });
+
+  test('400 when subjectPublicId missing', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { name: 'orphan' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('400 when no changes specified', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'whatever' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('400 when status value is invalid', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'whatever', status: 'totally-not-a-status' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('200 ignored when shadow user does not exist for subjectPublicId', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'never-seen', status: 'idle' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.ignored).toBe('unknown_subject');
+  });
+
+  test('rejects unsigned requests', async () => {
+    await initTest();
+    await seedPeer();
+
+    const res = await fetch(`${testsBaseUrl}/federation/user-info-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromDomain: PEER_DOMAIN,
+        subjectPublicId: 'a',
+        status: 'idle'
+      })
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test('triggerProfileSync alone is a valid change (200 applied)', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-trigger-only';
+    await db
+      .insert(users)
+      .values({
+        name: 'TriggerUser',
+        supabaseId: 'shadow-e3-trigger-only',
+        publicId: 'shadow-pid-e3-trigger-only',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      });
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      {
+        subjectPublicId: remoteSubjectPublicId,
+        triggerProfileSync: true
+      },
+      peerPrivateJwk
+    );
+    // Even with only the trigger flag (no inline data), the handler
+    // accepts the push. The forced-sync fire-and-forget below may
+    // hit the network and fail in tests — that's fine, the handler
+    // doesn't await it.
+    expect(res.status).toBe(200);
+    expect(res.body?.applied).toBe(true);
+  });
+});
+
+describe('POST /federation/channel-sender-key-notify (E1)', () => {
+  test('pubsubs E2EE_FEDERATED_SENDER_KEY_AVAILABLE to each local recipient', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/channel-sender-key-notify',
+        {
+          hostDomain: PEER_DOMAIN,
+          hostChannelPublicId: 'host-channel-pid-1',
+          fromPublicId: 'remote-sender-pid',
+          fromInstanceDomain: PEER_DOMAIN,
+          senderKeyId: 7,
+          recipientPublicIds: [localPublicId]
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.notified).toBe(1);
+      return collected;
+    });
+
+    const matched = events.filter(
+      (e) => e.topic === ServerEvents.E2EE_FEDERATED_SENDER_KEY_AVAILABLE
+    );
+    expect(matched.length).toBe(1);
+    expect(
+      (matched[0]!.payload as { hostChannelPublicId: string }).hostChannelPublicId
+    ).toBe('host-channel-pid-1');
+    expect((matched[0]!.payload as { senderKeyId: number }).senderKeyId).toBe(7);
+  });
+
+  test('empty recipientPublicIds is a 200 no-op', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid',
+        fromPublicId: 'sender',
+        fromInstanceDomain: PEER_DOMAIN,
+        senderKeyId: 1,
+        recipientPublicIds: []
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.notified).toBe(0);
+  });
+
+  test('unknown recipient publicIds are silently skipped', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid',
+        fromPublicId: 'sender',
+        fromInstanceDomain: PEER_DOMAIN,
+        senderKeyId: 1,
+        recipientPublicIds: ['never-existed', 'also-never']
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.notified).toBe(0);
+  });
+
+  test('federated shadow users are not valid recipients (only local)', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    // Insert a shadow user with a publicId that the request will
+    // reference. Because the user is federated, they should NOT be
+    // notified — the notification is supposed to reach the user's
+    // home instance, not a peer hosting their shadow.
+    const shadowPublicId = 'shadow-pid-not-a-recipient';
+    await db.insert(users).values({
+      name: 'Shadow',
+      supabaseId: 'shadow-not-recipient',
+      publicId: shadowPublicId,
+      isFederated: true,
+      federatedInstanceId: peerInstanceId,
+      federatedPublicId: 'remote-shadow-recipient',
+      createdAt: Date.now()
+    });
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid',
+        fromPublicId: 'sender',
+        fromInstanceDomain: PEER_DOMAIN,
+        senderKeyId: 1,
+        recipientPublicIds: [shadowPublicId]
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.notified).toBe(0);
+  });
+
+  test('400 when required fields are missing', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: PEER_DOMAIN,
+        hostChannelPublicId: 'pid'
+        // fromPublicId, senderKeyId, recipientPublicIds missing
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects unsigned requests', async () => {
+    await initTest();
+    await seedPeer();
+
+    const res = await fetch(
+      `${testsBaseUrl}/federation/channel-sender-key-notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromDomain: PEER_DOMAIN,
+          hostDomain: PEER_DOMAIN,
+          hostChannelPublicId: 'pid',
+          fromPublicId: 'a',
+          senderKeyId: 1,
+          recipientPublicIds: []
+        })
+      }
+    );
+    expect(res.status).toBe(400);
   });
 });

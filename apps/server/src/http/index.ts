@@ -18,6 +18,9 @@ import {
   federationServersHandler,
   federationUserInfoHandler
 } from './federation';
+import { federationDmChannelStateUpdateHandler } from './federation-dm-channel-state';
+import { federationChannelSenderKeyNotifyHandler } from './federation-channel-sender-key';
+import { federationUserInfoUpdateHandler } from './federation-user-info-update';
 import {
   federationDmGroupAddMemberHandler,
   federationDmGroupCreateHandler,
@@ -161,6 +164,21 @@ const createHttpServer = async (port: number = config.server.port) => {
           if (req.method === 'POST' && req.url === '/federation/identity-rotation-broadcast') {
             if (!checkRateLimit(req, res, federationRateLimit)) return;
             return await federationIdentityRotationHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/dm-channel-state-update') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationDmChannelStateUpdateHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/user-info-update') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationUserInfoUpdateHandler(req, res);
+          }
+
+          if (req.method === 'POST' && req.url === '/federation/channel-sender-key-notify') {
+            if (!checkRateLimit(req, res, federationRateLimit)) return;
+            return await federationChannelSenderKeyNotifyHandler(req, res);
           }
 
           if (req.method === 'POST' && req.url === '/federation/report-user') {
