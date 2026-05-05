@@ -5,6 +5,7 @@ import { removeFile } from '../../db/mutations/files';
 import { publishUser } from '../../db/publishers';
 import { getUserById } from '../../db/queries/users';
 import { users } from '../../db/schema';
+import { relayUserInfoUpdate } from '../../utils/federation-user-info-dispatch';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -54,6 +55,11 @@ const changeBannerRoute = protectedProcedure
     }
 
     publishUser(ctx.userId, 'update');
+
+    // Phase E / E3 — same pattern as change-avatar: tell peers to
+    // re-pull so the new banner file is downloaded via the existing
+    // federated-file pipeline.
+    relayUserInfoUpdate(ctx.userId, { triggerProfileSync: true });
   });
 
 export { changeBannerRoute };

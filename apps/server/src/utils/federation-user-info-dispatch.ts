@@ -25,6 +25,13 @@ type UserInfoChanges = {
   bio?: string | null;
   bannerColor?: string | null;
   status?: string; // UserStatus value
+  // When true, peer instances re-fetch the full profile via the
+  // existing pull endpoint (skipping the debounce). Used by
+  // changeAvatar / changeBanner since the new file content has to
+  // be downloaded — sending it inline through this dispatch isn't
+  // worth the wire overhead, and the pull path already handles
+  // the file download.
+  triggerProfileSync?: boolean;
 };
 
 /**

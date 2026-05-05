@@ -37,6 +37,7 @@ import { UserStatus } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
+import { syncShadowUserProfile } from '../db/mutations/federation';
 import { users } from '../db/schema';
 import { publishUser } from '../db/publishers';
 import { logger } from '../logger';
@@ -72,6 +73,7 @@ const federationUserInfoUpdateHandler = async (
   const bioChange = signedBody.bio as string | null | undefined;
   const bannerColorChange = signedBody.bannerColor as string | null | undefined;
   const statusChange = signedBody.status as string | undefined;
+  const triggerProfileSync = signedBody.triggerProfileSync === true;
 
   if (!subjectPublicId || typeof subjectPublicId !== 'string') {
     return jsonResponse(res, 400, { error: 'Missing subjectPublicId' });
@@ -83,7 +85,8 @@ const federationUserInfoUpdateHandler = async (
     nameChange !== undefined ||
     bioChange !== undefined ||
     bannerColorChange !== undefined ||
-    statusChange !== undefined;
+    statusChange !== undefined ||
+    triggerProfileSync;
   if (!hasAnyChange) {
     return jsonResponse(res, 400, { error: 'No changes specified' });
   }
@@ -140,6 +143,22 @@ const federationUserInfoUpdateHandler = async (
     statusOverride:
       statusChange !== undefined ? (statusChange as UserStatus) : undefined
   });
+
+  // Avatar / banner can't be sent inline through this dispatch
+  // (the file content has to be downloaded). Instead we trigger
+  // the existing forced-pull path, which fetches the full profile
+  // from the home and downloads any new file via the standard
+  // federated-file pipeline. Fire-and-forget — the receiver doesn't
+  // wait for the file download to complete; the second pubsub
+  // (USER_UPDATE) inside syncShadowUserProfile will re-broadcast
+  // once the new files are in place.
+  if (triggerProfileSync) {
+    void syncShadowUserProfile(shadow.id, fromDomain, subjectPublicId, {
+      force: true
+    }).catch((err) =>
+      logger.error('[user-info-update] forced profile sync failed: %o', err)
+    );
+  }
 
   return signedJsonResponse(res, 200, { applied: true }, fromDomain);
 };

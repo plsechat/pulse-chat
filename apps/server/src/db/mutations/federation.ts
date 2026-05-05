@@ -327,10 +327,14 @@ async function downloadFederatedFile(
 async function syncShadowUserProfile(
   shadowUserId: number,
   issuerDomain: string,
-  publicId: string
+  publicId: string,
+  opts?: { force?: boolean }
 ): Promise<void> {
   try {
-    // Debounce: skip if recently synced
+    // Debounce: skip if recently synced — unless `force` is set,
+    // which the user-info-update push path uses to bypass debounce
+    // when the home instance has explicitly told us a profile field
+    // changed.
     const [shadow] = await db
       .select({
         avatarId: users.avatarId,
@@ -345,7 +349,11 @@ async function syncShadowUserProfile(
 
     if (!shadow) return;
 
-    if (shadow.updatedAt && Date.now() - shadow.updatedAt < PROFILE_SYNC_DEBOUNCE_MS) {
+    if (
+      !opts?.force &&
+      shadow.updatedAt &&
+      Date.now() - shadow.updatedAt < PROFILE_SYNC_DEBOUNCE_MS
+    ) {
       return;
     }
 

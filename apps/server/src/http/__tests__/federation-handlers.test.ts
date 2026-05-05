@@ -1022,6 +1022,39 @@ describe('POST /federation/user-info-update (E3)', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  test('triggerProfileSync alone is a valid change (200 applied)', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-trigger-only';
+    await db
+      .insert(users)
+      .values({
+        name: 'TriggerUser',
+        supabaseId: 'shadow-e3-trigger-only',
+        publicId: 'shadow-pid-e3-trigger-only',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      });
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      {
+        subjectPublicId: remoteSubjectPublicId,
+        triggerProfileSync: true
+      },
+      peerPrivateJwk
+    );
+    // Even with only the trigger flag (no inline data), the handler
+    // accepts the push. The forced-sync fire-and-forget below may
+    // hit the network and fail in tests — that's fine, the handler
+    // doesn't await it.
+    expect(res.status).toBe(200);
+    expect(res.body?.applied).toBe(true);
+  });
 });
 
 describe('POST /federation/channel-sender-key-notify (E1)', () => {

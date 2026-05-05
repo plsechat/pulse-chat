@@ -217,4 +217,56 @@ describe('relayUserInfoUpdate (E3)', () => {
     );
     expect(updates).toHaveLength(0);
   });
+
+  test('profile-field changes (name/bio/bannerColor) forwarded inline', async () => {
+    await initTest(1);
+    await generateFederationKeys();
+    mockDns();
+    await seedFederatedPeerWithDmFriend(
+      PEER_DOMAIN_A,
+      'shadow-e3-profile',
+      'remote-profile'
+    );
+
+    const { calls } = spyOnFetch();
+
+    await relayUserInfoUpdate(1, {
+      name: 'NewName',
+      bio: 'New bio',
+      bannerColor: '#ff5500'
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const updates = calls.filter((c) =>
+      c.url.includes('/federation/user-info-update')
+    );
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.body.name).toBe('NewName');
+    expect(updates[0]!.body.bio).toBe('New bio');
+    expect(updates[0]!.body.bannerColor).toBe('#ff5500');
+  });
+
+  test('triggerProfileSync flag is forwarded for avatar/banner changes', async () => {
+    await initTest(1);
+    await generateFederationKeys();
+    mockDns();
+    await seedFederatedPeerWithDmFriend(
+      PEER_DOMAIN_A,
+      'shadow-e3-trigger',
+      'remote-trigger'
+    );
+
+    const { calls } = spyOnFetch();
+
+    // Avatar/banner changes don't carry data inline — they signal
+    // the receiver to re-pull the full profile.
+    await relayUserInfoUpdate(1, { triggerProfileSync: true });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const updates = calls.filter((c) =>
+      c.url.includes('/federation/user-info-update')
+    );
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.body.triggerProfileSync).toBe(true);
+  });
 });
