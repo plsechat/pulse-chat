@@ -18,6 +18,7 @@ import { db } from '../db';
 import { federationInstances } from '../db/schema';
 import { config } from '../config';
 import { verifyChallenge } from '../utils/federation';
+import { logger } from '../logger';
 
 const MAX_BODY_SIZE = 1024 * 1024;
 
@@ -84,6 +85,7 @@ async function authorizeFederationRequest(
   | null
 > {
   if (!config.federation.enabled) {
+    logger.debug('[federation] %s rejected — federation disabled', req.url);
     jsonResponse(res, 403, { error: 'Federation not enabled' });
     return null;
   }
@@ -95,6 +97,10 @@ async function authorizeFederationRequest(
   const fromDomain = signedBody.fromDomain as string;
 
   if (!fromDomain || !signature || typeof signature !== 'string') {
+    logger.debug(
+      '[federation] %s rejected — missing fromDomain or signature',
+      req.url
+    );
     jsonResponse(res, 400, { error: 'Missing fromDomain or signature' });
     return null;
   }
@@ -111,6 +117,11 @@ async function authorizeFederationRequest(
     .limit(1);
 
   if (!instance || !instance.publicKey) {
+    logger.debug(
+      '[federation] %s rejected — peer %s not trusted',
+      req.url,
+      fromDomain
+    );
     jsonResponse(res, 403, { error: 'Not a trusted instance' });
     return null;
   }
@@ -122,9 +133,21 @@ async function authorizeFederationRequest(
     instance.publicKey
   );
   if (!isValid) {
+    logger.warn(
+      '[federation] %s rejected — invalid signature from %s',
+      req.url,
+      fromDomain
+    );
     jsonResponse(res, 401, { error: 'Invalid signature' });
     return null;
   }
+
+  logger.debug(
+    '[federation] > %s from %s (instanceId=%d)',
+    req.url,
+    fromDomain,
+    instance.id
+  );
 
   return {
     instance: {

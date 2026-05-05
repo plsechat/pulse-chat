@@ -74,7 +74,7 @@ const createContext = async ({
 }: CreateWSSContextFnOptions): Promise<Context> => {
   const params = info.connectionParams as TConnectionParams;
 
-  logger.info('[wss/createContext] new connection, hasFederationToken=%s, hasAccessToken=%s',
+  logger.debug('[wss/createContext] new connection, hasFederationToken=%s, hasAccessToken=%s',
     !!params.federationToken, !!params.accessToken);
 
   let decodedUser;
@@ -82,9 +82,9 @@ const createContext = async ({
 
   if (params.federationToken) {
     // Federation auth path
-    logger.info('[wss/createContext] federation auth path, token length=%d', params.federationToken.length);
+    logger.debug('[wss/createContext] federation auth path, token length=%d', params.federationToken.length);
     const fedResult = await verifyFederationToken(params.federationToken);
-    logger.info('[wss/createContext] federation token verification result=%o',
+    logger.debug('[wss/createContext] federation token verification result=%o',
       fedResult ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : null);
 
     if (!fedResult) {
@@ -103,7 +103,7 @@ const createContext = async ({
       fedResult.avatar,
       fedResult.publicId
     );
-    logger.info('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
+    logger.debug('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
 
     // Sync profile (avatar, banner, bio) from home instance — await with timeout
     // so the profile data is ready before the client's first request
@@ -366,6 +366,8 @@ const createWsServer = async (server: http.Server) => {
       ws.userId = undefined;
       ws.token = '';
 
+      logger.debug('[WS] connection open');
+
       ws.once('message', async (message) => {
         try {
           const parsed = JSON.parse(message.toString());
@@ -387,6 +389,8 @@ const createWsServer = async (server: http.Server) => {
       });
 
       ws.on('close', async () => {
+        logger.debug('[WS] connection close userId=%s', ws.userId ?? '-');
+
         // Clean up lookup Maps immediately (before any async work)
         if (ws.token) wsMapByToken.delete(ws.token);
 

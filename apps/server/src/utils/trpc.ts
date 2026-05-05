@@ -5,7 +5,7 @@ import {
   type Permission,
   type TUser
 } from '@pulse/shared';
-import { initTRPC } from '@trpc/server';
+import { initTRPC, TRPCError } from '@trpc/server';
 import chalk from 'chalk';
 import type WebSocket from 'ws';
 import { config } from '../config';
@@ -13,6 +13,12 @@ import { getUserById } from '../db/queries/users';
 import { logger } from '../logger';
 import type { TConnectionInfo } from '../types';
 import { invariant } from './invariant';
+import {
+  getLogContext,
+  newRequestId,
+  updateLogContext,
+  withLogContext
+} from './log-context';
 import { pubsub } from './pubsub';
 
 export type Context = {
@@ -54,21 +60,51 @@ export type Context = {
 
 const t = initTRPC.context<Context>().create();
 
-const timingMiddleware = t.middleware(async ({ path, next }) => {
-  if (!config.server.debug) {
-    return next();
+const timingMiddleware = t.middleware(async ({ path, type, ctx, next }) => {
+  // Run the tRPC invocation inside an async-local log context so any
+  // downstream `logger.*` call carries the userId + route. HTTP-mounted
+  // tRPC requests already have a scope (seeded by the http server
+  // entry); WS-mounted ones don't, so we create one here. Per-call so
+  // each subscription / mutation on the same WS gets its own requestId.
+  const userIdStamp = typeof ctx.userId === 'number' ? { userId: ctx.userId } : {};
+  const apply = async () => {
+    if (!config.server.debug) {
+      return next();
+    }
+
+    logger.debug('[tRPC] > %s %s userId=%s', type, path, ctx.userId ?? '-');
+
+    const start = performance.now();
+    try {
+      const result = await next();
+      const duration = performance.now() - start;
+      logger.debug(
+        `${chalk.dim('[tRPC]')} < ${chalk.yellow(path)} ${chalk.green(duration.toFixed(2))}ms`
+      );
+      return result;
+    } catch (error) {
+      const duration = performance.now() - start;
+      const code = error instanceof TRPCError ? error.code : 'UNKNOWN';
+      logger.debug(
+        '[tRPC] ! %s %s %s %sms %o',
+        type,
+        path,
+        code,
+        duration.toFixed(2),
+        error
+      );
+      throw error;
+    }
+  };
+
+  if (getLogContext()) {
+    updateLogContext({ ...userIdStamp, route: path });
+    return apply();
   }
-
-  const start = performance.now();
-  const result = await next();
-  const end = performance.now();
-  const duration = end - start;
-
-  logger.debug(
-    `${chalk.dim('[tRPC]')} ${chalk.yellow(path)} took ${chalk.green(duration.toFixed(2))} ms`
+  return withLogContext(
+    { requestId: newRequestId(), ...userIdStamp, route: path },
+    apply
   );
-
-  return result;
 });
 
 const authMiddleware = t.middleware(async ({ ctx, next }) => {

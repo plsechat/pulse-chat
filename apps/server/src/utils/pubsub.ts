@@ -21,6 +21,10 @@ import type {
 import type { Unsubscribable } from '@trpc/server/observable';
 import { observable, type Observable } from '@trpc/server/observable';
 import { EventEmitter } from 'events';
+import { config } from '../config';
+import { logger } from '../logger';
+
+const PUBSUB_LOG_RECIPIENT_CAP = 100;
 
 type Events = {
   [ServerEvents.NEW_MESSAGE]: TJoinedMessage;
@@ -300,6 +304,16 @@ class PubSub {
     payload: Events[TTopic]
   ): void {
     const targetUserIds = Array.isArray(userIds) ? userIds : [userIds];
+
+    if (config.server.debug && targetUserIds.length <= PUBSUB_LOG_RECIPIENT_CAP) {
+      // Volume guard: skip the line for fan-outs above the cap so a
+      // server-wide broadcast doesn't bury the rest of the trace.
+      logger.debug(
+        '[pubsub] %s recipients=%d',
+        String(topic),
+        targetUserIds.length
+      );
+    }
 
     for (const userId of targetUserIds) {
       const userTopics = this.userListeners.get(userId);

@@ -475,11 +475,12 @@ async function queryInstance<T extends Record<string, unknown>>(
 
     const requestId = getLogContext()?.requestId ?? newRequestId();
     logger.debug(
-      '[queryInstance] outbound %s%s requestId=%s',
+      '[queryInstance] > %s%s requestId=%s',
       instanceDomain,
       path,
       requestId
     );
+    const startMs = performance.now();
     const response = await federationFetch(
       `${protocol}://${instanceDomain}${path}`,
       {
@@ -492,16 +493,26 @@ async function queryInstance<T extends Record<string, unknown>>(
         signal: AbortSignal.timeout(10_000)
       }
     );
+    const durationMs = (performance.now() - startMs).toFixed(2);
 
     if (!response.ok) {
       logger.warn(
-        '[queryInstance] %s%s returned %d',
+        '[queryInstance] %s%s returned %d (%sms)',
         instanceDomain,
         path,
-        response.status
+        response.status,
+        durationMs
       );
       return null;
     }
+
+    logger.debug(
+      '[queryInstance] < %s%s %d %sms',
+      instanceDomain,
+      path,
+      response.status,
+      durationMs
+    );
 
     const responseJson = (await response.json()) as Record<string, unknown>;
 
@@ -581,11 +592,12 @@ async function relayToInstance(
 
     const requestId = getLogContext()?.requestId ?? newRequestId();
     logger.debug(
-      '[relayToInstance] outbound %s%s requestId=%s',
+      '[relayToInstance] > %s%s requestId=%s',
       instanceDomain,
       path,
       requestId
     );
+    const startMs = performance.now();
     const response = await federationFetch(`${protocol}://${instanceDomain}${path}`, {
       method: 'POST',
       headers: {
@@ -595,17 +607,26 @@ async function relayToInstance(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000)
     });
+    const durationMs = (performance.now() - startMs).toFixed(2);
 
     if (!response.ok) {
       logger.warn(
-        '[relayToInstance] %s%s returned %d',
+        '[relayToInstance] %s%s returned %d (%sms)',
         instanceDomain,
         path,
-        response.status
+        response.status,
+        durationMs
       );
       return false;
     }
 
+    logger.debug(
+      '[relayToInstance] < %s%s %d %sms',
+      instanceDomain,
+      path,
+      response.status,
+      durationMs
+    );
     return true;
   } catch (error) {
     logger.error('[relayToInstance] failed to relay to %s%s: %o', instanceDomain, path, error);
