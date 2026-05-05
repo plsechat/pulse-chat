@@ -30,6 +30,67 @@ jobs:
       - name: Lint
         run: bun run lint
 
+  # Catch non-idempotent migrations at PR time. The PULSE boot loop
+  # wipes drizzle's tracking table on every start and re-runs every
+  # committed migration, so each migration SQL file must be replay-
+  # safe. CI's fresh Postgres normally never exercises the rerun
+  # path — this job applies every migration twice against a clean DB
+  # so the second pass would explode if anything regressed (PR #73's
+  # 0016_huge_prodigy.sql shipped with the wrong EXCEPTION class and
+  # crashed the chat2 boot; this job would have flagged it pre-merge).
+  migrations-idempotent:
+    name: Migrations replay-safe
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pulse_test
+          POSTGRES_PASSWORD: pulse_test
+          POSTGRES_DB: pulse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://pulse_test:pulse_test@localhost:5432/pulse_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U pulse_test && break
+            echo "Waiting for postgres ($i/30)..."
+            sleep 2
+          done
+
+      # Generate any newly-introduced migration SQL from schema.ts.
+      # Mirrors the test job so we exercise the same migration set the
+      # tests run against.
+      - name: Generate Drizzle migrations
+        working-directory: apps/server
+        run: bun run db:gen
+
+      - name: Apply migrations twice
+        working-directory: apps/server
+        run: bun run src/scripts/check-migrations-idempotent.ts
+
   # Find every server test file and split into 10 roughly-even
   # chunks. Each chunk becomes a single test job, so a freshly
   # provisioned VM + postgres + bun install + drizzle gen amortises
