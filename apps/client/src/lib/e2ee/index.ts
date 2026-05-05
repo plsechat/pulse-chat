@@ -491,7 +491,18 @@ async function isUserFederated(userId: number): Promise<boolean> {
  * D3's identity-rotation broadcast handles cross-instance rotation;
  * stale federated sessions surface the identity-changed modal on
  * the next decrypt attempt.
+ *
+ * Concurrent calls for the same (userId, store) collapse onto a
+ * single in-flight promise via `inflightSessions`. Without this,
+ * three parallel callers (e.g. ensureChannelSenderKey looping over
+ * members while a DM send is in flight against the same recipient)
+ * each saw `hasSession === false`, each fetched a fresh prekey
+ * bundle, and each consumed a one-time prekey from the recipient's
+ * server-side OTP pool. Dedupe keeps the OTP burn at one per
+ * "first session" event, not one per concurrent caller.
  */
+const inflightSessions = new Map<string, Promise<void>>();
+
 async function ensureSession(
   userId: number,
   opts?: {
@@ -504,6 +515,41 @@ async function ensureSession(
   const trpc = opts?.trpc ?? getHomeTRPCClient();
   if (!trpc) throw new Error('Not connected');
 
+  // Cache key combines userId with the store identity. Different
+  // stores legitimately need separate sessions for the same userId
+  // (Phase B/C per-instance scoping); same store + same userId
+  // dedupes.
+  const storeKey = storeIdentity(s);
+  const cacheKey = `${userId}::${storeKey}::${opts?.verifyIdentity ? '1' : '0'}`;
+  const existing = inflightSessions.get(cacheKey);
+  if (existing) return existing;
+
+  const promise = doEnsureSession(userId, s, trpc, opts).finally(() => {
+    inflightSessions.delete(cacheKey);
+  });
+  inflightSessions.set(cacheKey, promise);
+  return promise;
+}
+
+const storeIds = new WeakMap<SignalProtocolStore, string>();
+let storeIdCounter = 0;
+function storeIdentity(s: SignalProtocolStore): string {
+  let id = storeIds.get(s);
+  if (!id) {
+    id = `s${++storeIdCounter}`;
+    storeIds.set(s, id);
+  }
+  return id;
+}
+
+async function doEnsureSession(
+  userId: number,
+  s: SignalProtocolStore,
+  trpc: NonNullable<ReturnType<typeof getHomeTRPCClient>>,
+  opts?: {
+    verifyIdentity?: boolean;
+  }
+): Promise<void> {
   const federated = await isUserFederated(userId);
 
   if (await hasSession(userId, s)) {
@@ -740,8 +786,43 @@ async function distributeChainToMembers(args: {
  * shadow user on home (created on demand). The home-resolved id
  * is the libsignal address; this is what makes the same federated
  * peer's session reusable across channels and DMs.
+ *
+ * Concurrent calls for the same channelId collapse onto one in-
+ * flight promise via `inflightChannelSenderKey`. Without this,
+ * components that re-render on channel-click (sidebar list, message
+ * pane, header) each fired their own ensureChannelSenderKey,
+ * producing duplicate distributeSenderKeysBatch mutations within
+ * milliseconds — observed as 2× duplicate inserts in the chat2 logs.
  */
+const inflightChannelSenderKey = new Map<number, Promise<void>>();
+
 export async function ensureChannelSenderKey(
+  channelId: number,
+  ownUserId: number,
+  opts?: {
+    store?: SignalProtocolStore;
+    trpc?: ReturnType<typeof getTRPCClient>;
+  }
+): Promise<void> {
+  // Dedupe across opts because a duplicate caller on the same
+  // channel almost always wants the same effect; the rare
+  // custom-store / custom-trpc caller can wait for the in-flight
+  // pass and then start its own if it really needs separate side
+  // effects (in practice it's the per-channel sidebar / view, all
+  // using defaults).
+  const existing = inflightChannelSenderKey.get(channelId);
+  if (existing) return existing;
+
+  const promise = doEnsureChannelSenderKey(channelId, ownUserId, opts).finally(
+    () => {
+      inflightChannelSenderKey.delete(channelId);
+    }
+  );
+  inflightChannelSenderKey.set(channelId, promise);
+  return promise;
+}
+
+async function doEnsureChannelSenderKey(
   channelId: number,
   ownUserId: number,
   opts?: {

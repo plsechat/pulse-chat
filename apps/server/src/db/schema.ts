@@ -1075,7 +1075,19 @@ const e2eeSenderKeys = pgTable(
     index('e2ee_sender_keys_channel_idx').on(t.channelId),
     index('e2ee_sender_keys_from_idx').on(t.fromUserId),
     index('e2ee_sender_keys_to_idx').on(t.toUserId),
-    index('e2ee_sender_keys_channel_to_idx').on(t.channelId, t.toUserId)
+    index('e2ee_sender_keys_channel_to_idx').on(t.channelId, t.toUserId),
+    // (channel, from, to, senderKeyId) is the natural unique tuple
+    // for an SKDM row — same chain to the same recipient should
+    // only ever be stored once. Lets distributeSenderKeysBatch use
+    // ON CONFLICT DO NOTHING so duplicate calls (from concurrent
+    // client effects) become idempotent. Added after duplicate
+    // dispatches were observed in chat2 logs.
+    uniqueIndex('e2ee_sender_keys_unique_idx').on(
+      t.channelId,
+      t.fromUserId,
+      t.toUserId,
+      t.senderKeyId
+    )
   ]
 );
 

@@ -512,7 +512,24 @@ const distributeSenderKeysBatchRoute = protectedProcedure
 
     if (insertRows.length === 0) return;
 
-    await db.insert(e2eeSenderKeys).values(insertRows);
+    // ON CONFLICT DO NOTHING on the (channel, from, to, senderKeyId)
+    // unique index added in migration 0017. Concurrent client
+    // effects can fire distributeSenderKeysBatch twice within
+    // milliseconds for the same channel — observed on chat2.
+    // Without this guard the table grew duplicate SKDM rows; the
+    // receiver dedupes by senderKeyId so it's not catastrophic, but
+    // it wastes DB / pubsub fan-out and is structurally wrong.
+    await db
+      .insert(e2eeSenderKeys)
+      .values(insertRows)
+      .onConflictDoNothing({
+        target: [
+          e2eeSenderKeys.channelId,
+          e2eeSenderKeys.fromUserId,
+          e2eeSenderKeys.toUserId,
+          e2eeSenderKeys.senderKeyId
+        ]
+      });
     logger.debug(
       '[distributeSenderKeysBatch] channelId=%d senderKeyId=%d local=%d federated=%d',
       input.channelId,
