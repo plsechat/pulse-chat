@@ -29,5 +29,10 @@ END $$;
 DO $$ BEGIN
 	ALTER TABLE "channels" ADD CONSTRAINT "channels_public_id_unique" UNIQUE("public_id");
 EXCEPTION
+	-- ADD CONSTRAINT … UNIQUE creates a backing index. Re-running the
+	-- migration after a successful first pass therefore raises 42P07
+	-- (duplicate_table) for the index, not 42710 (duplicate_object) for
+	-- the constraint. Catch both so the boot-time replay is idempotent.
 	WHEN duplicate_object THEN null;
+	WHEN duplicate_table THEN null;
 END $$;
