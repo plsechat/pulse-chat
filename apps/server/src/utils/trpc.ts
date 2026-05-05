@@ -9,9 +9,9 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import chalk from 'chalk';
 import type WebSocket from 'ws';
 import { config } from '../config';
-import { getUserById } from '../db/queries/users';
 import { logger } from '../logger';
 import type { TConnectionInfo } from '../types';
+import { isBanned } from './banned-cache';
 import { invariant } from './invariant';
 import {
   getLogContext,
@@ -113,9 +113,15 @@ const authMiddleware = t.middleware(async ({ ctx, next }) => {
     message: 'You must be authenticated to perform this action.'
   });
 
-  // Re-check banned status on every request (ban may have been applied after connection)
-  const freshUser = await getUserById(ctx.userId);
-  invariant(freshUser && !freshUser.banned, {
+  // Banned-status check uses the in-memory cache (utils/banned-cache).
+  // ban.ts / unban.ts mutations push state changes into the cache
+  // immediately after their DB writes commit, so the lookup is
+  // truthful on every protected procedure without paying a DB
+  // round-trip per call. The previous getUserById() per-call was the
+  // root cause of the post-rebuild slow-load on chat2 — every
+  // initial subscription / query made one round-trip to a remote
+  // postgres, multiplying the load delay by RTT × the fan-out.
+  invariant(!isBanned(ctx.userId), {
     code: 'FORBIDDEN',
     message: 'User is banned'
   });

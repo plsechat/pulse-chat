@@ -6,6 +6,7 @@ import { publishUser } from '../../db/publishers';
 import { isServerMember } from '../../db/queries/servers';
 import { users } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { markUnbanned } from '../../utils/banned-cache';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -35,6 +36,10 @@ const unbanRoute = protectedProcedure
         banReason: null
       })
       .where(eq(users.id, input.userId));
+
+    // Drop them from the auth middleware's in-memory banned set so
+    // their next protected procedure call goes through.
+    markUnbanned(input.userId);
 
     publishUser(input.userId, 'update');
 
