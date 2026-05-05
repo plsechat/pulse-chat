@@ -522,6 +522,17 @@ async function ensureSession(
   const storeKey = storeIdentity(s);
   const cacheKey = `${userId}::${storeKey}::${opts?.verifyIdentity ? '1' : '0'}`;
   const existing = inflightSessions.get(cacheKey);
+  // TEMP diag — confirming the dedupe path is hit on every call.
+  // Remove once the multi-prekey-bundle bug is root-caused.
+  console.log(
+    '[E2EE/diag] ensureSession',
+    JSON.stringify({
+      userId,
+      cacheKey,
+      mapSize: inflightSessions.size,
+      hadExisting: !!existing
+    })
+  );
   if (existing) return existing;
 
   const promise = doEnsureSession(userId, s, trpc, opts).finally(() => {
