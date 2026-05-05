@@ -5,6 +5,7 @@ import { config } from '../config';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
+import { newRequestId, withLogContext } from '../utils/log-context';
 import {
   federationAcceptHandler,
   federationDmRelayHandler,
@@ -48,6 +49,26 @@ const createHttpServer = async (port: number = config.server.port) => {
   return new Promise<http.Server>((resolve) => {
     const server = http.createServer(
       async (req: http.IncomingMessage, res: http.ServerResponse) => {
+        // Seed an async-local correlation context for this request. If the
+        // caller is a peer instance, carry over their X-Pulse-Request-Id
+        // so both sides' debug lines share an id; otherwise mint a fresh
+        // one. All downstream `logger.*` calls inside this stack pick the
+        // id up via `getLogContext()` and stamp it onto the JSON payload.
+        const inboundId = req.headers['x-pulse-request-id'];
+        const requestId =
+          typeof inboundId === 'string' && inboundId.length > 0 && inboundId.length < 200
+            ? inboundId
+            : newRequestId();
+        await withLogContext({ requestId, route: req.url }, () =>
+          handleHttpRequest(req, res)
+        );
+      }
+    );
+
+    async function handleHttpRequest(
+      req: http.IncomingMessage,
+      res: http.ServerResponse
+    ) {
         const origin = req.headers.origin;
         if (origin) {
           const allowed = await isAllowedOrigin(origin, req.headers.host);
@@ -259,8 +280,7 @@ const createHttpServer = async (port: number = config.server.port) => {
 
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));
-      }
-    );
+    }
 
     server.on('listening', () => {
       logger.debug('HTTP server is listening on port %d', port);

@@ -14,6 +14,7 @@ import { db } from '../db';
 import { federationInstances, federationKeys } from '../db/schema';
 import { config } from '../config';
 import { federationFetch } from './federation-fetch';
+import { getLogContext, newRequestId } from './log-context';
 import { logger } from '../logger';
 
 async function generateFederationKeys(): Promise<{
@@ -472,11 +473,21 @@ async function queryInstance<T extends Record<string, unknown>>(
     const signature = await signChallenge(bodyToSign, instanceDomain);
     const requestBody = { ...bodyToSign, signature };
 
+    const requestId = getLogContext()?.requestId ?? newRequestId();
+    logger.debug(
+      '[queryInstance] outbound %s%s requestId=%s',
+      instanceDomain,
+      path,
+      requestId
+    );
     const response = await federationFetch(
       `${protocol}://${instanceDomain}${path}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Pulse-Request-Id': requestId
+        },
         body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(10_000)
       }
@@ -568,9 +579,19 @@ async function relayToInstance(
       signature
     };
 
+    const requestId = getLogContext()?.requestId ?? newRequestId();
+    logger.debug(
+      '[relayToInstance] outbound %s%s requestId=%s',
+      instanceDomain,
+      path,
+      requestId
+    );
     const response = await federationFetch(`${protocol}://${instanceDomain}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Pulse-Request-Id': requestId
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000)
     });
