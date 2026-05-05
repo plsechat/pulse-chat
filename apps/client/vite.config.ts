@@ -11,7 +11,15 @@ export default defineConfig(({ mode }) => ({
     target: 'esnext'
   },
   esbuild: {
-    drop: mode === 'production' ? ['console', 'debugger'] : []
+    // Strip chatty/dev-time logging in production but keep warn/error —
+    // those communicate real failures a user might surface to us. The
+    // original `drop: ['console']` stripped EVERY console method, which
+    // also silenced `console.warn` / `console.error`, making prod
+    // failures invisible to anyone reading DevTools.
+    pure: mode === 'production'
+      ? ['console.log', 'console.debug', 'console.info', 'console.trace']
+      : [],
+    drop: mode === 'production' ? ['debugger'] : []
   },
   resolve: {
     alias: {
