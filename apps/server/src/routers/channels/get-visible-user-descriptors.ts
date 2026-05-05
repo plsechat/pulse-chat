@@ -39,6 +39,7 @@ const getVisibleUserDescriptorsRoute = protectedProcedure
     const memberRows = await db
       .select({
         id: users.id,
+        name: users.name,
         publicId: users.publicId,
         federatedPublicId: users.federatedPublicId,
         isFederated: users.isFederated,
@@ -70,6 +71,7 @@ const getVisibleUserDescriptorsRoute = protectedProcedure
 
     const descriptors: {
       id: number;
+      name: string;
       publicId: string;
       instanceDomain: string;
     }[] = [];
@@ -95,6 +97,7 @@ const getVisibleUserDescriptorsRoute = protectedProcedure
 
       descriptors.push({
         id: m.id,
+        name: m.name,
         publicId,
         instanceDomain
       });

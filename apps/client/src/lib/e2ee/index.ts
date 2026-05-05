@@ -104,19 +104,37 @@ async function reserveOtpKeyIdRange(
 }
 
 // --- Channel Member Cache ---
-// Cache of channel → member IDs, fetched from the server's getVisibleUsers route.
-// This ensures we only distribute sender keys to users who can actually view the channel.
-const channelMemberCache = new Map<number, number[]>();
+// Cache of channel → member descriptors fetched from the active
+// server's getVisibleUserDescriptors route. Each descriptor carries
+// the federation-aware fields needed to address recipients across
+// instances:
+//   - id              local id ON THE ACTIVE SERVER (host's view)
+//   - name            display name on host
+//   - publicId        stable cross-instance identifier
+//   - instanceDomain  user's home — used to route the SKDM
+//                     dispatch and resolve to a home-local id for
+//                     the Signal session
+type ChannelMemberDescriptor = {
+  id: number;
+  name: string;
+  publicId: string;
+  instanceDomain: string;
+};
+const channelMemberCache = new Map<number, ChannelMemberDescriptor[]>();
 
-async function getChannelMemberIds(channelId: number): Promise<number[]> {
+async function getChannelMemberDescriptors(
+  channelId: number
+): Promise<ChannelMemberDescriptor[]> {
   const cached = channelMemberCache.get(channelId);
   if (cached) return cached;
 
   const trpc = getTRPCClient();
   if (!trpc) return [];
-  const memberIds = await trpc.channels.getVisibleUsers.query({ channelId });
-  channelMemberCache.set(channelId, memberIds);
-  return memberIds;
+  const descriptors = await trpc.channels.getVisibleUserDescriptors.query({
+    channelId
+  });
+  channelMemberCache.set(channelId, descriptors);
+  return descriptors;
 }
 
 export function invalidateChannelMembers(channelId?: number): void {
@@ -708,9 +726,20 @@ async function distributeChainToMembers(args: {
  * lazy-rotation marker, set on kick/leave), rotates first, clearing
  * the marker.
  *
- * Member list comes from the server (`channels.getVisibleUsers`),
- * which respects channel-level permissions — kicked/private-denied
- * users naturally drop off and don't get the new SKDM.
+ * Member list comes from the active server's
+ * `channels.getVisibleUserDescriptors` route — which respects channel-
+ * level permissions. The descriptors carry publicId + instanceDomain
+ * so federated members on other instances can be addressed across
+ * the wire (Phase E / E1).
+ *
+ * Pairwise SKDM sessions and sender chains live in the active-instance
+ * store (Phase B/C scoping). For each member we resolve the
+ * descriptor through the *home* tRPC to a home-local userId — for
+ * local-only channels viewed from home, that's the same id the
+ * descriptor already carries; for federated members, it's the
+ * shadow user on home (created on demand). The home-resolved id
+ * is the libsignal address; this is what makes the same federated
+ * peer's session reusable across channels and DMs.
  */
 export async function ensureChannelSenderKey(
   channelId: number,
@@ -722,8 +751,9 @@ export async function ensureChannelSenderKey(
 ): Promise<void> {
   if (!(await hasKeys(opts?.store))) return;
   const store = opts?.store ?? getActiveStore();
-  const trpc = opts?.trpc ?? getTRPCClient();
-  if (!trpc) return;
+  const activeTrpc = opts?.trpc ?? getTRPCClient();
+  const homeTrpc = getHomeTRPCClient();
+  if (!activeTrpc || !homeTrpc) return;
 
   // Lazy rotation. A marker set by the kick/leave subscription
   // handlers means our current chain leaks to a now-removed member.
@@ -741,22 +771,108 @@ export async function ensureChannelSenderKey(
     chain = await getOrCreateOutboundChannelChain(channelId, ownUserId, store);
   }
 
-  await distributeChainToMembers({
-    kind: KIND_CHANNEL,
-    scopeId: channelId,
-    ownUserId,
-    store,
-    trpc,
-    distribution: chain.buildDistribution(),
-    getMembers: () => getChannelMemberIds(channelId),
-    send: async (distributions) => {
-      await trpc.e2ee.distributeSenderKeysBatch.mutate({
-        channelId,
-        senderKeyId: chain.state.senderKeyId,
-        distributions
+  const descriptors = await getChannelMemberDescriptors(channelId);
+  const distribution = chain.buildDistribution();
+  const distributedSet = new Set(
+    await store.getChainDistribution(
+      KIND_CHANNEL,
+      channelId,
+      distribution.senderKeyId
+    )
+  );
+
+  // Resolve every descriptor (except self) to a home-local userId.
+  // For local-only channels viewed from home, the resolution returns
+  // the same id the descriptor carries (the active server == home).
+  // For federated members, resolveByDescriptor finds-or-creates the
+  // shadow user on home so we have a stable libsignal address.
+  type ResolvedTarget = ChannelMemberDescriptor & { homeUserId: number };
+  const resolved: ResolvedTarget[] = [];
+  for (const d of descriptors) {
+    // The descriptor.id is the active-server-local id, which equals
+    // ownUserId only when active server == home. Skip self by
+    // publicId for federated viewing too — safer.
+    try {
+      const result = await homeTrpc.users.resolveByDescriptor.mutate({
+        publicId: d.publicId,
+        instanceDomain: d.instanceDomain,
+        name: d.name
       });
+      if (result.id === null) continue;
+      if (result.id === ownUserId) continue;
+      if (distributedSet.has(result.id)) continue;
+      resolved.push({ ...d, homeUserId: result.id });
+    } catch (err) {
+      console.warn('[E2EE] resolveByDescriptor failed:', err);
     }
-  });
+  }
+  if (resolved.length === 0) return;
+
+  // Each SKDM is encrypted to a recipient via X3DH. Concurrency-
+  // bounded for memory; round-trips pipeline on slow networks.
+  const skdmPlaintext = JSON.stringify(distribution);
+  const CONCURRENCY = 10;
+  type WirePacket = {
+    toPublicId: string;
+    toInstanceDomain: string;
+    distributionMessage: string;
+    homeUserId: number;
+  };
+  const wirePackets: WirePacket[] = [];
+
+  for (let i = 0; i < resolved.length; i += CONCURRENCY) {
+    const chunk = resolved.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(async (target) => {
+        await ensureSession(target.homeUserId, {
+          store,
+          trpc: homeTrpc,
+          verifyIdentity: true
+        });
+        const encrypted = await encryptMessage(
+          target.homeUserId,
+          skdmPlaintext,
+          store
+        );
+        return {
+          toPublicId: target.publicId,
+          toInstanceDomain: target.instanceDomain,
+          distributionMessage: encrypted,
+          homeUserId: target.homeUserId
+        };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        wirePackets.push(r.value);
+      } else {
+        console.warn('[E2EE] Failed to encrypt SKDM:', r.reason);
+      }
+    }
+  }
+
+  if (wirePackets.length === 0) return;
+
+  try {
+    await activeTrpc.e2ee.distributeSenderKeysBatch.mutate({
+      channelId,
+      senderKeyId: chain.state.senderKeyId,
+      distributions: wirePackets.map((p) => ({
+        toPublicId: p.toPublicId,
+        toInstanceDomain: p.toInstanceDomain,
+        distributionMessage: p.distributionMessage
+      }))
+    });
+    for (const p of wirePackets) distributedSet.add(p.homeUserId);
+    await store.setChainDistribution(
+      KIND_CHANNEL,
+      channelId,
+      distribution.senderKeyId,
+      [...distributedSet]
+    );
+  } catch (err) {
+    console.warn('[E2EE] Distribute mutation failed:', err);
+  }
 }
 
 /**
