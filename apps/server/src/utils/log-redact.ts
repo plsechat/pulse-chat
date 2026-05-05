@@ -61,13 +61,11 @@ const REDACT_SUFFIXES = ['secret', 'hash'];
 
 // Truncation: log the first `TRUNCATE_PREFIX_CHARS` characters and a
 // trailing ellipsis. Lets debugging compare two values without
-// exposing them.
+// exposing them. Truncation takes precedence over full redaction so
+// that operators can still distinguish "two different tokens" in
+// debug output.
 const TRUNCATE_PREFIX_CHARS = 6;
-const TRUNCATE_KEYS = new Set(
-  ['federationtoken', 'token', 'accesstoken', 'refreshtoken'].map((k) =>
-    k.toLowerCase()
-  )
-);
+const TRUNCATE_KEYS = new Set(['federationtoken']);
 
 const REDACTED_MARKER = '[REDACTED]';
 
@@ -128,10 +126,10 @@ function walk(value: unknown, extra: Set<string>, seen: WeakSet<object>): unknow
 
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (shouldRedact(k, extra)) {
-      out[k] = REDACTED_MARKER;
-    } else if (shouldTruncate(k)) {
+    if (shouldTruncate(k)) {
       out[k] = truncateValue(v);
+    } else if (shouldRedact(k, extra)) {
+      out[k] = REDACTED_MARKER;
     } else {
       out[k] = walk(v, extra, seen);
     }
