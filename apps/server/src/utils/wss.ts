@@ -178,12 +178,27 @@ const createContext = async ({
 
     const user = await getCachedUser();
 
-    if (!user) return false;
+    if (!user) {
+      logger.debug(
+        '[perm] denied (no user) target=%o serverId=%s',
+        targetPermission,
+        effectiveServerId
+      );
+      return false;
+    }
 
     // Check if user is the server owner (bypasses all permission checks)
     if (effectiveServerId) {
       const server = await getCachedServer(effectiveServerId);
-      if (server && server.ownerId === user.id) return true;
+      if (server && server.ownerId === user.id) {
+        logger.debug(
+          '[perm] granted (owner-bypass) userId=%d serverId=%d target=%o',
+          user.id,
+          effectiveServerId,
+          targetPermission
+        );
+        return true;
+      }
     }
 
     const roles = await getCachedUserRoles(user.id, effectiveServerId);
@@ -196,11 +211,17 @@ const createContext = async ({
       }
     }
 
-    if (Array.isArray(targetPermission)) {
-      return targetPermission.every((p) => permissionsSet.has(p));
-    }
-
-    return permissionsSet.has(targetPermission);
+    const granted = Array.isArray(targetPermission)
+      ? targetPermission.every((p) => permissionsSet.has(p))
+      : permissionsSet.has(targetPermission);
+    logger.debug(
+      '[perm] %s userId=%d serverId=%s target=%o',
+      granted ? 'granted' : 'denied',
+      user.id,
+      effectiveServerId,
+      targetPermission
+    );
+    return granted;
   };
 
   const hasChannelPermission = async (
@@ -216,30 +237,67 @@ const createContext = async ({
       .where(eq(channels.id, channelId))
       .limit(1);
 
-    if (!channelRecord) return false;
+    if (!channelRecord) {
+      logger.debug('[chan-perm] denied (channel not found) channelId=%d', channelId);
+      return false;
+    }
 
     // Ensure the channel belongs to the caller's active server
-    if (_activeServer.id && channelRecord.serverId !== _activeServer.id)
+    if (_activeServer.id && channelRecord.serverId !== _activeServer.id) {
+      logger.debug(
+        '[chan-perm] denied (cross-server) channelId=%d activeServerId=%d',
+        channelId,
+        _activeServer.id
+      );
       return false;
+    }
 
-    if (!channelRecord.private) return true;
+    if (!channelRecord.private) {
+      logger.debug('[chan-perm] granted (public channel) channelId=%d target=%s', channelId, targetPermission);
+      return true;
+    }
 
     const user = await getCachedUser();
 
-    if (!user) return false;
+    if (!user) {
+      logger.debug('[chan-perm] denied (no user) channelId=%d', channelId);
+      return false;
+    }
 
     // Check if user is server owner (bypasses channel permissions)
     const server = await getCachedServer(channelRecord.serverId);
-    if (server && server.ownerId === user.id) return true;
+    if (server && server.ownerId === user.id) {
+      logger.debug(
+        '[chan-perm] granted (owner-bypass) userId=%d channelId=%d target=%s',
+        user.id,
+        channelId,
+        targetPermission
+      );
+      return true;
+    }
 
     const userChannelPermissions = await getCachedChannelPermissions();
 
     const channelInfo = userChannelPermissions[channelId];
 
-    if (!channelInfo) return false;
-    if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) return false;
+    if (!channelInfo) {
+      logger.debug('[chan-perm] denied (no permissions row) userId=%d channelId=%d', user.id, channelId);
+      return false;
+    }
+    if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) {
+      logger.debug('[chan-perm] denied (cannot view) userId=%d channelId=%d', user.id, channelId);
+      return false;
+    }
 
-    return channelInfo.permissions[targetPermission] === true;
+    const granted = channelInfo.permissions[targetPermission] === true;
+    logger.debug(
+      '[chan-perm] %s userId=%d channelId=%d target=%s',
+      granted ? 'granted' : 'denied',
+      user.id,
+      channelId,
+      targetPermission
+    );
+    return granted;
   };
 
   const getOwnWs = () => wsMapByToken.get(accessToken);

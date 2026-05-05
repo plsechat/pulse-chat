@@ -22,6 +22,7 @@ import { enqueueProcessMetadata } from '../../queues/message-metadata';
 import { checkAutomod, executeAutomodActions } from '../../utils/automod';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
+import { logger } from '../../logger';
 import { protectedProcedure } from '../../utils/trpc';
 
 const sendMessageRoute = protectedProcedure
@@ -191,7 +192,7 @@ const sendMessageRoute = protectedProcedure
                     publishMessage(messageId, input.channelId, 'update');
                   })
                   .catch((err) => {
-                    console.error('[Plugin] Failed to update command message:', err);
+                    logger.error('[Plugin] Failed to update command message: %o', err);
                   });
               };
 

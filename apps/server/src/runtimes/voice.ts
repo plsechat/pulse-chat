@@ -718,7 +718,9 @@ class VoiceRuntime {
                 stream: existingStream
               }
             );
-          }).catch(() => {});
+          }).catch((err) => {
+            logger.debug('[voice] external-stream pubsub fan-out failed: %o', err);
+          });
         }
       }
     });
@@ -750,7 +752,9 @@ class VoiceRuntime {
         channelId: this.id,
         streamId
       });
-    }).catch(() => {});
+    }).catch((err) => {
+      logger.debug('[voice] external-stream pubsub fan-out failed: %o', err);
+    });
   };
 
   public updateExternalStream = (
@@ -847,7 +851,9 @@ class VoiceRuntime {
         streamId,
         stream: publicStream
       });
-    }).catch(() => {});
+    }).catch((err) => {
+      logger.debug('[voice] external-stream pubsub fan-out failed: %o', err);
+    });
   };
 
   public getExternalStreamProducer = (

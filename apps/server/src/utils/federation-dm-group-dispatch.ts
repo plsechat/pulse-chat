@@ -473,9 +473,15 @@ async function enumerateRotationPeers(
     .from(federationInstances)
     .where(inArray(federationInstances.id, instanceIds));
 
-  return peerInstances
-    .filter((p) => p.status === 'active')
-    .map((p) => p.domain);
+  const active = peerInstances.filter((p) => p.status === 'active');
+  const dropped = peerInstances.length - active.length;
+  logger.debug(
+    '[federation/enumerateRotationPeers] userId=%d active=%d dropped=%d',
+    rotatingUserId,
+    active.length,
+    dropped
+  );
+  return active.map((p) => p.domain);
 }
 
 /**

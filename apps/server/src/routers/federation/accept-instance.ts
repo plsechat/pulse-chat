@@ -76,7 +76,9 @@ const acceptInstanceRoute = protectedProcedure
         }
       }
     };
-    notifyRemote(1).catch(() => {});
+    notifyRemote(1).catch((err) => {
+      logger.debug('[federation/accept] notifyRemote final failure swallowed: %o', err);
+    });
 
     invalidateCorsCache();
 
