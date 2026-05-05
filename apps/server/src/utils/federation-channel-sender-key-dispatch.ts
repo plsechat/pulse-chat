@@ -15,7 +15,7 @@
  * not O(recipients).
  */
 
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { channels, federationInstances, users } from '../db/schema';
 import { config } from '../config';
@@ -104,7 +104,12 @@ async function relayFederatedChannelSenderKeyNotifications(
   const activeRows = await db
     .select({ domain: federationInstances.domain })
     .from(federationInstances)
-    .where(inArray(federationInstances.domain, domains));
+    .where(
+      and(
+        inArray(federationInstances.domain, domains),
+        eq(federationInstances.status, 'active')
+      )
+    );
   const active = new Set(
     activeRows
       .filter((r): r is { domain: string } => Boolean(r.domain))
