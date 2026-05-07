@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { users } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { supabaseAdmin } from '../../utils/supabase';
+import { authBackend } from '../../utils/auth';
 import { protectedProcedure } from '../../utils/trpc';
 
 const getAuthProvidersRoute = protectedProcedure.query(async ({ ctx }) => {
@@ -17,11 +17,9 @@ const getAuthProvidersRoute = protectedProcedure.query(async ({ ctx }) => {
     message: 'User not found'
   });
 
-  const { data, error } = await supabaseAdmin.auth.admin.getUserById(
-    user.supabaseId
-  );
+  const { data, error } = await authBackend.getUserById(user.supabaseId);
 
-  invariant(!error && data?.user, {
+  invariant(!error && data.user, {
     code: 'NOT_FOUND',
     message: 'User not found in auth system'
   });
