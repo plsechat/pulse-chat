@@ -13,7 +13,7 @@
 -- against re-execution.
 
 DO $$ BEGIN
-	ALTER TABLE "channels" ADD COLUMN "public_id" text;
+	ALTER TABLE "channels" ADD COLUMN IF NOT EXISTS "public_id" text;
 EXCEPTION
 	WHEN duplicate_column THEN null;
 END $$;

@@ -9,13 +9,13 @@
 -- against re-execution until that's fixed. Existing rows backfill to
 -- senderKeyId = 1 — the only Phase A chain anyone has.
 DO $$ BEGIN
-	ALTER TABLE "e2ee_sender_keys" ADD COLUMN "sender_key_id" integer NOT NULL DEFAULT 1;
+	ALTER TABLE "e2ee_sender_keys" ADD COLUMN IF NOT EXISTS "sender_key_id" integer NOT NULL DEFAULT 1;
 EXCEPTION
 	WHEN duplicate_column THEN null;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
-	ALTER TABLE "dm_e2ee_sender_keys" ADD COLUMN "sender_key_id" integer NOT NULL DEFAULT 1;
+	ALTER TABLE "dm_e2ee_sender_keys" ADD COLUMN IF NOT EXISTS "sender_key_id" integer NOT NULL DEFAULT 1;
 EXCEPTION
 	WHEN duplicate_column THEN null;
 END $$;
