@@ -23,7 +23,6 @@
  * container even when local mode is selected.
  */
 
-import { logger } from '../../logger';
 import type { AuthBackend } from './types';
 
 async function pickBackend(): Promise<AuthBackend> {
@@ -52,7 +51,14 @@ async function pickBackend(): Promise<AuthBackend> {
 
 const authBackend = await pickBackend();
 
-logger.info('[auth] backend=%s', authBackend.kind);
+// Use console.log here, not logger.info — auth/index.ts is loaded
+// transitively from db/queries/users.ts during the early boot graph,
+// before logger.ts finishes its top-level await on ensureDir(). Using
+// the logger here creates a TDZ from the import cycle:
+// logger → log-redact → config → file-manager → ... → auth.
+// One-shot boot line; standard out is fine.
+// eslint-disable-next-line no-console
+console.log(`[auth] backend=${authBackend.kind}`);
 
 export { authBackend };
 export type { AuthBackend } from './types';
