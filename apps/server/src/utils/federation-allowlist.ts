@@ -71,7 +71,9 @@ function isAllowedPrivateIpv4(ip: string): boolean {
   const ipInt = ipv4ToInt(ip);
   if (ipInt === null) return false;
   for (const cidr of getAllowlistCidrs()) {
-    if ((ipInt & cidr.mask) === cidr.network) return true;
+    // `&` returns a *signed* 32-bit int in JS; coerce to unsigned so the
+    // comparison matches the unsigned `cidr.network` we stored at parse.
+    if (((ipInt & cidr.mask) >>> 0) === cidr.network) return true;
   }
   return false;
 }
