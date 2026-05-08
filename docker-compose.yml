@@ -5,11 +5,16 @@ services:
     container_name: pulse
     network_mode: host
     environment:
-      # Auth backend selection. Set to `local` for the bundled bcrypt+JWT
-      # backend (no external SaaS deps). Set to `supabase` to use the
-      # SUPABASE_* vars below. Defaults to `local`.
-      AUTH_BACKEND: ${AUTH_BACKEND:-local}
-      AUTH_SECRET: ${AUTH_SECRET}
+      # Auth backend selection. Leave empty to let Pulse infer from
+      # the SUPABASE_* vars below — when SUPABASE_URL +
+      # SUPABASE_SERVICE_ROLE_KEY are set, Pulse picks `supabase`;
+      # otherwise it picks `local`. Force one explicitly by setting
+      # `AUTH_BACKEND=local` or `AUTH_BACKEND=supabase` in your .env.
+      # Important: don't default to `local` here — that would silently
+      # override existing Supabase deployments after they pull the
+      # latest compose file.
+      AUTH_BACKEND: ${AUTH_BACKEND:-}
+      AUTH_SECRET: ${AUTH_SECRET:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}

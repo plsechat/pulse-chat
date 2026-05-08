@@ -63,9 +63,12 @@ Both modes share the same database schema and federate with each other — the a
 Spin up Pulse with its own PostgreSQL container, no SaaS required:
 
 ```bash
-# Generate a session-signing secret (>=32 chars)
-echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n')" > .env
-# Pulse defaults to local mode when SUPABASE_URL isn't set
+# Generate a session-signing secret (>=32 chars) and pin local mode
+cat > .env <<EOF
+AUTH_BACKEND=local
+AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+EOF
+
 docker compose --profile local up -d
 ```
 
