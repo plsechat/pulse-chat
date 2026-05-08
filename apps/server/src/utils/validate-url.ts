@@ -1,4 +1,5 @@
 import dns from 'dns/promises';
+import { isAllowedPrivateIpv4 } from './federation-allowlist';
 
 const PRIVATE_IPV4_PATTERNS = [
   /^127\./, // loopback 127.0.0.0/8
@@ -80,7 +81,13 @@ export async function validateFederationUrl(urlString: string): Promise<URL> {
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
 
   if (isPrivateIp(hostname)) {
-    throw new Error('Private/internal URLs are not allowed');
+    // IPv4 literals can be operator-allowlisted via
+    // FEDERATION_ALLOW_PRIVATE_CIDRS. IPv6 private literals stay blocked.
+    if (!hostname.includes(':') && isAllowedPrivateIpv4(hostname)) {
+      // fall through — allowlisted
+    } else {
+      throw new Error('Private/internal URLs are not allowed');
+    }
   }
 
   // Resolve A and AAAA in parallel.
@@ -94,7 +101,7 @@ export async function validateFederationUrl(urlString: string): Promise<URL> {
   if (v4.status === 'fulfilled') {
     resolved = true;
     for (const addr of v4.value) {
-      if (isPrivateIpv4(addr)) {
+      if (isPrivateIpv4(addr) && !isAllowedPrivateIpv4(addr)) {
         throw new Error('URL resolves to a private/internal IPv4 address');
       }
     }

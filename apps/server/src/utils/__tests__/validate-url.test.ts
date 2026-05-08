@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import dns from 'dns/promises';
+import { _resetCacheForTests } from '../federation-allowlist';
 import { validateFederationUrl } from '../validate-url';
 
 /**
@@ -189,5 +190,92 @@ describe('validateFederationUrl', () => {
     await expect(validateFederationUrl('http://localhost/')).rejects.toThrow(
       'private/internal'
     );
+  });
+
+  // ─── FEDERATION_ALLOW_PRIVATE_CIDRS opt-in ─────────────────────────────
+  describe('private-CIDR allowlist', () => {
+    let originalEnv: string | undefined;
+
+    beforeEach(() => {
+      originalEnv = process.env.FEDERATION_ALLOW_PRIVATE_CIDRS;
+      _resetCacheForTests();
+    });
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.FEDERATION_ALLOW_PRIVATE_CIDRS;
+      } else {
+        process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = originalEnv;
+      }
+      _resetCacheForTests();
+    });
+
+    test('IPv4 literal in allowlisted CIDR is accepted', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.1.0/24';
+      _resetCacheForTests();
+      resolve4Spy.mockResolvedValue(['192.168.1.50']);
+      resolve6Spy.mockRejectedValue(new Error('ENODATA'));
+
+      const url = await validateFederationUrl('http://192.168.1.50/');
+      expect(url.hostname).toBe('192.168.1.50');
+    });
+
+    test('IPv4 literal outside the allowlist is still rejected', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.1.0/24';
+      _resetCacheForTests();
+
+      await expect(
+        validateFederationUrl('http://192.168.2.50/')
+      ).rejects.toThrow('Private/internal URLs are not allowed');
+    });
+
+    test('hostname resolving into the allowlisted range is accepted', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '10.0.0.0/8';
+      _resetCacheForTests();
+      resolve4Spy.mockResolvedValue(['10.5.5.5']);
+      resolve6Spy.mockRejectedValue(new Error('ENODATA'));
+
+      const url = await validateFederationUrl('https://lan.example.com');
+      expect(url.hostname).toBe('lan.example.com');
+    });
+
+    test('hostname resolving outside the allowlisted range is still rejected', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '10.0.0.0/8';
+      _resetCacheForTests();
+      resolve4Spy.mockResolvedValue(['192.168.1.1']);
+      resolve6Spy.mockRejectedValue(new Error('ENODATA'));
+
+      await expect(
+        validateFederationUrl('https://other.example.com')
+      ).rejects.toThrow('private/internal IPv4');
+    });
+
+    test('IPv6 private literal stays blocked even with v4 allowlist set', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16';
+      _resetCacheForTests();
+
+      await expect(
+        validateFederationUrl('http://[fc00::1]/')
+      ).rejects.toThrow('Private/internal URLs are not allowed');
+    });
+
+    test('loopback stays blocked unless explicitly listed', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16';
+      _resetCacheForTests();
+
+      await expect(validateFederationUrl('http://127.0.0.1/')).rejects.toThrow(
+        'Private/internal URLs are not allowed'
+      );
+    });
+
+    test('loopback can be allowed by listing 127.0.0.0/8', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '127.0.0.0/8';
+      _resetCacheForTests();
+      resolve4Spy.mockResolvedValue(['127.0.0.1']);
+      resolve6Spy.mockRejectedValue(new Error('ENODATA'));
+
+      const url = await validateFederationUrl('http://127.0.0.1/');
+      expect(url.hostname).toBe('127.0.0.1');
+    });
   });
 });

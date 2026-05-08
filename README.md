@@ -121,6 +121,7 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | `AUTH_BACKEND=supabase` | Managed or self-hosted Supabase Auth |
 | `PUBLIC_IP` | production behind NAT | Public IP for WebRTC ICE candidates |
 | `REGISTRATION_DISABLED` | optional | Lock down registration instance-wide |
+| `FEDERATION_ALLOW_PRIVATE_CIDRS` | optional | Comma-separated IPv4 CIDRs to allow as federation peers (e.g. `192.168.1.0/24`). Default: all RFC1918 / loopback / link-local blocked. |
 | `DEBUG_LOGGING` | optional | Write JSON debug events to `log/debug.log` |
 
 See [.env.example](.env.example) for the full list with comments.
