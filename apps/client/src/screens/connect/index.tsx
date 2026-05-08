@@ -17,7 +17,7 @@ import {
   setLocalStorageItem
 } from '@/helpers/storage';
 import { useForm } from '@/hooks/use-form';
-import { supabase } from '@/lib/supabase';
+import { setSession, supabase } from '@/lib/supabase';
 import type { Provider } from '@supabase/supabase-js';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -102,10 +102,7 @@ const Connect = memo(() => {
         refreshToken: string;
       };
 
-      await supabase.auth.setSession({
-        access_token: data.accessToken,
-        refresh_token: data.refreshToken
-      });
+      await setSession(data.accessToken, data.refreshToken);
 
       if (loginForm.values.rememberCredentials) {
         setLocalStorageItem(LocalStorageKey.EMAIL, loginForm.values.email);
@@ -166,10 +163,7 @@ const Connect = memo(() => {
         refreshToken: string;
       };
 
-      await supabase.auth.setSession({
-        access_token: data.accessToken,
-        refresh_token: data.refreshToken
-      });
+      await setSession(data.accessToken, data.refreshToken);
 
       await connect();
 
