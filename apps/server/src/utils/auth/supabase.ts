@@ -9,7 +9,15 @@
  * is present). The dispatcher in `utils/supabase.ts` decides.
  */
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+// `@supabase/supabase-js` is loaded lazily — only when this backend is
+// actually selected and a method is called. Eagerly importing it
+// crashed `AUTH_BACKEND=local` deployments at boot: somewhere during
+// supabase-auth-js's module-evaluation, the bun-compiled binary hit
+// `TypeError: undefined is not an object (evaluating 'x.info')` and
+// the process exited before the dispatcher ever reached local mode.
+// Keeping the import lazy means local-mode containers never run any
+// supabase initialization code.
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   AuthBackend,
   AuthError,
@@ -21,7 +29,7 @@ import type {
 
 let _client: SupabaseClient | null = null;
 
-function getClient(): SupabaseClient {
+async function getClient(): Promise<SupabaseClient> {
   if (_client) return _client;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,6 +38,7 @@ function getClient(): SupabaseClient {
       'AUTH_BACKEND=supabase requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY'
     );
   }
+  const { createClient } = await import('@supabase/supabase-js');
   _client = createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false }
   });
@@ -58,7 +67,7 @@ const supabaseAuthBackend: AuthBackend = {
   kind: 'supabase',
 
   async signInWithPassword({ email, password }): Promise<SignInResult> {
-    const { data, error } = await getClient().auth.signInWithPassword({
+    const { data, error } = await (await getClient()).auth.signInWithPassword({
       email,
       password
     });
@@ -88,7 +97,7 @@ const supabaseAuthBackend: AuthBackend = {
   },
 
   async getUser(token): Promise<GetUserResult> {
-    const { data, error } = await getClient().auth.getUser(token);
+    const { data, error } = await (await getClient()).auth.getUser(token);
     if (error || !data.user) {
       return { data: { user: null }, error: error ? mapError(error.message) : null };
     }
@@ -108,7 +117,7 @@ const supabaseAuthBackend: AuthBackend = {
   },
 
   async createUser({ email, password }): Promise<CreateUserResult> {
-    const { data, error } = await getClient().auth.admin.createUser({
+    const { data, error } = await (await getClient()).auth.admin.createUser({
       email,
       password,
       email_confirm: true
@@ -135,7 +144,7 @@ const supabaseAuthBackend: AuthBackend = {
   },
 
   async getUserById(id): Promise<GetUserResult> {
-    const { data, error } = await getClient().auth.admin.getUserById(id);
+    const { data, error } = await (await getClient()).auth.admin.getUserById(id);
     if (error || !data.user) {
       return {
         data: { user: null },
@@ -158,7 +167,7 @@ const supabaseAuthBackend: AuthBackend = {
   },
 
   async updateUserById(id, updates): Promise<UpdateUserResult> {
-    const { data, error } = await getClient().auth.admin.updateUserById(
+    const { data, error } = await (await getClient()).auth.admin.updateUserById(
       id,
       updates
     );
