@@ -11,31 +11,46 @@
  *                                          opted in to the env flag)
  *   4. Otherwise → local
  *
- * The selection is logged at boot so operators can confirm which
- * backend is in use without opening a JS shell.
+ * Why dynamic imports
+ * ===================
+ * Bun's `--compile` flattens dynamic imports into eager statics at
+ * build time. That means `await import('./supabase')` here still
+ * pulls supabase.ts into the bundle — but more importantly, supabase.ts
+ * isn't *evaluated* unless the import expression actually runs. So
+ * gating the import expression on the env-driven branch keeps
+ * supabase-js's module-init off the boot path in local mode. Without
+ * this, a supabase-js init crash (observed on arm64) takes down the
+ * container even when local mode is selected.
  */
 
 import { logger } from '../../logger';
-import { localAuthBackend } from './local';
-import { supabaseAuthBackend } from './supabase';
 import type { AuthBackend } from './types';
 
-function pickBackend(): AuthBackend {
+async function pickBackend(): Promise<AuthBackend> {
   const explicit = process.env.AUTH_BACKEND?.toLowerCase().trim();
-  if (explicit === 'local') return localAuthBackend;
-  if (explicit === 'supabase') return supabaseAuthBackend;
-  if (explicit && explicit.length > 0) {
+
+  if (explicit && explicit !== 'local' && explicit !== 'supabase') {
     throw new Error(
       `Unknown AUTH_BACKEND value "${explicit}" — expected "local" or "supabase"`
     );
   }
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+
+  const useSupabase =
+    explicit === 'supabase' ||
+    (!explicit &&
+      !!process.env.SUPABASE_URL &&
+      !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+  if (useSupabase) {
+    const { supabaseAuthBackend } = await import('./supabase');
     return supabaseAuthBackend;
   }
+
+  const { localAuthBackend } = await import('./local');
   return localAuthBackend;
 }
 
-const authBackend = pickBackend();
+const authBackend = await pickBackend();
 
 logger.info('[auth] backend=%s', authBackend.kind);
 
