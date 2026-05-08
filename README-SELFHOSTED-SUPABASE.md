@@ -2,6 +2,9 @@
 
 This guide walks you through deploying Pulse with a fully self-hosted Supabase stack (PostgreSQL + GoTrue + Kong) using Docker Compose. No external Supabase project required.
 
+> [!NOTE]
+> If you don't need OAuth providers (Google / Discord / etc) and just want email + password auth, skip this guide. Run Pulse with `AUTH_BACKEND=local` and the bundled `docker compose --profile local up` — see the [main README](README.md#getting-started). The local backend uses bcrypt password hashes + HS256 JWTs against PostgreSQL alone — no Supabase stack required.
+
 ---
 
 ## Table of Contents

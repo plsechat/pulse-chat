@@ -97,6 +97,9 @@ services:
     env_file: .env
     environment:
       RUNNING_IN_DOCKER: "true"
+      # Explicitly select the supabase backend. Pulse would also infer
+      # this from SUPABASE_URL being set, but pinning it is clearer.
+      AUTH_BACKEND: supabase
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       SUPABASE_URL: http://kong:8000
       SUPABASE_PUBLIC_URL: ${SITE_URL}
