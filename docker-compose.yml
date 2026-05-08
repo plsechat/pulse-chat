@@ -15,7 +15,11 @@ services:
       # latest compose file.
       AUTH_BACKEND: ${AUTH_BACKEND:-}
       AUTH_SECRET: ${AUTH_SECRET:-}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres}
+      # Default targets 127.0.0.1 because pulse and db both run with
+      # `network_mode: host` — docker DNS names don't resolve under
+      # host networking. Password is sourced from POSTGRES_PASSWORD so
+      # operators don't have to set the password in two places.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@127.0.0.1:5432/postgres}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
