@@ -13,11 +13,12 @@ RUN cd apps/server \
 # restart-loops with `failed to open elf at /lib64/ld-...`.
 RUN cd apps/server \
     && case "$TARGETARCH" in \
-         amd64) bun run build/build.ts --target linux-x64 ;; \
-         arm64) bun run build/build.ts --target linux-arm64 ;; \
+         amd64) BUN_TARGET=linux-x64; BIN_NAME=pulse-linux-x64 ;; \
+         arm64) BUN_TARGET=linux-arm64; BIN_NAME=pulse-linux-arm64 ;; \
          *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2 && exit 1 ;; \
        esac \
-    && mv build/out/pulse-linux-* build/out/pulse
+    && bun run build/build.ts --target "$BUN_TARGET" \
+    && mv "build/out/$BIN_NAME" build/out/pulse
 
 # Stage 2: Runtime
 FROM oven/bun:1.3.5

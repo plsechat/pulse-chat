@@ -2,3 +2,21 @@ data/
 node_modules/
 .env
 .git/
+
+# Build artifacts must not leak into the image — the build runs inside
+# the builder stage and produces fresh outputs there. If the host's
+# apps/server/build/out/ slips in via COPY . ., the bun-compile step's
+# pre-clean (rmIfExists in apps/server/build/helpers.ts) doesn't remove
+# the directory's contents — it calls fs.rm() without {recursive:true}
+# and silently catches the EISDIR error. Result: stale binaries from a
+# previous host build sit alongside the fresh one and downstream COPY
+# wildcards pick the wrong one.
+apps/client/dist/
+apps/server/build/out/
+apps/server/build/temp/
+apps/desktop/dist/
+
+# Local-only artifacts the host accumulates
+log/
+*.log
+test-deploy/
