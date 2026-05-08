@@ -8,7 +8,7 @@ import { invites, users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
 import { isRegistrationDisabled } from '../utils/env';
-import { supabaseAdmin } from '../utils/supabase';
+import { authBackend } from '../utils/auth';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -35,11 +35,10 @@ const provisionRouteHandler = async (
   }
 
   const token = authHeader.slice(7);
-  const { data: userData, error: userError } =
-    await supabaseAdmin.auth.getUser(token);
+  const { data: userData, error: userError } = await authBackend.getUser(token);
 
-  if (userError || !userData.user) {
-    logger.error('Provision auth failed:', userError?.message, userError?.status);
+  if (!userData.user) {
+    logger.error('Provision auth failed: %o', userError);
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
@@ -51,7 +50,9 @@ const provisionRouteHandler = async (
   }
 
   const supabaseUserId = userData.user.id;
-  const meta = userData.user.user_metadata;
+  const meta = userData.user.metadata as
+    | { full_name?: string; name?: string; preferred_username?: string }
+    | undefined;
   const displayName = meta?.full_name || meta?.name || meta?.preferred_username || undefined;
   const existingUser = await getUserBySupabaseId(supabaseUserId);
 
@@ -106,7 +107,8 @@ const provisionRouteHandler = async (
 
   if (!finalName) {
     const email = userData.user.email;
-    finalName = email ? email.split('@')[0] : `user-${supabaseUserId.slice(0, 8)}`;
+    finalName =
+      (email && email.split('@')[0]) || `user-${supabaseUserId.slice(0, 8)}`;
   }
 
   // Ensure uniqueness — append random suffix if taken

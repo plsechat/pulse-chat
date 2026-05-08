@@ -4,6 +4,7 @@ import { protectedProcedure } from '../../utils/trpc';
 import { config } from '../../config';
 import { getFederationInstanceById } from '../../db/queries/federation';
 import { federationFetch } from '../../utils/federation-fetch';
+import { getFederationProtocol } from '../../utils/validate-url';
 import { logger } from '../../logger';
 
 const discoverRemoteRoute = protectedProcedure
@@ -26,7 +27,7 @@ const discoverRemoteRoute = protectedProcedure
       );
     }
 
-    const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(instance!.domain);
 
     try {
       const res = await federationFetch(

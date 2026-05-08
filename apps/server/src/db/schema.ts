@@ -1126,6 +1126,30 @@ const dmE2eeSenderKeys = pgTable(
   ]
 );
 
+/**
+ * Local-auth users — populated only when AUTH_BACKEND=local. The id
+ * column holds the value that gets placed on `users.supabaseId` when
+ * the registerUser flow runs, so the rest of the codebase doesn't
+ * have to learn that "supabaseId" can also be a local-issued UUID.
+ *
+ * In Supabase mode this table stays empty; the column on `users`
+ * still references real Supabase Auth ids.
+ */
+const localAuthUsers = pgTable(
+  'local_auth_users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    // jsonb storing AuthIdentity[] — `[{provider:'email'}]` always
+    // for v1; OAuth in local mode is a follow-up.
+    identities: text('identities').notNull().default('[{"provider":"email"}]'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' })
+  },
+  (t) => [uniqueIndex('local_auth_users_email_idx').on(t.email)]
+);
+
 export {
   activityLog,
   automodRules,
@@ -1153,6 +1177,7 @@ export {
   friendRequests,
   friendships,
   invites,
+  localAuthUsers,
   logins,
   messageFiles,
   messageReactions,

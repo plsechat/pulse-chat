@@ -49,9 +49,32 @@ Pulse is a self-hosted alternative to Discord and Slack that puts you in control
 
 ## Getting started
 
-Pulse needs a Supabase backend (auth + database). You can use [Supabase Cloud](https://supabase.com) or self-host everything together — see the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md) for the full Docker Compose setup with PostgreSQL, GoTrue, and Kong.
+Pulse runs against either of two auth backends — pick whichever fits:
 
-### Docker
+| Backend | Needs | When to use |
+|---|---|---|
+| **`local`** (default) | Just PostgreSQL + an `AUTH_SECRET` | Single-node deployments, homelabs, anything where you don't want a SaaS dep. **Email + password only — no OAuth.** |
+| **`supabase`** | Supabase Cloud or a self-hosted Supabase stack | OAuth providers (Google / Discord / etc), multi-instance setups that already run Supabase, federated networks where peers expect Supabase JWTs |
+
+Both modes share the same database schema and federate with each other — the auth backend choice is local to each instance.
+
+### Quickest path — local auth + bundled Postgres
+
+Spin up Pulse with its own PostgreSQL container, no SaaS required:
+
+```bash
+# Generate a session-signing secret (>=32 chars) and pin local mode
+cat > .env <<EOF
+AUTH_BACKEND=local
+AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+EOF
+
+docker compose --profile local up -d
+```
+
+Pulse listens on `4991`; the bundled `postgres:16-alpine` is on `5432`. Open `http://localhost:4991` and the first user to register becomes the operator.
+
+### Docker (existing Postgres / Supabase)
 
 ```bash
 docker run \
@@ -59,17 +82,23 @@ docker run \
   -p 40000-40020:40000-40020/tcp \
   -p 40000-40020:40000-40020/udp \
   -v ./data:/root/.config/pulse \
+  -e AUTH_BACKEND=local \
+  -e AUTH_SECRET="$(openssl rand -base64 48 | tr -d '\n')" \
+  -e DATABASE_URL=postgresql://user:pass@host:5432/dbname \
   --name pulse \
   ghcr.io/plsechat/pulse-chat:latest
 ```
 
-For production with Supabase bundled, use [docker-compose-supabase.yml](docker-compose-supabase.yml) from the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
+For Supabase mode (OAuth, hosted auth) bundled with Pulse, use [docker-compose-supabase.yml](docker-compose-supabase.yml) — see the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
 
 ### Linux binary
 
 ```bash
 curl -L https://github.com/plsechat/pulse-chat/releases/latest/download/pulse-linux-x64 -o pulse
 chmod +x pulse
+export AUTH_BACKEND=local
+export AUTH_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 ./pulse
 ```
 
@@ -81,6 +110,23 @@ chmod +x pulse
 4. Claim ownership: open the browser console and run `useToken('your_token_here')`
 
 ## Configuration
+
+### Environment
+
+| Variable | Required when | What it does |
+|---|---|---|
+| `AUTH_BACKEND` | always (defaults inferred) | `local` or `supabase`. Defaults to `supabase` if `SUPABASE_URL` is set, else `local`. |
+| `AUTH_SECRET` | `AUTH_BACKEND=local` | ≥32 random chars; HS256 signing key for session tokens. **Rotating invalidates every session.** |
+| `DATABASE_URL` | always | Full Postgres connection string |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | `AUTH_BACKEND=supabase` | Managed or self-hosted Supabase Auth |
+| `PUBLIC_IP` | production behind NAT | Public IP for WebRTC ICE candidates |
+| `REGISTRATION_DISABLED` | optional | Lock down registration instance-wide |
+| `FEDERATION_ALLOW_PRIVATE_CIDRS` | optional | Comma-separated IPv4 CIDRs to allow as federation peers (e.g. `192.168.1.0/24`). Default: all RFC1918 / loopback / link-local blocked. |
+| `DEBUG_LOGGING` | optional | Write JSON debug events to `log/debug.log` |
+
+See [.env.example](.env.example) for the full list with comments.
+
+### config.ini
 
 A config file is generated at `~/.config/pulse/config.ini` on first run.
 
@@ -106,7 +152,7 @@ Pulse doesn't terminate TLS. Put a reverse proxy in front — Caddy, Nginx, or T
 
 ## Built with
 
-[Bun](https://bun.sh) · [React](https://react.dev) · [tRPC](https://trpc.io) · [Drizzle ORM](https://orm.drizzle.team) · [Mediasoup](https://mediasoup.org) · [Tailwind CSS](https://tailwindcss.com) · [Supabase](https://supabase.com) · [Signal Protocol](https://signal.org/docs/)
+[Bun](https://bun.sh) · [React](https://react.dev) · [tRPC](https://trpc.io) · [Drizzle ORM](https://orm.drizzle.team) · [Mediasoup](https://mediasoup.org) · [Tailwind CSS](https://tailwindcss.com) · [Signal Protocol](https://signal.org/docs/) · optional [Supabase](https://supabase.com)
 
 ## License
 

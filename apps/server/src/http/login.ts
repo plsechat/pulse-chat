@@ -10,7 +10,7 @@ import { getWsInfo } from '../helpers/get-ws-info';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { isRegistrationDisabled } from '../utils/env';
 import { logger } from '../logger';
-import { supabaseAdmin } from '../utils/supabase';
+import { authBackend } from '../utils/auth';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -34,27 +34,27 @@ const loginRouteHandler = async (
     sanitizeForLog(connectionInfo?.ip)
   );
 
-  // Try to sign in with Supabase Auth
+  // Try to sign in via the active auth backend (local or supabase)
   const { data: signInData, error: signInError } =
-    await supabaseAdmin.auth.signInWithPassword({
+    await authBackend.signInWithPassword({
       email: data.email,
       password: data.password
     });
 
   if (signInError) {
-    logger.debug('[login] supabase signIn failed: %s', signInError.message);
+    logger.debug('[login] %s signIn failed: %s', authBackend.kind, signInError.message);
     throw new HttpValidationError('email', 'Invalid email or password');
   }
 
-  if (!signInData.session) {
-    logger.debug('[login] supabase signIn returned no session');
+  if (!signInData.session || !signInData.user) {
+    logger.debug('[login] %s signIn returned no session', authBackend.kind);
     throw new HttpValidationError('email', 'Failed to create session');
   }
 
   // Check if app-level user exists
   let existingUser = await getUserBySupabaseId(signInData.user.id);
   logger.debug(
-    '[login] supabase user=%s existingAppUser=%s',
+    '[login] auth user=%s existingAppUser=%s',
     signInData.user.id,
     !!existingUser
   );

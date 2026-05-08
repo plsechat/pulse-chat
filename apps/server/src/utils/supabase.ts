@@ -1,19 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error(
-    'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables'
-  );
-}
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
-
-export { supabaseAdmin };
+/**
+ * Back-compat re-export. The real auth dispatcher lives in
+ * `utils/auth`. New code should import `authBackend` from there.
+ *
+ * Kept so the test mock at `apps/server/src/__tests__/mock-modules.ts`
+ * has a stable target for legacy callers, and so any out-of-tree
+ * forks importing `../utils/supabase` keep working.
+ */
+export { authBackend } from './auth';

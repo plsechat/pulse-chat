@@ -13,7 +13,7 @@
 -- guard against re-execution.
 
 DO $$ BEGIN
-	ALTER TABLE "dm_channels" ADD COLUMN "federation_group_id" text;
+	ALTER TABLE "dm_channels" ADD COLUMN IF NOT EXISTS "federation_group_id" text;
 EXCEPTION
 	WHEN duplicate_column THEN null;
 END $$;

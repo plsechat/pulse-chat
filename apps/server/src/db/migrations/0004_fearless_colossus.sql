@@ -1,1 +1,1 @@
-ALTER TABLE "messages" ADD COLUMN "mentions_all" boolean DEFAULT false;
+ALTER TABLE "messages" ADD COLUMN IF NOT EXISTS "mentions_all" boolean DEFAULT false;

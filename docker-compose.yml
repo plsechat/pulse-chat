@@ -5,18 +5,50 @@ services:
     container_name: pulse
     network_mode: host
     environment:
-      DATABASE_URL: postgresql://postgres.${TENANT_ID}:${POSTGRES_PASSWORD}@${DATABASE_IP}:5432/postgres
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Auth backend selection. Leave empty to let Pulse infer from
+      # the SUPABASE_* vars below — when SUPABASE_URL +
+      # SUPABASE_SERVICE_ROLE_KEY are set, Pulse picks `supabase`;
+      # otherwise it picks `local`. Force one explicitly by setting
+      # `AUTH_BACKEND=local` or `AUTH_BACKEND=supabase` in your .env.
+      # Important: don't default to `local` here — that would silently
+      # override existing Supabase deployments after they pull the
+      # latest compose file.
+      AUTH_BACKEND: ${AUTH_BACKEND:-}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       RUNNING_IN_DOCKER: "true"
       GOOGLE_OAUTH_ENABLED: ${GOOGLE_OAUTH_ENABLED:-false}
       DISCORD_OAUTH_ENABLED: ${DISCORD_OAUTH_ENABLED:-false}
       FACEBOOK_OAUTH_ENABLED: ${FACEBOOK_OAUTH_ENABLED:-false}
       TWITCH_OAUTH_ENABLED: ${TWITCH_OAUTH_ENABLED:-false}
-      PUBLIC_IP: ${PUBLIC_IP}
+      PUBLIC_IP: ${PUBLIC_IP:-}
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
+      FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
       TRUST_PROXY: "true"
     volumes:
       - ./data/pulse:/root/.config/pulse
+
+  # Bundled Postgres for local-mode installs that don't have an external
+  # database. Opt in with the `local` profile:
+  #
+  #   docker compose --profile local up
+  #
+  # Or set `COMPOSE_PROFILES=local` in .env. In supabase mode (using a
+  # managed Postgres elsewhere) leave the profile off — this service
+  # won't start.
+  db:
+    image: postgres:16-alpine
+    profiles: [local]
+    restart: unless-stopped
+    container_name: pulse-db
+    network_mode: host
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data

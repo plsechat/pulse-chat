@@ -14,6 +14,7 @@ import { db } from '../db';
 import { federationInstances, federationKeys } from '../db/schema';
 import { config } from '../config';
 import { federationFetch } from './federation-fetch';
+import { getFederationProtocol } from './validate-url';
 import { getLogContext, newRequestId } from './log-context';
 import { logger } from '../logger';
 
@@ -461,10 +462,7 @@ async function queryInstance<T extends Record<string, unknown>>(
   payload: Record<string, unknown>
 ): Promise<T | null> {
   try {
-    const isLocalhost =
-      instanceDomain.startsWith('localhost') ||
-      instanceDomain.startsWith('127.0.0.1');
-    const protocol = isLocalhost ? 'http' : 'https';
+    const protocol = getFederationProtocol(instanceDomain);
 
     const bodyToSign = {
       ...payload,
@@ -568,10 +566,7 @@ async function relayToInstance(
   payload: Record<string, unknown>
 ): Promise<boolean> {
   try {
-    const isLocalhost =
-      instanceDomain.startsWith('localhost') ||
-      instanceDomain.startsWith('127.0.0.1');
-    const protocol = isLocalhost ? 'http' : 'https';
+    const protocol = getFederationProtocol(instanceDomain);
 
     // Bind the signature to the entire wire body (every field except the
     // signature itself) and to the destination audience. The receiver

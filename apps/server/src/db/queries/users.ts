@@ -8,7 +8,7 @@ import {
 import { count, eq, inArray, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
-import { supabaseAdmin } from '../../utils/supabase';
+import { authBackend } from '../../utils/auth';
 import { federationInstances, files, roles, serverMembers, userRoles, users } from '../schema';
 
 const slimFile = (file: TFile | null): TFileRef | null =>
@@ -434,14 +434,11 @@ const getUserByToken = async (token: string | undefined) => {
   try {
     if (!token) return undefined;
 
-    const {
-      data: { user: supabaseUser },
-      error
-    } = await supabaseAdmin.auth.getUser(token);
+    const { data, error } = await authBackend.getUser(token);
 
-    if (error || !supabaseUser) return undefined;
+    if (error || !data.user) return undefined;
 
-    const user = await getUserBySupabaseId(supabaseUser.id);
+    const user = await getUserBySupabaseId(data.user.id);
 
     return user;
   } catch {
