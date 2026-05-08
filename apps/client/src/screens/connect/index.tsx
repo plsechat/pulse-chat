@@ -195,6 +195,11 @@ const Connect = memo(() => {
 
   const onOAuthClick = useCallback(
     async (provider: string) => {
+      if (!supabase) {
+        toast.error('OAuth is not available on this server.');
+        return;
+      }
+
       const redirectTo = new URL(window.location.origin);
 
       if (inviteCode) {
