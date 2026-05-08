@@ -9,7 +9,7 @@ import { config } from '../../config';
 import { signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
 import { fetchBoundedImage } from '../../utils/fetch-bounded-image';
-import { validateFederationUrl } from '../../utils/validate-url';
+import { getFederationProtocol, validateFederationUrl } from '../../utils/validate-url';
 import { publishUser } from '../publishers';
 import { files, users } from '../schema';
 
@@ -416,7 +416,7 @@ async function syncShadowUserProfile(
     );
 
     // Fetch profile from home instance
-    const protocol = issuerDomain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(issuerDomain);
     const bodyToSign = {
       publicId,
       fromDomain: config.federation.domain

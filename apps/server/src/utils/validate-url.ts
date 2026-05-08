@@ -1,6 +1,43 @@
 import dns from 'dns/promises';
 import { isAllowedPrivateIpv4 } from './federation-allowlist';
 
+/**
+ * Decide whether to talk to a federation peer over HTTP or HTTPS.
+ *
+ * Production deployments federate over HTTPS — that's the default.
+ * Three carve-outs return HTTP:
+ *   1. localhost (existing behavior; smoke tests bind to it)
+ *   2. IPv4 literal in `FEDERATION_ALLOW_PRIVATE_CIDRS`
+ *   3. Bare hostname (no dot) and the operator has set
+ *      `FEDERATION_ALLOW_PRIVATE_CIDRS` — docker DNS / LAN names like
+ *      "pulse-b" or "homeserver" land here.
+ *
+ * Hostnames with a TLD-style dot (`mynode.lan`, `private.example.com`)
+ * always get HTTPS. Cases where those resolve into RFC1918 ranges and
+ * the operator wants HTTP need to be handled with explicit IP literal
+ * peers; we don't DNS-resolve every protocol pick.
+ */
+function getFederationProtocol(domain: string): 'http' | 'https' {
+  const host = (domain.split(':')[0] ?? '').toLowerCase();
+
+  if (host === 'localhost' || host.endsWith('.localhost')) {
+    return 'http';
+  }
+
+  if (isPrivateIp(host) && isAllowedPrivateIpv4(host)) {
+    return 'http';
+  }
+
+  if (!host.includes('.')) {
+    const cidrs = process.env.FEDERATION_ALLOW_PRIVATE_CIDRS?.trim();
+    if (cidrs) {
+      return 'http';
+    }
+  }
+
+  return 'https';
+}
+
 const PRIVATE_IPV4_PATTERNS = [
   /^127\./, // loopback 127.0.0.0/8
   /^10\./, // private 10.0.0.0/8
@@ -57,7 +94,7 @@ function isPrivateIp(ip: string): boolean {
   return ip.includes(':') ? isPrivateIpv6(ip) : isPrivateIpv4(ip);
 }
 
-export { isPrivateIp };
+export { getFederationProtocol, isPrivateIp };
 
 /**
  * Validate that a URL is safe to fetch. Rejects:

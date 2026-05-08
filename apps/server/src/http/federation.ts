@@ -28,7 +28,7 @@ import { findOrCreateShadowUser, syncShadowUserAvatar } from '../db/mutations/fe
 import { invalidateCorsCache } from './cors';
 import { pubsub } from '../utils/pubsub';
 import { federationFetch } from '../utils/federation-fetch';
-import { validateFederationUrl } from '../utils/validate-url';
+import { getFederationProtocol, validateFederationUrl } from '../utils/validate-url';
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
 
@@ -133,7 +133,7 @@ const federationRequestHandler = async (
   // domain's /federation/info endpoint. This prevents domain spoofing — an
   // attacker can't claim "victim.com" because we verify the key at that URL.
   try {
-    const protocol = domain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(domain);
     const federationInfoUrl = `${protocol}://${domain}/federation/info`;
     const validatedUrl = await validateFederationUrl(federationInfoUrl);
     const infoRes = await federationFetch(validatedUrl.href, {
@@ -526,7 +526,7 @@ const federationFriendRequestHandler = async (
 
   // Sync avatar from remote instance (fire-and-forget)
   if (fromAvatarFile) {
-    const protocol = fromDomain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(fromDomain);
     syncShadowUserAvatar(shadowUser.id, `${protocol}://${fromDomain}/public/${fromAvatarFile}`);
   }
 
@@ -636,7 +636,7 @@ const federationFriendAcceptHandler = async (
 
   // Sync avatar from remote instance (fire-and-forget)
   if (fromAvatarFile) {
-    const protocol = fromDomain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(fromDomain);
     syncShadowUserAvatar(shadowUser.id, `${protocol}://${fromDomain}/public/${fromAvatarFile}`);
   }
 
@@ -890,7 +890,7 @@ const federationDmRelayHandler = async (
 
   // Sync avatar from remote instance (fire-and-forget)
   if (fromAvatarFile) {
-    const protocol = fromDomain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(fromDomain);
     syncShadowUserAvatar(shadowUser.id, `${protocol}://${fromDomain}/public/${fromAvatarFile}`);
   }
 

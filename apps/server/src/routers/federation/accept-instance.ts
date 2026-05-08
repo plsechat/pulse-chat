@@ -8,6 +8,7 @@ import { config } from '../../config';
 import { protectedProcedure } from '../../utils/trpc';
 import { signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
+import { getFederationProtocol } from '../../utils/validate-url';
 import { pubsub } from '../../utils/pubsub';
 import { invalidateCorsCache } from '../../http/cors';
 import { logger } from '../../logger';
@@ -49,7 +50,7 @@ const acceptInstanceRoute = protectedProcedure
     // Notify remote instance (retry once on failure, fire-and-forget)
     const notifyRemote = async (attempt: number) => {
       try {
-        const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
+        const protocol = getFederationProtocol(instance!.domain);
         const bodyToSign = { domain: config.federation.domain };
         const signature = await signChallenge(bodyToSign, instance!.domain);
 

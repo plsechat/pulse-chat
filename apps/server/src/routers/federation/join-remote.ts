@@ -4,6 +4,7 @@ import { getFederationInstanceById } from '../../db/queries/federation';
 import { logger } from '../../logger';
 import { generateFederationToken } from '../../utils/federation';
 import { protectedProcedure } from '../../utils/trpc';
+import { getFederationProtocol } from '../../utils/validate-url';
 
 const joinRemoteRoute = protectedProcedure
   .input(
@@ -42,7 +43,7 @@ const joinRemoteRoute = protectedProcedure
       );
       logger.info('[federation/joinRemote] token generated, length=%d', token.length);
 
-      const protocol = instance!.domain.includes('localhost') ? 'http' : 'https';
+      const protocol = getFederationProtocol(instance!.domain);
       const remoteUrl = `${protocol}://${instance!.domain}`;
       logger.info('[federation/joinRemote] returning remoteUrl=%s', remoteUrl);
 

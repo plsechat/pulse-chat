@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import dns from 'dns/promises';
 import { _resetCacheForTests } from '../federation-allowlist';
-import { validateFederationUrl } from '../validate-url';
+import { getFederationProtocol, validateFederationUrl } from '../validate-url';
 
 /**
  * Unit tests for validateFederationUrl. No DB / network — `dns/promises`
@@ -276,6 +276,69 @@ describe('validateFederationUrl', () => {
 
       const url = await validateFederationUrl('http://127.0.0.1/');
       expect(url.hostname).toBe('127.0.0.1');
+    });
+  });
+
+  // ─── getFederationProtocol picker ──────────────────────────────────────
+  describe('getFederationProtocol', () => {
+    let originalEnv: string | undefined;
+
+    beforeEach(() => {
+      originalEnv = process.env.FEDERATION_ALLOW_PRIVATE_CIDRS;
+      _resetCacheForTests();
+    });
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.FEDERATION_ALLOW_PRIVATE_CIDRS;
+      } else {
+        process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = originalEnv;
+      }
+      _resetCacheForTests();
+    });
+
+    test('localhost variants return http', () => {
+      delete process.env.FEDERATION_ALLOW_PRIVATE_CIDRS;
+      _resetCacheForTests();
+      expect(getFederationProtocol('localhost')).toBe('http');
+      expect(getFederationProtocol('localhost:4991')).toBe('http');
+      expect(getFederationProtocol('foo.localhost')).toBe('http');
+    });
+
+    test('public hostname with TLD always returns https', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16';
+      _resetCacheForTests();
+      expect(getFederationProtocol('example.com')).toBe('https');
+      expect(getFederationProtocol('example.com:4991')).toBe('https');
+      expect(getFederationProtocol('peer.federated.example')).toBe('https');
+    });
+
+    test('IPv4 literal in allowlist returns http', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16';
+      _resetCacheForTests();
+      expect(getFederationProtocol('192.168.1.50')).toBe('http');
+      expect(getFederationProtocol('192.168.1.50:4991')).toBe('http');
+    });
+
+    test('IPv4 literal NOT in allowlist returns https', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16';
+      _resetCacheForTests();
+      expect(getFederationProtocol('10.0.0.1')).toBe('https');
+    });
+
+    test('bare hostname returns http when allowlist is set', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '172.16.0.0/12';
+      _resetCacheForTests();
+      expect(getFederationProtocol('pulse-b')).toBe('http');
+      expect(getFederationProtocol('pulse-b:4991')).toBe('http');
+      expect(getFederationProtocol('homeserver')).toBe('http');
+    });
+
+    test('bare hostname returns https when allowlist is unset', () => {
+      delete process.env.FEDERATION_ALLOW_PRIVATE_CIDRS;
+      _resetCacheForTests();
+      expect(getFederationProtocol('pulse-b')).toBe('https');
+      expect(getFederationProtocol('pulse-b:4991')).toBe('https');
     });
   });
 });

@@ -8,6 +8,7 @@ import { signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { getFederationProtocol } from '../../utils/validate-url';
 
 const ensureShadowUserRoute = protectedProcedure
   .input(
@@ -51,9 +52,7 @@ const ensureShadowUserRoute = protectedProcedure
     // `username` is only used as a fallback if the remote doesn't
     // respond and we already had a shadow we wouldn't recreate
     // anyway.
-    const protocol = input.instanceDomain.includes('localhost')
-      ? 'http'
-      : 'https';
+    const protocol = getFederationProtocol(input.instanceDomain);
     const bodyToSign = {
       publicId: input.remotePublicId,
       fromDomain: config.federation.domain
