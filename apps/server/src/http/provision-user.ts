@@ -80,6 +80,18 @@ const provisionRouteHandler = async (
     return res;
   }
 
+  // OIDC sessions are provisioned by the OIDC callback, which carries the
+  // identity claims needed for a proper display name. If an OIDC user is
+  // missing here the token is stale (e.g. the account was deleted or the DB
+  // was reset) — reject rather than create a placeholder-named account
+  // (`user-oidc:...`). The client falls back to the login screen and a fresh
+  // OIDC sign-in re-provisions correctly.
+  if (supabaseUserId.startsWith('oidc:')) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Session expired, please sign in again' }));
+    return res;
+  }
+
   // New user — check registration policy
   const settings = await getSettings();
   const connectionInfo = getWsInfo(undefined, req);

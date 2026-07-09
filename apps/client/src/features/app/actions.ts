@@ -11,7 +11,7 @@ import {
 import { connectionManager } from '@/lib/connection-manager';
 import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { getAccessToken, initSupabase, setOidcSession } from '@/lib/supabase';
+import { clearSession, getAccessToken, initSupabase, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
 import { connect, fetchDeferredServerData, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
@@ -257,6 +257,12 @@ export const loadApp = async () => {
       if (!provisionRes.ok) {
         const errorData = await provisionRes.json().catch(() => ({}));
         console.error('Provision failed:', errorData);
+        // A 401 means the stored token is no longer valid for a live account
+        // (expired, or the account/DB was reset). Clear it so a stale token
+        // doesn't keep failing on every refresh and the login screen shows.
+        if (provisionRes.status === 401) {
+          await clearSession();
+        }
         throw new Error(errorData.error || 'Failed to provision user');
       }
 
