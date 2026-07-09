@@ -155,7 +155,7 @@ async function findOrProvisionOidcUser(
   }
 
   await registerUser(supabaseId, invite, ip, name);
-  logger.info(`Provisioned new OIDC user for subject ${claims.sub.replace(/[\r\n\u2028\u2029]+/g, ' ')}`);
+  logger.info(`Provisioned new OIDC user for subject ${claims.sub.replace(/[\r\n]/g, '')}`);
   return supabaseId;
 }
 
@@ -223,7 +223,7 @@ export async function oidcCallbackRouteHandler(
   const idpError = url.searchParams.get('error');
 
   if (idpError) {
-    logger.warn('OIDC provider returned error: %s', idpError.replace(/[\r\n\u2028\u2029]+/g, ' '));
+    logger.warn('OIDC provider returned error: %s', idpError.replace(/[\r\n]/g, ''));
     return fail('Login was cancelled or denied');
   }
   if (!code || !returnedState) {
