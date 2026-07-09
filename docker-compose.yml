@@ -12,6 +12,10 @@ services:
       db:
         condition: service_healthy
         required: false
+    # Load the whole .env into the container so any documented variable takes
+    # effect without also having to be listed below. The explicit environment
+    # block still wins for the vars that need a default or interpolation.
+    env_file: .env
     environment:
       # Auth backend selection. Leave empty to let Pulse infer from
       # the SUPABASE_* vars below — when SUPABASE_URL +

@@ -1,7 +1,11 @@
 import type { TAuthProvider, TServerInfo } from '@pulse/shared';
 import http from 'http';
 import { getFirstServer } from '../db/queries/servers';
-import { isRegistrationDisabled, SERVER_VERSION } from '../utils/env';
+import {
+  isRegistrationDisabled,
+  isRegistrationMethodEnabled,
+  SERVER_VERSION
+} from '../utils/env';
 import { getOidcConfig } from '../utils/oidc';
 
 // Built-in social providers (Supabase-mediated). `name` is passed verbatim
@@ -52,6 +56,7 @@ const infoRouteHandler = async (
     logo: server.logo,
     allowNewUsers: server.allowNewUsers,
     registrationDisabled: isRegistrationDisabled(),
+    passwordRegistrationEnabled: isRegistrationMethodEnabled('password'),
     enabledAuthProviders,
     supabaseUrl: process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',

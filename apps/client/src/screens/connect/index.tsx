@@ -257,6 +257,12 @@ const Connect = memo(() => {
     [info?.enabledAuthProviders, loading, onProviderClick]
   );
 
+  // Hide the Create Account (password) form when password self-registration
+  // is disabled server-side — unless the visitor arrived with an invite link,
+  // which is a break-glass path. Absent flag = enabled (older servers).
+  const canRegisterPassword =
+    info?.passwordRegistrationEnabled !== false || !!inviteCode;
+
   return (
     <>
       {/* Keyframe animation for gradient */}
@@ -404,14 +410,16 @@ const Connect = memo(() => {
                 value={activeTab}
                 onValueChange={(v) => setActiveTab(v as 'login' | 'register')}
               >
-                <TabsList className="w-full mb-8">
-                  <TabsTrigger value="login" className="flex-1">
-                    Sign In
-                  </TabsTrigger>
-                  <TabsTrigger value="register" className="flex-1">
-                    Create Account
-                  </TabsTrigger>
-                </TabsList>
+                {canRegisterPassword && (
+                  <TabsList className="w-full mb-8">
+                    <TabsTrigger value="login" className="flex-1">
+                      Sign In
+                    </TabsTrigger>
+                    <TabsTrigger value="register" className="flex-1">
+                      Create Account
+                    </TabsTrigger>
+                  </TabsList>
+                )}
 
                 {/* Login Tab */}
                 <TabsContent value="login" className="mt-0">
@@ -458,6 +466,7 @@ const Connect = memo(() => {
                 </TabsContent>
 
                 {/* Register Tab */}
+                {canRegisterPassword && (
                 <TabsContent value="register" className="mt-0">
                   <div className="flex flex-col gap-4">
                     <Group label="Display Name">
@@ -518,6 +527,7 @@ const Connect = memo(() => {
                     )}
                   </div>
                 </TabsContent>
+                )}
               </Tabs>
             </div>
 

@@ -19,6 +19,18 @@ describe('/info', () => {
     delete process.env.OIDC_CLIENT_ID;
     delete process.env.OIDC_SECRET;
     delete process.env.AUTH_SECRET;
+    globalThis.__disabledRegistrationMethods = undefined;
+  });
+
+  test('passwordRegistrationEnabled is true by default', async () => {
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+    expect(data.passwordRegistrationEnabled).toBe(true);
+  });
+
+  test('passwordRegistrationEnabled is false when password registration is disabled', async () => {
+    globalThis.__disabledRegistrationMethods = ['password'];
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+    expect(data.passwordRegistrationEnabled).toBe(false);
   });
 
   test('should return server info', async () => {

@@ -128,6 +128,10 @@ export type TServerInfo = Pick<
   logo: TFile | null;
   version: string;
   registrationDisabled?: boolean;
+  /** Whether email/password self-registration is enabled. When false, the
+   * client hides the Create Account form (unless an invite link is present).
+   * Absent = enabled (backwards compat with older servers). */
+  passwordRegistrationEnabled?: boolean;
   enabledAuthProviders?: TAuthProvider[];
   supabaseUrl: string;
   supabaseAnonKey: string;
