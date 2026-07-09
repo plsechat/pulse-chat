@@ -48,7 +48,7 @@ type TConfig = {
 
 let config: TConfig = {
   server: {
-    port: 4991,
+    port: 5443,
     debug: IS_DEVELOPMENT ? true : false,
     autoupdate: false,
     debugLogMaxSizeMb: 200,

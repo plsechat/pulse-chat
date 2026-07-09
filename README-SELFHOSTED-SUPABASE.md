@@ -166,7 +166,7 @@ SITE_URL=https://your-domain.com
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Supabase admin service role key |
 | `AUTH_SECRET` | For OIDC | — | ≥32 random chars; signs the Pulse session token minted after OIDC login. Required only if you enable OIDC below. |
 | `SITE_URL` | Yes | — | Public URL (e.g., `https://pulse.example.com`) |
-| `PULSE_PORT` | No | `4991` | Host port for Pulse |
+| `PULSE_PORT` | No | `5443` | Host port for Pulse |
 | `JWT_EXPIRY` | No | `3600` | Token expiry in seconds |
 | `PUBLIC_IP` | No | auto | Public IP for WebRTC |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enable Google login |
@@ -226,7 +226,7 @@ docker logs pulse
 ### Test the health endpoint
 
 ```bash
-curl http://localhost:4991/healthz
+curl http://localhost:5443/healthz
 ```
 
 Should return `{"status":"ok","timestamp":...}`.
@@ -255,7 +255,7 @@ your-domain.com {
         reverse_proxy localhost:8000
     }
     handle {
-        reverse_proxy localhost:4991
+        reverse_proxy localhost:5443
     }
 }
 ```
@@ -289,7 +289,7 @@ server {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:4991;
+        proxy_pass http://127.0.0.1:5443;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -328,7 +328,7 @@ sudo ufw enable
 | 22 | TCP | SSH access |
 | 80 | TCP | HTTP (redirects to HTTPS) |
 | 443 | TCP | HTTPS (web + WebSocket) |
-| 4991 | TCP | Pulse (only if no reverse proxy) |
+| 5443 | TCP | Pulse (only if no reverse proxy) |
 | 40000-40020 | UDP + TCP | WebRTC media (voice/video/screen share) |
 
 > **Note:** Docker manipulates iptables directly and can bypass ufw rules. Ports mapped in `docker-compose-supabase.yml` may be publicly accessible even if ufw doesn't allow them. The compose file binds Kong (port 8000) to `127.0.0.1` so it is only accessible from the reverse proxy — do not change this to `0.0.0.0`.

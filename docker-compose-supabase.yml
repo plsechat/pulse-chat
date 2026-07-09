@@ -100,7 +100,7 @@ services:
       kong:
         condition: service_healthy
     ports:
-      - "${PULSE_PORT:-4991}:4991"
+      - "${PULSE_PORT:-5443}:5443"
       - "40000-40020:40000-40020/udp"
     env_file: .env
     environment:
@@ -128,7 +128,7 @@ services:
     volumes:
       - ./data/pulse:/root/.config/pulse
     healthcheck:
-      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:4991/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:5443/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 12

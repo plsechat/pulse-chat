@@ -73,13 +73,13 @@ EOF
 docker compose --profile local up -d
 ```
 
-Pulse listens on `4991`; the bundled `postgres:16-alpine` is on `5432`. Open `http://localhost:4991` and the first user to register becomes the operator.
+Pulse listens on `5443`; the bundled `postgres:16-alpine` is on `5432`. Open `http://localhost:5443` and the first user to register becomes the operator.
 
 ### Docker (existing Postgres / Supabase)
 
 ```bash
 docker run \
-  -p 4991:4991/tcp \
+  -p 5443:5443/tcp \
   -p 40000-40020:40000-40020/tcp \
   -p 40000-40020:40000-40020/udp \
   -v ./data:/root/.config/pulse \
@@ -105,7 +105,7 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 
 ### After first launch
 
-1. Open `http://localhost:4991`
+1. Open `http://localhost:5443`
 2. A **security token** prints to the server console on first run — save it
 3. Register and log in
 4. Claim ownership: open the browser console and run `useToken('your_token_here')`
@@ -141,7 +141,7 @@ A config file is generated at `~/.config/pulse/config.ini` on first run.
 
 | Section | Key | Default | What it does |
 |---|---|---|---|
-| server | `port` | `4991` | HTTP / WebSocket port |
+| server | `port` | `5443` | HTTP / WebSocket port |
 | server | `debug` | `false` | Verbose logging |
 | server | `autoupdate` | `false` | Auto-check for updates |
 | http | `maxFiles` | `40` | Max files per upload |
