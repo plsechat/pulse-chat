@@ -75,12 +75,6 @@ function getCookie(req: http.IncomingMessage, name: string): string | undefined 
   return undefined;
 }
 
-/** Strip control/newline separators so user-controlled values can't forge log lines. */
-function sanitizeForLog(value: string): string {
-  // Remove ASCII control chars (incl. CR/LF/TAB/NUL) and Unicode line separators.
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/[\u0000-\u001F\u007F\u2028\u2029]+/g, ' ').trim();
-}
 
 function redirect(res: http.ServerResponse, location: string, setCookie?: string) {
   const headers: http.OutgoingHttpHeaders = { Location: location };
@@ -161,7 +155,7 @@ async function findOrProvisionOidcUser(
   }
 
   await registerUser(supabaseId, invite, ip, name);
-  logger.info(`Provisioned new OIDC user for subject ${sanitizeForLog(claims.sub)}`);
+  logger.info(`Provisioned new OIDC user for subject ${claims.sub.replace(/[\r\n\u2028\u2029]+/g, ' ')}`);
   return supabaseId;
 }
 
@@ -229,7 +223,7 @@ export async function oidcCallbackRouteHandler(
   const idpError = url.searchParams.get('error');
 
   if (idpError) {
-    logger.warn('OIDC provider returned error: %s', sanitizeForLog(idpError));
+    logger.warn('OIDC provider returned error: %s', idpError.replace(/[\r\n\u2028\u2029]+/g, ' '));
     return fail('Login was cancelled or denied');
   }
   if (!code || !returnedState) {
