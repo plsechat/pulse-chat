@@ -17,6 +17,13 @@ const getAuthProvidersRoute = protectedProcedure.query(async ({ ctx }) => {
     message: 'User not found'
   });
 
+  // OIDC users live outside the auth backend (their session is minted by
+  // PULSE itself), so the backend can't resolve them. Their only linked
+  // identity is the OIDC provider.
+  if (user.supabaseId.startsWith('oidc:')) {
+    return { providers: ['oidc'] };
+  }
+
   const { data, error } = await authBackend.getUserById(user.supabaseId);
 
   invariant(!error && data.user, {

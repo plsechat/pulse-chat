@@ -11,7 +11,7 @@ import {
 import { connectionManager } from '@/lib/connection-manager';
 import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { getAccessToken, initSupabase } from '@/lib/supabase';
+import { getAccessToken, initSupabase, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
 import { connect, fetchDeferredServerData, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
@@ -179,7 +179,48 @@ const handleInviteFromUrl = async () => {
   }
 };
 
+/**
+ * Consume a native-OIDC redirect. The server's /auth/oidc/callback sends
+ * the freshly-minted session token in the URL fragment (never sent to a
+ * server) and, on failure, an ?oidc_error query param. Runs before the
+ * session check so a returning OIDC user is auto-connected.
+ */
+const consumeOidcRedirect = async (): Promise<void> => {
+  // Error path (query string).
+  const params = new URLSearchParams(window.location.search);
+  const oidcError = params.get('oidc_error');
+  if (oidcError) {
+    toast.error(oidcError);
+    params.delete('oidc_error');
+    const search = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
+    );
+  }
+
+  // Success path (URL fragment).
+  if (!window.location.hash) return;
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const token = hash.get('pulse_oidc_token');
+  if (!token) return;
+
+  await setOidcSession(token);
+
+  // Strip the token from the URL so it isn't left in history / shareable.
+  hash.delete('pulse_oidc_token');
+  const rest = hash.toString();
+  window.history.replaceState(
+    {},
+    '',
+    `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ''}`
+  );
+};
+
 export const loadApp = async () => {
+  await consumeOidcRedirect();
+
   const info = await fetchServerInfo();
 
   if (!info) {

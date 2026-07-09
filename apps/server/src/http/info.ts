@@ -2,9 +2,11 @@ import type { TAuthProvider, TServerInfo } from '@pulse/shared';
 import http from 'http';
 import { getFirstServer } from '../db/queries/servers';
 import { isRegistrationDisabled, SERVER_VERSION } from '../utils/env';
+import { getOidcConfig } from '../utils/oidc';
 
-// Built-in social providers. `name` is passed verbatim to Supabase's
-// `signInWithOAuth`; `label` is the button text on the login screen.
+// Built-in social providers (Supabase-mediated). `name` is passed verbatim
+// to Supabase's `signInWithOAuth`; `label` is the button text. These
+// require AUTH_BACKEND=supabase.
 const OAUTH_PROVIDERS = [
   { env: 'GOOGLE_OAUTH_ENABLED', name: 'google', label: 'Google' },
   { env: 'DISCORD_OAUTH_ENABLED', name: 'discord', label: 'Discord' },
@@ -12,17 +14,15 @@ const OAUTH_PROVIDERS = [
   { env: 'TWITCH_OAUTH_ENABLED', name: 'twitch', label: 'Twitch' }
 ] as const;
 
-// Generic OIDC provider. Supabase/GoTrue exposes a single generic-OIDC
-// slot via its `keycloak` provider (GOTRUE_EXTERNAL_KEYCLOAK_*), whose
-// issuer URL can point at any standards-compliant IdP — Authentik,
-// Keycloak, Zitadel, Auth0, etc. Operators pick the button label with
-// OIDC_LABEL (e.g. "Authentik", "Company SSO").
+// Native OIDC provider (PULSE runs the flow itself — see utils/oidc.ts).
+// Works with any standards-compliant IdP (Authentik, Keycloak, Zitadel,
+// Auth0, …) under either auth backend. Advertised only when fully
+// configured. `kind: 'oidc'` tells the client to redirect to
+// /auth/oidc/start rather than call Supabase.
 function getOidcProvider(): TAuthProvider | null {
-  if (process.env.OIDC_OAUTH_ENABLED !== 'true') return null;
-  return {
-    name: 'keycloak',
-    label: process.env.OIDC_LABEL || 'Single Sign-On'
-  };
+  const config = getOidcConfig();
+  if (!config) return null;
+  return { name: 'oidc', label: config.label, kind: 'oidc' };
 }
 
 const infoRouteHandler = async (

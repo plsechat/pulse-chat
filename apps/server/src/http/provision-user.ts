@@ -3,12 +3,15 @@ import http from 'http';
 import { db } from '../db';
 import { isInviteValid } from '../db/queries/invites';
 import { getSettings } from '../db/queries/server';
-import { getUserBySupabaseId, isDisplayNameTaken } from '../db/queries/users';
+import {
+  getUserBySupabaseId,
+  isDisplayNameTaken,
+  resolveTokenIdentity
+} from '../db/queries/users';
 import { invites, users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
 import { isRegistrationDisabled } from '../utils/env';
-import { authBackend } from '../utils/auth';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -35,22 +38,17 @@ const provisionRouteHandler = async (
   }
 
   const token = authHeader.slice(7);
-  const { data: userData, error: userError } = await authBackend.getUser(token);
+  const identity = await resolveTokenIdentity(token);
 
-  if (!userData.user) {
-    logger.error('Provision auth failed: %o', userError);
+  if (!identity) {
+    logger.error('Provision auth failed: invalid or expired token');
     res.writeHead(401, { 'Content-Type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        error: 'Invalid or expired token',
-        detail: userError?.message
-      })
-    );
+    res.end(JSON.stringify({ error: 'Invalid or expired token' }));
     return res;
   }
 
-  const supabaseUserId = userData.user.id;
-  const meta = userData.user.metadata as
+  const supabaseUserId = identity.id;
+  const meta = identity.metadata as
     | { full_name?: string; name?: string; preferred_username?: string }
     | undefined;
   const displayName = meta?.full_name || meta?.name || meta?.preferred_username || undefined;
@@ -106,7 +104,7 @@ const provisionRouteHandler = async (
   let finalName = displayName;
 
   if (!finalName) {
-    const email = userData.user.email;
+    const email = identity.email;
     finalName =
       (email && email.split('@')[0]) || `user-${supabaseUserId.slice(0, 8)}`;
   }

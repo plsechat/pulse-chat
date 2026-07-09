@@ -116,10 +116,15 @@ services:
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
       FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
       PUBLIC_IP: ${PUBLIC_IP}
-      # Advertise the generic-OIDC login button (label from OIDC_LABEL).
-      # The GoTrue keycloak slot above does the actual OAuth dance.
+      # Native OIDC (Authentik / Keycloak / Zitadel / Auth0 / any OIDC IdP).
+      # PULSE runs the flow itself — no GoTrue provider needed. Register
+      # ${SITE_URL}/auth/oidc/callback as a redirect URI in your IdP.
+      # Requires AUTH_SECRET (set above) to sign the session token.
       OIDC_OAUTH_ENABLED: ${OIDC_OAUTH_ENABLED:-false}
       OIDC_LABEL: ${OIDC_LABEL:-Single Sign-On}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_SECRET: ${OIDC_SECRET:-}
     volumes:
       - ./data/pulse:/root/.config/pulse
     healthcheck:
