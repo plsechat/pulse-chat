@@ -132,7 +132,7 @@ SUPABASE_SERVICE_ROLE_KEY=<jwt token>
 ## Configure Environment
 
 ```bash
-cp .env.supabase.example .env
+cp .env.supabase-local.example .env
 nano .env
 ```
 

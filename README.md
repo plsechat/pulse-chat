@@ -133,7 +133,11 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 | `DEBUG_LOGGING` | optional | Write JSON debug events to `log/debug.log` |
 | `DEBUG_LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_FILES` | optional | Rotation limits for `debug.log` (used with `DEBUG_LOGGING`) |
 
-See [.env.example](.env.example) for the full list with comments.
+Full, commented templates — copy the one that matches your setup to `.env`:
+
+- [.env.local.example](.env.local.example) — local backend, no Supabase (the default path above).
+- [.env.supabase-public.example](.env.supabase-public.example) — `AUTH_BACKEND=supabase` against a managed/external Supabase project.
+- [.env.supabase-local.example](.env.supabase-local.example) — the bundled self-hosted Supabase stack (`docker-compose-supabase.yml`); see the [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md).
 
 ### config.ini
 
