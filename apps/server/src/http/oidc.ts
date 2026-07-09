@@ -104,6 +104,12 @@ async function findOrProvisionOidcUser(
   ip: string | undefined
 ): Promise<string> {
   const supabaseId = oidcSupabaseId(claims.sub);
+  // Display name: the IdP's name claim, falling back to the email local
+  // part and finally a subject-derived placeholder.
+  const preferredName =
+    claims.name ||
+    (claims.email && claims.email.split('@')[0]) ||
+    `user-${claims.sub.slice(0, 8)}`;
   const existing = await getUserBySupabaseId(supabaseId);
 
   if (existing) {
@@ -111,12 +117,12 @@ async function findOrProvisionOidcUser(
       throw new Error(`Account banned: ${existing.banReason || 'No reason provided'}`);
     }
     // Backfill a real display name if the account still has the generic one.
-    if (claims.name && existing.name === 'New User') {
-      const taken = await isDisplayNameTaken(claims.name, existing.id);
+    if (existing.name === 'New User') {
+      const taken = await isDisplayNameTaken(preferredName, existing.id);
       if (!taken) {
         await db
           .update(users)
-          .set({ name: claims.name, updatedAt: Date.now() })
+          .set({ name: preferredName, updatedAt: Date.now() })
           .where(eq(users.id, existing.id));
       }
     }
@@ -137,10 +143,7 @@ async function findOrProvisionOidcUser(
       .execute();
   }
 
-  let name = claims.name;
-  if (!name) {
-    name = (claims.email && claims.email.split('@')[0]) || `user-${claims.sub.slice(0, 8)}`;
-  }
+  let name = preferredName;
   if (await isDisplayNameTaken(name)) {
     name = `${name}-${randomToken(3).slice(0, 4)}`;
   }

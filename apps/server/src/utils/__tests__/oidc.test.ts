@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { decodeJwt } from 'jose';
+import { decodeJwt, SignJWT } from 'jose';
 import {
   getOidcConfig,
   looksLikeOidcSession,
@@ -9,9 +9,40 @@ import {
   pkceChallenge,
   randomToken,
   signState,
+  verifyIdToken,
   verifySessionToken,
-  verifyState
+  verifyState,
+  type OidcConfig,
+  type OidcDiscovery
 } from '../oidc';
+
+const ID_TOKEN_CONFIG: OidcConfig = {
+  issuer: 'https://idp.example.com/application/o/pulse/',
+  clientId: 'client-abc',
+  clientSecret: 'client-secret-value-1234567890',
+  label: 'IdP'
+};
+
+const ID_TOKEN_DISCOVERY: OidcDiscovery = {
+  issuer: 'https://idp.example.com/application/o/pulse/',
+  authorization_endpoint: 'https://idp.example.com/application/o/authorize/',
+  token_endpoint: 'https://idp.example.com/application/o/token/',
+  // Not used for HS256 verification.
+  jwks_uri: 'https://idp.example.com/application/o/pulse/jwks/'
+};
+
+const signHs256IdToken = (
+  claims: Record<string, unknown>,
+  opts: { secret?: string; issuer?: string; audience?: string } = {}
+) =>
+  new SignJWT(claims)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject('subject-1')
+    .setIssuer(opts.issuer ?? ID_TOKEN_DISCOVERY.issuer)
+    .setAudience(opts.audience ?? ID_TOKEN_CONFIG.clientId)
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(new TextEncoder().encode(opts.secret ?? ID_TOKEN_CONFIG.clientSecret));
 
 const AUTH_SECRET = 'test-oidc-secret-at-least-32-chars-long!!';
 
@@ -150,6 +181,70 @@ describe('oidc utils', () => {
 
     test('oidcSupabaseId namespaces the subject', () => {
       expect(oidcSupabaseId('abc')).toBe('oidc:abc');
+    });
+  });
+
+  // Authentik emits HS256-signed id_tokens (HMAC with the client secret)
+  // when the provider has no asymmetric signing certificate. Its JWKS is
+  // then keyless, so verification must fall back to the shared secret.
+  describe('verifyIdToken (HS256 / client-secret signed)', () => {
+    test('verifies a valid HS256 id_token and extracts claims', async () => {
+      const idToken = await signHs256IdToken({
+        nonce: 'NONCE-1',
+        email: 'alice@example.com',
+        name: 'Alice'
+      });
+      const claims = await verifyIdToken(
+        ID_TOKEN_CONFIG,
+        ID_TOKEN_DISCOVERY,
+        idToken,
+        'NONCE-1'
+      );
+      expect(claims.sub).toBe('subject-1');
+      expect(claims.email).toBe('alice@example.com');
+      expect(claims.name).toBe('Alice');
+    });
+
+    test('falls back to preferred_username for the display name', async () => {
+      const idToken = await signHs256IdToken({
+        nonce: 'NONCE-1',
+        preferred_username: 'bob'
+      });
+      const claims = await verifyIdToken(
+        ID_TOKEN_CONFIG,
+        ID_TOKEN_DISCOVERY,
+        idToken,
+        'NONCE-1'
+      );
+      expect(claims.name).toBe('bob');
+      expect(claims.email).toBeNull();
+    });
+
+    test('rejects a nonce mismatch', async () => {
+      const idToken = await signHs256IdToken({ nonce: 'NONCE-1' });
+      await expect(
+        verifyIdToken(ID_TOKEN_CONFIG, ID_TOKEN_DISCOVERY, idToken, 'OTHER')
+      ).rejects.toThrow();
+    });
+
+    test('rejects a token signed with the wrong secret', async () => {
+      const idToken = await signHs256IdToken(
+        { nonce: 'NONCE-1' },
+        { secret: 'a-totally-different-client-secret-xx' }
+      );
+      await expect(
+        verifyIdToken(ID_TOKEN_CONFIG, ID_TOKEN_DISCOVERY, idToken, 'NONCE-1')
+      ).rejects.toThrow();
+    });
+
+    test('rejects a wrong audience', async () => {
+      const idToken = await signHs256IdToken(
+        { nonce: 'NONCE-1' },
+        { audience: 'some-other-client' }
+      );
+      await expect(
+        verifyIdToken(ID_TOKEN_CONFIG, ID_TOKEN_DISCOVERY, idToken, 'NONCE-1')
+      ).rejects.toThrow();
     });
   });
 });

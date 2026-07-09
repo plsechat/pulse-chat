@@ -24,6 +24,7 @@
 import {
   createRemoteJWKSet,
   decodeJwt,
+  decodeProtectedHeader,
   jwtVerify,
   SignJWT,
   type JWTPayload
@@ -286,10 +287,20 @@ export async function verifyIdToken(
   idToken: string,
   expectedNonce: string
 ): Promise<OidcClaims> {
-  const { payload } = await jwtVerify(idToken, getJwks(discovery.jwks_uri), {
-    issuer: discovery.issuer,
-    audience: config.clientId
-  });
+  // Pick the verification key by the id_token's signing algorithm.
+  // Asymmetric (RS*/ES*/PS*) tokens verify against the IdP's published
+  // JWKS; symmetric HS* tokens — which Authentik emits when the provider
+  // has no asymmetric signing certificate — verify with the client secret
+  // as the shared HMAC key (its JWKS is keyless and jose rejects it).
+  const header = decodeProtectedHeader(idToken);
+  const isHmac = typeof header.alg === 'string' && header.alg.startsWith('HS');
+  const options = { issuer: discovery.issuer, audience: config.clientId };
+
+  // Two calls rather than a union key so each matches a single jwtVerify
+  // overload (symmetric key vs. JWKS resolver function).
+  const { payload } = isHmac
+    ? await jwtVerify(idToken, new TextEncoder().encode(config.clientSecret), options)
+    : await jwtVerify(idToken, getJwks(discovery.jwks_uri), options);
 
   if (payload.nonce !== expectedNonce) {
     throw new Error('OIDC id_token nonce mismatch');
