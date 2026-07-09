@@ -45,10 +45,19 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_SECRET: ${OIDC_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
       PUBLIC_IP: ${PUBLIC_IP:-}
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
+      # Per-method signup switches (default enabled). Set to "false" in .env
+      # to disable that method — e.g. OIDC-only = password + social false.
+      REGISTRATION_PASSWORD_ENABLED: ${REGISTRATION_PASSWORD_ENABLED:-}
+      REGISTRATION_OIDC_ENABLED: ${REGISTRATION_OIDC_ENABLED:-}
+      REGISTRATION_SOCIAL_ENABLED: ${REGISTRATION_SOCIAL_ENABLED:-}
       FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      DEBUG_LOGGING: ${DEBUG_LOGGING:-}
+      DEBUG_LOG_MAX_SIZE_MB: ${DEBUG_LOG_MAX_SIZE_MB:-}
+      DEBUG_LOG_MAX_FILES: ${DEBUG_LOG_MAX_FILES:-}
       TRUST_PROXY: "true"
     volumes:
       - ./data/pulse:/root/.config/pulse
