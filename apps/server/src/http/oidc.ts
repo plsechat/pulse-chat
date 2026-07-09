@@ -57,17 +57,27 @@ function getRequestOrigin(req: http.IncomingMessage): {
   return { origin: `${proto}://${host}`, isHttps: proto === 'https' };
 }
 
-function parseCookies(req: http.IncomingMessage): Record<string, string> {
+/**
+ * Read a single named cookie. Deliberately matches only the requested name
+ * rather than building a map keyed by user-controlled cookie names (which
+ * is a property-injection / prototype-pollution vector).
+ */
+function getCookie(req: http.IncomingMessage, name: string): string | undefined {
   const header = req.headers.cookie;
-  if (!header) return {};
-  const out: Record<string, string> = {};
+  if (!header) return undefined;
   for (const part of header.split(';')) {
     const idx = part.indexOf('=');
     if (idx === -1) continue;
-    const key = part.slice(0, idx).trim();
-    out[key] = decodeURIComponent(part.slice(idx + 1).trim());
+    if (part.slice(0, idx).trim() === name) {
+      return decodeURIComponent(part.slice(idx + 1).trim());
+    }
   }
-  return out;
+  return undefined;
+}
+
+/** Strip CR/LF so user-controlled values can't forge log lines. */
+function sanitizeForLog(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ');
 }
 
 function redirect(res: http.ServerResponse, location: string, setCookie?: string) {
@@ -149,7 +159,7 @@ async function findOrProvisionOidcUser(
   }
 
   await registerUser(supabaseId, invite, ip, name);
-  logger.info(`Provisioned new OIDC user for subject ${claims.sub}`);
+  logger.info(`Provisioned new OIDC user for subject ${sanitizeForLog(claims.sub)}`);
   return supabaseId;
 }
 
@@ -217,15 +227,14 @@ export async function oidcCallbackRouteHandler(
   const idpError = url.searchParams.get('error');
 
   if (idpError) {
-    logger.warn('OIDC provider returned error: %s', idpError);
+    logger.warn('OIDC provider returned error: %s', sanitizeForLog(idpError));
     return fail('Login was cancelled or denied');
   }
   if (!code || !returnedState) {
     return fail('Missing authorization code');
   }
 
-  const cookies = parseCookies(req);
-  const stateToken = cookies[OIDC_STATE_COOKIE];
+  const stateToken = getCookie(req, OIDC_STATE_COOKIE);
   const state = stateToken ? await verifyState(stateToken) : null;
 
   if (!state || state.state !== returnedState) {
