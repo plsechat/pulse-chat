@@ -22,10 +22,10 @@
 ---
 
 > [!NOTE]
-> Pulse Chat is in alpha (v0.2.0). Expect bugs and breaking changes between updates.
+> Pulse Chat is in alpha (v0.2.3). Expect bugs and breaking changes between updates.
 
 > [!WARNING]
-> **v0.2.0 introduces a breaking change to the federation wire format.** Outbound signed requests now embed the request body's SHA-256 in a `sha256` JWT claim, plus `iss`/`aud`/`jti` claims for replay and cross-instance protection. A v0.2 server **cannot** federate with a pre-v0.2 peer until both sides upgrade. Coordinate with peers before upgrading.
+> **The federation wire format changed in v0.2.0.** Signed requests embed the request body's SHA-256 in a `sha256` JWT claim, plus `iss`/`aud`/`jti` claims for replay and cross-instance protection. A v0.2.x server **cannot** federate with a pre-v0.2 peer — both sides must be on v0.2 or newer.
 
 ## Why Pulse?
 
@@ -35,7 +35,7 @@ Pulse is a self-hosted alternative to Discord and Slack that puts you in control
 
 | | |
 |---|---|
-| **Encrypted messaging** | Signal Protocol (X3DH + Double Ratchet) for DMs and channels |
+| **Encrypted messaging** | Signal Protocol (X3DH + Double Ratchet) for DMs and channels, with TOFU identity pinning and safety-number verification |
 | **Voice & video** | WebRTC-powered calls with screen sharing via Mediasoup |
 | **Federation** | Link multiple Pulse instances so users can discover and join across servers |
 | **Forum channels** | Threaded discussions with tags for long-form topics |
@@ -44,7 +44,8 @@ Pulse is a self-hosted alternative to Discord and Slack that puts you in control
 | **Custom emojis** | Upload and manage emojis per server |
 | **Automod** | Keyword filters, regex rules, mention limits, and link blocking |
 | **Webhooks** | Push events to external services |
-| **OAuth login** | Google, Discord, Facebook, Twitch — toggle each on or off |
+| **Plugins** | Extend the server with installable plugins — event hooks and slash commands — via the plugin SDK |
+| **OAuth & SSO login** | Google, Discord, Facebook, Twitch (Supabase mode), plus native OpenID Connect SSO — Authentik, Keycloak, Zitadel, Auth0, or any OIDC provider (works with either auth backend) |
 | **Invite-only mode** | Lock down registration so only invited users can join |
 
 ## Getting started
@@ -53,8 +54,8 @@ Pulse runs against either of two auth backends — pick whichever fits:
 
 | Backend | Needs | When to use |
 |---|---|---|
-| **`local`** (default) | Just PostgreSQL + an `AUTH_SECRET` | Single-node deployments, homelabs, anything where you don't want a SaaS dep. **Email + password only — no OAuth.** |
-| **`supabase`** | Supabase Cloud or a self-hosted Supabase stack | OAuth providers (Google / Discord / etc), multi-instance setups that already run Supabase, federated networks where peers expect Supabase JWTs |
+| **`local`** (default) | Just PostgreSQL + an `AUTH_SECRET` | Single-node deployments, homelabs, anything where you don't want a SaaS dep. Email + password **and** native OIDC SSO (Authentik / Keycloak / …). No Supabase-mediated social logins. |
+| **`supabase`** | Supabase Cloud or a self-hosted Supabase stack | Social OAuth providers (Google / Discord / Facebook / Twitch) and setups that already run Supabase. Native OIDC SSO works here too. |
 
 Both modes share the same database schema and federate with each other — the auth backend choice is local to each instance.
 
@@ -122,7 +123,15 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 | `PUBLIC_IP` | production behind NAT | Public IP for WebRTC ICE candidates |
 | `REGISTRATION_DISABLED` | optional | Lock down registration instance-wide |
 | `FEDERATION_ALLOW_PRIVATE_CIDRS` | optional | Comma-separated IPv4 CIDRs to allow as federation peers (e.g. `192.168.1.0/24`). Default: all RFC1918 / loopback / link-local blocked. |
+| `OIDC_OAUTH_ENABLED` | optional | Set `true` to enable native OpenID Connect SSO (works under either auth backend). See [Single Sign-On (OIDC)](#single-sign-on-oidc). |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_SECRET` | `OIDC_OAUTH_ENABLED=true` | Your IdP's issuer URL and client credentials. Endpoints are discovered at `<issuer>/.well-known/openid-configuration`. |
+| `OIDC_LABEL` | optional | Login-button text (default `Single Sign-On`) |
+| `OIDC_REDIRECT_URI` | optional | Overrides the auto-derived `<pulse-url>/auth/oidc/callback` |
+| `GOOGLE_OAUTH_ENABLED` / `DISCORD_OAUTH_ENABLED` / `FACEBOOK_OAUTH_ENABLED` / `TWITCH_OAUTH_ENABLED` | `AUTH_BACKEND=supabase` | Toggle each Supabase-mediated social provider |
+| `GIPHY_API_KEY` | optional | Enables GIF search in the composer |
+| `TRUST_PROXY` | behind a reverse proxy | Trust `X-Forwarded-*` headers for client IP / protocol |
 | `DEBUG_LOGGING` | optional | Write JSON debug events to `log/debug.log` |
+| `DEBUG_LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_FILES` | optional | Rotation limits for `debug.log` (used with `DEBUG_LOGGING`) |
 
 See [.env.example](.env.example) for the full list with comments.
 
@@ -145,6 +154,30 @@ A config file is generated at `~/.config/pulse/config.ini` on first run.
 
 > [!IMPORTANT]
 > The port range `rtcMinPort`–`rtcMaxPort` controls how many concurrent voice/video connections are possible. Each connection uses one UDP port. Open these ports (TCP + UDP) in your firewall, and map the range in Docker if applicable.
+
+## Single Sign-On (OIDC)
+
+Pulse can authenticate against any standards-compliant OpenID Connect provider — Authentik, Keycloak, Zitadel, Auth0, and others. Unlike the social providers (which are mediated by Supabase), OIDC is handled by Pulse itself, so it works under **both** the `local` and `supabase` auth backends and needs no Supabase.
+
+1. In your IdP, create an OAuth2 / OIDC application (confidential client) and set its redirect URI to:
+
+   ```
+   https://<your-pulse-url>/auth/oidc/callback
+   ```
+
+2. Add to your `.env` (and make sure `AUTH_SECRET` is set — it signs the session token):
+
+   ```env
+   OIDC_OAUTH_ENABLED=true
+   OIDC_LABEL=Authentik                      # login-button text
+   OIDC_ISSUER=https://auth.example.com/application/o/<app-slug>/
+   OIDC_CLIENT_ID=your-client-id
+   OIDC_SECRET=your-client-secret
+   ```
+
+   Pulse fetches `<OIDC_ISSUER>/.well-known/openid-configuration` to discover endpoints and verifies the `id_token` (RS256 via the provider's JWKS, or HS256 with the client secret when the provider has no signing certificate).
+
+3. Restart Pulse. A button labeled `OIDC_LABEL` appears on the login screen. First-time users are provisioned automatically (subject to your registration / invite policy).
 
 ## HTTPS
 
