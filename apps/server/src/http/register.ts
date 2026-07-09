@@ -8,7 +8,7 @@ import { isDisplayNameTaken } from '../db/queries/users';
 import { invites } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { authBackend } from '../utils/auth';
-import { isRegistrationDisabled } from '../utils/env';
+import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -33,8 +33,14 @@ const registerRouteHandler = async (
     throw new HttpValidationError('displayName', 'This display name is already taken');
   }
 
-  // Check if registration is allowed
-  if (isRegistrationDisabled() || !settings.allowNewUsers) {
+  // Check if registration is allowed. Password self-registration can be
+  // disabled independently (e.g. OIDC-only mode) — a valid invite still
+  // works as a break-glass path.
+  if (
+    isRegistrationDisabled() ||
+    !settings.allowNewUsers ||
+    !isRegistrationMethodEnabled('password')
+  ) {
     if (!data.invite) {
       throw new HttpValidationError('email', 'Invalid invite code');
     }

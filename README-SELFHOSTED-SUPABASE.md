@@ -188,6 +188,9 @@ SITE_URL=https://your-domain.com
 | `OIDC_SECRET` | For OIDC | — | OIDC client secret |
 | `ADDITIONAL_REDIRECT_URLS` | No | — | Extra OAuth callback URLs |
 | `REGISTRATION_DISABLED` | No | `false` | Block new registrations (existing users can still log in; valid invite codes bypass) |
+| `REGISTRATION_PASSWORD_ENABLED` | No | `true` | Set `false` to disable email/password self-signup (invite still bypasses) |
+| `REGISTRATION_OIDC_ENABLED` | No | `true` | Set `false` to disable OIDC self-signup |
+| `REGISTRATION_SOCIAL_ENABLED` | No | `true` | Set `false` to disable social-OAuth self-signup. For OIDC-only, set password + social to `false` |
 | `GIPHY_API_KEY` | No | — | Giphy API key for GIF search |
 
 ---

@@ -11,7 +11,7 @@ import {
 import { invites, users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
-import { isRegistrationDisabled } from '../utils/env';
+import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -84,7 +84,14 @@ const provisionRouteHandler = async (
   const settings = await getSettings();
   const connectionInfo = getWsInfo(undefined, req);
 
-  if (isRegistrationDisabled() || !settings.allowNewUsers) {
+  // A new user reaching /auth/provision is a social-OAuth signup (password
+  // users are already created by /register). Social signups can be disabled
+  // independently; an invite bypasses it.
+  if (
+    isRegistrationDisabled() ||
+    !settings.allowNewUsers ||
+    !isRegistrationMethodEnabled('social')
+  ) {
     const inviteError = await isInviteValid(body.invite);
 
     if (inviteError) {

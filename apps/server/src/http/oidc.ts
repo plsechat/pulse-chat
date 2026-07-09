@@ -23,7 +23,7 @@ import { invites, users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
 import { registerUser } from './register-user';
-import { isRegistrationDisabled } from '../utils/env';
+import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
 import {
   buildAuthorizeUrl,
   exchangeCode,
@@ -136,8 +136,13 @@ async function findOrProvisionOidcUser(
   }
 
   // New user — enforce the same registration policy the OAuth path does.
+  // OIDC signups can also be disabled independently; an invite bypasses it.
   const settings = await getSettings();
-  if (isRegistrationDisabled() || !settings.allowNewUsers) {
+  if (
+    isRegistrationDisabled() ||
+    !settings.allowNewUsers ||
+    !isRegistrationMethodEnabled('oidc')
+  ) {
     const inviteError = await isInviteValid(invite);
     if (inviteError) {
       throw new Error(inviteError);
