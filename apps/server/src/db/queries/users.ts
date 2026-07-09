@@ -9,6 +9,7 @@ import { count, eq, inArray, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { authBackend } from '../../utils/auth';
+import { looksLikeOidcSession, verifySessionToken } from '../../utils/oidc';
 import { federationInstances, files, roles, serverMembers, userRoles, users } from '../schema';
 
 const slimFile = (file: TFile | null): TFileRef | null =>
@@ -430,15 +431,42 @@ const getUserBySupabaseId = async (
   };
 };
 
+/**
+ * Resolve the auth-side identity for a session token, transparently
+ * handling both the configured auth backend's tokens AND PULSE's own
+ * self-contained OIDC session tokens. Returns the auth-side id (which maps
+ * to `users.supabaseId`) plus whatever the backend knows about the user.
+ *
+ * OIDC tokens are checked first via a cheap unverified issuer peek so we
+ * don't pay an authBackend round-trip (a network call in supabase mode)
+ * for a token that's clearly ours; the signature is still verified.
+ */
+const resolveTokenIdentity = async (
+  token: string
+): Promise<{
+  id: string;
+  email: string | null;
+  metadata?: Record<string, unknown>;
+} | null> => {
+  if (looksLikeOidcSession(token)) {
+    const supabaseId = await verifySessionToken(token);
+    return supabaseId ? { id: supabaseId, email: null } : null;
+  }
+
+  const { data, error } = await authBackend.getUser(token);
+  if (error || !data.user) return null;
+  return { id: data.user.id, email: data.user.email, metadata: data.user.metadata };
+};
+
 const getUserByToken = async (token: string | undefined) => {
   try {
     if (!token) return undefined;
 
-    const { data, error } = await authBackend.getUser(token);
+    const identity = await resolveTokenIdentity(token);
 
-    if (error || !data.user) return undefined;
+    if (!identity) return undefined;
 
-    const user = await getUserBySupabaseId(data.user.id);
+    const user = await getUserBySupabaseId(identity.id);
 
     return user;
   } catch {
@@ -653,5 +681,6 @@ export {
   getUserBySupabaseId,
   getUserByToken,
   getUsers,
-  isDisplayNameTaken
+  isDisplayNameTaken,
+  resolveTokenIdentity
 };

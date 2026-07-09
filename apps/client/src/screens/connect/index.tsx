@@ -18,6 +18,7 @@ import {
 } from '@/helpers/storage';
 import { useForm } from '@/hooks/use-form';
 import { setSession, supabase } from '@/lib/supabase';
+import type { TAuthProvider } from '@pulse/shared';
 import type { Provider } from '@supabase/supabase-js';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -186,8 +187,17 @@ const Connect = memo(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerForm.values, registerForm.setErrors, inviteCode]);
 
-  const onOAuthClick = useCallback(
-    async (provider: string) => {
+  const onProviderClick = useCallback(
+    async (provider: TAuthProvider) => {
+      // Native OIDC: PULSE runs the flow, so redirect the whole page to the
+      // server's start endpoint. No Supabase client required.
+      if (provider.kind === 'oidc') {
+        const url = new URL(`${getUrlFromServer()}/auth/oidc/start`);
+        if (inviteCode) url.searchParams.set('invite', inviteCode);
+        window.location.href = url.toString();
+        return;
+      }
+
       if (!supabase) {
         toast.error('OAuth is not available on this server.');
         return;
@@ -200,7 +210,7 @@ const Connect = memo(() => {
       }
 
       await supabase.auth.signInWithOAuth({
-        provider: provider as Provider,
+        provider: provider.name as Provider,
         options: {
           redirectTo: redirectTo.toString()
         }
@@ -235,7 +245,7 @@ const Connect = memo(() => {
                 className="flex-1"
                 variant="outline"
                 disabled={loading}
-                onClick={() => onOAuthClick(provider.name)}
+                onClick={() => onProviderClick(provider)}
               >
                 {provider.label}
               </Button>
@@ -244,7 +254,7 @@ const Connect = memo(() => {
         </>
       ) : null;
     },
-    [info?.enabledAuthProviders, loading, onOAuthClick]
+    [info?.enabledAuthProviders, loading, onProviderClick]
   );
 
   return (

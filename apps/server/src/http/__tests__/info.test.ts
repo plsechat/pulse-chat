@@ -3,10 +3,22 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { testsBaseUrl } from '../../__tests__/setup';
 
 describe('/info', () => {
+  const enableOidc = () => {
+    process.env.OIDC_OAUTH_ENABLED = 'true';
+    process.env.OIDC_ISSUER = 'https://auth.example.com/application/o/pulse/';
+    process.env.OIDC_CLIENT_ID = 'client-123';
+    process.env.OIDC_SECRET = 'secret-456';
+    process.env.AUTH_SECRET = 'test-oidc-secret-at-least-32-chars-long!!';
+  };
+
   afterEach(() => {
     delete process.env.GOOGLE_OAUTH_ENABLED;
     delete process.env.OIDC_OAUTH_ENABLED;
     delete process.env.OIDC_LABEL;
+    delete process.env.OIDC_ISSUER;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_SECRET;
+    delete process.env.AUTH_SECRET;
   });
 
   test('should return server info', async () => {
@@ -39,34 +51,46 @@ describe('/info', () => {
     });
   });
 
-  test('generic OIDC provider uses the keycloak slot with a custom label', async () => {
-    process.env.OIDC_OAUTH_ENABLED = 'true';
+  test('native OIDC provider is advertised with kind and custom label', async () => {
+    enableOidc();
     process.env.OIDC_LABEL = 'Authentik';
 
     const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
 
     expect(data.enabledAuthProviders).toContainEqual({
-      name: 'keycloak',
-      label: 'Authentik'
+      name: 'oidc',
+      label: 'Authentik',
+      kind: 'oidc'
     });
   });
 
-  test('generic OIDC provider falls back to a default label', async () => {
-    process.env.OIDC_OAUTH_ENABLED = 'true';
+  test('native OIDC provider falls back to a default label', async () => {
+    enableOidc();
 
     const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
 
     expect(data.enabledAuthProviders).toContainEqual({
-      name: 'keycloak',
-      label: 'Single Sign-On'
+      name: 'oidc',
+      label: 'Single Sign-On',
+      kind: 'oidc'
     });
   });
 
-  test('OIDC provider is absent unless explicitly enabled', async () => {
+  test('OIDC provider is absent when only the flag is set (missing issuer/secret)', async () => {
+    process.env.OIDC_OAUTH_ENABLED = 'true';
+
     const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
 
     expect(
-      (data.enabledAuthProviders ?? []).some((p) => p.name === 'keycloak')
+      (data.enabledAuthProviders ?? []).some((p) => p.name === 'oidc')
+    ).toBe(false);
+  });
+
+  test('OIDC provider is absent unless enabled', async () => {
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+
+    expect(
+      (data.enabledAuthProviders ?? []).some((p) => p.name === 'oidc')
     ).toBe(false);
   });
 });

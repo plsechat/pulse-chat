@@ -101,14 +101,23 @@ export type TTempFile = {
 };
 
 /**
- * An OAuth/OIDC provider offered on the login screen. `name` is the
- * value handed to Supabase's `signInWithOAuth` (e.g. 'google', or
- * 'keycloak' for the generic-OIDC slot that fronts Authentik / Keycloak
- * / Zitadel / any standards-compliant IdP). `label` is the button text.
+ * An auth provider offered on the login screen.
+ *
+ * `kind` decides how the client starts the flow:
+ *   - 'supabase' (default): `name` is handed to Supabase's
+ *     `signInWithOAuth` (e.g. 'google', 'discord'). Requires the
+ *     supabase auth backend.
+ *   - 'oidc': PULSE performs the OpenID Connect flow itself. The client
+ *     does a full-page redirect to `${server}/auth/oidc/start`; `name`
+ *     is 'oidc'. Works with any standards-compliant IdP (Authentik,
+ *     Keycloak, Zitadel, …) and with either auth backend.
+ *
+ * `label` is the button text.
  */
 export type TAuthProvider = {
   name: string;
   label: string;
+  kind?: 'supabase' | 'oidc';
 };
 
 export type TServerInfo = Pick<
