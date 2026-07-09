@@ -100,6 +100,17 @@ export type TTempFile = {
   encrypted?: boolean;
 };
 
+/**
+ * An OAuth/OIDC provider offered on the login screen. `name` is the
+ * value handed to Supabase's `signInWithOAuth` (e.g. 'google', or
+ * 'keycloak' for the generic-OIDC slot that fronts Authentik / Keycloak
+ * / Zitadel / any standards-compliant IdP). `label` is the button text.
+ */
+export type TAuthProvider = {
+  name: string;
+  label: string;
+};
+
 export type TServerInfo = Pick<
   TSettings,
   "serverId" | "name" | "description" | "allowNewUsers"
@@ -108,7 +119,7 @@ export type TServerInfo = Pick<
   logo: TFile | null;
   version: string;
   registrationDisabled?: boolean;
-  enabledAuthProviders?: string[];
+  enabledAuthProviders?: TAuthProvider[];
   supabaseUrl: string;
   supabaseAnonKey: string;
   giphyApiKey?: string;

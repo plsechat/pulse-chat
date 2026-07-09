@@ -1,14 +1,29 @@
-import type { TServerInfo } from '@pulse/shared';
+import type { TAuthProvider, TServerInfo } from '@pulse/shared';
 import http from 'http';
 import { getFirstServer } from '../db/queries/servers';
 import { isRegistrationDisabled, SERVER_VERSION } from '../utils/env';
 
+// Built-in social providers. `name` is passed verbatim to Supabase's
+// `signInWithOAuth`; `label` is the button text on the login screen.
 const OAUTH_PROVIDERS = [
-  { env: 'GOOGLE_OAUTH_ENABLED', name: 'google' },
-  { env: 'DISCORD_OAUTH_ENABLED', name: 'discord' },
-  { env: 'FACEBOOK_OAUTH_ENABLED', name: 'facebook' },
-  { env: 'TWITCH_OAUTH_ENABLED', name: 'twitch' }
+  { env: 'GOOGLE_OAUTH_ENABLED', name: 'google', label: 'Google' },
+  { env: 'DISCORD_OAUTH_ENABLED', name: 'discord', label: 'Discord' },
+  { env: 'FACEBOOK_OAUTH_ENABLED', name: 'facebook', label: 'Facebook' },
+  { env: 'TWITCH_OAUTH_ENABLED', name: 'twitch', label: 'Twitch' }
 ] as const;
+
+// Generic OIDC provider. Supabase/GoTrue exposes a single generic-OIDC
+// slot via its `keycloak` provider (GOTRUE_EXTERNAL_KEYCLOAK_*), whose
+// issuer URL can point at any standards-compliant IdP — Authentik,
+// Keycloak, Zitadel, Auth0, etc. Operators pick the button label with
+// OIDC_LABEL (e.g. "Authentik", "Company SSO").
+function getOidcProvider(): TAuthProvider | null {
+  if (process.env.OIDC_OAUTH_ENABLED !== 'true') return null;
+  return {
+    name: 'keycloak',
+    label: process.env.OIDC_LABEL || 'Single Sign-On'
+  };
+}
 
 const infoRouteHandler = async (
   req: http.IncomingMessage,
@@ -22,9 +37,12 @@ const infoRouteHandler = async (
     return;
   }
 
-  const enabledAuthProviders = OAUTH_PROVIDERS
-    .filter(({ env }) => process.env[env] === 'true')
-    .map(({ name }) => name);
+  const enabledAuthProviders: TAuthProvider[] = [
+    ...OAUTH_PROVIDERS.filter(({ env }) => process.env[env] === 'true').map(
+      ({ name, label }) => ({ name, label })
+    ),
+    ...(getOidcProvider() ? [getOidcProvider()!] : [])
+  ];
 
   const info: TServerInfo = {
     serverId: server.publicId,

@@ -22,13 +22,6 @@ import type { Provider } from '@supabase/supabase-js';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-const OAUTH_PROVIDER_LABELS: Record<string, string> = {
-  google: 'Google',
-  discord: 'Discord',
-  facebook: 'Facebook',
-  twitch: 'Twitch'
-};
-
 const Connect = memo(() => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [loading, setLoading] = useState(false);
@@ -238,13 +231,13 @@ const Connect = memo(() => {
           <div className="flex gap-2">
             {providers.map((provider) => (
               <Button
-                key={provider}
+                key={provider.name}
                 className="flex-1"
                 variant="outline"
                 disabled={loading}
-                onClick={() => onOAuthClick(provider)}
+                onClick={() => onOAuthClick(provider.name)}
               >
-                {OAUTH_PROVIDER_LABELS[provider] ?? provider}
+                {provider.label}
               </Button>
             ))}
           </div>

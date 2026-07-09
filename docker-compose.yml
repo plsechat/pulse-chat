@@ -28,6 +28,10 @@ services:
       DISCORD_OAUTH_ENABLED: ${DISCORD_OAUTH_ENABLED:-false}
       FACEBOOK_OAUTH_ENABLED: ${FACEBOOK_OAUTH_ENABLED:-false}
       TWITCH_OAUTH_ENABLED: ${TWITCH_OAUTH_ENABLED:-false}
+      # Generic OIDC (Authentik / Keycloak / …). Advertises the login
+      # button; the OAuth dance is handled by your Supabase/GoTrue.
+      OIDC_OAUTH_ENABLED: ${OIDC_OAUTH_ENABLED:-false}
+      OIDC_LABEL: ${OIDC_LABEL:-Single Sign-On}
       PUBLIC_IP: ${PUBLIC_IP:-}
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
       FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
