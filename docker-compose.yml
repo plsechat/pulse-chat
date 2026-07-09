@@ -4,6 +4,14 @@ services:
     restart: unless-stopped
     container_name: pulse
     network_mode: host
+    depends_on:
+      # Wait for the bundled Postgres to be healthy before starting, so a
+      # fresh `up` doesn't crash on ECONNREFUSED. `required: false` means
+      # this is a no-op when the `local` profile is off (external / managed
+      # Postgres) and the db service isn't started.
+      db:
+        condition: service_healthy
+        required: false
     environment:
       # Auth backend selection. Leave empty to let Pulse infer from
       # the SUPABASE_* vars below — when SUPABASE_URL +
@@ -63,5 +71,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
