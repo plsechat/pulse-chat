@@ -37,6 +37,11 @@ export interface IServerState {
   selectedChannelId: number | undefined;
   currentVoiceChannelId: number | undefined;
   currentVoiceServerId: number | undefined;
+  // Globally-unique publicId of the channel the user is in voice on. Voice
+  // persists across server/instance navigation, so voice-active UI must match
+  // on this (unique) id — not the instance-local numeric currentVoiceChannelId,
+  // which collides with a federated server's channel of the same numeric id.
+  currentVoiceChannelPublicId: string | undefined;
   messagesMap: TMessagesMap;
   users: TJoinedPublicUser[];
   roles: TJoinedRole[];
@@ -81,6 +86,7 @@ const initialState: IServerState = {
   selectedChannelId: undefined,
   currentVoiceChannelId: undefined,
   currentVoiceServerId: undefined,
+  currentVoiceChannelPublicId: undefined,
   messagesMap: {},
   users: [],
   roles: [],
@@ -449,6 +455,15 @@ export const serverSlice = createSlice({
       action: PayloadAction<number | undefined>
     ) => {
       state.currentVoiceChannelId = action.payload;
+      // Capture the channel's globally-unique publicId at join time (while the
+      // owning server's channels are loaded). It's preserved across server
+      // switches, so the voice-active highlight matches by publicId, not the
+      // colliding numeric id. Server channels only; DM voice leaves it unset.
+      const voiceChannel =
+        action.payload != null
+          ? state.channels.find((c) => c.id === action.payload)
+          : undefined;
+      state.currentVoiceChannelPublicId = voiceChannel?.publicId ?? undefined;
     },
     setCurrentVoiceServerId: (
       state,
@@ -571,6 +586,7 @@ export const serverSlice = createSlice({
           if (!stillInVoice) {
             state.currentVoiceChannelId = undefined;
             state.currentVoiceServerId = undefined;
+            state.currentVoiceChannelPublicId = undefined;
           }
         }
       }
