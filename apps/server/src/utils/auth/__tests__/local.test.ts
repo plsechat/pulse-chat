@@ -179,4 +179,108 @@ describe('localAuthBackend', () => {
     expect(result.data.user).toBeNull();
     expect(result.error?.reason).toBe('user_not_found');
   });
+
+  // --- refreshSession (typed tokens) ---
+
+  test('refreshSession rotates the pair and the new tokens work', async () => {
+    await initTest(1);
+
+    await localAuthBackend.createUser({
+      email: 'refresh@example.com',
+      password: 'hunter2-strong'
+    });
+    const signed = await localAuthBackend.signInWithPassword({
+      email: 'refresh@example.com',
+      password: 'hunter2-strong'
+    });
+    const session = signed.data.session!;
+
+    const refreshed = await localAuthBackend.refreshSession!(
+      session.refresh_token
+    );
+    expect(refreshed.error).toBeNull();
+    expect(refreshed.data.session?.access_token).toBeTruthy();
+    expect(refreshed.data.session?.refresh_token).toBeTruthy();
+    // Rotated: the new refresh token replaces the old one
+    expect(refreshed.data.session!.refresh_token).not.toBe(
+      session.refresh_token
+    );
+
+    // The new access token authenticates
+    const verified = await localAuthBackend.getUser(
+      refreshed.data.session!.access_token
+    );
+    expect(verified.data.user?.email).toBe('refresh@example.com');
+  });
+
+  test('getUser rejects a refresh token used as an access token', async () => {
+    await initTest(1);
+
+    await localAuthBackend.createUser({
+      email: 'typ-access@example.com',
+      password: 'hunter2-strong'
+    });
+    const signed = await localAuthBackend.signInWithPassword({
+      email: 'typ-access@example.com',
+      password: 'hunter2-strong'
+    });
+
+    // A refresh token must never work as a session credential
+    const result = await localAuthBackend.getUser(
+      signed.data.session!.refresh_token
+    );
+    expect(result.data.user).toBeNull();
+  });
+
+  test('refreshSession rejects an access token', async () => {
+    await initTest(1);
+
+    await localAuthBackend.createUser({
+      email: 'typ-refresh@example.com',
+      password: 'hunter2-strong'
+    });
+    const signed = await localAuthBackend.signInWithPassword({
+      email: 'typ-refresh@example.com',
+      password: 'hunter2-strong'
+    });
+
+    const result = await localAuthBackend.refreshSession!(
+      signed.data.session!.access_token
+    );
+    expect(result.data.session).toBeNull();
+    expect(result.error?.reason).toBe('invalid_credentials');
+  });
+
+  test('legacy untyped tokens are accepted by both paths (upgrade compat)', async () => {
+    await initTest(1);
+
+    const created = await localAuthBackend.createUser({
+      email: 'legacy@example.com',
+      password: 'hunter2-strong'
+    });
+
+    // Pre-`typ` token: same signing, no typ claim — what existing
+    // sessions hold at upgrade time.
+    const legacyToken = await new SignJWT({})
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(created.data.user!.id)
+      .setIssuer('pulse:local-auth')
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 3600)
+      .sign(new TextEncoder().encode(TEST_SECRET));
+
+    const asAccess = await localAuthBackend.getUser(legacyToken);
+    expect(asAccess.data.user?.email).toBe('legacy@example.com');
+
+    const asRefresh = await localAuthBackend.refreshSession!(legacyToken);
+    expect(asRefresh.error).toBeNull();
+    expect(asRefresh.data.session?.access_token).toBeTruthy();
+  });
+
+  test('refreshSession rejects garbage', async () => {
+    await initTest(1);
+    const result = await localAuthBackend.refreshSession!('not-a-jwt');
+    expect(result.data.session).toBeNull();
+    expect(result.error?.reason).toBe('invalid_credentials');
+  });
 });

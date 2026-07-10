@@ -11,7 +11,7 @@ import {
 import { connectionManager } from '@/lib/connection-manager';
 import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { clearSession, getAccessToken, initSupabase, setOidcSession } from '@/lib/supabase';
+import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
 import { connect, fetchDeferredServerData, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
@@ -236,6 +236,12 @@ export const loadApp = async () => {
   if (info.supabaseUrl && info.supabaseAnonKey) {
     initSupabase(info.supabaseUrl, info.supabaseAnonKey);
   }
+
+  // Proactively rotate a local-backend session so a week-old access
+  // token renews from the 30-day refresh token instead of failing.
+  // No-op for supabase mode (supabase-js auto-refreshes) and for OIDC
+  // sessions (no refresh token — see refreshLocalSession).
+  await refreshLocalSession(getUrlFromServer());
 
   // Try to auto-connect if a valid session exists
   const token = await getAccessToken();

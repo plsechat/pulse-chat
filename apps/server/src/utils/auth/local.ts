@@ -15,12 +15,15 @@
  * ======
  * Access + refresh tokens are both HS256 JWTs signed with the
  * server's `AUTH_SECRET`. Access expires in 7 days, refresh in 30.
- * The token verification path (getUser) checks signature + expiry
- * and looks up the user by the embedded `sub` claim. The client
- * holds both tokens but the existing PULSE client only sends the
- * access_token; refresh is reserved for a future endpoint and is
- * emitted today purely to keep the response shape identical to
- * Supabase's so login/register response handling doesn't fork.
+ * The two are distinguished by a `typ` claim ('access' | 'refresh'):
+ * getUser rejects refresh-typed tokens (a refresh token must never
+ * work as a session credential), and refreshSession only accepts
+ * refresh-typed ones. Tokens minted before the `typ` claim existed
+ * carry neither — those are accepted by BOTH paths until they age
+ * out (≤30 days) so live sessions survive the upgrade.
+ * refreshSession rotates the pair: each refresh issues a new access
+ * AND a new refresh token, giving active users a sliding 30-day
+ * window while idle sessions still expire.
  *
  * AUTH_SECRET must be set when `AUTH_BACKEND=local`. The dispatcher
  * (utils/supabase.ts) refuses to load this backend without it.
@@ -59,8 +62,14 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(raw);
 }
 
-async function signToken(sub: string, ttlSeconds: number): Promise<string> {
-  return new SignJWT({})
+type TokenType = 'access' | 'refresh';
+
+async function signToken(
+  sub: string,
+  ttlSeconds: number,
+  typ: TokenType
+): Promise<string> {
+  return new SignJWT({ typ })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(sub)
     .setIssuer(ISSUER)
@@ -69,15 +78,37 @@ async function signToken(sub: string, ttlSeconds: number): Promise<string> {
     .sign(getSecret());
 }
 
-async function verifyToken(token: string): Promise<string | null> {
+/**
+ * Verify a token and return its subject, or null.
+ *
+ * `expect` gates on the `typ` claim. Legacy tokens (minted before the
+ * claim existed) carry no `typ` and are accepted by both paths so live
+ * sessions survive the upgrade; they age out within 30 days.
+ */
+async function verifyToken(
+  token: string,
+  expect: TokenType
+): Promise<string | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret(), {
       issuer: ISSUER
     });
+    const typ = payload.typ as TokenType | undefined;
+    if (typ !== undefined && typ !== expect) return null;
     return typeof payload.sub === 'string' ? payload.sub : null;
   } catch {
     return null;
   }
+}
+
+async function mintSession(sub: string) {
+  const accessToken = await signToken(sub, ACCESS_TOKEN_TTL_SECONDS, 'access');
+  const refreshToken = await signToken(
+    sub,
+    REFRESH_TOKEN_TTL_SECONDS,
+    'refresh'
+  );
+  return { access_token: accessToken, refresh_token: refreshToken };
 }
 
 function rowToUser(row: typeof localAuthUsers.$inferSelect) {
@@ -122,20 +153,17 @@ const localAuthBackend: AuthBackend = {
       };
     }
 
-    const accessToken = await signToken(row.id, ACCESS_TOKEN_TTL_SECONDS);
-    const refreshToken = await signToken(row.id, REFRESH_TOKEN_TTL_SECONDS);
-
     return {
       data: {
         user: rowToUser(row),
-        session: { access_token: accessToken, refresh_token: refreshToken }
+        session: await mintSession(row.id)
       },
       error: null
     };
   },
 
   async getUser(token): Promise<GetUserResult> {
-    const sub = await verifyToken(token);
+    const sub = await verifyToken(token, 'access');
     if (!sub) {
       return { data: { user: null }, error: null };
     }
@@ -148,6 +176,36 @@ const localAuthBackend: AuthBackend = {
       return { data: { user: null }, error: null };
     }
     return { data: { user: rowToUser(row) }, error: null };
+  },
+
+  async refreshSession(refreshToken): Promise<SignInResult> {
+    const sub = await verifyToken(refreshToken, 'refresh');
+    if (!sub) {
+      return {
+        data: { user: null, session: null },
+        error: err('Invalid or expired refresh token', 'invalid_credentials')
+      };
+    }
+    const [row] = await db
+      .select()
+      .from(localAuthUsers)
+      .where(eq(localAuthUsers.id, sub))
+      .limit(1);
+    if (!row) {
+      return {
+        data: { user: null, session: null },
+        error: err('User not found', 'user_not_found')
+      };
+    }
+    // Rotate the pair — the new refresh token pushes the session's
+    // expiry window forward for active users.
+    return {
+      data: {
+        user: rowToUser(row),
+        session: await mintSession(row.id)
+      },
+      error: null
+    };
   },
 
   async createUser({ email, password }): Promise<CreateUserResult> {

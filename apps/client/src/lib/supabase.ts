@@ -79,6 +79,60 @@ const clearSession = async (): Promise<void> => {
   }
 };
 
+/**
+ * Silently refresh a localStorage-held session (AUTH_BACKEND=local).
+ *
+ * No-ops (returns null) when there's nothing refreshable:
+ *  - no locally-held session (supabase mode → supabase-js auto-refreshes)
+ *  - an OIDC session (access and refresh slots hold the SAME token —
+ *    see setOidcSession — and OIDC has no refresh; users re-auth via
+ *    their IdP when the session token expires)
+ *
+ * Only a definitive server rejection (401) clears the stored session;
+ * network errors leave it intact so a flaky connection can't log the
+ * user out.
+ */
+const refreshLocalSession = async (
+  serverUrl: string
+): Promise<string | null> => {
+  let accessToken: string | null = null;
+  let refreshToken: string | null = null;
+  try {
+    accessToken = localStorage.getItem(LOCAL_TOKEN_KEY);
+    refreshToken = localStorage.getItem(LOCAL_REFRESH_KEY);
+  } catch {
+    return null;
+  }
+
+  if (!refreshToken || refreshToken === accessToken) return null;
+
+  try {
+    const res = await fetch(`${serverUrl}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken })
+    });
+
+    if (res.status === 401) {
+      clearLocalSession();
+      return null;
+    }
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as {
+      accessToken?: string;
+      refreshToken?: string;
+    };
+    if (!data.accessToken || !data.refreshToken) return null;
+
+    storeLocalSession(data.accessToken, data.refreshToken);
+    return data.accessToken;
+  } catch {
+    // Network failure — keep the current session and try again later.
+    return null;
+  }
+};
+
 const getAccessToken = async (): Promise<string | null> => {
   // A locally-held token (local backend, or an OIDC session) wins over the
   // supabase client so OIDC works in supabase-backend deployments too.
@@ -99,6 +153,7 @@ export {
   clearSession,
   getAccessToken,
   initSupabase,
+  refreshLocalSession,
   setOidcSession,
   setSession,
   supabase

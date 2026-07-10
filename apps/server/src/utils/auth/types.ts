@@ -87,6 +87,12 @@ export type AuthBackend = {
    * `/upload` / federation handler that needs a user identity. */
   getUser(token: string): Promise<GetUserResult>;
 
+  /** Exchange a refresh token for a fresh, rotated token pair. Used by
+   * POST /auth/refresh. Optional: only the local backend implements it —
+   * supabase-mode clients refresh through supabase-js (`autoRefreshToken`)
+   * and never call PULSE for it. */
+  refreshSession?(refreshToken: string): Promise<SignInResult>;
+
   /** Admin: create a user. Used by /register. */
   createUser(opts: {
     email: string;

@@ -36,6 +36,7 @@ import { infoRouteHandler } from './info';
 import { interfaceRouteHandler } from './interface';
 import { loginRouteHandler } from './login';
 import { provisionRouteHandler } from './provision-user';
+import { refreshRouteHandler } from './refresh';
 import { oidcCallbackRouteHandler, oidcStartRouteHandler } from './oidc';
 import { publicRouteHandler } from './public';
 import {
@@ -261,6 +262,11 @@ const createHttpServer = async (port: number = config.server.port) => {
         if (req.method === 'POST' && req.url === '/auth/provision') {
           if (!checkRateLimit(req, res, authRateLimit)) return;
           return await provisionRouteHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/auth/refresh') {
+          if (!checkRateLimit(req, res, authRateLimit)) return;
+          return await refreshRouteHandler(req, res);
         }
 
         if (req.method === 'GET' && req.url?.startsWith('/auth/oidc/start')) {
