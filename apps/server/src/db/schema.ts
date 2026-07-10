@@ -193,7 +193,7 @@ const channels = pgTable(
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
     e2ee: boolean('e2ee').notNull().default(false),
-    publicId: text('public_id').unique(),
+    publicId: text('public_id').notNull().unique(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -231,7 +231,7 @@ const users = pgTable(
     isFederated: boolean('is_federated').notNull().default(false),
     federatedInstanceId: integer('federated_instance_id'),
     federatedUsername: text('federated_username'),
-    publicId: text('public_id').unique(),
+    publicId: text('public_id').notNull().unique(),
     federatedPublicId: text('federated_public_id'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })

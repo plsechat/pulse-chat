@@ -18,6 +18,9 @@ export const selectedChannelTypeSelector = createSelector(
 export const currentVoiceChannelIdSelector = (state: IRootState) =>
   state.server.currentVoiceChannelId;
 
+export const currentVoiceChannelPublicIdSelector = (state: IRootState) =>
+  state.server.currentVoiceChannelPublicId;
+
 export const currentVoiceServerIdSelector = (state: IRootState) =>
   state.server.currentVoiceServerId;
 

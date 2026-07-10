@@ -23,15 +23,23 @@ export const updateUser = (
 
 export const handleUserJoin = (
   serverId: number,
-  user: TJoinedPublicUser
+  user: TJoinedPublicUser,
+  serverPublicId?: string
 ) => {
   // Only act on JOIN events for the active server. The server-side now
   // includes serverId in the payload, so we can safely add a brand-new
   // member to the slice (previous behaviour silently dropped them, which
   // produced the QA-reported bug where new joiners didn't appear in the
   // user bar until refresh).
-  const activeServerId = store.getState().app.activeServerId;
-  if (activeServerId !== serverId) {
+  //
+  // Prefer the globally-unique serverPublicId when the payload carries it —
+  // numeric ids are instance-local and collide across federated instances.
+  // state.server.serverId holds the ACTIVE server's publicId. Numeric
+  // fallback keeps older servers (pre-publicId payloads) working.
+  const state = store.getState();
+  if (serverPublicId !== undefined) {
+    if (serverPublicId !== state.server.serverId) return;
+  } else if (state.app.activeServerId !== serverId) {
     // For non-active-server JOINs, nothing to do — the new member's
     // identity will be fetched fresh when the viewer next switches there.
     return;

@@ -1,3 +1,4 @@
+import { removeServerEntryByPublicId } from '@/features/app/actions';
 import { subscribeToDms } from '@/features/dms/subscriptions';
 import { subscribeToFriends } from '@/features/friends/subscriptions';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
@@ -30,8 +31,16 @@ const subscribeToServer = () => {
     subscribe(
       'onServerMemberLeave',
       trpc.servers.onMemberLeave,
-      ({ serverId }) =>
-        store.dispatch(appSliceActions.removeJoinedServer(serverId))
+      ({ serverId, serverPublicId }) => {
+        // Match by the globally-unique publicId when present — the numeric
+        // id alone can collide with a federated server's id and would drop
+        // the wrong joined-list entry. Numeric fallback for older servers.
+        if (serverPublicId !== undefined) {
+          removeServerEntryByPublicId(serverPublicId);
+        } else {
+          store.dispatch(appSliceActions.removeJoinedServer(serverId));
+        }
+      }
     ),
     subscribe('onUnreadCountUpdate', trpc.servers.onUnreadCountUpdate, (data) =>
       store.dispatch(

@@ -105,6 +105,7 @@ const createTestChannel = async (
       position: args.position ?? 0,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: now,
+      publicId: randomUUIDv7(),
       categoryId: args.categoryId,
       serverId: args.serverId,
       e2ee: args.e2ee ?? false,

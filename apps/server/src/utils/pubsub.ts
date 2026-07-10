@@ -43,14 +43,25 @@ type Events = {
     userId: number;
   };
 
-  [ServerEvents.USER_JOIN]: { serverId: number; user: TJoinedPublicUser };
+  // serverPublicId is the globally-unique id of the server. Numeric ids are
+  // instance-local and collide across federated instances, so clients prefer
+  // the publicId for scoping when present (optional for older servers).
+  [ServerEvents.USER_JOIN]: {
+    serverId: number;
+    serverPublicId?: string;
+    user: TJoinedPublicUser;
+  };
   [ServerEvents.USER_LEAVE]: number;
   [ServerEvents.USER_CREATE]: TJoinedPublicUser;
   [ServerEvents.USER_UPDATE]: TJoinedPublicUser;
   // Server-scoped: serverId is the server the user was removed from. Clients
   // ignore the event when serverId !== activeServerId so a kick in server A
   // doesn't corrupt the local roster of server B.
-  [ServerEvents.USER_DELETE]: { serverId: number; userId: number };
+  [ServerEvents.USER_DELETE]: {
+    serverId: number;
+    serverPublicId?: string;
+    userId: number;
+  };
 
   [ServerEvents.CHANNEL_CREATE]: TChannel;
   [ServerEvents.CHANNEL_UPDATE]: TChannel;
@@ -181,6 +192,7 @@ type Events = {
   };
   [ServerEvents.SERVER_MEMBER_LEAVE]: {
     serverId: number;
+    serverPublicId?: string;
     userId: number;
   };
 
@@ -261,6 +273,7 @@ type Events = {
 
   [ServerEvents.USER_KICKED]: {
     serverId: number;
+    serverPublicId?: string;
     reason?: string;
   };
 

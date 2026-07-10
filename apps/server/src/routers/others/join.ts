@@ -163,6 +163,7 @@ const joinServerRoute = t.procedure
       const memberIds = await getServerMemberIds(targetServer.id);
       ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, {
         serverId: targetServer.id,
+        serverPublicId: targetServer.publicId,
         user: {
           ...ownPublicUser,
           status: ctx.getStatusById(ctx.user.id),

@@ -1,10 +1,11 @@
-import { type TTempFile } from '@pulse/shared';
+import { ServerEvents, type TTempFile } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { appRouter } from '../../routers';
+import { pubsub } from '../../utils/pubsub';
 
 describe('users router', () => {
   test('should throw when user lacks permissions (getAll)', async () => {
@@ -494,6 +495,103 @@ describe('users router', () => {
         userId: 999
       })
     ).rejects.toThrow('User is not a member of this server');
+  });
+
+  test('kick publishes events carrying the server publicId', async () => {
+    // Federation ID-collision guard: numeric server ids are instance-local
+    // and collide across federated instances, so USER_KICKED /
+    // SERVER_MEMBER_LEAVE / USER_DELETE must carry the globally-unique
+    // serverPublicId for the client to scope them safely.
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    const [serverRow] = (await tdb.execute(
+      sql`SELECT public_id FROM servers WHERE id = 1`
+    )) as unknown as { public_id: string }[];
+    expect(serverRow?.public_id).toBeTruthy();
+
+    const publishedEvents: { topic: string; payload: unknown }[] = [];
+    const original = pubsub.publishFor.bind(pubsub);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pubsub as any).publishFor = (
+      userIds: unknown,
+      topic: string,
+      payload: unknown
+    ) => {
+      publishedEvents.push({ topic, payload });
+      return original(userIds as never, topic as never, payload as never);
+    };
+
+    try {
+      await caller.users.kick({ userId: 2, reason: 'test kick' });
+      // publishUser (USER_DELETE) is fire-and-forget — give it a beat
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pubsub as any).publishFor = original;
+    }
+
+    const byTopic = (topic: string) =>
+      publishedEvents.filter((e) => e.topic === topic);
+
+    const kicked = byTopic(ServerEvents.USER_KICKED);
+    expect(kicked.length).toBe(1);
+    expect(kicked[0]!.payload).toMatchObject({
+      serverId: 1,
+      serverPublicId: serverRow!.public_id,
+      reason: 'test kick'
+    });
+
+    const memberLeave = byTopic(ServerEvents.SERVER_MEMBER_LEAVE);
+    expect(memberLeave.length).toBe(1);
+    expect(memberLeave[0]!.payload).toMatchObject({
+      serverId: 1,
+      serverPublicId: serverRow!.public_id,
+      userId: 2
+    });
+
+    const userDelete = byTopic(ServerEvents.USER_DELETE);
+    expect(userDelete.length).toBe(1);
+    expect(userDelete[0]!.payload).toMatchObject({
+      serverId: 1,
+      serverPublicId: serverRow!.public_id,
+      userId: 2
+    });
+  });
+
+  test('joinServer publishes USER_JOIN carrying the server publicId', async () => {
+    const publishedEvents: { topic: string; payload: unknown }[] = [];
+    const original = pubsub.publishFor.bind(pubsub);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (pubsub as any).publishFor = (
+      userIds: unknown,
+      topic: string,
+      payload: unknown
+    ) => {
+      publishedEvents.push({ topic, payload });
+      return original(userIds as never, topic as never, payload as never);
+    };
+
+    try {
+      await initTest(2);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pubsub as any).publishFor = original;
+    }
+
+    const tdb = getTestDb();
+    const [serverRow] = (await tdb.execute(
+      sql`SELECT public_id FROM servers WHERE id = 1`
+    )) as unknown as { public_id: string }[];
+
+    const joins = publishedEvents.filter(
+      (e) => e.topic === ServerEvents.USER_JOIN
+    );
+    expect(joins.length).toBe(1);
+    expect(joins[0]!.payload).toMatchObject({
+      serverId: 1,
+      serverPublicId: serverRow!.public_id
+    });
   });
 
   test('should handle multiple role operations', async () => {

@@ -2,6 +2,7 @@ import { ActivityLogType, DisconnectCode, Permission, ServerEvents } from '@puls
 import z from 'zod';
 import { publishUser } from '../../db/publishers';
 import {
+  getServerById,
   isServerMember,
   removeServerMember
 } from '../../db/queries/servers';
@@ -44,15 +45,21 @@ const kickRoute = protectedProcedure
     // Remove the user from this server (same as leaving)
     await removeServerMember(ctx.activeServerId, input.userId);
 
+    // Include the globally-unique publicId so clients can scope the event —
+    // the numeric serverId collides across federated instances.
+    const server = await getServerById(ctx.activeServerId);
+
     // Notify the kicked user so their client can show a toast and navigate home
     ctx.pubsub.publishFor(input.userId, ServerEvents.USER_KICKED, {
       serverId: ctx.activeServerId,
+      serverPublicId: server?.publicId,
       reason: input.reason
     });
 
     // Notify the kicked user to remove the server from their joined list
     ctx.pubsub.publishFor(input.userId, ServerEvents.SERVER_MEMBER_LEAVE, {
       serverId: ctx.activeServerId,
+      serverPublicId: server?.publicId,
       userId: input.userId
     });
 

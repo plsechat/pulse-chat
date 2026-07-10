@@ -1,5 +1,3 @@
-import { randomUUIDv7 } from 'bun';
-import { eq, isNull } from 'drizzle-orm';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
@@ -7,7 +5,6 @@ import { config } from '../config';
 import { DRIZZLE_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 import { seedDatabase } from './seed';
-import { channels, users } from './schema';
 
 let db: PostgresJsDatabase;
 
@@ -58,34 +55,10 @@ const loadDb = async () => {
     await client`SELECT pg_advisory_unlock(${MIGRATION_LOCK_ID})`;
   }
 
-  // Backfill publicId for existing users that don't have one
-  const usersWithoutPublicId = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(isNull(users.publicId));
-
-  for (const user of usersWithoutPublicId) {
-    await db
-      .update(users)
-      .set({ publicId: randomUUIDv7() })
-      .where(eq(users.id, user.id));
-  }
-
-  // Backfill publicId for existing channels that don't have one.
-  // Phase E / E1 — channels need a federation-spanning identifier so
-  // cross-instance SKDM addressing can reference the right channel
-  // without leaking host-local integer ids.
-  const channelsWithoutPublicId = await db
-    .select({ id: channels.id })
-    .from(channels)
-    .where(isNull(channels.publicId));
-
-  for (const channel of channelsWithoutPublicId) {
-    await db
-      .update(channels)
-      .set({ publicId: randomUUIDv7() })
-      .where(eq(channels.id, channel.id));
-  }
+  // publicId backfill for users/channels now lives in migration
+  // 0019_public_id_not_null (backfill + NOT NULL enforcement), which runs
+  // before we get here — the app-level backfill loops that used to sit
+  // at this point can no longer find NULL rows and were removed.
 };
 
 export { db, loadDb };
