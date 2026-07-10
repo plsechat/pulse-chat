@@ -43,7 +43,12 @@ export type TPublicServerSettings = Pick<
   | "storageSpaceQuotaByUser"
   | "storageOverflowAction"
   | "enablePlugins"
->;
+> & {
+  /** Current server logo, so clients can live-update the server rail on
+   *  SERVER_SETTINGS_UPDATE without a refetch. Optional — older servers
+   *  don't send it. */
+  logo?: TFile | null;
+};
 
 export type TGenericObject = {
   [key: string]: any;

@@ -42,6 +42,19 @@ const getServerPublicSettings = async (
     throw new Error(`Server ${serverId} not found`);
   }
 
+  // Include the logo so clients can live-update the server rail when a
+  // SERVER_SETTINGS_UPDATE arrives (logo changes were invisible until a
+  // full refresh otherwise).
+  const logo = server.logoId
+    ? (
+        await db
+          .select()
+          .from(files)
+          .where(eq(files.id, server.logoId))
+          .limit(1)
+      )[0]
+    : undefined;
+
   return {
     id: server.id,
     description: server.description ?? '',
@@ -52,7 +65,8 @@ const getServerPublicSettings = async (
     storageUploadMaxFileSize: server.storageUploadMaxFileSize,
     storageSpaceQuotaByUser: server.storageSpaceQuotaByUser,
     storageOverflowAction: server.storageOverflowAction,
-    enablePlugins: server.enablePlugins
+    enablePlugins: server.enablePlugins,
+    logo: logo ?? null
   };
 };
 

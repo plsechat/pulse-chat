@@ -10,6 +10,7 @@ import {
   currentVoiceChannelIdSelector,
   currentVoiceChannelPublicIdSelector,
   currentVoiceServerIdSelector,
+  currentVoiceServerPublicIdSelector,
   isCurrentVoiceChannelSelectedSelector,
   lastReadMessageIdSelector,
   selectedChannelIdSelector,
@@ -42,6 +43,9 @@ export const useCurrentVoiceChannelPublicId = () =>
 
 export const useCurrentVoiceServerId = () =>
   useSelector(currentVoiceServerIdSelector);
+
+export const useCurrentVoiceServerPublicId = () =>
+  useSelector(currentVoiceServerPublicIdSelector);
 
 export const useIsCurrentVoiceChannelSelected = () =>
   useSelector(isCurrentVoiceChannelSelectedSelector);

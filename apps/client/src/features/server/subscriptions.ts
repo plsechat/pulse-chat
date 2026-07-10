@@ -1,4 +1,7 @@
-import { removeServerEntryByPublicId } from '@/features/app/actions';
+import {
+  removeServerEntryByPublicId,
+  saveFederatedServers
+} from '@/features/app/actions';
 import { subscribeToDms } from '@/features/dms/subscriptions';
 import { subscribeToFriends } from '@/features/friends/subscriptions';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
@@ -23,7 +26,43 @@ const subscribeToServer = () => {
     subscribe(
       'onSettingsUpdate',
       trpc.others.onServerSettingsUpdate,
-      (settings) => setPublicServerSettings(settings)
+      (settings) => {
+        setPublicServerSettings(settings);
+
+        // Live-sync the server rail (name/logo used to stay stale until a
+        // full refresh). Matched by publicId — home and federated entries.
+        if (settings?.publicId) {
+          store.dispatch(
+            appSliceActions.updateJoinedServerInfo({
+              publicId: settings.publicId,
+              name: settings.name,
+              logo: settings.logo
+            })
+          );
+
+          const fed = store
+            .getState()
+            .app.federatedServers.find(
+              (e) => e.server.publicId === settings.publicId
+            );
+          if (fed) {
+            store.dispatch(
+              appSliceActions.updateFederatedServerInfo({
+                instanceDomain: fed.instanceDomain,
+                serverId: fed.server.id,
+                server: {
+                  ...fed.server,
+                  name: settings.name,
+                  ...(settings.logo !== undefined
+                    ? { logo: settings.logo }
+                    : {})
+                }
+              })
+            );
+            saveFederatedServers();
+          }
+        }
+      }
     ),
     subscribe('onServerMemberJoin', trpc.servers.onMemberJoin, ({ server }) =>
       store.dispatch(appSliceActions.addJoinedServer(server))
