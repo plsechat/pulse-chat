@@ -1,4 +1,8 @@
-import { saveFederatedServers, setActiveView } from '@/features/app/actions';
+import {
+  cleanupFederatedServerEntry,
+  saveFederatedServers,
+  setActiveView
+} from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
 import { connectionManager } from '@/lib/connection-manager';
@@ -193,15 +197,10 @@ const subscribeToMessages = () => {
 
           if (!entry) return;
 
-          store.dispatch(
-            appSliceActions.removeFederatedServer({
-              instanceDomain: entry.instanceDomain,
-              serverId: entry.server.id
-            })
-          );
-          saveFederatedServers();
-
-          // If we're currently viewing that server, go home
+          // If we're currently viewing that server, go home FIRST — the
+          // teardown below fires the disconnect status handler, which
+          // would otherwise also toast "Lost connection" for the
+          // still-active instance.
           if (
             state.app.activeInstanceDomain === event.instanceDomain &&
             state.server.serverId === event.serverPublicId
@@ -209,6 +208,16 @@ const subscribeToMessages = () => {
             store.dispatch(appSliceActions.setActiveInstanceDomain(null));
             setActiveView('home');
           }
+
+          // Full local cleanup — including instance-connection teardown
+          // when this was the last server on that instance. A ban means
+          // every reconnect would be refused; without the teardown the
+          // connection manager retries forever and the status badge
+          // flickers connecting/disconnected.
+          cleanupFederatedServerEntry(
+            entry.instanceDomain,
+            entry.server.id
+          );
         }
       )
     );
