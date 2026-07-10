@@ -68,7 +68,7 @@ bun add @pulse/plugin-sdk
 > [!NOTE]
 > The SDK is not published to any package registry. For now, you need to link it locally using `bun link`.
 
-### 3. Edit Entry File
+### 5. Edit Entry File
 
 ```typescript
 import type { PluginContext } from "@pulse/plugin-sdk";

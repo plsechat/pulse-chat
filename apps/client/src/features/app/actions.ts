@@ -11,7 +11,7 @@ import {
 import { connectionManager } from '@/lib/connection-manager';
 import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { getAccessToken, initSupabase } from '@/lib/supabase';
+import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
 import { connect, fetchDeferredServerData, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
@@ -179,7 +179,48 @@ const handleInviteFromUrl = async () => {
   }
 };
 
+/**
+ * Consume a native-OIDC redirect. The server's /auth/oidc/callback sends
+ * the freshly-minted session token in the URL fragment (never sent to a
+ * server) and, on failure, an ?oidc_error query param. Runs before the
+ * session check so a returning OIDC user is auto-connected.
+ */
+const consumeOidcRedirect = async (): Promise<void> => {
+  // Error path (query string).
+  const params = new URLSearchParams(window.location.search);
+  const oidcError = params.get('oidc_error');
+  if (oidcError) {
+    toast.error(oidcError);
+    params.delete('oidc_error');
+    const search = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
+    );
+  }
+
+  // Success path (URL fragment).
+  if (!window.location.hash) return;
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const token = hash.get('pulse_oidc_token');
+  if (!token) return;
+
+  await setOidcSession(token);
+
+  // Strip the token from the URL so it isn't left in history / shareable.
+  hash.delete('pulse_oidc_token');
+  const rest = hash.toString();
+  window.history.replaceState(
+    {},
+    '',
+    `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ''}`
+  );
+};
+
 export const loadApp = async () => {
+  await consumeOidcRedirect();
+
   const info = await fetchServerInfo();
 
   if (!info) {
@@ -195,6 +236,12 @@ export const loadApp = async () => {
   if (info.supabaseUrl && info.supabaseAnonKey) {
     initSupabase(info.supabaseUrl, info.supabaseAnonKey);
   }
+
+  // Proactively rotate a local-backend session so a week-old access
+  // token renews from the 30-day refresh token instead of failing.
+  // No-op for supabase mode (supabase-js auto-refreshes) and for OIDC
+  // sessions (no refresh token — see refreshLocalSession).
+  await refreshLocalSession(getUrlFromServer());
 
   // Try to auto-connect if a valid session exists
   const token = await getAccessToken();
@@ -216,6 +263,12 @@ export const loadApp = async () => {
       if (!provisionRes.ok) {
         const errorData = await provisionRes.json().catch(() => ({}));
         console.error('Provision failed:', errorData);
+        // A 401 means the stored token is no longer valid for a live account
+        // (expired, or the account/DB was reset). Clear it so a stale token
+        // doesn't keep failing on every refresh and the login screen shows.
+        if (provisionRes.status === 401) {
+          await clearSession();
+        }
         throw new Error(errorData.error || 'Failed to provision user');
       }
 
@@ -584,6 +637,38 @@ export const saveFederatedServers = () => {
     LocalStorageKey.FEDERATED_SERVERS,
     state.app.federatedServers
   );
+};
+
+/**
+ * Drop a server entry — home or federated — matched by its globally-unique
+ * publicId. Numeric server ids are instance-local and collide across
+ * federated instances: a SERVER_MEMBER_LEAVE/USER_KICKED event arriving from
+ * a federated connection must never remove the HOME server that happens to
+ * share the same numeric id. Matching by publicId makes that impossible.
+ */
+export const removeServerEntryByPublicId = (serverPublicId: string) => {
+  const state = store.getState();
+
+  const homeServer = state.app.joinedServers.find(
+    (s) => s.publicId === serverPublicId
+  );
+  if (homeServer) {
+    store.dispatch(appSliceActions.removeJoinedServer(homeServer.id));
+    return;
+  }
+
+  const fedEntry = state.app.federatedServers.find(
+    (e) => e.server.publicId === serverPublicId
+  );
+  if (fedEntry) {
+    store.dispatch(
+      appSliceActions.removeFederatedServer({
+        instanceDomain: fedEntry.instanceDomain,
+        serverId: fedEntry.server.id
+      })
+    );
+    saveFederatedServers();
+  }
 };
 
 // Track federated unread count subscriptions so we can clean up

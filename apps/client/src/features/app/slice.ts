@@ -99,6 +99,32 @@ export const appSlice = createSlice({
         state.activeServerId = undefined;
       }
     },
+    /**
+     * Live-sync a joined server's rail summary (name/logo) from a
+     * SERVER_SETTINGS_UPDATE. Matched by the globally-unique publicId —
+     * numeric ids collide across federated instances.
+     */
+    updateJoinedServerInfo: (
+      state,
+      action: PayloadAction<{
+        publicId: string;
+        name?: string;
+        logo?: TServerSummary['logo'];
+      }>
+    ) => {
+      const entry = state.joinedServers.find(
+        (s) => s.publicId === action.payload.publicId
+      );
+      if (!entry) return;
+      if (action.payload.name !== undefined) {
+        entry.name = action.payload.name;
+      }
+      // `undefined` = sender didn't include a logo (older server) — leave
+      // it alone. `null` = logo removed.
+      if (action.payload.logo !== undefined) {
+        entry.logo = action.payload.logo;
+      }
+    },
     reorderJoinedServers: (state, action: PayloadAction<number[]>) => {
       const serverMap = new Map(
         state.joinedServers.map((s) => [s.id, s])

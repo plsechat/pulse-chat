@@ -2,6 +2,9 @@
 
 This guide walks you through deploying Pulse with a fully self-hosted Supabase stack (PostgreSQL + GoTrue + Kong) using Docker Compose. No external Supabase project required.
 
+> [!NOTE]
+> If you don't need OAuth providers (Google / Discord / etc) and just want email + password auth, skip this guide. Run Pulse with `AUTH_BACKEND=local` and the bundled `docker compose --profile local up` — see the [main README](README.md#getting-started). The local backend uses bcrypt password hashes + HS256 JWTs against PostgreSQL alone — no Supabase stack required.
+
 ---
 
 ## Table of Contents
@@ -129,7 +132,7 @@ SUPABASE_SERVICE_ROLE_KEY=<jwt token>
 ## Configure Environment
 
 ```bash
-cp .env.supabase.example .env
+cp .env.supabase-local.example .env
 nano .env
 ```
 
@@ -161,8 +164,9 @@ SITE_URL=https://your-domain.com
 | `JWT_SECRET` | Yes | — | Secret key for signing JWTs (min 32 chars) |
 | `SUPABASE_ANON_KEY` | Yes | — | Supabase public/anonymous API key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Supabase admin service role key |
+| `AUTH_SECRET` | For OIDC | — | ≥32 random chars; signs the Pulse session token minted after OIDC login. Required only if you enable OIDC below. |
 | `SITE_URL` | Yes | — | Public URL (e.g., `https://pulse.example.com`) |
-| `PULSE_PORT` | No | `4991` | Host port for Pulse |
+| `PULSE_PORT` | No | `5443` | Host port for Pulse |
 | `JWT_EXPIRY` | No | `3600` | Token expiry in seconds |
 | `PUBLIC_IP` | No | auto | Public IP for WebRTC |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enable Google login |
@@ -177,8 +181,16 @@ SITE_URL=https://your-domain.com
 | `TWITCH_OAUTH_ENABLED` | No | `false` | Enable Twitch login |
 | `TWITCH_OAUTH_CLIENT_ID` | No | — | Twitch OAuth client ID |
 | `TWITCH_OAUTH_SECRET` | No | — | Twitch OAuth client secret |
+| `OIDC_OAUTH_ENABLED` | No | `false` | Enable native OpenID Connect SSO (Authentik / Keycloak / …) — handled by Pulse, not GoTrue |
+| `OIDC_LABEL` | No | `Single Sign-On` | Login-button text |
+| `OIDC_ISSUER` | For OIDC | — | IdP issuer URL, e.g. `https://auth.example.com/application/o/<app-slug>/` |
+| `OIDC_CLIENT_ID` | For OIDC | — | OIDC client ID |
+| `OIDC_SECRET` | For OIDC | — | OIDC client secret |
 | `ADDITIONAL_REDIRECT_URLS` | No | — | Extra OAuth callback URLs |
 | `REGISTRATION_DISABLED` | No | `false` | Block new registrations (existing users can still log in; valid invite codes bypass) |
+| `REGISTRATION_PASSWORD_ENABLED` | No | `true` | Set `false` to disable email/password self-signup (invite still bypasses) |
+| `REGISTRATION_OIDC_ENABLED` | No | `true` | Set `false` to disable OIDC self-signup |
+| `REGISTRATION_SOCIAL_ENABLED` | No | `true` | Set `false` to disable social-OAuth self-signup. For OIDC-only, set password + social to `false` |
 | `GIPHY_API_KEY` | No | — | Giphy API key for GIF search |
 
 ---
@@ -217,7 +229,7 @@ docker logs pulse
 ### Test the health endpoint
 
 ```bash
-curl http://localhost:4991/healthz
+curl http://localhost:5443/healthz
 ```
 
 Should return `{"status":"ok","timestamp":...}`.
@@ -246,7 +258,7 @@ your-domain.com {
         reverse_proxy localhost:8000
     }
     handle {
-        reverse_proxy localhost:4991
+        reverse_proxy localhost:5443
     }
 }
 ```
@@ -280,7 +292,7 @@ server {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:4991;
+        proxy_pass http://127.0.0.1:5443;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -319,7 +331,7 @@ sudo ufw enable
 | 22 | TCP | SSH access |
 | 80 | TCP | HTTP (redirects to HTTPS) |
 | 443 | TCP | HTTPS (web + WebSocket) |
-| 4991 | TCP | Pulse (only if no reverse proxy) |
+| 5443 | TCP | Pulse (only if no reverse proxy) |
 | 40000-40020 | UDP + TCP | WebRTC media (voice/video/screen share) |
 
 > **Note:** Docker manipulates iptables directly and can bypass ufw rules. Ports mapped in `docker-compose-supabase.yml` may be publicly accessible even if ufw doesn't allow them. The compose file binds Kong (port 8000) to `127.0.0.1` so it is only accessible from the reverse proxy — do not change this to `0.0.0.0`.
@@ -370,7 +382,12 @@ This pulls the latest published image and restarts the containers. Database migr
 
 ## OAuth Setup (Optional)
 
-Pulse supports OAuth login via Google, Discord, Facebook, and Twitch through GoTrue. All OAuth configuration is done through your `.env` file — do not edit `docker-compose-supabase.yml` directly.
+Pulse supports two kinds of external login:
+
+- **Social providers** (Google, Discord, Facebook, Twitch) — mediated by GoTrue (Supabase Auth).
+- **Native OpenID Connect SSO** (Authentik, Keycloak, Zitadel, Auth0, …) — handled by Pulse itself, **not** GoTrue. See [Single Sign-On (OIDC)](#single-sign-on-oidc) below.
+
+All configuration is done through your `.env` file — do not edit `docker-compose-supabase.yml` directly.
 
 ### Google OAuth
 
@@ -403,6 +420,31 @@ DISCORD_OAUTH_SECRET=your-client-secret
 4. Restart: `docker compose -f docker-compose-supabase.yml up -d`
 
 The same pattern applies for Facebook and Twitch — replace `DISCORD` with `FACEBOOK` or `TWITCH` in the variable names.
+
+### Single Sign-On (OIDC)
+
+For Authentik, Keycloak, Zitadel, Auth0, or any OIDC provider. Native OIDC is handled by Pulse directly, so it does **not** go through GoTrue and needs no `GOTRUE_EXTERNAL_*` configuration. It works the same whether you run the `local` or `supabase` auth backend.
+
+1. In your IdP, create an OAuth2 / OIDC application (confidential client). Set its redirect URI to Pulse's callback (note: `/auth/oidc/callback`, **not** GoTrue's `/auth/v1/callback`):
+
+   ```
+   https://your-domain.com/auth/oidc/callback
+   ```
+
+2. Add to your `.env` — `AUTH_SECRET` (≥32 chars) is required because it signs the Pulse session token:
+
+   ```env
+   AUTH_SECRET=your-long-random-secret
+   OIDC_OAUTH_ENABLED=true
+   OIDC_LABEL=Authentik
+   OIDC_ISSUER=https://auth.example.com/application/o/<app-slug>/
+   OIDC_CLIENT_ID=your-client-id
+   OIDC_SECRET=your-client-secret
+   ```
+
+3. Restart: `docker compose -f docker-compose-supabase.yml up -d`
+
+Pulse discovers the endpoints at `<OIDC_ISSUER>/.well-known/openid-configuration` and verifies the `id_token` via the provider's JWKS (RS256) or the client secret (HS256).
 
 ---
 

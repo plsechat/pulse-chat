@@ -21,6 +21,10 @@ import type {
 import type { Unsubscribable } from '@trpc/server/observable';
 import { observable, type Observable } from '@trpc/server/observable';
 import { EventEmitter } from 'events';
+import { config } from '../config';
+import { logger } from '../logger';
+
+const PUBSUB_LOG_RECIPIENT_CAP = 100;
 
 type Events = {
   [ServerEvents.NEW_MESSAGE]: TJoinedMessage;
@@ -39,14 +43,25 @@ type Events = {
     userId: number;
   };
 
-  [ServerEvents.USER_JOIN]: { serverId: number; user: TJoinedPublicUser };
+  // serverPublicId is the globally-unique id of the server. Numeric ids are
+  // instance-local and collide across federated instances, so clients prefer
+  // the publicId for scoping when present (optional for older servers).
+  [ServerEvents.USER_JOIN]: {
+    serverId: number;
+    serverPublicId?: string;
+    user: TJoinedPublicUser;
+  };
   [ServerEvents.USER_LEAVE]: number;
   [ServerEvents.USER_CREATE]: TJoinedPublicUser;
   [ServerEvents.USER_UPDATE]: TJoinedPublicUser;
   // Server-scoped: serverId is the server the user was removed from. Clients
   // ignore the event when serverId !== activeServerId so a kick in server A
   // doesn't corrupt the local roster of server B.
-  [ServerEvents.USER_DELETE]: { serverId: number; userId: number };
+  [ServerEvents.USER_DELETE]: {
+    serverId: number;
+    serverPublicId?: string;
+    userId: number;
+  };
 
   [ServerEvents.CHANNEL_CREATE]: TChannel;
   [ServerEvents.CHANNEL_UPDATE]: TChannel;
@@ -177,6 +192,7 @@ type Events = {
   };
   [ServerEvents.SERVER_MEMBER_LEAVE]: {
     serverId: number;
+    serverPublicId?: string;
     userId: number;
   };
 
@@ -211,6 +227,22 @@ type Events = {
     fromUserId: number;
   };
 
+  // Phase E / E1 — emitted on a peer instance when one of its
+  // local users has a fresh SKDM available on a federated host.
+  // Receiver opens or reuses an active-server tRPC to `hostDomain`
+  // and calls `e2ee.getPendingSenderKeys` to pull the actual SKDM.
+  // `fromInstanceDomain` is the sender's *home* domain (which may
+  // differ from `hostDomain` when the sender is themselves a
+  // federated participant in the channel) — needed to resolve
+  // their identity on the receiver's home for decrypt.
+  [ServerEvents.E2EE_FEDERATED_SENDER_KEY_AVAILABLE]: {
+    hostDomain: string;
+    hostChannelPublicId: string;
+    fromPublicId: string;
+    fromInstanceDomain: string;
+    senderKeyId: number;
+  };
+
   [ServerEvents.E2EE_IDENTITY_RESET]: {
     userId: number;
     // Phase D / D3 — only set on federated rotations. The receiving
@@ -241,6 +273,7 @@ type Events = {
 
   [ServerEvents.USER_KICKED]: {
     serverId: number;
+    serverPublicId?: string;
     reason?: string;
   };
 
@@ -284,6 +317,16 @@ class PubSub {
     payload: Events[TTopic]
   ): void {
     const targetUserIds = Array.isArray(userIds) ? userIds : [userIds];
+
+    if (config.server.debug && targetUserIds.length <= PUBSUB_LOG_RECIPIENT_CAP) {
+      // Volume guard: skip the line for fan-outs above the cap so a
+      // server-wide broadcast doesn't bury the rest of the trace.
+      logger.debug(
+        '[pubsub] %s recipients=%d',
+        String(topic),
+        targetUserIds.length
+      );
+    }
 
     for (const userId of targetUserIds) {
       const userTopics = this.userListeners.get(userId);

@@ -5,7 +5,7 @@ import { resetFriendsState } from '@/features/friends/actions';
 import { resetServerScreens } from '@/features/server-screens/actions';
 import { resetServerState, setDisconnectInfo } from '@/features/server/actions';
 import { store } from '@/features/store';
-import { getAccessToken, supabase } from '@/lib/supabase';
+import { clearSession, getAccessToken } from '@/lib/supabase';
 import { connectionManager } from '@/lib/connection-manager';
 import { startReconnecting, stopReconnecting, isCurrentlyReconnecting } from '@/lib/reconnect';
 import { DisconnectCode, type AppRouter, type TConnectionParams } from '@pulse/shared';
@@ -138,7 +138,7 @@ const cleanup = (signOut = false) => {
   fullTeardown();
 
   if (signOut) {
-    supabase.auth.signOut({ scope: 'local' });
+    void clearSession();
     // Wipe E2EE IDB so the next user on this browser doesn't inherit
     // the previous user's identity, sessions, or sender keys. Dynamic
     // import to avoid a lib/e2ee → lib/trpc circular dependency.

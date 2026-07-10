@@ -49,7 +49,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
-import { useCurrentVoiceServerId } from '@/features/server/channels/hooks';
+import {
+  useCurrentVoiceServerId,
+  useCurrentVoiceServerPublicId
+} from '@/features/server/channels/hooks';
 import { useHasAnyVoiceUsers } from '@/features/server/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
@@ -145,6 +148,7 @@ const FederatedServerIcon = memo(
     isActive,
     hasUnread,
     hasMentions,
+    hasVoiceActivity,
     connectionStatus,
     onClick
   }: {
@@ -152,6 +156,7 @@ const FederatedServerIcon = memo(
     isActive: boolean;
     hasUnread: boolean;
     hasMentions: boolean;
+    hasVoiceActivity: boolean;
     connectionStatus?: 'connecting' | 'connected' | 'disconnected';
     onClick: () => void;
   }) => {
@@ -195,7 +200,11 @@ const FederatedServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
-        {hasMentions ? (
+        {hasVoiceActivity ? (
+          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 border-2 border-sidebar">
+            <Volume2 className="h-3 w-3 text-white" />
+          </div>
+        ) : hasMentions ? (
           <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
         ) : (
           /* Federation badge — color indicates connection status */
@@ -259,6 +268,7 @@ const ServerStrip = memo(() => {
   const totalDmUnreadCount = useTotalDmUnreadCount();
   const hasAnyVoiceUsers = useHasAnyVoiceUsers();
   const currentVoiceServerId = useCurrentVoiceServerId();
+  const currentVoiceServerPublicId = useCurrentVoiceServerPublicId();
   const federatedServers = useFederatedServers();
   const activeInstanceDomain = useActiveInstanceDomain();
   const federatedConnectionStatuses = useFederatedConnectionStatuses();
@@ -566,7 +576,14 @@ const ServerStrip = memo(() => {
                           (serverMentionCounts[server.id] ?? 0) > 0
                         }
                         hasVoiceActivity={
-                          server.id === currentVoiceServerId ||
+                          // Match the voice-hosting server by its globally-
+                          // unique publicId — the numeric id collides with
+                          // federated servers and lit up the wrong icon.
+                          // Numeric fallback covers sessions started before
+                          // publicId tracking existed.
+                          (currentVoiceServerPublicId !== undefined
+                            ? currentVoiceServerPublicId === server.publicId
+                            : server.id === currentVoiceServerId) ||
                           (activeServerId === server.id &&
                             !activeInstanceDomain &&
                             hasAnyVoiceUsers)
@@ -660,6 +677,10 @@ const ServerStrip = memo(() => {
                     }
                     hasMentions={
                       (federatedMentionCounts[`${entry.instanceDomain}:${entry.server.id}`] ?? 0) > 0
+                    }
+                    hasVoiceActivity={
+                      currentVoiceServerPublicId !== undefined &&
+                      currentVoiceServerPublicId === entry.server.publicId
                     }
                     connectionStatus={
                       federatedConnectionStatuses[entry.instanceDomain]

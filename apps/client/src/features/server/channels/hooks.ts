@@ -8,7 +8,9 @@ import {
   channelsByCategoryIdSelector,
   channelsSelector,
   currentVoiceChannelIdSelector,
+  currentVoiceChannelPublicIdSelector,
   currentVoiceServerIdSelector,
+  currentVoiceServerPublicIdSelector,
   isCurrentVoiceChannelSelectedSelector,
   lastReadMessageIdSelector,
   selectedChannelIdSelector,
@@ -36,8 +38,14 @@ export const useSelectedChannel = () => useSelector(selectedChannelSelector);
 export const useCurrentVoiceChannelId = () =>
   useSelector(currentVoiceChannelIdSelector);
 
+export const useCurrentVoiceChannelPublicId = () =>
+  useSelector(currentVoiceChannelPublicIdSelector);
+
 export const useCurrentVoiceServerId = () =>
   useSelector(currentVoiceServerIdSelector);
+
+export const useCurrentVoiceServerPublicId = () =>
+  useSelector(currentVoiceServerPublicIdSelector);
 
 export const useIsCurrentVoiceChannelSelected = () =>
   useSelector(isCurrentVoiceChannelSelectedSelector);

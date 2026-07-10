@@ -113,6 +113,41 @@
       "when": 1777922754164,
       "tag": "0015_majestic_master_mold",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777931813480,
+      "tag": "0016_huge_prodigy",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777965700256,
+      "tag": "0017_burly_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1778126319673,
+      "tag": "0018_whole_cerise",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783643621237,
+      "tag": "0019_public_id_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783648691763,
+      "tag": "0020_custom_status",
+      "breakpoints": true
     }
   ]
 }

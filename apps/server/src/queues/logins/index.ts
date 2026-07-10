@@ -37,4 +37,6 @@ const enqueueLogin = (userId: number, info: TConnectionInfo | undefined) => {
   });
 };
 
-export { enqueueLogin };
+// The instance is exported so the test harness can drain in-flight
+// login writes before truncating tables (see __tests__/setup.ts).
+export { enqueueLogin, loginsQueue };

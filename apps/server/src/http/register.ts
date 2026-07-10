@@ -7,8 +7,8 @@ import { getSettings } from '../db/queries/server';
 import { isDisplayNameTaken } from '../db/queries/users';
 import { invites } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
-import { supabaseAdmin } from '../utils/supabase';
-import { isRegistrationDisabled } from '../utils/env';
+import { authBackend } from '../utils/auth';
+import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -33,8 +33,14 @@ const registerRouteHandler = async (
     throw new HttpValidationError('displayName', 'This display name is already taken');
   }
 
-  // Check if registration is allowed
-  if (isRegistrationDisabled() || !settings.allowNewUsers) {
+  // Check if registration is allowed. Password self-registration can be
+  // disabled independently (e.g. OIDC-only mode) — a valid invite still
+  // works as a break-glass path.
+  if (
+    isRegistrationDisabled() ||
+    !settings.allowNewUsers ||
+    !isRegistrationMethodEnabled('password')
+  ) {
     if (!data.invite) {
       throw new HttpValidationError('email', 'Invalid invite code');
     }
@@ -60,18 +66,17 @@ const registerRouteHandler = async (
     }
   }
 
-  // Create user in Supabase Auth
+  // Create user in the active auth backend (local or supabase)
   const { data: createData, error: createError } =
-    await supabaseAdmin.auth.admin.createUser({
+    await authBackend.createUser({
       email: data.email,
-      password: data.password,
-      email_confirm: true
+      password: data.password
     });
 
   if (createError || !createData.user) {
     const message = createError?.message || 'Failed to create account';
 
-    if (message.includes('already been registered') || message.includes('already exists')) {
+    if (createError?.reason === 'user_already_exists') {
       throw new HttpValidationError('email', 'An account with this email already exists');
     }
 
@@ -88,7 +93,7 @@ const registerRouteHandler = async (
 
   // Sign in to get session tokens
   const { data: signInData, error: signInError } =
-    await supabaseAdmin.auth.signInWithPassword({
+    await authBackend.signInWithPassword({
       email: data.email,
       password: data.password
     });

@@ -1,1 +1,1 @@
-ALTER TABLE "server_members" ADD COLUMN "nickname" text;
+ALTER TABLE "server_members" ADD COLUMN IF NOT EXISTS "nickname" text;

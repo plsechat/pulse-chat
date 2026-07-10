@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmChannels } from '../../db/schema';
+import { relayFederatedDmChannelStateUpdate } from '../../utils/federation-dm-state-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -44,6 +45,16 @@ const enableEncryptionRoute = protectedProcedure
         iconFileId: channel.iconFileId
       });
     }
+
+    // Phase E / E2 — propagate the flag flip to peer instances so
+    // federated members see the lock badge in real-time. Without
+    // this, the only way the peer learns is the auto-upgrade path
+    // in send-message.ts, which fires on the next encrypted message
+    // — there's a confusing window in which one side is encrypted
+    // and the other still allows plaintext sends.
+    relayFederatedDmChannelStateUpdate(input.dmChannelId, ctx.userId, {
+      e2ee: true
+    });
 
     return { e2ee: true };
   });

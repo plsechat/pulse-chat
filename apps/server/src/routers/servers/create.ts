@@ -142,6 +142,7 @@ const createServerRoute = protectedProcedure
         fileAccessTokenUpdatedAt: now,
         categoryId: category!.id,
         serverId,
+        publicId: randomUUIDv7(),
         createdAt: now
       });
 

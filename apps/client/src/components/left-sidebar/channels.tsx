@@ -3,7 +3,7 @@ import { setSelectedChannelId } from '@/features/server/channels/actions';
 import {
   useChannelById,
   useChannelsByCategoryId,
-  useCurrentVoiceChannelId,
+  useCurrentVoiceChannelPublicId,
   useSelectedChannelId
 } from '@/features/server/channels/hooks';
 import {
@@ -206,7 +206,13 @@ type TChannelProps = {
 
 const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
   const channel = useChannelById(channelId);
-  const currentVoiceChannelId = useCurrentVoiceChannelId();
+  const currentVoiceChannelPublicId = useCurrentVoiceChannelPublicId();
+  // Whether the user's active voice session is THIS channel. Matched by the
+  // globally-unique publicId, not the numeric id — a federated server's
+  // channel can share our home channel's numeric id and would falsely glow.
+  const isInThisVoice =
+    !!channel?.publicId &&
+    currentVoiceChannelPublicId === channel.publicId;
   const channelCan = useChannelCan(channelId);
   const can = useCan();
   const { init } = useVoice();
@@ -223,10 +229,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
   const onClick = useCallback(async () => {
     setSelectedChannelId(channelId);
 
-    if (
-      channel?.type === ChannelType.VOICE &&
-      currentVoiceChannelId !== channelId
-    ) {
+    if (channel?.type === ChannelType.VOICE && !isInThisVoice) {
       const response = await joinVoice(channelId);
 
       if (!response) {
@@ -244,7 +247,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
         toast.error('Failed to initialize voice connection');
       }
     }
-  }, [channelId, channel?.type, init, currentVoiceChannelId]);
+  }, [channelId, channel?.type, init, isInThisVoice]);
 
   if (!channel) {
     return null;
@@ -275,7 +278,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
             <Voice
               channel={channel}
               isSelected={isSelected}
-              isInVoice={currentVoiceChannelId === channelId}
+              isInVoice={isInThisVoice}
               onClick={onClick}
               dragHandleProps={{ ...attributes, ...listeners }}
               disabled={

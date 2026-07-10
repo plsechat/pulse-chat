@@ -1,14 +1,33 @@
-import type { TServerInfo } from '@pulse/shared';
+import type { TAuthProvider, TServerInfo } from '@pulse/shared';
 import http from 'http';
 import { getFirstServer } from '../db/queries/servers';
-import { isRegistrationDisabled, SERVER_VERSION } from '../utils/env';
+import {
+  isRegistrationDisabled,
+  isRegistrationMethodEnabled,
+  SERVER_VERSION
+} from '../utils/env';
+import { getOidcConfig } from '../utils/oidc';
 
+// Built-in social providers (Supabase-mediated). `name` is passed verbatim
+// to Supabase's `signInWithOAuth`; `label` is the button text. These
+// require AUTH_BACKEND=supabase.
 const OAUTH_PROVIDERS = [
-  { env: 'GOOGLE_OAUTH_ENABLED', name: 'google' },
-  { env: 'DISCORD_OAUTH_ENABLED', name: 'discord' },
-  { env: 'FACEBOOK_OAUTH_ENABLED', name: 'facebook' },
-  { env: 'TWITCH_OAUTH_ENABLED', name: 'twitch' }
+  { env: 'GOOGLE_OAUTH_ENABLED', name: 'google', label: 'Google' },
+  { env: 'DISCORD_OAUTH_ENABLED', name: 'discord', label: 'Discord' },
+  { env: 'FACEBOOK_OAUTH_ENABLED', name: 'facebook', label: 'Facebook' },
+  { env: 'TWITCH_OAUTH_ENABLED', name: 'twitch', label: 'Twitch' }
 ] as const;
+
+// Native OIDC provider (PULSE runs the flow itself — see utils/oidc.ts).
+// Works with any standards-compliant IdP (Authentik, Keycloak, Zitadel,
+// Auth0, …) under either auth backend. Advertised only when fully
+// configured. `kind: 'oidc'` tells the client to redirect to
+// /auth/oidc/start rather than call Supabase.
+function getOidcProvider(): TAuthProvider | null {
+  const config = getOidcConfig();
+  if (!config) return null;
+  return { name: 'oidc', label: config.label, kind: 'oidc' };
+}
 
 const infoRouteHandler = async (
   req: http.IncomingMessage,
@@ -22,9 +41,12 @@ const infoRouteHandler = async (
     return;
   }
 
-  const enabledAuthProviders = OAUTH_PROVIDERS
-    .filter(({ env }) => process.env[env] === 'true')
-    .map(({ name }) => name);
+  const enabledAuthProviders: TAuthProvider[] = [
+    ...OAUTH_PROVIDERS.filter(({ env }) => process.env[env] === 'true').map(
+      ({ name, label }) => ({ name, label })
+    ),
+    ...(getOidcProvider() ? [getOidcProvider()!] : [])
+  ];
 
   const info: TServerInfo = {
     serverId: server.publicId,
@@ -34,6 +56,7 @@ const infoRouteHandler = async (
     logo: server.logo,
     allowNewUsers: server.allowNewUsers,
     registrationDisabled: isRegistrationDisabled(),
+    passwordRegistrationEnabled: isRegistrationMethodEnabled('password'),
     enabledAuthProviders,
     supabaseUrl: process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',

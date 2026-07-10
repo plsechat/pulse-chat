@@ -48,6 +48,7 @@ const getInvites = async (serverId?: number): Promise<TJoinedInvite[]> => {
         publicId: users.publicId,
         bannerColor: users.bannerColor,
         bio: users.bio,
+        customStatus: users.customStatus,
         banned: users.banned,
         createdAt: users.createdAt,
         avatarId: users.avatarId,

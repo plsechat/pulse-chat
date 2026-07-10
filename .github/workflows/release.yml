@@ -47,6 +47,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Set up QEMU
+        # Required so the amd64 GitHub runner can build linux/arm64
+        # layers via emulation. Native arm64 runners would skip this.
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -61,7 +68,10 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64
+          # Multi-arch manifest. Apple Silicon / ARM Linux hosts pull
+          # the arm64 layer natively; amd64 hosts pull amd64. The
+          # Dockerfile branches on TARGETARCH to compile each binary.
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/${{ github.repository }}:latest

@@ -16,6 +16,10 @@ type TConfig = {
     port: number;
     debug: boolean;
     autoupdate: boolean;
+    debugLogMaxSizeMb: number;
+    debugLogMaxFiles: number;
+    debugLogIncludeBody: boolean;
+    redactExtra: string[];
   };
   http: {
     maxFiles: number;
@@ -44,9 +48,13 @@ type TConfig = {
 
 let config: TConfig = {
   server: {
-    port: 4991,
+    port: 5443,
     debug: IS_DEVELOPMENT ? true : false,
-    autoupdate: false
+    autoupdate: false,
+    debugLogMaxSizeMb: 200,
+    debugLogMaxFiles: 10,
+    debugLogIncludeBody: true,
+    redactExtra: []
   },
   http: {
     maxFiles: 40,
@@ -83,10 +91,6 @@ if (!(await fileExists(CONFIG_INI_PATH))) {
 const text = await fs.readFile(CONFIG_INI_PATH, {
   encoding: 'utf-8'
 });
-
-if (process.env.DEBUG) {
-  config.server.debug = true;
-}
 
 const parsed = parse(text) as Record<string, unknown>;
 
@@ -126,5 +130,43 @@ config.mediasoup.audio.fec = String(config.mediasoup.audio.fec) === 'true';
 config.mediasoup.audio.dtx = String(config.mediasoup.audio.dtx) === 'true';
 config.mediasoup.video.initialAvailableOutgoingBitrate = Number(config.mediasoup.video.initialAvailableOutgoingBitrate);
 config.federation.enabled = String(config.federation.enabled) === 'true';
+
+// Env vars take precedence over the INI file. The INI is operator-
+// persisted runtime state; env vars are explicit overrides applied
+// per-deployment (Docker, .env, CI). Apply them last so they win.
+//
+// DEBUG_LOGGING is the canonical flag; DEBUG is kept as a backward-
+// compat alias so existing .env files keep working.
+if (
+  process.env.DEBUG_LOGGING === 'true' ||
+  process.env.DEBUG === 'true' ||
+  process.env.DEBUG === '1'
+) {
+  config.server.debug = true;
+}
+
+if (process.env.DEBUG_LOG_MAX_SIZE_MB) {
+  const parsedMb = Number(process.env.DEBUG_LOG_MAX_SIZE_MB);
+  if (Number.isFinite(parsedMb) && parsedMb > 0) {
+    config.server.debugLogMaxSizeMb = parsedMb;
+  }
+}
+
+if (process.env.DEBUG_LOG_MAX_FILES) {
+  const parsedFiles = Number(process.env.DEBUG_LOG_MAX_FILES);
+  if (Number.isFinite(parsedFiles) && parsedFiles > 0) {
+    config.server.debugLogMaxFiles = parsedFiles;
+  }
+}
+
+if (process.env.DEBUG_LOG_INCLUDE_BODY === 'false') {
+  config.server.debugLogIncludeBody = false;
+}
+
+if (process.env.REDACT_EXTRA) {
+  config.server.redactExtra = process.env.REDACT_EXTRA.split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 export { config, SERVER_PRIVATE_IP, SERVER_PUBLIC_IP };

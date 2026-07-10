@@ -73,6 +73,7 @@ const createForumPostRoute = protectedProcedure
           parentChannelId: forumChannel.id,
           archived: false,
           autoArchiveDuration: 1440,
+          publicId: randomUUIDv7(),
           createdAt: now
         })
         .returning();

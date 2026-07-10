@@ -4,9 +4,10 @@ import { useVolumeControl } from '@/components/voice-provider/volume-control-con
 import { cn } from '@/lib/utils';
 import type { TExternalStream } from '@pulse/shared';
 import { Headphones, Router, Video, ZoomIn, ZoomOut } from 'lucide-react';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useEffect } from 'react';
 import { CardControls } from './card-controls';
 import { CardGradient } from './card-gradient';
+import { useCardClickFocus } from './hooks/use-card-click-focus';
 import { useScreenShareZoom } from './hooks/use-screen-share-zoom';
 import { useVoiceRefs } from './hooks/use-voice-refs';
 import { PinButton } from './pin-button';
@@ -139,6 +140,36 @@ const ExternalStreamCard = memo(
     const hasVideo = stream.tracks?.video && hasExternalVideoStream;
     const hasAudio = stream.tracks?.audio && hasExternalAudioStream;
 
+    const { handleClickMouseDown, handleClickMouseUp, cancelClick } =
+      useCardClickFocus(isPinned, onPin);
+
+    const handleContainerMouseDown = useCallback(
+      (e: React.MouseEvent) => {
+        if (hasVideo) handleMouseDown(e);
+        handleClickMouseDown(e);
+      },
+      [hasVideo, handleMouseDown, handleClickMouseDown]
+    );
+
+    const handleContainerMouseUp = useCallback(
+      (e: React.MouseEvent) => {
+        if (hasVideo) handleMouseUp();
+        handleClickMouseUp(e);
+      },
+      [hasVideo, handleMouseUp, handleClickMouseUp]
+    );
+
+    const handleContainerMouseLeave = useCallback(() => {
+      if (hasVideo) handleMouseUp();
+      cancelClick();
+    }, [hasVideo, handleMouseUp, cancelClick]);
+
+    // Esc-unpin and auto-unpin bypass handlePinToggle, so reset zoom
+    // whenever the card loses its pin, regardless of how.
+    useEffect(() => {
+      if (!isPinned) resetZoom();
+    }, [isPinned, resetZoom]);
+
     return (
       <div
         ref={containerRef}
@@ -147,15 +178,18 @@ const ExternalStreamCard = memo(
           'flex items-center justify-center',
           'w-full h-full',
           'border border-border',
+          !isPinned &&
+            'cursor-pointer ring-inset hover:ring-2 hover:ring-primary/40 transition-shadow',
           className
         )}
+        title={isPinned ? undefined : 'Click to focus'}
         onWheel={hasVideo ? handleWheel : undefined}
-        onMouseDown={hasVideo ? handleMouseDown : undefined}
+        onMouseDown={handleContainerMouseDown}
         onMouseMove={hasVideo ? handleMouseMove : undefined}
-        onMouseUp={hasVideo ? handleMouseUp : undefined}
-        onMouseLeave={hasVideo ? handleMouseUp : undefined}
+        onMouseUp={handleContainerMouseUp}
+        onMouseLeave={handleContainerMouseLeave}
         style={{
-          cursor: hasVideo ? getCursor() : 'default'
+          cursor: isPinned ? (hasVideo ? getCursor() : 'default') : undefined
         }}
       >
         <CardGradient />

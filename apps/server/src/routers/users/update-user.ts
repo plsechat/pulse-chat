@@ -4,6 +4,7 @@ import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
 import { isDisplayNameTaken } from '../../db/queries/users';
 import { users } from '../../db/schema';
+import { relayUserInfoUpdate } from '../../utils/federation-user-info-dispatch';
 import { protectedProcedure } from '../../utils/trpc';
 
 const updateUserRoute = protectedProcedure
@@ -34,6 +35,16 @@ const updateUserRoute = protectedProcedure
       .returning();
 
     publishUser(updatedUser!.id, 'update');
+
+    // Phase E / E3 — push profile changes to peer instances that
+    // hold a shadow user for this user. Federated viewers see the
+    // updated name / bio / bannerColor in real-time instead of
+    // waiting for the next opportunistic profile pull.
+    relayUserInfoUpdate(ctx.userId, {
+      name: input.name,
+      bannerColor: input.bannerColor,
+      bio: input.bio ?? null
+    });
   });
 
 export { updateUserRoute };

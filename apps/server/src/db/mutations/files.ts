@@ -20,9 +20,17 @@ const removeFile = async (fileId: number): Promise<TFile | undefined> => {
       const filePath = path.join(PUBLIC_PATH, removedFile.name);
 
       await fs.unlink(filePath);
+      logger.debug(
+        '[removeFile] fileId=%d name=%s size=%d',
+        fileId,
+        removedFile.name,
+        removedFile.size
+      );
     } catch (error) {
       logger.error('Error deleting file from disk:', error);
     }
+  } else {
+    logger.debug('[removeFile] no row for fileId=%d', fileId);
   }
 
   return removedFile;

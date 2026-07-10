@@ -9,7 +9,7 @@ import { config } from '../../config';
 import { signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
 import { fetchBoundedImage } from '../../utils/fetch-bounded-image';
-import { validateFederationUrl } from '../../utils/validate-url';
+import { getFederationProtocol, validateFederationUrl } from '../../utils/validate-url';
 import { publishUser } from '../publishers';
 import { files, users } from '../schema';
 
@@ -46,6 +46,12 @@ async function findOrCreateShadowUser(
         updates.updatedAt = Date.now();
         await db.update(users).set(updates).where(eq(users.id, byPublicId.id));
       }
+      logger.debug(
+        '[shadowUser] hit variant=byPublicId instanceId=%d remotePublicId=%s userId=%d',
+        instanceId,
+        remotePublicId.replace(/[\r\n]/g, ''),
+        byPublicId.id
+      );
       return byPublicId;
     }
   }
@@ -75,6 +81,12 @@ async function findOrCreateShadowUser(
       updates.updatedAt = Date.now();
       await db.update(users).set(updates).where(eq(users.id, existing.id));
     }
+    logger.debug(
+      '[shadowUser] hit variant=byUsername instanceId=%d remoteUserId=%s userId=%d',
+      instanceId,
+      remoteUserId,
+      existing.id
+    );
     return existing;
   }
 
@@ -95,7 +107,15 @@ async function findOrCreateShadowUser(
     .onConflictDoNothing()
     .returning();
 
-  if (shadowUser) return shadowUser;
+  if (shadowUser) {
+    logger.debug(
+      '[shadowUser] created variant=byUsername instanceId=%d remoteUserId=%s userId=%d',
+      instanceId,
+      remoteUserId,
+      shadowUser.id
+    );
+    return shadowUser;
+  }
 
   // Conflict: another request already created this user — re-query
   const [raced] = await db
@@ -147,6 +167,12 @@ async function findOrCreateShadowUserByPublicId(
         .set({ name, updatedAt: Date.now() })
         .where(eq(users.id, existing.id));
     }
+    logger.debug(
+      '[shadowUser] hit variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
+      instanceId,
+      remotePublicId.replace(/[\r\n]/g, ''),
+      existing.id
+    );
     return existing;
   }
 
@@ -167,7 +193,15 @@ async function findOrCreateShadowUserByPublicId(
     .onConflictDoNothing()
     .returning();
 
-  if (created) return created;
+  if (created) {
+    logger.debug(
+      '[shadowUser] created variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
+      instanceId,
+      remotePublicId.replace(/[\r\n]/g, ''),
+      created.id
+    );
+    return created;
+  }
 
   // Race: another concurrent caller inserted the same shadow first.
   const [raced] = await db
@@ -296,7 +330,7 @@ async function downloadFederatedFile(
   } catch (err) {
     logger.warn(
       '[downloadFederatedFile] failed for url=%s: %o',
-      remoteUrl,
+      remoteUrl.replace(/[\r\n]/g, ''),
       err
     );
     return null;
@@ -320,37 +354,70 @@ async function downloadFederatedFile(
     })
     .returning();
 
-  if (!fileRecord) return null;
+  if (!fileRecord) {
+    logger.debug('[downloadFederatedFile] insert returned no row prefix=%s', prefix);
+    return null;
+  }
+  logger.debug(
+    '[downloadFederatedFile] saved prefix=%s userId=%d fileId=%d size=%d',
+    prefix,
+    userId,
+    fileRecord.id,
+    sniffed.bytes.byteLength
+  );
   return { fileId: fileRecord.id, fileName };
 }
 
 async function syncShadowUserProfile(
   shadowUserId: number,
   issuerDomain: string,
-  publicId: string
+  publicId: string,
+  opts?: { force?: boolean }
 ): Promise<void> {
   try {
-    // Debounce: skip if recently synced
+    // Debounce: skip if recently synced — unless `force` is set,
+    // which the user-info-update push path uses to bypass debounce
+    // when the home instance has explicitly told us a profile field
+    // changed.
     const [shadow] = await db
       .select({
         avatarId: users.avatarId,
         bannerId: users.bannerId,
         bio: users.bio,
         bannerColor: users.bannerColor,
+        customStatus: users.customStatus,
         updatedAt: users.updatedAt
       })
       .from(users)
       .where(eq(users.id, shadowUserId))
       .limit(1);
 
-    if (!shadow) return;
-
-    if (shadow.updatedAt && Date.now() - shadow.updatedAt < PROFILE_SYNC_DEBOUNCE_MS) {
+    if (!shadow) {
+      logger.debug('[shadowProfile] skipped (no shadow row) userId=%d', shadowUserId);
       return;
     }
 
+    if (
+      !opts?.force &&
+      shadow.updatedAt &&
+      Date.now() - shadow.updatedAt < PROFILE_SYNC_DEBOUNCE_MS
+    ) {
+      logger.debug(
+        '[shadowProfile] debounced userId=%d sinceMs=%d',
+        shadowUserId,
+        Date.now() - shadow.updatedAt
+      );
+      return;
+    }
+    logger.debug(
+      '[shadowProfile] syncing userId=%d issuer=%s force=%s',
+      shadowUserId,
+      issuerDomain.replace(/[\r\n]/g, ''),
+      opts?.force ?? false
+    );
+
     // Fetch profile from home instance
-    const protocol = issuerDomain.includes('localhost') ? 'http' : 'https';
+    const protocol = getFederationProtocol(issuerDomain);
     const bodyToSign = {
       publicId,
       fromDomain: config.federation.domain
@@ -376,6 +443,7 @@ async function syncShadowUserProfile(
       name: string;
       bio: string | null;
       bannerColor: string | null;
+      customStatus?: string | null;
       avatar: { name: string } | null;
       banner: { name: string } | null;
       createdAt: number;
@@ -427,20 +495,37 @@ async function syncShadowUserProfile(
       }
     }
 
-    // Sync bio and bannerColor
+    // Sync bio, bannerColor, and custom status
     if (profile.bio !== shadow.bio) {
       updates.bio = profile.bio;
     }
     if (profile.bannerColor !== shadow.bannerColor) {
       updates.bannerColor = profile.bannerColor;
     }
+    // Optional — older peers don't send it; bound like the push path.
+    if (
+      profile.customStatus !== undefined &&
+      profile.customStatus !== shadow.customStatus
+    ) {
+      updates.customStatus =
+        profile.customStatus === null
+          ? null
+          : String(profile.customStatus).slice(0, 128);
+    }
 
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = Date.now();
       await db.update(users).set(updates).where(eq(users.id, shadowUserId));
+      logger.debug(
+        '[shadowProfile] applied userId=%d fields=%o',
+        shadowUserId,
+        Object.keys(updates).filter((k) => k !== 'updatedAt')
+      );
 
       // Notify connected clients about the profile change
       publishUser(shadowUserId, 'update');
+    } else {
+      logger.debug('[shadowProfile] no-op userId=%d (no changed fields)', shadowUserId);
     }
   } catch (err) {
     logger.error('[syncShadowUserProfile] failed for user %d: %o', shadowUserId, err);

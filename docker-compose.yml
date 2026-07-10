@@ -4,19 +4,91 @@ services:
     restart: unless-stopped
     container_name: pulse
     network_mode: host
+    depends_on:
+      # Wait for the bundled Postgres to be healthy before starting, so a
+      # fresh `up` doesn't crash on ECONNREFUSED. `required: false` means
+      # this is a no-op when the `local` profile is off (external / managed
+      # Postgres) and the db service isn't started.
+      db:
+        condition: service_healthy
+        required: false
+    # Load the whole .env into the container so any documented variable takes
+    # effect without also having to be listed below. The explicit environment
+    # block still wins for the vars that need a default or interpolation.
+    env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres.${TENANT_ID}:${POSTGRES_PASSWORD}@${DATABASE_IP}:5432/postgres
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Auth backend selection. Leave empty to let Pulse infer from
+      # the SUPABASE_* vars below — when SUPABASE_URL +
+      # SUPABASE_SERVICE_ROLE_KEY are set, Pulse picks `supabase`;
+      # otherwise it picks `local`. Force one explicitly by setting
+      # `AUTH_BACKEND=local` or `AUTH_BACKEND=supabase` in your .env.
+      # Important: don't default to `local` here — that would silently
+      # override existing Supabase deployments after they pull the
+      # latest compose file.
+      AUTH_BACKEND: ${AUTH_BACKEND:-}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      # Default targets 127.0.0.1 because pulse and db both run with
+      # `network_mode: host` — docker DNS names don't resolve under
+      # host networking. Password is sourced from POSTGRES_PASSWORD so
+      # operators don't have to set the password in two places.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@127.0.0.1:5432/postgres}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       RUNNING_IN_DOCKER: "true"
       GOOGLE_OAUTH_ENABLED: ${GOOGLE_OAUTH_ENABLED:-false}
       DISCORD_OAUTH_ENABLED: ${DISCORD_OAUTH_ENABLED:-false}
       FACEBOOK_OAUTH_ENABLED: ${FACEBOOK_OAUTH_ENABLED:-false}
       TWITCH_OAUTH_ENABLED: ${TWITCH_OAUTH_ENABLED:-false}
-      PUBLIC_IP: ${PUBLIC_IP}
+      # Native OIDC (Authentik / Keycloak / Zitadel / Auth0 / any OIDC IdP).
+      # PULSE runs the flow itself (works with either auth backend). Register
+      # <your-pulse-url>/auth/oidc/callback as a redirect URI in your IdP.
+      # Requires AUTH_SECRET to sign the session token.
+      OIDC_OAUTH_ENABLED: ${OIDC_OAUTH_ENABLED:-false}
+      OIDC_LABEL: ${OIDC_LABEL:-Single Sign-On}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_SECRET: ${OIDC_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      PUBLIC_IP: ${PUBLIC_IP:-}
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
+      # Per-method signup switches (default enabled). Set to "false" in .env
+      # to disable that method — e.g. OIDC-only = password + social false.
+      REGISTRATION_PASSWORD_ENABLED: ${REGISTRATION_PASSWORD_ENABLED:-}
+      REGISTRATION_OIDC_ENABLED: ${REGISTRATION_OIDC_ENABLED:-}
+      REGISTRATION_SOCIAL_ENABLED: ${REGISTRATION_SOCIAL_ENABLED:-}
+      FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      DEBUG_LOGGING: ${DEBUG_LOGGING:-}
+      DEBUG_LOG_MAX_SIZE_MB: ${DEBUG_LOG_MAX_SIZE_MB:-}
+      DEBUG_LOG_MAX_FILES: ${DEBUG_LOG_MAX_FILES:-}
       TRUST_PROXY: "true"
     volumes:
       - ./data/pulse:/root/.config/pulse
+
+  # Bundled Postgres for local-mode installs that don't have an external
+  # database. Opt in with the `local` profile:
+  #
+  #   docker compose --profile local up
+  #
+  # Or set `COMPOSE_PROFILES=local` in .env. In supabase mode (using a
+  # managed Postgres elsewhere) leave the profile off — this service
+  # won't start.
+  db:
+    image: postgres:16-alpine
+    profiles: [local]
+    restart: unless-stopped
+    container_name: pulse-db
+    network_mode: host
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data

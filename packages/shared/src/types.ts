@@ -43,7 +43,12 @@ export type TPublicServerSettings = Pick<
   | "storageSpaceQuotaByUser"
   | "storageOverflowAction"
   | "enablePlugins"
->;
+> & {
+  /** Current server logo, so clients can live-update the server rail on
+   *  SERVER_SETTINGS_UPDATE without a refetch. Optional — older servers
+   *  don't send it. */
+  logo?: TFile | null;
+};
 
 export type TGenericObject = {
   [key: string]: any;
@@ -100,6 +105,26 @@ export type TTempFile = {
   encrypted?: boolean;
 };
 
+/**
+ * An auth provider offered on the login screen.
+ *
+ * `kind` decides how the client starts the flow:
+ *   - 'supabase' (default): `name` is handed to Supabase's
+ *     `signInWithOAuth` (e.g. 'google', 'discord'). Requires the
+ *     supabase auth backend.
+ *   - 'oidc': PULSE performs the OpenID Connect flow itself. The client
+ *     does a full-page redirect to `${server}/auth/oidc/start`; `name`
+ *     is 'oidc'. Works with any standards-compliant IdP (Authentik,
+ *     Keycloak, Zitadel, …) and with either auth backend.
+ *
+ * `label` is the button text.
+ */
+export type TAuthProvider = {
+  name: string;
+  label: string;
+  kind?: 'supabase' | 'oidc';
+};
+
 export type TServerInfo = Pick<
   TSettings,
   "serverId" | "name" | "description" | "allowNewUsers"
@@ -108,7 +133,11 @@ export type TServerInfo = Pick<
   logo: TFile | null;
   version: string;
   registrationDisabled?: boolean;
-  enabledAuthProviders?: string[];
+  /** Whether email/password self-registration is enabled. When false, the
+   * client hides the Create Account form (unless an invite link is present).
+   * Absent = enabled (backwards compat with older servers). */
+  passwordRegistrationEnabled?: boolean;
+  enabledAuthProviders?: TAuthProvider[];
   supabaseUrl: string;
   supabaseAnonKey: string;
   giphyApiKey?: string;

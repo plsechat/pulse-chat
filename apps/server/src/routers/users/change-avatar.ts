@@ -5,6 +5,7 @@ import { removeFile } from '../../db/mutations/files';
 import { publishUser } from '../../db/publishers';
 import { getUserById } from '../../db/queries/users';
 import { users } from '../../db/schema';
+import { relayUserInfoUpdate } from '../../utils/federation-user-info-dispatch';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -56,6 +57,14 @@ const changeAvatarRoute = protectedProcedure
     }
 
     publishUser(ctx.userId, 'update');
+
+    // Phase E / E3 — tell peer instances to refresh this user's
+    // shadow profile. The new avatar file content can't be sent
+    // inline through the dispatch (would bloat federation traffic);
+    // instead `triggerProfileSync` makes the receiver re-pull via
+    // the existing /federation/user-info GET path, which already
+    // handles avatar download via the federated-file pipeline.
+    relayUserInfoUpdate(ctx.userId, { triggerProfileSync: true });
   });
 
 export { changeAvatarRoute };

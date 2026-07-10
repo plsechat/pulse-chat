@@ -193,6 +193,7 @@ const channels = pgTable(
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
     e2ee: boolean('e2ee').notNull().default(false),
+    publicId: text('public_id').notNull().unique(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -202,7 +203,8 @@ const channels = pgTable(
     index('channels_type_idx').on(t.type),
     index('channels_category_position_idx').on(t.categoryId, t.position),
     index('channels_server_idx').on(t.serverId),
-    index('channels_parent_idx').on(t.parentChannelId)
+    index('channels_parent_idx').on(t.parentChannelId),
+    uniqueIndex('channels_public_id_idx').on(t.publicId)
   ]
 );
 
@@ -219,6 +221,9 @@ const users = pgTable(
       onDelete: 'set null'
     }),
     bio: text('bio'),
+    // Short user-set presence line ("🎧 working late"). Persisted like bio
+    // (survives reconnects), unlike the runtime-only ONLINE/IDLE/DND status.
+    customStatus: text('custom_status'),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
@@ -229,7 +234,7 @@ const users = pgTable(
     isFederated: boolean('is_federated').notNull().default(false),
     federatedInstanceId: integer('federated_instance_id'),
     federatedUsername: text('federated_username'),
-    publicId: text('public_id').unique(),
+    publicId: text('public_id').notNull().unique(),
     federatedPublicId: text('federated_public_id'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
@@ -1073,7 +1078,19 @@ const e2eeSenderKeys = pgTable(
     index('e2ee_sender_keys_channel_idx').on(t.channelId),
     index('e2ee_sender_keys_from_idx').on(t.fromUserId),
     index('e2ee_sender_keys_to_idx').on(t.toUserId),
-    index('e2ee_sender_keys_channel_to_idx').on(t.channelId, t.toUserId)
+    index('e2ee_sender_keys_channel_to_idx').on(t.channelId, t.toUserId),
+    // (channel, from, to, senderKeyId) is the natural unique tuple
+    // for an SKDM row — same chain to the same recipient should
+    // only ever be stored once. Lets distributeSenderKeysBatch use
+    // ON CONFLICT DO NOTHING so duplicate calls (from concurrent
+    // client effects) become idempotent. Added after duplicate
+    // dispatches were observed in chat2 logs.
+    uniqueIndex('e2ee_sender_keys_unique_idx').on(
+      t.channelId,
+      t.fromUserId,
+      t.toUserId,
+      t.senderKeyId
+    )
   ]
 );
 
@@ -1112,6 +1129,30 @@ const dmE2eeSenderKeys = pgTable(
   ]
 );
 
+/**
+ * Local-auth users — populated only when AUTH_BACKEND=local. The id
+ * column holds the value that gets placed on `users.supabaseId` when
+ * the registerUser flow runs, so the rest of the codebase doesn't
+ * have to learn that "supabaseId" can also be a local-issued UUID.
+ *
+ * In Supabase mode this table stays empty; the column on `users`
+ * still references real Supabase Auth ids.
+ */
+const localAuthUsers = pgTable(
+  'local_auth_users',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    // jsonb storing AuthIdentity[] — `[{provider:'email'}]` always
+    // for v1; OAuth in local mode is a follow-up.
+    identities: text('identities').notNull().default('[{"provider":"email"}]'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' })
+  },
+  (t) => [uniqueIndex('local_auth_users_email_idx').on(t.email)]
+);
+
 export {
   activityLog,
   automodRules,
@@ -1139,6 +1180,7 @@ export {
   friendRequests,
   friendships,
   invites,
+  localAuthUsers,
   logins,
   messageFiles,
   messageReactions,

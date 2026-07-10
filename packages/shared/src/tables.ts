@@ -140,6 +140,7 @@ type TPublicUser = Pick<
   | "publicId"
   | "bannerColor"
   | "bio"
+  | "customStatus"
   | "avatar"
   | "avatarId"
   | "banner"

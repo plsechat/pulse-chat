@@ -203,8 +203,11 @@ const getVersionInfo = async (
 
 const rmIfExists = async (filePath: string) => {
   try {
-    await fs.access(filePath);
-    await fs.rm(filePath);
+    // recursive + force so this works for both files and non-empty
+    // directories. Without recursive, fs.rm threw EISDIR on the
+    // outPath (build/out/) and the catch swallowed it — leaving stale
+    // artifacts from a previous build alongside fresh ones.
+    await fs.rm(filePath, { recursive: true, force: true });
   } catch {
     // ignore
   }

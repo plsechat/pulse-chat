@@ -23,6 +23,7 @@ async function createForumChannel(serverId = 1) {
       position: 10,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
       serverId,
       createdAt: Date.now()
     })
@@ -48,6 +49,7 @@ async function createForumPost(
       position: 0,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: now,
+      publicId: randomUUIDv7(),
       serverId,
       parentChannelId,
       createdAt: now
@@ -349,6 +351,7 @@ describe('mention parsing in forum posts', () => {
         position: 0,
         fileAccessToken: randomUUIDv7(),
         fileAccessTokenUpdatedAt: now,
+        publicId: randomUUIDv7(),
         serverId: 1,
         parentChannelId: forum.id,
         createdAt: now

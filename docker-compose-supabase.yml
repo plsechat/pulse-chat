@@ -53,6 +53,14 @@ services:
       GOTRUE_EXTERNAL_TWITCH_CLIENT_ID: ${TWITCH_OAUTH_CLIENT_ID:-}
       GOTRUE_EXTERNAL_TWITCH_SECRET: ${TWITCH_OAUTH_SECRET:-}
       GOTRUE_EXTERNAL_TWITCH_REDIRECT_URI: ${SITE_URL}/auth/v1/callback
+      # Generic OIDC (Authentik / Keycloak / Zitadel / Auth0 / …) fronted
+      # by GoTrue's generic-OIDC "keycloak" slot. OIDC_ISSUER is the
+      # provider's issuer URL; GoTrue does OIDC discovery against it.
+      GOTRUE_EXTERNAL_KEYCLOAK_ENABLED: ${OIDC_OAUTH_ENABLED:-false}
+      GOTRUE_EXTERNAL_KEYCLOAK_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_KEYCLOAK_SECRET: ${OIDC_SECRET:-}
+      GOTRUE_EXTERNAL_KEYCLOAK_URL: ${OIDC_ISSUER:-}
+      GOTRUE_EXTERNAL_KEYCLOAK_REDIRECT_URI: ${SITE_URL}/auth/v1/callback
       API_EXTERNAL_URL: ${SITE_URL}
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1"]
@@ -92,22 +100,35 @@ services:
       kong:
         condition: service_healthy
     ports:
-      - "${PULSE_PORT:-4991}:4991"
+      - "${PULSE_PORT:-5443}:5443"
       - "40000-40020:40000-40020/udp"
     env_file: .env
     environment:
       RUNNING_IN_DOCKER: "true"
+      # Explicitly select the supabase backend. Pulse would also infer
+      # this from SUPABASE_URL being set, but pinning it is clearer.
+      AUTH_BACKEND: supabase
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       SUPABASE_URL: http://kong:8000
       SUPABASE_PUBLIC_URL: ${SITE_URL}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
+      FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
       PUBLIC_IP: ${PUBLIC_IP}
+      # Native OIDC (Authentik / Keycloak / Zitadel / Auth0 / any OIDC IdP).
+      # PULSE runs the flow itself — no GoTrue provider needed. Register
+      # ${SITE_URL}/auth/oidc/callback as a redirect URI in your IdP.
+      # Requires AUTH_SECRET (set above) to sign the session token.
+      OIDC_OAUTH_ENABLED: ${OIDC_OAUTH_ENABLED:-false}
+      OIDC_LABEL: ${OIDC_LABEL:-Single Sign-On}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_SECRET: ${OIDC_SECRET:-}
     volumes:
       - ./data/pulse:/root/.config/pulse
     healthcheck:
-      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:4991/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:5443/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 12

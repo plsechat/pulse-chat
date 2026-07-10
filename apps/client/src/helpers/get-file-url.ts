@@ -2,7 +2,7 @@ import type { TFileRef } from '@pulse/shared';
 
 const getHostFromServer = () => {
   if (import.meta.env.MODE === 'development') {
-    return 'localhost:4991';
+    return 'localhost:5443';
   }
 
   return window.location.host;
@@ -10,7 +10,7 @@ const getHostFromServer = () => {
 
 const getUrlFromServer = () => {
   if (import.meta.env.MODE === 'development') {
-    return 'http://localhost:4991';
+    return 'http://localhost:5443';
   }
 
   const host = window.location.host;

@@ -104,19 +104,37 @@ async function reserveOtpKeyIdRange(
 }
 
 // --- Channel Member Cache ---
-// Cache of channel → member IDs, fetched from the server's getVisibleUsers route.
-// This ensures we only distribute sender keys to users who can actually view the channel.
-const channelMemberCache = new Map<number, number[]>();
+// Cache of channel → member descriptors fetched from the active
+// server's getVisibleUserDescriptors route. Each descriptor carries
+// the federation-aware fields needed to address recipients across
+// instances:
+//   - id              local id ON THE ACTIVE SERVER (host's view)
+//   - name            display name on host
+//   - publicId        stable cross-instance identifier
+//   - instanceDomain  user's home — used to route the SKDM
+//                     dispatch and resolve to a home-local id for
+//                     the Signal session
+type ChannelMemberDescriptor = {
+  id: number;
+  name: string;
+  publicId: string;
+  instanceDomain: string;
+};
+const channelMemberCache = new Map<number, ChannelMemberDescriptor[]>();
 
-async function getChannelMemberIds(channelId: number): Promise<number[]> {
+async function getChannelMemberDescriptors(
+  channelId: number
+): Promise<ChannelMemberDescriptor[]> {
   const cached = channelMemberCache.get(channelId);
   if (cached) return cached;
 
   const trpc = getTRPCClient();
   if (!trpc) return [];
-  const memberIds = await trpc.channels.getVisibleUsers.query({ channelId });
-  channelMemberCache.set(channelId, memberIds);
-  return memberIds;
+  const descriptors = await trpc.channels.getVisibleUserDescriptors.query({
+    channelId
+  });
+  channelMemberCache.set(channelId, descriptors);
+  return descriptors;
 }
 
 export function invalidateChannelMembers(channelId?: number): void {
@@ -473,7 +491,18 @@ async function isUserFederated(userId: number): Promise<boolean> {
  * D3's identity-rotation broadcast handles cross-instance rotation;
  * stale federated sessions surface the identity-changed modal on
  * the next decrypt attempt.
+ *
+ * Concurrent calls for the same (userId, store) collapse onto a
+ * single in-flight promise via `inflightSessions`. Without this,
+ * three parallel callers (e.g. ensureChannelSenderKey looping over
+ * members while a DM send is in flight against the same recipient)
+ * each saw `hasSession === false`, each fetched a fresh prekey
+ * bundle, and each consumed a one-time prekey from the recipient's
+ * server-side OTP pool. Dedupe keeps the OTP burn at one per
+ * "first session" event, not one per concurrent caller.
  */
+const inflightSessions = new Map<string, Promise<void>>();
+
 async function ensureSession(
   userId: number,
   opts?: {
@@ -486,6 +515,55 @@ async function ensureSession(
   const trpc = opts?.trpc ?? getHomeTRPCClient();
   if (!trpc) throw new Error('Not connected');
 
+  // Cache key combines userId with the store identity. Different
+  // stores legitimately need separate sessions for the same userId
+  // (Phase B/C per-instance scoping); same store + same userId
+  // dedupes.
+  const storeKey = storeIdentity(s);
+  const cacheKey = `${userId}::${storeKey}::${opts?.verifyIdentity ? '1' : '0'}`;
+  const existing = inflightSessions.get(cacheKey);
+  // TEMP diag — vite strips console.* in production via esbuild.drop,
+  // so stash the trace on `window` directly. Inspect with
+  // `window.__pulseE2eeDiag` in the browser console. Remove once
+  // the multi-prekey-bundle bug is root-caused.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const diagWin = window as any;
+  if (!diagWin.__pulseE2eeDiag) diagWin.__pulseE2eeDiag = [];
+  diagWin.__pulseE2eeDiag.push({
+    t: Date.now(),
+    userId,
+    cacheKey,
+    mapSize: inflightSessions.size,
+    hadExisting: !!existing
+  });
+  if (existing) return existing;
+
+  const promise = doEnsureSession(userId, s, trpc, opts).finally(() => {
+    inflightSessions.delete(cacheKey);
+  });
+  inflightSessions.set(cacheKey, promise);
+  return promise;
+}
+
+const storeIds = new WeakMap<SignalProtocolStore, string>();
+let storeIdCounter = 0;
+function storeIdentity(s: SignalProtocolStore): string {
+  let id = storeIds.get(s);
+  if (!id) {
+    id = `s${++storeIdCounter}`;
+    storeIds.set(s, id);
+  }
+  return id;
+}
+
+async function doEnsureSession(
+  userId: number,
+  s: SignalProtocolStore,
+  trpc: NonNullable<ReturnType<typeof getHomeTRPCClient>>,
+  opts?: {
+    verifyIdentity?: boolean;
+  }
+): Promise<void> {
   const federated = await isUserFederated(userId);
 
   if (await hasSession(userId, s)) {
@@ -708,11 +786,57 @@ async function distributeChainToMembers(args: {
  * lazy-rotation marker, set on kick/leave), rotates first, clearing
  * the marker.
  *
- * Member list comes from the server (`channels.getVisibleUsers`),
- * which respects channel-level permissions — kicked/private-denied
- * users naturally drop off and don't get the new SKDM.
+ * Member list comes from the active server's
+ * `channels.getVisibleUserDescriptors` route — which respects channel-
+ * level permissions. The descriptors carry publicId + instanceDomain
+ * so federated members on other instances can be addressed across
+ * the wire (Phase E / E1).
+ *
+ * Pairwise SKDM sessions and sender chains live in the active-instance
+ * store (Phase B/C scoping). For each member we resolve the
+ * descriptor through the *home* tRPC to a home-local userId — for
+ * local-only channels viewed from home, that's the same id the
+ * descriptor already carries; for federated members, it's the
+ * shadow user on home (created on demand). The home-resolved id
+ * is the libsignal address; this is what makes the same federated
+ * peer's session reusable across channels and DMs.
+ *
+ * Concurrent calls for the same channelId collapse onto one in-
+ * flight promise via `inflightChannelSenderKey`. Without this,
+ * components that re-render on channel-click (sidebar list, message
+ * pane, header) each fired their own ensureChannelSenderKey,
+ * producing duplicate distributeSenderKeysBatch mutations within
+ * milliseconds — observed as 2× duplicate inserts in the chat2 logs.
  */
+const inflightChannelSenderKey = new Map<number, Promise<void>>();
+
 export async function ensureChannelSenderKey(
+  channelId: number,
+  ownUserId: number,
+  opts?: {
+    store?: SignalProtocolStore;
+    trpc?: ReturnType<typeof getTRPCClient>;
+  }
+): Promise<void> {
+  // Dedupe across opts because a duplicate caller on the same
+  // channel almost always wants the same effect; the rare
+  // custom-store / custom-trpc caller can wait for the in-flight
+  // pass and then start its own if it really needs separate side
+  // effects (in practice it's the per-channel sidebar / view, all
+  // using defaults).
+  const existing = inflightChannelSenderKey.get(channelId);
+  if (existing) return existing;
+
+  const promise = doEnsureChannelSenderKey(channelId, ownUserId, opts).finally(
+    () => {
+      inflightChannelSenderKey.delete(channelId);
+    }
+  );
+  inflightChannelSenderKey.set(channelId, promise);
+  return promise;
+}
+
+async function doEnsureChannelSenderKey(
   channelId: number,
   ownUserId: number,
   opts?: {
@@ -722,8 +846,9 @@ export async function ensureChannelSenderKey(
 ): Promise<void> {
   if (!(await hasKeys(opts?.store))) return;
   const store = opts?.store ?? getActiveStore();
-  const trpc = opts?.trpc ?? getTRPCClient();
-  if (!trpc) return;
+  const activeTrpc = opts?.trpc ?? getTRPCClient();
+  const homeTrpc = getHomeTRPCClient();
+  if (!activeTrpc || !homeTrpc) return;
 
   // Lazy rotation. A marker set by the kick/leave subscription
   // handlers means our current chain leaks to a now-removed member.
@@ -741,22 +866,108 @@ export async function ensureChannelSenderKey(
     chain = await getOrCreateOutboundChannelChain(channelId, ownUserId, store);
   }
 
-  await distributeChainToMembers({
-    kind: KIND_CHANNEL,
-    scopeId: channelId,
-    ownUserId,
-    store,
-    trpc,
-    distribution: chain.buildDistribution(),
-    getMembers: () => getChannelMemberIds(channelId),
-    send: async (distributions) => {
-      await trpc.e2ee.distributeSenderKeysBatch.mutate({
-        channelId,
-        senderKeyId: chain.state.senderKeyId,
-        distributions
+  const descriptors = await getChannelMemberDescriptors(channelId);
+  const distribution = chain.buildDistribution();
+  const distributedSet = new Set(
+    await store.getChainDistribution(
+      KIND_CHANNEL,
+      channelId,
+      distribution.senderKeyId
+    )
+  );
+
+  // Resolve every descriptor (except self) to a home-local userId.
+  // For local-only channels viewed from home, the resolution returns
+  // the same id the descriptor carries (the active server == home).
+  // For federated members, resolveByDescriptor finds-or-creates the
+  // shadow user on home so we have a stable libsignal address.
+  type ResolvedTarget = ChannelMemberDescriptor & { homeUserId: number };
+  const resolved: ResolvedTarget[] = [];
+  for (const d of descriptors) {
+    // The descriptor.id is the active-server-local id, which equals
+    // ownUserId only when active server == home. Skip self by
+    // publicId for federated viewing too — safer.
+    try {
+      const result = await homeTrpc.users.resolveByDescriptor.mutate({
+        publicId: d.publicId,
+        instanceDomain: d.instanceDomain,
+        name: d.name
       });
+      if (result.id === null) continue;
+      if (result.id === ownUserId) continue;
+      if (distributedSet.has(result.id)) continue;
+      resolved.push({ ...d, homeUserId: result.id });
+    } catch (err) {
+      console.warn('[E2EE] resolveByDescriptor failed:', err);
     }
-  });
+  }
+  if (resolved.length === 0) return;
+
+  // Each SKDM is encrypted to a recipient via X3DH. Concurrency-
+  // bounded for memory; round-trips pipeline on slow networks.
+  const skdmPlaintext = JSON.stringify(distribution);
+  const CONCURRENCY = 10;
+  type WirePacket = {
+    toPublicId: string;
+    toInstanceDomain: string;
+    distributionMessage: string;
+    homeUserId: number;
+  };
+  const wirePackets: WirePacket[] = [];
+
+  for (let i = 0; i < resolved.length; i += CONCURRENCY) {
+    const chunk = resolved.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(async (target) => {
+        await ensureSession(target.homeUserId, {
+          store,
+          trpc: homeTrpc,
+          verifyIdentity: true
+        });
+        const encrypted = await encryptMessage(
+          target.homeUserId,
+          skdmPlaintext,
+          store
+        );
+        return {
+          toPublicId: target.publicId,
+          toInstanceDomain: target.instanceDomain,
+          distributionMessage: encrypted,
+          homeUserId: target.homeUserId
+        };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        wirePackets.push(r.value);
+      } else {
+        console.warn('[E2EE] Failed to encrypt SKDM:', r.reason);
+      }
+    }
+  }
+
+  if (wirePackets.length === 0) return;
+
+  try {
+    await activeTrpc.e2ee.distributeSenderKeysBatch.mutate({
+      channelId,
+      senderKeyId: chain.state.senderKeyId,
+      distributions: wirePackets.map((p) => ({
+        toPublicId: p.toPublicId,
+        toInstanceDomain: p.toInstanceDomain,
+        distributionMessage: p.distributionMessage
+      }))
+    });
+    for (const p of wirePackets) distributedSet.add(p.homeUserId);
+    await store.setChainDistribution(
+      KIND_CHANNEL,
+      channelId,
+      distribution.senderKeyId,
+      [...distributedSet]
+    );
+  } catch (err) {
+    console.warn('[E2EE] Distribute mutation failed:', err);
+  }
 }
 
 /**
@@ -819,6 +1030,83 @@ export async function processIncomingSenderKey(
   retryFailedChannelDecrypts(channelId, fromUserId).catch((err) => {
     console.warn('[E2EE] Channel retry-decrypt loop errored:', err);
   });
+}
+
+/**
+ * Phase E / E1f — process a federated channel SKDM.
+ *
+ * Receiver flow: the sender's instance pubsub'd
+ * E2EE_FEDERATED_SENDER_KEY_AVAILABLE on our home WS. Our handler
+ * pulls the SKDM rows from the host (where they live) and routes
+ * each to this function:
+ *
+ *   1. Decrypt the SKDM ciphertext using *home* signal store with
+ *      the sender's home-resolved id. The ciphertext was encrypted
+ *      via X3DH against keys we published on home — host store
+ *      doesn't have our private prekeys.
+ *   2. Store the resulting chain key in the host's *instance* store
+ *      keyed by host-local (channelId, fromUserId), so the existing
+ *      channel-message decrypt path (which runs in the active store
+ *      of whatever instance the user is currently viewing) finds it
+ *      when a channel message arrives.
+ *
+ * `fromHomePublicId` + `fromInstanceDomain` come from the enriched
+ * `e2ee.getPendingSenderKeys` row. For federated senders,
+ * fromInstanceDomain is the sender's home; for local-on-host senders
+ * it's null (means "this host" — collapses to hostDomain).
+ */
+export async function processIncomingFederatedSenderKey(args: {
+  hostDomain: string;
+  hostChannelId: number;
+  hostFromUserId: number;
+  fromHomePublicId: string;
+  fromInstanceDomain: string | null;
+  distributionMessage: string;
+}): Promise<void> {
+  const homeTrpc = getHomeTRPCClient();
+  if (!homeTrpc) return;
+
+  const senderInstanceDomain =
+    args.fromInstanceDomain ?? args.hostDomain;
+
+  const result = await homeTrpc.users.resolveByDescriptor.mutate({
+    publicId: args.fromHomePublicId,
+    instanceDomain: senderInstanceDomain
+  });
+  if (result.id === null) {
+    console.warn(
+      '[E2EE] could not resolve federated SKDM sender on home',
+      args.fromHomePublicId
+    );
+    return;
+  }
+  const homeSenderUserId = result.id;
+
+  // Decrypt with home store at the home-resolved sender address.
+  const decryptedJson = await decryptMessage(
+    homeSenderUserId,
+    args.distributionMessage,
+    signalStore
+  );
+  const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
+
+  // Store chain key in the host's per-instance store keyed by host-
+  // local ids — so when a channel message from this sender arrives
+  // while the user is viewing the host, the active-store decrypt
+  // path finds the chain.
+  const hostStore = getStoreForInstance(args.hostDomain);
+  await acceptInboundChannelChain(
+    args.hostChannelId,
+    args.hostFromUserId,
+    distribution,
+    hostStore
+  );
+
+  retryFailedChannelDecrypts(args.hostChannelId, args.hostFromUserId).catch(
+    (err) => {
+      console.warn('[E2EE] Channel retry-decrypt loop errored:', err);
+    }
+  );
 }
 
 /**

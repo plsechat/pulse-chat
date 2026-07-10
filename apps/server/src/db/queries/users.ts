@@ -8,7 +8,8 @@ import {
 import { count, eq, inArray, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
-import { supabaseAdmin } from '../../utils/supabase';
+import { authBackend } from '../../utils/auth';
+import { looksLikeOidcSession, verifySessionToken } from '../../utils/oidc';
 import { federationInstances, files, roles, serverMembers, userRoles, users } from '../schema';
 
 const slimFile = (file: TFile | null): TFileRef | null =>
@@ -27,6 +28,7 @@ const getPublicUserById = async (
       publicId: users.publicId,
       bannerColor: users.bannerColor,
       bio: users.bio,
+      customStatus: users.customStatus,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -68,6 +70,7 @@ const getPublicUserById = async (
     publicId: results.publicId,
     bannerColor: results.bannerColor,
     bio: results.bio,
+    customStatus: results.customStatus,
     avatarId: results.avatarId,
     bannerId: results.bannerId,
     avatar: slimFile(results.avatar),
@@ -95,6 +98,7 @@ const getPublicUsersByIds = async (
       publicId: users.publicId,
       bannerColor: users.bannerColor,
       bio: users.bio,
+      customStatus: users.customStatus,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -156,6 +160,7 @@ const getPublicUsersByIds = async (
       publicId: row.publicId,
       bannerColor: row.bannerColor,
       bio: row.bio,
+      customStatus: row.customStatus,
       avatarId: row.avatarId,
       bannerId: row.bannerId,
       avatar: slimFile(row.avatar),
@@ -184,6 +189,7 @@ const getPublicUsers = async (
         publicId: users.publicId,
         bannerColor: users.bannerColor,
         bio: users.bio,
+      customStatus: users.customStatus,
         banned: users.banned,
         avatarId: users.avatarId,
         bannerId: users.bannerId,
@@ -248,6 +254,7 @@ const getPublicUsers = async (
         publicId: result.publicId,
         bannerColor: result.bannerColor,
         bio: result.bio,
+      customStatus: result.customStatus,
         banned: result.banned,
         avatarId: result.avatarId,
         bannerId: result.bannerId,
@@ -267,6 +274,7 @@ const getPublicUsers = async (
         banned: users.banned,
         bannerColor: users.bannerColor,
         bio: users.bio,
+      customStatus: users.customStatus,
         avatarId: users.avatarId,
         bannerId: users.bannerId,
         avatar: avatarFiles,
@@ -301,6 +309,7 @@ const getPublicUsers = async (
       banned: result.banned,
       bannerColor: result.bannerColor,
       bio: result.bio,
+      customStatus: result.customStatus,
       avatarId: result.avatarId,
       bannerId: result.bannerId,
       avatar: slimFile(result.avatar),
@@ -344,6 +353,7 @@ const getUserById = async (
       avatarId: users.avatarId,
       bannerId: users.bannerId,
       bio: users.bio,
+      customStatus: users.customStatus,
       bannerColor: users.bannerColor,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -394,6 +404,7 @@ const getUserBySupabaseId = async (
       avatarId: users.avatarId,
       bannerId: users.bannerId,
       bio: users.bio,
+      customStatus: users.customStatus,
       bannerColor: users.bannerColor,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -430,18 +441,42 @@ const getUserBySupabaseId = async (
   };
 };
 
+/**
+ * Resolve the auth-side identity for a session token, transparently
+ * handling both the configured auth backend's tokens AND PULSE's own
+ * self-contained OIDC session tokens. Returns the auth-side id (which maps
+ * to `users.supabaseId`) plus whatever the backend knows about the user.
+ *
+ * OIDC tokens are checked first via a cheap unverified issuer peek so we
+ * don't pay an authBackend round-trip (a network call in supabase mode)
+ * for a token that's clearly ours; the signature is still verified.
+ */
+const resolveTokenIdentity = async (
+  token: string
+): Promise<{
+  id: string;
+  email: string | null;
+  metadata?: Record<string, unknown>;
+} | null> => {
+  if (looksLikeOidcSession(token)) {
+    const supabaseId = await verifySessionToken(token);
+    return supabaseId ? { id: supabaseId, email: null } : null;
+  }
+
+  const { data, error } = await authBackend.getUser(token);
+  if (error || !data.user) return null;
+  return { id: data.user.id, email: data.user.email, metadata: data.user.metadata };
+};
+
 const getUserByToken = async (token: string | undefined) => {
   try {
     if (!token) return undefined;
 
-    const {
-      data: { user: supabaseUser },
-      error
-    } = await supabaseAdmin.auth.getUser(token);
+    const identity = await resolveTokenIdentity(token);
 
-    if (error || !supabaseUser) return undefined;
+    if (!identity) return undefined;
 
-    const user = await getUserBySupabaseId(supabaseUser.id);
+    const user = await getUserBySupabaseId(identity.id);
 
     return user;
   } catch {
@@ -458,6 +493,7 @@ const getUsers = async (serverId?: number): Promise<TJoinedUser[]> => {
     name: users.name,
     bannerColor: users.bannerColor,
     bio: users.bio,
+      customStatus: users.customStatus,
     avatarId: users.avatarId,
     bannerId: users.bannerId,
     updatedAt: users.updatedAt,
@@ -512,6 +548,7 @@ const getUsers = async (serverId?: number): Promise<TJoinedUser[]> => {
     name: result.name,
     bannerColor: result.bannerColor,
     bio: result.bio,
+      customStatus: result.customStatus,
     avatarId: result.avatarId,
     bannerId: result.bannerId,
     avatar: slimFile(result.avatar),
@@ -545,6 +582,7 @@ const getPublicUsersForServer = async (
       publicId: users.publicId,
       bannerColor: users.bannerColor,
       bio: users.bio,
+      customStatus: users.customStatus,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -617,6 +655,7 @@ const getPublicUsersForServer = async (
       publicId: result.publicId,
       bannerColor: result.bannerColor,
       bio: result.bio,
+      customStatus: result.customStatus,
       banned: result.banned,
       avatarId: result.avatarId,
       bannerId: result.bannerId,
@@ -656,5 +695,6 @@ export {
   getUserBySupabaseId,
   getUserByToken,
   getUsers,
-  isDisplayNameTaken
+  isDisplayNameTaken,
+  resolveTokenIdentity
 };

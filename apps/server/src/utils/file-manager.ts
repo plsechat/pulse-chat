@@ -15,6 +15,7 @@ import { getSettings } from '../db/queries/server';
 import { getStorageUsageByUserId } from '../db/queries/users';
 import { files } from '../db/schema';
 import { PUBLIC_PATH, TMP_PATH, UPLOADS_PATH } from '../helpers/paths';
+import { logger } from '../logger';
 
 /**
  * Files workflow:
@@ -229,6 +230,14 @@ class FileManager {
 
     await fs.rename(tempFile.path, destinationPath);
     await this.removeTemporaryFile(tempFileId, true);
+
+    logger.debug(
+      '[fileManager] saveFile userId=%d size=%d encrypted=%s name=%s',
+      userId,
+      tempFile.size,
+      !!tempFile.encrypted,
+      fileName
+    );
 
     const bunFile = Bun.file(destinationPath);
 

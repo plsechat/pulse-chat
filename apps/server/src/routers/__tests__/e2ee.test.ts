@@ -829,6 +829,7 @@ describe('e2ee router', () => {
       e2ee: true,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
       categoryId: 1,
       serverId: 1,
       createdAt: Date.now()
@@ -916,6 +917,7 @@ describe('e2ee router', () => {
       e2ee: true,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
       categoryId: 1,
       serverId: 1,
       createdAt: Date.now()
@@ -953,6 +955,7 @@ describe('e2ee router', () => {
         private: false,
         fileAccessToken: randomUUIDv7(),
         fileAccessTokenUpdatedAt: Date.now(),
+        publicId: randomUUIDv7(),
         categoryId: 1,
         serverId: 1,
         createdAt: Date.now()
@@ -968,6 +971,7 @@ describe('e2ee router', () => {
       private: false,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
       categoryId: 1,
       serverId: 1,
       createdAt: Date.now()

@@ -47,6 +47,22 @@ const wsMapByUserId = new Map<number, Set<WebSocket>>();
 
 const usersIpMap = new Map<number, string>();
 
+/**
+ * Module-level mutator for the runtime user-status override map.
+ * Used by the federation user-info push handler (E3) to flip a
+ * federated shadow user's status when their home instance reports
+ * a change. The per-context `setUserStatus` closure inside
+ * `createContext` mutates the same map, so this is just a shared
+ * front door for callers without a context.
+ */
+const setRuntimeUserStatus = (userId: number, status: UserStatus) => {
+  if (status === UserStatus.ONLINE) {
+    userStatusOverrides.delete(userId);
+  } else {
+    userStatusOverrides.set(userId, status);
+  }
+};
+
 const getUserIp = (userId: number): string | undefined => {
   return usersIpMap.get(userId);
 };
@@ -58,7 +74,7 @@ const createContext = async ({
 }: CreateWSSContextFnOptions): Promise<Context> => {
   const params = info.connectionParams as TConnectionParams;
 
-  logger.info('[wss/createContext] new connection, hasFederationToken=%s, hasAccessToken=%s',
+  logger.debug('[wss/createContext] new connection, hasFederationToken=%s, hasAccessToken=%s',
     !!params.federationToken, !!params.accessToken);
 
   let decodedUser;
@@ -66,9 +82,9 @@ const createContext = async ({
 
   if (params.federationToken) {
     // Federation auth path
-    logger.info('[wss/createContext] federation auth path, token length=%d', params.federationToken.length);
+    logger.debug('[wss/createContext] federation auth path, token length=%d', params.federationToken.length);
     const fedResult = await verifyFederationToken(params.federationToken);
-    logger.info('[wss/createContext] federation token verification result=%o',
+    logger.debug('[wss/createContext] federation token verification result=%o',
       fedResult ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : null);
 
     if (!fedResult) {
@@ -87,7 +103,7 @@ const createContext = async ({
       fedResult.avatar,
       fedResult.publicId
     );
-    logger.info('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
+    logger.debug('[wss/createContext] shadow user id=%d, name=%s', decodedUser.id, decodedUser.name);
 
     // Sync profile (avatar, banner, bio) from home instance — await with timeout
     // so the profile data is ready before the client's first request
@@ -161,30 +177,48 @@ const createContext = async ({
     const effectiveServerId = serverId ?? _activeServer.id;
 
     const user = await getCachedUser();
-
-    if (!user) return false;
+    if (!user) {
+      logger.debug(
+        '[perm] denied reason=no-user serverId=%s target=%o',
+        effectiveServerId,
+        targetPermission
+      );
+      return false;
+    }
 
     // Check if user is the server owner (bypasses all permission checks)
     if (effectiveServerId) {
       const server = await getCachedServer(effectiveServerId);
-      if (server && server.ownerId === user.id) return true;
+      if (server && server.ownerId === user.id) {
+        logger.debug(
+          '[perm] granted reason=owner userId=%d serverId=%s target=%o',
+          user.id,
+          effectiveServerId,
+          targetPermission
+        );
+        return true;
+      }
     }
 
     const roles = await getCachedUserRoles(user.id, effectiveServerId);
-
     const permissionsSet = new Set<Permission>();
-
     for (const role of roles) {
       for (const permission of role.permissions) {
         permissionsSet.add(permission);
       }
     }
 
-    if (Array.isArray(targetPermission)) {
-      return targetPermission.every((p) => permissionsSet.has(p));
-    }
-
-    return permissionsSet.has(targetPermission);
+    const granted = Array.isArray(targetPermission)
+      ? targetPermission.every((p) => permissionsSet.has(p))
+      : permissionsSet.has(targetPermission);
+    logger.debug(
+      '[perm] %s reason=role userId=%d serverId=%s target=%o',
+      granted ? 'granted' : 'denied',
+      user.id,
+      effectiveServerId,
+      targetPermission
+    );
+    return granted;
   };
 
   const hasChannelPermission = async (
@@ -200,30 +234,87 @@ const createContext = async ({
       .where(eq(channels.id, channelId))
       .limit(1);
 
-    if (!channelRecord) return false;
+    if (!channelRecord) {
+      logger.debug(
+        '[chan-perm] denied reason=channel-not-found channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
+      return false;
+    }
 
     // Ensure the channel belongs to the caller's active server
-    if (_activeServer.id && channelRecord.serverId !== _activeServer.id)
+    if (_activeServer.id && channelRecord.serverId !== _activeServer.id) {
+      logger.debug(
+        '[chan-perm] denied reason=cross-server channelId=%d activeServerId=%d target=%o',
+        channelId,
+        _activeServer.id,
+        targetPermission
+      );
       return false;
+    }
 
-    if (!channelRecord.private) return true;
+    if (!channelRecord.private) {
+      logger.debug(
+        '[chan-perm] granted reason=public channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
+      return true;
+    }
 
     const user = await getCachedUser();
-
-    if (!user) return false;
+    if (!user) {
+      logger.debug(
+        '[chan-perm] denied reason=no-user channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
+      return false;
+    }
 
     // Check if user is server owner (bypasses channel permissions)
     const server = await getCachedServer(channelRecord.serverId);
-    if (server && server.ownerId === user.id) return true;
+    if (server && server.ownerId === user.id) {
+      logger.debug(
+        '[chan-perm] granted reason=owner userId=%d channelId=%d target=%o',
+        user.id,
+        channelId,
+        targetPermission
+      );
+      return true;
+    }
 
     const userChannelPermissions = await getCachedChannelPermissions();
-
     const channelInfo = userChannelPermissions[channelId];
+    if (!channelInfo) {
+      logger.debug(
+        '[chan-perm] denied reason=no-permissions-row userId=%d channelId=%d target=%o',
+        user.id,
+        channelId,
+        targetPermission
+      );
+      return false;
+    }
+    if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) {
+      logger.debug(
+        '[chan-perm] denied reason=cannot-view userId=%d channelId=%d target=%o',
+        user.id,
+        channelId,
+        targetPermission
+      );
+      return false;
+    }
 
-    if (!channelInfo) return false;
-    if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) return false;
-
-    return channelInfo.permissions[targetPermission] === true;
+    const granted = channelInfo.permissions[targetPermission] === true;
+    logger.debug(
+      '[chan-perm] %s reason=role userId=%d channelId=%d target=%o',
+      granted ? 'granted' : 'denied',
+      user.id,
+      channelId,
+      targetPermission
+    );
+    return granted;
   };
 
   const getOwnWs = () => wsMapByToken.get(accessToken);
@@ -350,6 +441,8 @@ const createWsServer = async (server: http.Server) => {
       ws.userId = undefined;
       ws.token = '';
 
+      logger.debug('[WS] connection open');
+
       ws.once('message', async (message) => {
         try {
           const parsed = JSON.parse(message.toString());
@@ -371,6 +464,8 @@ const createWsServer = async (server: http.Server) => {
       });
 
       ws.on('close', async () => {
+        logger.debug('[WS] connection close userId=%s', ws.userId ?? '-');
+
         // Clean up lookup Maps immediately (before any async work)
         if (ws.token) wsMapByToken.delete(ws.token);
 
@@ -535,4 +630,4 @@ const createWsServer = async (server: http.Server) => {
   });
 };
 
-export { createContext, createWsServer, getUserIp };
+export { createContext, createWsServer, getUserIp, setRuntimeUserStatus };

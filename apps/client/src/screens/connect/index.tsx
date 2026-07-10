@@ -17,17 +17,11 @@ import {
   setLocalStorageItem
 } from '@/helpers/storage';
 import { useForm } from '@/hooks/use-form';
-import { supabase } from '@/lib/supabase';
+import { setSession, supabase } from '@/lib/supabase';
+import type { TAuthProvider } from '@pulse/shared';
 import type { Provider } from '@supabase/supabase-js';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-
-const OAUTH_PROVIDER_LABELS: Record<string, string> = {
-  google: 'Google',
-  discord: 'Discord',
-  facebook: 'Facebook',
-  twitch: 'Twitch'
-};
 
 const Connect = memo(() => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
@@ -102,10 +96,7 @@ const Connect = memo(() => {
         refreshToken: string;
       };
 
-      await supabase.auth.setSession({
-        access_token: data.accessToken,
-        refresh_token: data.refreshToken
-      });
+      await setSession(data.accessToken, data.refreshToken);
 
       if (loginForm.values.rememberCredentials) {
         setLocalStorageItem(LocalStorageKey.EMAIL, loginForm.values.email);
@@ -166,10 +157,7 @@ const Connect = memo(() => {
         refreshToken: string;
       };
 
-      await supabase.auth.setSession({
-        access_token: data.accessToken,
-        refresh_token: data.refreshToken
-      });
+      await setSession(data.accessToken, data.refreshToken);
 
       await connect();
 
@@ -199,8 +187,22 @@ const Connect = memo(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerForm.values, registerForm.setErrors, inviteCode]);
 
-  const onOAuthClick = useCallback(
-    async (provider: string) => {
+  const onProviderClick = useCallback(
+    async (provider: TAuthProvider) => {
+      // Native OIDC: PULSE runs the flow, so redirect the whole page to the
+      // server's start endpoint. No Supabase client required.
+      if (provider.kind === 'oidc') {
+        const url = new URL(`${getUrlFromServer()}/auth/oidc/start`);
+        if (inviteCode) url.searchParams.set('invite', inviteCode);
+        window.location.href = url.toString();
+        return;
+      }
+
+      if (!supabase) {
+        toast.error('OAuth is not available on this server.');
+        return;
+      }
+
       const redirectTo = new URL(window.location.origin);
 
       if (inviteCode) {
@@ -208,7 +210,7 @@ const Connect = memo(() => {
       }
 
       await supabase.auth.signInWithOAuth({
-        provider: provider as Provider,
+        provider: provider.name as Provider,
         options: {
           redirectTo: redirectTo.toString()
         }
@@ -239,21 +241,27 @@ const Connect = memo(() => {
           <div className="flex gap-2">
             {providers.map((provider) => (
               <Button
-                key={provider}
+                key={provider.name}
                 className="flex-1"
                 variant="outline"
                 disabled={loading}
-                onClick={() => onOAuthClick(provider)}
+                onClick={() => onProviderClick(provider)}
               >
-                {OAUTH_PROVIDER_LABELS[provider] ?? provider}
+                {provider.label}
               </Button>
             ))}
           </div>
         </>
       ) : null;
     },
-    [info?.enabledAuthProviders, loading, onOAuthClick]
+    [info?.enabledAuthProviders, loading, onProviderClick]
   );
+
+  // Hide the Create Account (password) form when password self-registration
+  // is disabled server-side — unless the visitor arrived with an invite link,
+  // which is a break-glass path. Absent flag = enabled (older servers).
+  const canRegisterPassword =
+    info?.passwordRegistrationEnabled !== false || !!inviteCode;
 
   return (
     <>
@@ -402,14 +410,16 @@ const Connect = memo(() => {
                 value={activeTab}
                 onValueChange={(v) => setActiveTab(v as 'login' | 'register')}
               >
-                <TabsList className="w-full mb-8">
-                  <TabsTrigger value="login" className="flex-1">
-                    Sign In
-                  </TabsTrigger>
-                  <TabsTrigger value="register" className="flex-1">
-                    Create Account
-                  </TabsTrigger>
-                </TabsList>
+                {canRegisterPassword && (
+                  <TabsList className="w-full mb-8">
+                    <TabsTrigger value="login" className="flex-1">
+                      Sign In
+                    </TabsTrigger>
+                    <TabsTrigger value="register" className="flex-1">
+                      Create Account
+                    </TabsTrigger>
+                  </TabsList>
+                )}
 
                 {/* Login Tab */}
                 <TabsContent value="login" className="mt-0">
@@ -456,6 +466,7 @@ const Connect = memo(() => {
                 </TabsContent>
 
                 {/* Register Tab */}
+                {canRegisterPassword && (
                 <TabsContent value="register" className="mt-0">
                   <div className="flex flex-col gap-4">
                     <Group label="Display Name">
@@ -516,6 +527,7 @@ const Connect = memo(() => {
                     )}
                   </div>
                 </TabsContent>
+                )}
               </Tabs>
             </div>
 

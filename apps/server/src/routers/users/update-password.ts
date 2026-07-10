@@ -5,7 +5,7 @@ import { db } from '../../db';
 import { users } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { supabaseAdmin } from '../../utils/supabase';
+import { authBackend } from '../../utils/auth';
 import { protectedProcedure } from '../../utils/trpc';
 
 const updatePasswordRoute = protectedProcedure
@@ -30,12 +30,10 @@ const updatePasswordRoute = protectedProcedure
       message: 'User not found'
     });
 
-    // Verify current password via Supabase Auth
-    const { data: supabaseUser } = await supabaseAdmin.auth.admin.getUserById(
-      user.supabaseId
-    );
+    // Verify current password via the active auth backend
+    const { data: authUserData } = await authBackend.getUserById(user.supabaseId);
 
-    invariant(supabaseUser?.user?.email, {
+    invariant(authUserData.user?.email, {
       code: 'NOT_FOUND',
       message: 'User not found in auth system'
     });
@@ -43,9 +41,10 @@ const updatePasswordRoute = protectedProcedure
     // Reject OAuth-only accounts (Google, GitHub, etc) before touching
     // signInWithPassword. Without this gate, a federated user hitting
     // the endpoint directly would get a misleading "current password
-    // incorrect" error from Supabase rather than the truthful "your
-    // account doesn't have a password to change."
-    const providers = (supabaseUser.user.identities ?? [])
+    // incorrect" error rather than the truthful "your account doesn't
+    // have a password to change." Local-mode accounts always have an
+    // 'email' identity so this gate is a no-op there.
+    const providers = (authUserData.user.identities ?? [])
       .map((i) => i.provider)
       .filter((p): p is string => typeof p === 'string');
     if (!providers.includes('email')) {
@@ -56,11 +55,10 @@ const updatePasswordRoute = protectedProcedure
       );
     }
 
-    const { error: signInError } =
-      await supabaseAdmin.auth.signInWithPassword({
-        email: supabaseUser.user.email,
-        password: input.currentPassword
-      });
+    const { error: signInError } = await authBackend.signInWithPassword({
+      email: authUserData.user.email,
+      password: input.currentPassword
+    });
 
     if (signInError) {
       ctx.throwValidationError(
@@ -76,11 +74,11 @@ const updatePasswordRoute = protectedProcedure
       );
     }
 
-    // Update password via Supabase Auth
-    const { error: updateError } =
-      await supabaseAdmin.auth.admin.updateUserById(user.supabaseId, {
-        password: input.newPassword
-      });
+    // Update password via the active auth backend
+    const { error: updateError } = await authBackend.updateUserById(
+      user.supabaseId,
+      { password: input.newPassword }
+    );
 
     if (updateError) {
       ctx.throwValidationError(

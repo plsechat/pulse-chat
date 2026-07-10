@@ -1,6 +1,6 @@
 {
   "name": "@pulse/server",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
@@ -47,7 +47,7 @@
     "ini": "^5.0.0",
     "jose": "^6.0.11",
     "link-preview-js": "^3.1.0",
-    "mediasoup": "^3.19.17",
+    "mediasoup": "3.19.17",
     "postgres": "^3.4.5",
     "queue": "^7.0.0",
     "semver": "^7.7.3",

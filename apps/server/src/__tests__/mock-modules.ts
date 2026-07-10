@@ -9,7 +9,8 @@ import { mock } from 'bun:test';
  * Modules mocked here:
  * - config    — top-level await for getPublicIp/getPrivateIp + file I/O
  * - logger    — imports config, creates log files at module scope
- * - env       — isRegistrationDisabled() via globalThis.__registrationDisabled
+ * - env       — isRegistrationDisabled() via globalThis.__registrationDisabled;
+ *               isRegistrationMethodEnabled() via __disabledRegistrationMethods
  * - supabase  — throws immediately if SUPABASE_URL env vars are missing
  */
 
@@ -24,7 +25,15 @@ global.console.debug = noop;
 // ── Mock config (avoids network calls and file system reads) ──
 mock.module('../config', () => ({
   config: {
-    server: { port: 9999, debug: false, autoupdate: false },
+    server: {
+      port: 9999,
+      debug: false,
+      autoupdate: false,
+      debugLogMaxSizeMb: 200,
+      debugLogMaxFiles: 10,
+      debugLogIncludeBody: true,
+      redactExtra: [] as string[]
+    },
     http: { maxFiles: 40, maxFileSize: 100 },
     mediasoup: {
       worker: { rtcMinPort: 40000, rtcMaxPort: 40020 },
@@ -48,7 +57,8 @@ mock.module('../logger', () => ({
     fatal: noop,
     time: noop,
     timeEnd: noop
-  }
+  },
+  setDebugVerbose: noop
 }));
 
 // ── Mock rate limiter (disable rate limiting during tests) ──
@@ -62,6 +72,8 @@ mock.module('../http/rate-limit', () => ({
 // ── Mock env (allows tests to toggle REGISTRATION_DISABLED dynamically) ──
 mock.module('../utils/env', () => ({
   isRegistrationDisabled: () => globalThis.__registrationDisabled ?? false,
+  isRegistrationMethodEnabled: (method: string) =>
+    !(globalThis.__disabledRegistrationMethods?.includes(method) ?? false),
   SERVER_VERSION: '0.0.0-dev',
   BUILD_DATE: 'dev',
   IS_PRODUCTION: false,
@@ -90,6 +102,10 @@ declare global {
   var __supabaseAuthStore: Map<string, AuthEntry>;
   // eslint-disable-next-line no-var
   var __registrationDisabled: boolean;
+  // Methods ('password' | 'oidc' | 'social') for which self-registration is
+  // disabled; drives the mocked isRegistrationMethodEnabled().
+  // eslint-disable-next-line no-var
+  var __disabledRegistrationMethods: string[] | undefined;
 }
 
 globalThis.__supabaseAuthStore =
@@ -97,140 +113,153 @@ globalThis.__supabaseAuthStore =
 
 const authStore = globalThis.__supabaseAuthStore;
 
-// ── Mock supabase (avoids env var check that throws at import time) ──
+// ── Mock auth backend (avoids env var check that throws at import time) ──
 // In tests, the access token IS the user's supabaseId.
-// The mock makes supabaseAdmin.auth.getUser(token) return { id: token }
-// so getUserByToken → getUserBySupabaseId works against the test DB.
-mock.module('../utils/supabase', () => ({
-  supabaseAdmin: {
-    auth: {
-      getUser: async (token: string) => ({
-        data: { user: { id: token } },
-        error: null
-      }),
+// The mock makes authBackend.getUser(token) return { id: token } so
+// getUserByToken → getUserBySupabaseId works against the test DB.
+const mockAuthBackend = {
+  kind: 'local' as const,
 
-      signInWithPassword: async ({
-        email,
-        password
-      }: {
-        email: string;
-        password: string;
-      }) => {
-        const existing = authStore.get(email);
+  getUser: async (token: string) => ({
+    data: { user: { id: token, email: null, identities: [{ provider: 'email' }] } },
+    error: null
+  }),
 
-        if (existing) {
-          // Email found — validate password
-          if (existing.password !== password) {
-            return {
-              data: { user: null, session: null },
-              error: { message: 'Invalid login credentials' }
-            };
+  signInWithPassword: async ({
+    email,
+    password
+  }: {
+    email: string;
+    password: string;
+  }) => {
+    const existing = authStore.get(email);
+
+    if (existing) {
+      // Email found — validate password
+      if (existing.password !== password) {
+        return {
+          data: { user: null, session: null },
+          error: { message: 'Invalid login credentials', reason: 'invalid_credentials' }
+        };
+      }
+
+      return {
+        data: {
+          user: {
+            id: existing.supabaseId,
+            email: existing.email,
+            identities: (existing.identities ?? ['email']).map((p) => ({ provider: p }))
+          },
+          session: {
+            access_token: existing.supabaseId,
+            refresh_token: crypto.randomUUID()
           }
+        },
+        error: null
+      };
+    }
 
-          return {
-            data: {
-              user: { id: existing.supabaseId },
-              session: {
-                access_token: existing.supabaseId,
-                refresh_token: crypto.randomUUID()
-              }
-            },
-            error: null
-          };
+    // Email not found — auto-create (mirrors Supabase signUp-on-signIn)
+    const newId = crypto.randomUUID();
+
+    authStore.set(email, { supabaseId: newId, password, email });
+
+    return {
+      data: {
+        user: {
+          id: newId,
+          email,
+          identities: [{ provider: 'email' }]
+        },
+        session: {
+          access_token: newId,
+          refresh_token: crypto.randomUUID()
         }
+      },
+      error: null
+    };
+  },
 
-        // Email not found — auto-create (mirrors Supabase signUp-on-signIn)
-        const newId = crypto.randomUUID();
+  createUser: async ({
+    email,
+    password
+  }: {
+    email: string;
+    password: string;
+  }) => {
+    if (authStore.has(email)) {
+      return {
+        data: { user: null },
+        error: { message: 'User already registered', reason: 'user_already_exists' }
+      };
+    }
 
-        authStore.set(email, { supabaseId: newId, password, email });
+    const newId = crypto.randomUUID();
+    authStore.set(email, { supabaseId: newId, password, email });
 
+    return {
+      data: { user: { id: newId, email, identities: [{ provider: 'email' }] } },
+      error: null
+    };
+  },
+
+  getUserById: async (id: string) => {
+    for (const entry of authStore.values()) {
+      if (entry.supabaseId === id) {
+        const providers = entry.identities ?? ['email'];
         return {
           data: {
-            user: { id: newId },
-            session: {
-              access_token: newId,
-              refresh_token: crypto.randomUUID()
+            user: {
+              id: entry.supabaseId,
+              email: entry.email,
+              identities: providers.map((p) => ({ provider: p }))
             }
           },
           error: null
         };
-      },
-
-      admin: {
-        generateLink: async () => ({
-          data: { actionLink: 'mock-link' },
-          error: null
-        }),
-
-        createUser: async ({
-          email,
-          password
-        }: {
-          email: string;
-          password: string;
-        }) => {
-          if (authStore.has(email)) {
-            return {
-              data: { user: null },
-              error: { message: 'User already registered' }
-            };
-          }
-
-          const newId = crypto.randomUUID();
-          authStore.set(email, { supabaseId: newId, password, email });
-
-          return {
-            data: { user: { id: newId, email } },
-            error: null
-          };
-        },
-
-        getUserById: async (id: string) => {
-          for (const entry of authStore.values()) {
-            if (entry.supabaseId === id) {
-              const providers = entry.identities ?? ['email'];
-              return {
-                data: {
-                  user: {
-                    id: entry.supabaseId,
-                    email: entry.email,
-                    identities: providers.map((p) => ({ provider: p }))
-                  }
-                },
-                error: null
-              };
-            }
-          }
-
-          return {
-            data: { user: null },
-            error: { message: 'User not found' }
-          };
-        },
-
-        updateUserById: async (
-          id: string,
-          updates: { password?: string }
-        ) => {
-          for (const [email, entry] of authStore.entries()) {
-            if (entry.supabaseId === id) {
-              if (updates.password) {
-                authStore.set(email, { ...entry, password: updates.password });
-              }
-
-              return {
-                data: { user: { id: entry.supabaseId, email: entry.email } },
-                error: null
-              };
-            }
-          }
-
-          return {
-            data: { user: null },
-            error: { message: 'User not found' }
-          };
-        }
       }
     }
+
+    return {
+      data: { user: null },
+      error: { message: 'User not found', reason: 'user_not_found' }
+    };
+  },
+
+  updateUserById: async (
+    id: string,
+    updates: { password?: string }
+  ) => {
+    for (const [email, entry] of authStore.entries()) {
+      if (entry.supabaseId === id) {
+        if (updates.password) {
+          authStore.set(email, { ...entry, password: updates.password });
+        }
+
+        return {
+          data: {
+            user: {
+              id: entry.supabaseId,
+              email: entry.email,
+              identities: (entry.identities ?? ['email']).map((p) => ({ provider: p }))
+            }
+          },
+          error: null
+        };
+      }
+    }
+
+    return {
+      data: { user: null },
+      error: { message: 'User not found', reason: 'user_not_found' }
+    };
   }
+};
+
+mock.module('../utils/auth', () => ({
+  authBackend: mockAuthBackend
+}));
+
+mock.module('../utils/supabase', () => ({
+  authBackend: mockAuthBackend
 }));

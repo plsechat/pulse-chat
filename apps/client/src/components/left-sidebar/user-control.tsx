@@ -8,6 +8,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { openServerScreen } from '@/features/server-screens/actions';
@@ -27,7 +35,7 @@ import {
   MicOff,
   Settings
 } from 'lucide-react';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { ServerScreen } from '../server-screens/screens';
 import { Button } from '../ui/button';
 import { UserAvatar } from '../user-avatar';
@@ -48,6 +56,8 @@ const UserControl = memo(() => {
   const channelCan = useChannelCan(currentVoiceChannelId);
   const { inputDevices, playbackDevices } = useAvailableDevices();
   const { devices, saveDevices } = useDevices();
+  const [customStatusDialogOpen, setCustomStatusDialogOpen] = useState(false);
+  const [customStatusDraft, setCustomStatusDraft] = useState('');
 
   const handleSettingsClick = useCallback(() => {
     openServerScreen(ServerScreen.USER_SETTINGS);
@@ -58,6 +68,22 @@ const UserControl = memo(() => {
     if (!trpc) return;
     await trpc.users.setStatus.mutate({ status });
   }, []);
+
+  const openCustomStatusDialog = useCallback(() => {
+    setCustomStatusDraft(ownPublicUser?.customStatus ?? '');
+    setCustomStatusDialogOpen(true);
+  }, [ownPublicUser?.customStatus]);
+
+  const saveCustomStatus = useCallback(async (customStatus: string | null) => {
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+    await trpc.users.setCustomStatus.mutate({ customStatus });
+    setCustomStatusDialogOpen(false);
+  }, []);
+
+  const handleCustomStatusSubmit = useCallback(() => {
+    void saveCustomStatus(customStatusDraft.trim() || null);
+  }, [saveCustomStatus, customStatusDraft]);
 
   const handleMicDeviceChange = useCallback(
     (deviceId: string) => {
@@ -119,10 +145,50 @@ const UserControl = memo(() => {
                   <span>{getStatusLabel(status)}</span>
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={openCustomStatusDialog}>
+                Set custom status…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {ownPublicUser.customStatus && (
+            <span className="text-xs text-muted-foreground truncate leading-tight">
+              {ownPublicUser.customStatus}
+            </span>
+          )}
         </div>
       </div>
+
+      <Dialog
+        open={customStatusDialogOpen}
+        onOpenChange={setCustomStatusDialogOpen}
+      >
+        <DialogContent
+          className="sm:max-w-sm"
+          onInteractOutside={() => setCustomStatusDialogOpen(false)}
+          close={() => setCustomStatusDialogOpen(false)}
+        >
+          <DialogHeader>
+            <DialogTitle>Set custom status</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={customStatusDraft}
+            onChange={(e) => setCustomStatusDraft(e.target.value)}
+            onEnter={handleCustomStatusSubmit}
+            maxLength={128}
+            placeholder="What's happening?"
+            autoFocus
+          />
+          <DialogFooter className="gap-2">
+            {ownPublicUser.customStatus && (
+              <Button variant="ghost" onClick={() => saveCustomStatus(null)}>
+                Clear
+              </Button>
+            )}
+            <Button onClick={handleCustomStatusSubmit}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex items-center gap-0.5">
         {/* Mic button + device dropdown */}

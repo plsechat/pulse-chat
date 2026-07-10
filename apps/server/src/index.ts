@@ -14,6 +14,7 @@ import { config, SERVER_PRIVATE_IP } from './config';
 import { loadCrons } from './crons';
 import { loadDb } from './db';
 import { pluginManager } from './plugins';
+import { loadBannedUsersCache } from './utils/banned-cache';
 import { enqueueActivityLog } from './queues/activity-log';
 import { initVoiceRuntimes } from './runtimes';
 import { createServers } from './utils/create-servers';
@@ -25,6 +26,12 @@ import './utils/updater';
 console.log('[pulse] Connecting to database...');
 try {
   await loadDb();
+  // Populate the banned-user cache before the HTTP/WS server accepts
+  // traffic. Without this primer, the auth middleware's first batch
+  // of `isBanned` calls would all return false until the first ban
+  // mutation, which is fine but worth the millisecond-scale primer
+  // to keep the cache truthful from request #1.
+  await loadBannedUsersCache();
 } catch (e) {
   console.error('[pulse] FATAL: Database connection failed:', e);
   process.exit(1);

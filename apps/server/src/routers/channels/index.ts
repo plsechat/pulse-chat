@@ -11,6 +11,7 @@ import {
 } from './events';
 import { getChannelRoute } from './get-channel';
 import { getPermissionsRoute } from './get-permissions';
+import { getVisibleUserDescriptorsRoute } from './get-visible-user-descriptors';
 import { getVisibleUsersRoute } from './get-visible-users';
 import { markAsReadRoute } from './mark-as-read';
 import { reorderChannelsRoute } from './reorder-channels';
@@ -24,6 +25,7 @@ export const channelsRouter = t.router({
   delete: deleteChannelRoute,
   get: getChannelRoute,
   getVisibleUsers: getVisibleUsersRoute,
+  getVisibleUserDescriptors: getVisibleUserDescriptorsRoute,
   updatePermissions: updatePermissionsRoute,
   getPermissions: getPermissionsRoute,
   deletePermissions: deletePermissionsRoute,

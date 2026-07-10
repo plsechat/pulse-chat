@@ -23,12 +23,29 @@ import type {
 } from '@pulse/shared';
 import type { TDisconnectInfo, TMessagesMap } from './types';
 
+/**
+ * ID-keying convention (federation ID-collision fix):
+ *
+ * Numeric ids (channel.id, user.id, ...) are INSTANCE-LOCAL — two federated
+ * instances can both have a channel/server/user with id 1. State in this
+ * slice keyed by numeric id is safe ONLY because it is scoped to a single
+ * instance's live view: setInitialData replaces it wholesale on every
+ * server/instance switch, so it can never hold two instances' data at once.
+ *
+ * Anything that CROSSES instances or SURVIVES a server switch must be keyed
+ * or matched by a globally-unique publicId instead: the active server
+ * (`serverId` below IS the server's publicId), the persisted voice session
+ * (`currentVoiceChannelPublicId`), joined-server entries and roster event
+ * scoping (see features/app + users/subscriptions), and all federation
+ * addressing. Keep new state on the correct side of this line.
+ */
 export interface IServerState {
   connected: boolean;
   connecting: boolean;
   reconnecting: boolean;
   reconnectAttempt: number;
   disconnectInfo?: TDisconnectInfo;
+  /** publicId of the currently connected server (NOT the numeric id). */
   serverId?: string;
   categories: TCategory[];
   channels: TChannel[];
@@ -37,6 +54,15 @@ export interface IServerState {
   selectedChannelId: number | undefined;
   currentVoiceChannelId: number | undefined;
   currentVoiceServerId: number | undefined;
+  // Globally-unique publicId of the channel the user is in voice on. Voice
+  // persists across server/instance navigation, so voice-active UI must match
+  // on this (unique) id — not the instance-local numeric currentVoiceChannelId,
+  // which collides with a federated server's channel of the same numeric id.
+  currentVoiceChannelPublicId: string | undefined;
+  // Same for the SERVER hosting the voice session (drives the server-rail
+  // voice badge): the numeric currentVoiceServerId collides across federated
+  // instances and would light up the wrong rail icon.
+  currentVoiceServerPublicId: string | undefined;
   messagesMap: TMessagesMap;
   users: TJoinedPublicUser[];
   roles: TJoinedRole[];
@@ -81,6 +107,8 @@ const initialState: IServerState = {
   selectedChannelId: undefined,
   currentVoiceChannelId: undefined,
   currentVoiceServerId: undefined,
+  currentVoiceChannelPublicId: undefined,
+  currentVoiceServerPublicId: undefined,
   messagesMap: {},
   users: [],
   roles: [],
@@ -449,12 +477,27 @@ export const serverSlice = createSlice({
       action: PayloadAction<number | undefined>
     ) => {
       state.currentVoiceChannelId = action.payload;
+      // Capture the channel's globally-unique publicId at join time (while the
+      // owning server's channels are loaded). It's preserved across server
+      // switches, so the voice-active highlight matches by publicId, not the
+      // colliding numeric id. Server channels only; DM voice leaves it unset.
+      const voiceChannel =
+        action.payload != null
+          ? state.channels.find((c) => c.id === action.payload)
+          : undefined;
+      state.currentVoiceChannelPublicId = voiceChannel?.publicId ?? undefined;
     },
     setCurrentVoiceServerId: (
       state,
       action: PayloadAction<number | undefined>
     ) => {
       state.currentVoiceServerId = action.payload;
+      // Capture the hosting server's globally-unique publicId alongside the
+      // numeric id. Voice joins always happen while the hosting server is
+      // the connected one, so state.serverId (its publicId) is correct here
+      // and survives later server/instance switches.
+      state.currentVoiceServerPublicId =
+        action.payload != null ? state.serverId : undefined;
     },
     setChannelPermissions: (
       state,
@@ -561,8 +604,16 @@ export const serverSlice = createSlice({
       state.externalStreamsMap = action.payload.externalStreamsMap;
 
       // Reset voice state if the user is no longer in voice on this server
-      // (e.g. after reconnect where the server removed the user from voice)
-      if (state.currentVoiceServerId === Number(state.serverId)) {
+      // (e.g. after reconnect where the server removed the user from voice).
+      // Compare by publicId — state.serverId IS the connected server's
+      // publicId. (The old `currentVoiceServerId === Number(state.serverId)`
+      // comparison was inert: Number(uuid) is NaN, so this cleanup never
+      // fired.) Only runs while viewing the voice-hosting server, so a
+      // session on another instance is never clobbered by this fetch.
+      if (
+        state.currentVoiceServerPublicId !== undefined &&
+        state.currentVoiceServerPublicId === state.serverId
+      ) {
         const ownId = state.ownUserId;
         if (ownId !== undefined) {
           const stillInVoice = Object.values(action.payload.voiceMap).some(
@@ -571,6 +622,8 @@ export const serverSlice = createSlice({
           if (!stillInVoice) {
             state.currentVoiceChannelId = undefined;
             state.currentVoiceServerId = undefined;
+            state.currentVoiceChannelPublicId = undefined;
+            state.currentVoiceServerPublicId = undefined;
           }
         }
       }
