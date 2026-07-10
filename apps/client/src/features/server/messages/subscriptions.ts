@@ -8,6 +8,7 @@ import {
   type Unsubscribe
 } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
+import { toast } from 'sonner';
 import {
   addMessages,
   addTypingUser,
@@ -159,6 +160,52 @@ const subscribeToMessages = () => {
 
           // If user was viewing a removed federated server, reset to home
           if (state.app.activeInstanceDomain === event.domain) {
+            store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+            setActiveView('home');
+          }
+        }
+      )
+    );
+
+    // A federated peer kicked or banned us from one of its servers —
+    // the peer told our home instance, which delivers this user-scoped
+    // event. Drop the rail entry and surface the reason.
+    subs.push(
+      subscribe(
+        'onFederatedServerRemoved',
+        homeTrpc.federation.onServerRemoved,
+        (event) => {
+          const state = store.getState();
+          const entry = state.app.federatedServers.find(
+            (e) =>
+              e.instanceDomain === event.instanceDomain &&
+              e.server.publicId === event.serverPublicId
+          );
+
+          const displayName =
+            event.serverName ?? entry?.server.name ?? event.instanceDomain;
+          const reasonSuffix = event.reason ? `: ${event.reason}` : '';
+          toast.error(
+            event.action === 'ban'
+              ? `You have been banned from ${displayName}${reasonSuffix}`
+              : `You have been kicked from ${displayName}${reasonSuffix}`
+          );
+
+          if (!entry) return;
+
+          store.dispatch(
+            appSliceActions.removeFederatedServer({
+              instanceDomain: entry.instanceDomain,
+              serverId: entry.server.id
+            })
+          );
+          saveFederatedServers();
+
+          // If we're currently viewing that server, go home
+          if (
+            state.app.activeInstanceDomain === event.instanceDomain &&
+            state.server.serverId === event.serverPublicId
+          ) {
             store.dispatch(appSliceActions.setActiveInstanceDomain(null));
             setActiveView('home');
           }

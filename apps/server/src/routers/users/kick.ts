@@ -7,7 +7,7 @@ import {
   removeServerMember
 } from '../../db/queries/servers';
 import { enqueueActivityLog } from '../../queues/activity-log';
-import { assertNotFederatedTarget } from '../../utils/federation-guard';
+import { relayFederatedModeration } from '../../utils/federation-moderation-dispatch';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -25,8 +25,6 @@ const kickRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'No active server'
     });
-
-    await assertNotFederatedTarget(input.userId, 'Kick');
 
     const isMember = await isServerMember(ctx.activeServerId, input.userId);
     invariant(isMember, {
@@ -68,6 +66,16 @@ const kickRoute = protectedProcedure
     // (inside publishUser) returns the remaining members — the kicked user
     // already received USER_KICKED above and doesn't need USER_DELETE.
     publishUser(input.userId, 'delete', { scopeServerId: ctx.activeServerId });
+
+    // Federated member? Tell their home instance so its membership
+    // record is removed and the user learns why (fire-and-forget —
+    // never blocks or fails local moderation).
+    relayFederatedModeration(
+      input.userId,
+      ctx.activeServerId,
+      'kick',
+      input.reason
+    );
 
     enqueueActivityLog({
       type: ActivityLogType.USER_KICKED,
