@@ -48,4 +48,6 @@ const enqueueActivityLog = <T extends ActivityLogType>({
   });
 };
 
-export { enqueueActivityLog };
+// The instance is exported so the test harness can drain in-flight
+// log writes before truncating tables (see __tests__/setup.ts).
+export { activityLogQueue, enqueueActivityLog };

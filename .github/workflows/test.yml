@@ -205,7 +205,11 @@ jobs:
             echo "::group::$file"
             output_file=$(mktemp)
             set +e
-            bun test "$file" 2>&1 | tee "$output_file"
+            # --timeout 15000: the default 5s per-test budget (which includes
+            # beforeEach) converted brief between-test lock waits into hook
+            # timeouts whose detached TRUNCATE+seed chains corrupted the next
+            # reseed. The hardened setup.ts reset retries within this budget.
+            bun test --timeout 15000 "$file" 2>&1 | tee "$output_file"
             bun_exit=${PIPESTATUS[0]}
             set -e
             # Either a non-zero exit OR any `(fail)` line in the

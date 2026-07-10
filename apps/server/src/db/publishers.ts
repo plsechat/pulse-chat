@@ -397,14 +397,51 @@ const publishPluginCommands = async () => {
   pubsub.publish(ServerEvents.PLUGIN_COMMANDS_CHANGE, commands);
 };
 
+/**
+ * Publishers are fire-and-forget fan-out — callers neither await nor
+ * catch them. An internal query losing a deadlock (e.g. against the
+ * test harness's between-test TRUNCATE, or any future lock contention)
+ * must surface as a logged error, never as an unhandled rejection.
+ * publishMessage already guards internally; this wraps the rest at the
+ * export boundary.
+ */
+const swallowRejection = <A extends unknown[], R>(
+  name: string,
+  fn: (...args: A) => Promise<R>
+): ((...args: A) => Promise<R | undefined>) => {
+  return async (...args: A) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      logger.error('[%s] failed:', name, err);
+      return undefined;
+    }
+  };
+};
+
+const guardedPublishCategory = swallowRejection('publishCategory', publishCategory);
+const guardedPublishChannel = swallowRejection('publishChannel', publishChannel);
+const guardedPublishChannelPermissions = swallowRejection(
+  'publishChannelPermissions',
+  publishChannelPermissions
+);
+const guardedPublishEmoji = swallowRejection('publishEmoji', publishEmoji);
+const guardedPublishPluginCommands = swallowRejection(
+  'publishPluginCommands',
+  publishPluginCommands
+);
+const guardedPublishRole = swallowRejection('publishRole', publishRole);
+const guardedPublishSettings = swallowRejection('publishSettings', publishSettings);
+const guardedPublishUser = swallowRejection('publishUser', publishUser);
+
 export {
-  publishCategory,
-  publishChannel,
-  publishChannelPermissions,
-  publishEmoji,
+  guardedPublishCategory as publishCategory,
+  guardedPublishChannel as publishChannel,
+  guardedPublishChannelPermissions as publishChannelPermissions,
+  guardedPublishEmoji as publishEmoji,
   publishMessage,
-  publishPluginCommands,
-  publishRole,
-  publishSettings,
-  publishUser
+  guardedPublishPluginCommands as publishPluginCommands,
+  guardedPublishRole as publishRole,
+  guardedPublishSettings as publishSettings,
+  guardedPublishUser as publishUser
 };

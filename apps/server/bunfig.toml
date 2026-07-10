@@ -1,4 +1,11 @@
 [test]
+# Per-test timeout (includes beforeEach). The default 5000ms converted
+# brief between-test lock waits into hard failures — and worse, bun
+# can't cancel a timed-out hook's promise, so the detached TRUNCATE+seed
+# chain kept running and corrupted the NEXT test's reseed (the
+# `roles_pkey` duplicate-key flake). 15s gives the retrying reset room
+# to finish inside the budget.
+timeout = 15000
 # Preload order matters:
 # 1. mock-modules — mocks config/logger/supabase BEFORE any code imports them
 # 2. prepare      — creates directories, copies migrations
