@@ -1,10 +1,12 @@
 import { ScreenShareCard } from '@/components/channel-view/voice/screen-share-card';
 import { VoiceGrid } from '@/components/channel-view/voice/voice-grid';
 import { VoiceUserCard } from '@/components/channel-view/voice/voice-user-card';
+import { useAutoFocusScreenShare } from '@/components/channel-view/voice/hooks/use-auto-focus-screen-share';
 import {
   PinnedCardType,
   usePinCardController
 } from '@/components/channel-view/voice/hooks/use-pin-card-controller';
+import { useUnpinOnEscape } from '@/components/channel-view/voice/hooks/use-unpin-on-escape';
 import { useVoice } from '@/features/server/voice/hooks';
 import { useVoiceUsersByChannelId } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
@@ -23,6 +25,9 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
   const { pinnedCard, pinCard, unpinCard, isPinned } = usePinCardController();
   const { ownVoiceState, toggleWebcam, toggleScreenShare } = useVoice();
   const channelCan = useChannelCan(dmChannelId);
+
+  useUnpinOnEscape(!!pinnedCard, unpinCard);
+  useAutoFocusScreenShare(voiceUsers, pinnedCard, pinCard, unpinCard);
 
   const cards = useMemo(() => {
     const cards: React.ReactNode[] = [];

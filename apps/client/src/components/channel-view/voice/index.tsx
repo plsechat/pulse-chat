@@ -3,10 +3,12 @@ import { useVoiceChannelExternalStreamsList } from '@/features/server/voice/hook
 import { Volume2 } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { ExternalStreamCard } from './external-stream-card';
+import { useAutoFocusScreenShare } from './hooks/use-auto-focus-screen-share';
 import {
   PinnedCardType,
   usePinCardController
 } from './hooks/use-pin-card-controller';
+import { useUnpinOnEscape } from './hooks/use-unpin-on-escape';
 import { ScreenShareCard } from './screen-share-card';
 import { VoiceGrid } from './voice-grid';
 import { VoiceUserCard } from './voice-user-card';
@@ -19,6 +21,9 @@ const VoiceChannel = memo(({ channelId }: TChannelProps) => {
   const voiceUsers = useVoiceUsersByChannelId(channelId);
   const externalStreams = useVoiceChannelExternalStreamsList(channelId);
   const { pinnedCard, pinCard, unpinCard, isPinned } = usePinCardController();
+
+  useUnpinOnEscape(!!pinnedCard, unpinCard);
+  useAutoFocusScreenShare(voiceUsers, pinnedCard, pinCard, unpinCard);
 
   const cards = useMemo(() => {
     const cards: React.ReactNode[] = [];
