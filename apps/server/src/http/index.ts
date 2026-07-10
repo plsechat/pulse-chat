@@ -29,6 +29,7 @@ import {
   federationDmSenderKeyHandler,
   federationIdentityRotationHandler
 } from './federation-dm-group';
+import { federationMemberRemovedHandler } from './federation-member-removed';
 import { federationUserInfoUpdateHandler } from './federation-user-info-update';
 import { healthRouteHandler } from './healthz';
 import { JsonBodyTooLargeError } from './helpers';
@@ -234,6 +235,14 @@ const createHttpServer = async (port: number = config.server.port) => {
         ) {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationUserInfoUpdateHandler(req, res);
+        }
+
+        if (
+          req.method === 'POST' &&
+          req.url === '/federation/member-removed'
+        ) {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationMemberRemovedHandler(req, res);
         }
 
         if (

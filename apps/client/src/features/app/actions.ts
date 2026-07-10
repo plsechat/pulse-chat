@@ -428,40 +428,27 @@ export const joinFederatedServer = async (
   }
 };
 
-export const leaveFederatedServer = async (
+/**
+ * Local-only removal of a federated server entry plus, when it was the
+ * last entry on its instance, full instance-connection teardown (unread
+ * subscription, cached counts, WS connection, status badge). Shared by
+ * the user-initiated leave flow and the FEDERATED_SERVER_REMOVED event
+ * (remote kick/ban) — without the teardown, the connection manager
+ * keeps retrying an instance that will never accept us again.
+ */
+export const cleanupFederatedServerEntry = (
   instanceDomain: string,
   serverId: number
 ) => {
-  // Tell the remote server to remove the user before cleaning up locally
-  try {
-    const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
-    if (remoteTrpc) {
-      await remoteTrpc.servers.leave.mutate({ serverId });
-    }
-  } catch (error) {
-    console.error('Failed to leave remote server:', error);
-  }
-
   store.dispatch(
     appSliceActions.removeFederatedServer({ instanceDomain, serverId })
   );
   saveFederatedServers();
 
-  // Remove membership from home server (fire-and-forget)
-  const homeTrpc = getHomeTRPCClient();
-  if (homeTrpc) {
-    homeTrpc.federation.leaveRemote
-    .mutate({ instanceDomain, remoteServerId: serverId })
-    .catch((err) =>
-      console.error('Failed to remove federation membership:', err)
-    );
-  }
-
   // Check if any servers remain on this instance
-  const state = store.getState();
-  const remaining = state.app.federatedServers.filter(
-    (s) => s.instanceDomain === instanceDomain
-  );
+  const remaining = store
+    .getState()
+    .app.federatedServers.filter((s) => s.instanceDomain === instanceDomain);
 
   if (remaining.length === 0) {
     // Clean up unread subscription for this instance
@@ -476,6 +463,33 @@ export const leaveFederatedServer = async (
       appSliceActions.clearFederatedConnectionStatus(instanceDomain)
     );
   }
+};
+
+export const leaveFederatedServer = async (
+  instanceDomain: string,
+  serverId: number
+) => {
+  // Tell the remote server to remove the user before cleaning up locally
+  try {
+    const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
+    if (remoteTrpc) {
+      await remoteTrpc.servers.leave.mutate({ serverId });
+    }
+  } catch (error) {
+    console.error('Failed to leave remote server:', error);
+  }
+
+  // Remove membership from home server (fire-and-forget)
+  const homeTrpc = getHomeTRPCClient();
+  if (homeTrpc) {
+    homeTrpc.federation.leaveRemote
+    .mutate({ instanceDomain, remoteServerId: serverId })
+    .catch((err) =>
+      console.error('Failed to remove federation membership:', err)
+    );
+  }
+
+  cleanupFederatedServerEntry(instanceDomain, serverId);
 
   setActiveView('home');
   store.dispatch(appSliceActions.setActiveInstanceDomain(null));

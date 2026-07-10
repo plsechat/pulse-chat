@@ -90,12 +90,18 @@ class ConnectionManager {
         );
         const conn = this.connections.get(instanceDomain);
 
-        // Federation rejected — permanent failure, stop reconnecting
-        if (cause?.code === DisconnectCode.FEDERATION_REJECTED) {
+        // Permanent failures — stop reconnecting. FEDERATION_REJECTED:
+        // the peer refused the federation handshake. BANNED: our shadow
+        // user is banned instance-wide, every reconnect will be refused;
+        // retrying just flickers the status badge forever.
+        if (
+          cause?.code === DisconnectCode.FEDERATION_REJECTED ||
+          cause?.code === DisconnectCode.BANNED
+        ) {
           console.warn(
-            '[ConnectionManager] Federation rejected by',
+            '[ConnectionManager] Permanent close from',
             instanceDomain,
-            '— stopping reconnect'
+            `(code ${cause.code}) — stopping reconnect`
           );
           wsClient.close();
           this.connections.delete(instanceDomain);

@@ -5,7 +5,7 @@ import { blockInstanceRoute } from './block-instance';
 import { confirmJoinRoute } from './confirm-join';
 import { discoverRemoteRoute } from './discover-remote';
 import { ensureShadowUserRoute } from './ensure-shadow-user';
-import { onFederationInstanceUpdateRoute } from './events';
+import { onFederatedServerRemovedRoute, onFederationInstanceUpdateRoute } from './events';
 import { generateKeysRoute } from './generate-keys';
 import { getConfigRoute } from './get-config';
 import { getJoinedRoute } from './get-joined';
@@ -34,5 +34,6 @@ export const federationRouter = t.router({
   getJoined: getJoinedRoute,
   leaveRemote: leaveRemoteRoute,
   ensureShadowUser: ensureShadowUserRoute,
-  onInstanceUpdate: onFederationInstanceUpdateRoute
+  onInstanceUpdate: onFederationInstanceUpdateRoute,
+  onServerRemoved: onFederatedServerRemovedRoute
 });

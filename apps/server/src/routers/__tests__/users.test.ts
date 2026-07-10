@@ -747,8 +747,15 @@ describe('users router', () => {
     });
   });
 
-  describe('federation guard (F9): refuses ban/kick/role on federated targets', () => {
-    async function insertFederatedShadow(): Promise<number> {
+  // Federated moderation (supersedes the F9 blanket guard): roles are
+  // purely local state and were never a drift risk; kick/ban now work
+  // locally AND propagate to the target's home instance via
+  // /federation/member-removed (fire-and-forget, no-op with federation
+  // disabled — as it is in this test config).
+  describe('federated member moderation', () => {
+    async function insertFederatedShadow(opts?: {
+      member?: boolean;
+    }): Promise<number> {
       const tdb = getTestDb();
       const instanceRows = (await tdb.execute(
         sql`INSERT INTO federation_instances (domain, name, status, direction, created_at) VALUES ('peer.example.com', 'Peer', 'active', 'outgoing', ${Date.now()}) RETURNING id`
@@ -758,42 +765,76 @@ describe('users router', () => {
       const supabaseId = `federated:${instanceId}:99`;
       const now = Date.now();
       const userRows = (await tdb.execute(
-        sql`INSERT INTO users (supabase_id, name, is_federated, federated_instance_id, federated_username, public_id, created_at, last_login_at) VALUES (${supabaseId}, 'shadow-user', TRUE, ${instanceId}, '99', ${`pid-${now}`}, ${now}, ${now}) RETURNING id`
+        sql`INSERT INTO users (supabase_id, name, is_federated, federated_instance_id, federated_username, public_id, federated_public_id, created_at, last_login_at) VALUES (${supabaseId}, 'shadow-user', TRUE, ${instanceId}, '99', ${`pid-${now}`}, ${`home-pid-${now}`}, ${now}, ${now}) RETURNING id`
       )) as unknown as Array<{ id: number }>;
+      const shadowId = userRows[0]!.id;
 
-      return userRows[0]!.id;
+      if (opts?.member) {
+        await tdb.execute(
+          sql`INSERT INTO server_members (server_id, user_id, joined_at) VALUES (1, ${shadowId}, ${now})`
+        );
+      }
+
+      return shadowId;
     }
 
-    test('ban refuses federated target', async () => {
+    test('ban works on a federated member', async () => {
       const { caller } = await initTest();
-      const shadowId = await insertFederatedShadow();
-      await expect(caller.users.ban({ userId: shadowId })).rejects.toThrow(
-        /federated/i
-      );
+      const tdb = getTestDb();
+      const shadowId = await insertFederatedShadow({ member: true });
+
+      await caller.users.ban({ userId: shadowId, reason: 'spam' });
+
+      const [row] = (await tdb.execute(
+        sql`SELECT banned, ban_reason FROM users WHERE id = ${shadowId}`
+      )) as unknown as Array<{ banned: boolean; ban_reason: string | null }>;
+      expect(row?.banned).toBe(true);
+      expect(row?.ban_reason).toBe('spam');
     });
 
-    test('kick refuses federated target', async () => {
+    test('kick works on a federated member', async () => {
       const { caller } = await initTest();
-      const shadowId = await insertFederatedShadow();
-      await expect(caller.users.kick({ userId: shadowId })).rejects.toThrow(
-        /federated/i
-      );
+      const tdb = getTestDb();
+      const shadowId = await insertFederatedShadow({ member: true });
+
+      await caller.users.kick({ userId: shadowId, reason: 'test kick' });
+
+      const membership = (await tdb.execute(
+        sql`SELECT user_id FROM server_members WHERE server_id = 1 AND user_id = ${shadowId}`
+      )) as unknown as Array<{ user_id: number }>;
+      expect(membership.length).toBe(0);
     });
 
-    test('addRole refuses federated target', async () => {
+    // Role assignment is deliberately EXEMPT from the federation guard
+    // (v0.2.3+): userRoles rows are entirely local server state with no
+    // home-instance counterpart to drift from. Ban/kick stay guarded
+    // until federation propagation ships.
+    test('addRole and removeRole work on federated targets', async () => {
+      const { caller } = await initTest();
+      const tdb = getTestDb();
+      const shadowId = await insertFederatedShadow();
+
+      await caller.users.addRole({ userId: shadowId, roleId: 2 });
+
+      const afterAdd = (await tdb.execute(
+        sql`SELECT role_id FROM user_roles WHERE user_id = ${shadowId}`
+      )) as unknown as Array<{ role_id: number }>;
+      expect(afterAdd.map((r) => r.role_id)).toContain(2);
+
+      await caller.users.removeRole({ userId: shadowId, roleId: 2 });
+
+      const afterRemove = (await tdb.execute(
+        sql`SELECT role_id FROM user_roles WHERE user_id = ${shadowId}`
+      )) as unknown as Array<{ role_id: number }>;
+      expect(afterRemove.length).toBe(0);
+    });
+
+    test('addRole still refuses the Owner role for federated targets', async () => {
       const { caller } = await initTest();
       const shadowId = await insertFederatedShadow();
       await expect(
-        caller.users.addRole({ userId: shadowId, roleId: 2 })
-      ).rejects.toThrow(/federated/i);
-    });
-
-    test('removeRole refuses federated target', async () => {
-      const { caller } = await initTest();
-      const shadowId = await insertFederatedShadow();
-      await expect(
-        caller.users.removeRole({ userId: shadowId, roleId: 2 })
-      ).rejects.toThrow(/federated/i);
+        caller.users.addRole({ userId: shadowId, roleId: 1 })
+      ).rejects.toThrow(/Owner role/i);
     });
   });
 });

@@ -1,4 +1,8 @@
-import { saveFederatedServers, setActiveView } from '@/features/app/actions';
+import {
+  cleanupFederatedServerEntry,
+  saveFederatedServers,
+  setActiveView
+} from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
 import { connectionManager } from '@/lib/connection-manager';
@@ -8,6 +12,7 @@ import {
   type Unsubscribe
 } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
+import { toast } from 'sonner';
 import {
   addMessages,
   addTypingUser,
@@ -162,6 +167,57 @@ const subscribeToMessages = () => {
             store.dispatch(appSliceActions.setActiveInstanceDomain(null));
             setActiveView('home');
           }
+        }
+      )
+    );
+
+    // A federated peer kicked or banned us from one of its servers —
+    // the peer told our home instance, which delivers this user-scoped
+    // event. Drop the rail entry and surface the reason.
+    subs.push(
+      subscribe(
+        'onFederatedServerRemoved',
+        homeTrpc.federation.onServerRemoved,
+        (event) => {
+          const state = store.getState();
+          const entry = state.app.federatedServers.find(
+            (e) =>
+              e.instanceDomain === event.instanceDomain &&
+              e.server.publicId === event.serverPublicId
+          );
+
+          const displayName =
+            event.serverName ?? entry?.server.name ?? event.instanceDomain;
+          const reasonSuffix = event.reason ? `: ${event.reason}` : '';
+          toast.error(
+            event.action === 'ban'
+              ? `You have been banned from ${displayName}${reasonSuffix}`
+              : `You have been kicked from ${displayName}${reasonSuffix}`
+          );
+
+          if (!entry) return;
+
+          // If we're currently viewing that server, go home FIRST — the
+          // teardown below fires the disconnect status handler, which
+          // would otherwise also toast "Lost connection" for the
+          // still-active instance.
+          if (
+            state.app.activeInstanceDomain === event.instanceDomain &&
+            state.server.serverId === event.serverPublicId
+          ) {
+            store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+            setActiveView('home');
+          }
+
+          // Full local cleanup — including instance-connection teardown
+          // when this was the last server on that instance. A ban means
+          // every reconnect would be refused; without the teardown the
+          // connection manager retries forever and the status badge
+          // flickers connecting/disconnected.
+          cleanupFederatedServerEntry(
+            entry.instanceDomain,
+            entry.server.id
+          );
         }
       )
     );

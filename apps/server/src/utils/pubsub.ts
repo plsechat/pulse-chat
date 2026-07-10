@@ -222,6 +222,18 @@ type Events = {
     status: string;
   };
 
+  // Delivered on a user's HOME instance when a federated peer kicked or
+  // banned them from one of its servers — the propagation side of remote
+  // moderation. The client drops the matching federatedServers entry and
+  // shows the reason.
+  [ServerEvents.FEDERATED_SERVER_REMOVED]: {
+    instanceDomain: string;
+    serverPublicId: string;
+    serverName?: string;
+    action: 'kick' | 'ban';
+    reason?: string;
+  };
+
   [ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION]: {
     channelId: number;
     fromUserId: number;

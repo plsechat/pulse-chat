@@ -6,8 +6,8 @@ import { publishUser } from '../../db/publishers';
 import { isServerMember } from '../../db/queries/servers';
 import { users } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { relayFederatedModeration } from '../../utils/federation-moderation-dispatch';
 import { markBanned } from '../../utils/banned-cache';
-import { assertNotFederatedTarget } from '../../utils/federation-guard';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -25,8 +25,6 @@ const banRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'You cannot ban yourself.'
     });
-
-    await assertNotFederatedTarget(input.userId, 'Ban');
 
     // Verify target user is a member of the caller's active server
     const isMember = await isServerMember(ctx.activeServerId!, input.userId);
@@ -65,6 +63,15 @@ const banRoute = protectedProcedure
     // them — same UX as kick.
     publishUser(input.userId, 'update');
     publishUser(input.userId, 'delete', { scopeServerId: ctx.activeServerId! });
+
+    // Federated member? Tell their home instance so its membership
+    // record is removed and the user learns why (fire-and-forget).
+    relayFederatedModeration(
+      input.userId,
+      ctx.activeServerId!,
+      'ban',
+      input.reason
+    );
 
     enqueueActivityLog({
       type: ActivityLogType.USER_BANNED,

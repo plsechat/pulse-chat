@@ -33,6 +33,7 @@ import {
   dmChannels,
   dmE2eeSenderKeys,
   federationInstances,
+  userFederatedServers,
   userIdentityKeys,
   userOneTimePreKeys,
   userSignedPreKeys,
@@ -1202,5 +1203,149 @@ describe('POST /federation/channel-sender-key-notify (E1)', () => {
       }
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /federation/member-removed (federated moderation)', () => {
+  async function seedMembership(
+    userId: number,
+    instanceId: number,
+    serverPublicId: string
+  ): Promise<void> {
+    await db.insert(userFederatedServers).values({
+      userId,
+      instanceId,
+      remoteServerId: 42,
+      remoteServerPublicId: serverPublicId,
+      remoteServerName: 'Peer Server',
+      joinedAt: Date.now()
+    });
+  }
+
+  test('deletes the membership row and publishes FEDERATED_SERVER_REMOVED', async () => {
+    await initTest(1);
+    const { peerInstanceId, peerPrivateJwk } = await seedPeer();
+    const subjectPublicId = await getUserPublicId(1);
+    await seedMembership(1, peerInstanceId, 'srv-pub-1');
+
+    await withPubsubSpy(async (events) => {
+      const res = await postSignedAsPeer(
+        '/federation/member-removed',
+        {
+          subjectPublicId,
+          serverPublicId: 'srv-pub-1',
+          action: 'kick',
+          reason: 'test kick'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.success).toBe(true);
+
+      const rows = await db
+        .select()
+        .from(userFederatedServers)
+        .where(eq(userFederatedServers.userId, 1));
+      expect(rows.length).toBe(0);
+
+      const removed = events.filter(
+        (e) => e.topic === ServerEvents.FEDERATED_SERVER_REMOVED
+      );
+      expect(removed.length).toBe(1);
+      expect(removed[0]!.payload).toMatchObject({
+        instanceDomain: PEER_DOMAIN,
+        serverPublicId: 'srv-pub-1',
+        action: 'kick',
+        reason: 'test kick'
+      });
+    });
+  });
+
+  test('cannot remove a membership held on a DIFFERENT instance', async () => {
+    await initTest(1);
+    const { peerPrivateJwk } = await seedPeer();
+    const subjectPublicId = await getUserPublicId(1);
+
+    // Membership belongs to another instance — the authenticated peer
+    // is not authoritative for it.
+    const [otherInstance] = await db
+      .insert(federationInstances)
+      .values({
+        domain: 'other.example',
+        name: 'Other',
+        status: 'active',
+        direction: 'outgoing',
+        createdAt: Date.now()
+      })
+      .returning();
+    await seedMembership(1, otherInstance!.id, 'srv-pub-2');
+
+    const res = await postSignedAsPeer(
+      '/federation/member-removed',
+      {
+        subjectPublicId,
+        serverPublicId: 'srv-pub-2',
+        action: 'ban'
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+
+    const rows = await db
+      .select()
+      .from(userFederatedServers)
+      .where(eq(userFederatedServers.userId, 1));
+    expect(rows.length).toBe(1);
+  });
+
+  test('ignores unknown subjects without leaking existence', async () => {
+    await initTest(1);
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/member-removed',
+      {
+        subjectPublicId: 'no-such-public-id',
+        serverPublicId: 'srv-pub-1',
+        action: 'kick'
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.ignored).toBe('unknown_subject');
+  });
+
+  test('rejects an invalid action', async () => {
+    await initTest(1);
+    const { peerPrivateJwk } = await seedPeer();
+    const subjectPublicId = await getUserPublicId(1);
+
+    const res = await postSignedAsPeer(
+      '/federation/member-removed',
+      {
+        subjectPublicId,
+        serverPublicId: 'srv-pub-1',
+        action: 'obliterate'
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects an unsigned request', async () => {
+    await initTest(1);
+    await seedPeer();
+
+    const res = await fetch(`${testsBaseUrl}/federation/member-removed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromDomain: PEER_DOMAIN,
+        subjectPublicId: 'x',
+        serverPublicId: 'y',
+        action: 'kick'
+      })
+    });
+    expect([400, 401, 403]).toContain(res.status);
   });
 });
