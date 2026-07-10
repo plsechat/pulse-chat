@@ -29,6 +29,7 @@ const leaveServerRoute = protectedProcedure
 
     ctx.pubsub.publishFor(ctx.userId, ServerEvents.SERVER_MEMBER_LEAVE, {
       serverId: input.serverId,
+      serverPublicId: server.publicId,
       userId: ctx.userId
     });
 

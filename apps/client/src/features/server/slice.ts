@@ -23,12 +23,29 @@ import type {
 } from '@pulse/shared';
 import type { TDisconnectInfo, TMessagesMap } from './types';
 
+/**
+ * ID-keying convention (federation ID-collision fix):
+ *
+ * Numeric ids (channel.id, user.id, ...) are INSTANCE-LOCAL — two federated
+ * instances can both have a channel/server/user with id 1. State in this
+ * slice keyed by numeric id is safe ONLY because it is scoped to a single
+ * instance's live view: setInitialData replaces it wholesale on every
+ * server/instance switch, so it can never hold two instances' data at once.
+ *
+ * Anything that CROSSES instances or SURVIVES a server switch must be keyed
+ * or matched by a globally-unique publicId instead: the active server
+ * (`serverId` below IS the server's publicId), the persisted voice session
+ * (`currentVoiceChannelPublicId`), joined-server entries and roster event
+ * scoping (see features/app + users/subscriptions), and all federation
+ * addressing. Keep new state on the correct side of this line.
+ */
 export interface IServerState {
   connected: boolean;
   connecting: boolean;
   reconnecting: boolean;
   reconnectAttempt: number;
   disconnectInfo?: TDisconnectInfo;
+  /** publicId of the currently connected server (NOT the numeric id). */
   serverId?: string;
   categories: TCategory[];
   channels: TChannel[];

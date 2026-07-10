@@ -633,6 +633,38 @@ export const saveFederatedServers = () => {
   );
 };
 
+/**
+ * Drop a server entry — home or federated — matched by its globally-unique
+ * publicId. Numeric server ids are instance-local and collide across
+ * federated instances: a SERVER_MEMBER_LEAVE/USER_KICKED event arriving from
+ * a federated connection must never remove the HOME server that happens to
+ * share the same numeric id. Matching by publicId makes that impossible.
+ */
+export const removeServerEntryByPublicId = (serverPublicId: string) => {
+  const state = store.getState();
+
+  const homeServer = state.app.joinedServers.find(
+    (s) => s.publicId === serverPublicId
+  );
+  if (homeServer) {
+    store.dispatch(appSliceActions.removeJoinedServer(homeServer.id));
+    return;
+  }
+
+  const fedEntry = state.app.federatedServers.find(
+    (e) => e.server.publicId === serverPublicId
+  );
+  if (fedEntry) {
+    store.dispatch(
+      appSliceActions.removeFederatedServer({
+        instanceDomain: fedEntry.instanceDomain,
+        serverId: fedEntry.server.id
+      })
+    );
+    saveFederatedServers();
+  }
+};
+
 // Track federated unread count subscriptions so we can clean up
 const federatedUnreadSubs = new Map<string, { unsubscribe: () => void }>();
 

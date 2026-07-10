@@ -250,33 +250,11 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
     expect(notifies).toHaveLength(0);
   });
 
-  test('channel without publicId is skipped (logged) — no relay', async () => {
-    await initTest(1);
-    await generateFederationKeys();
-    mockDns();
-    await seedPeerInstance(PEER_DOMAIN_A);
-    // Explicitly null out channel publicId — simulating a pre-E1a row
-    // that hasn't been backfilled.
-    await db.update(channels).set({ publicId: null }).where(eq(channels.id, 1));
-    await ensureUserHasPublicId(1);
-
-    const { calls } = spyOnFetch();
-
-    await relayFederatedChannelSenderKeyNotifications({
-      channelId: 1,
-      fromUserId: 1,
-      senderKeyId: 1,
-      targets: [
-        { toPublicId: 'r1', toInstanceDomain: PEER_DOMAIN_A }
-      ]
-    });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
-    expect(notifies).toHaveLength(0);
-  });
+  // NOTE: the former "channel without publicId is skipped (logged)" test was
+  // removed with migration 0019_public_id_not_null — channels.public_id is
+  // now NOT NULL at the DB level, so the pre-E1a "row without publicId"
+  // state it simulated can no longer exist (the setup UPDATE itself would
+  // violate the constraint). The defensive skip in the relay code remains.
 
   test('empty target list dispatches nothing', async () => {
     await initTest(1);

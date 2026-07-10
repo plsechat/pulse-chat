@@ -21,7 +21,7 @@ import { getRole } from './queries/roles';
 import { getServerPublicSettings } from './queries/server';
 import { getCoMemberIds, getServerMemberIds } from './queries/servers';
 import { getPublicUserById } from './queries/users';
-import { categories, channels, threadFollowers } from './schema';
+import { categories, channels, servers, threadFollowers } from './schema';
 
 const publishMessage = async (
   messageId: number | undefined,
@@ -267,8 +267,17 @@ const publishUser = async (
   const recipients = Array.from(new Set([...baseRecipients, userId]));
 
   if (type === 'delete') {
+    // Include the globally-unique publicId so clients can scope the event —
+    // the numeric serverId collides across federated instances.
+    const [scopeServer] = await db
+      .select({ publicId: servers.publicId })
+      .from(servers)
+      .where(eq(servers.id, scopeServerId!))
+      .limit(1);
+
     pubsub.publishFor(recipients, ServerEvents.USER_DELETE, {
       serverId: scopeServerId!,
+      serverPublicId: scopeServer?.publicId,
       userId
     });
     return;
