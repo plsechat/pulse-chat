@@ -74,6 +74,12 @@ async function signToken(
     .setSubject(sub)
     .setIssuer(ISSUER)
     .setIssuedAt()
+    // Unique per mint. Without it HS256 signing is deterministic —
+    // `iat`/`exp` have second granularity, so a refresh landing in the
+    // same second as the sign-in would "rotate" to a byte-identical
+    // token. (No revocation store consumes the jti yet; uniqueness is
+    // the point.)
+    .setJti(randomUUIDv7())
     .setExpirationTime(Math.floor(Date.now() / 1000) + ttlSeconds)
     .sign(getSecret());
 }
