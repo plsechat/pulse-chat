@@ -49,7 +49,7 @@ async function findOrCreateShadowUser(
       logger.debug(
         '[shadowUser] hit variant=byPublicId instanceId=%d remotePublicId=%s userId=%d',
         instanceId,
-        remotePublicId,
+        remotePublicId.replace(/[\r\n]/g, ''),
         byPublicId.id
       );
       return byPublicId;
@@ -170,7 +170,7 @@ async function findOrCreateShadowUserByPublicId(
     logger.debug(
       '[shadowUser] hit variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
       instanceId,
-      remotePublicId,
+      remotePublicId.replace(/[\r\n]/g, ''),
       existing.id
     );
     return existing;
@@ -197,7 +197,7 @@ async function findOrCreateShadowUserByPublicId(
     logger.debug(
       '[shadowUser] created variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
       instanceId,
-      remotePublicId,
+      remotePublicId.replace(/[\r\n]/g, ''),
       created.id
     );
     return created;
@@ -330,7 +330,7 @@ async function downloadFederatedFile(
   } catch (err) {
     logger.warn(
       '[downloadFederatedFile] failed for url=%s: %o',
-      remoteUrl,
+      remoteUrl.replace(/[\r\n]/g, ''),
       err
     );
     return null;
@@ -412,7 +412,7 @@ async function syncShadowUserProfile(
     logger.debug(
       '[shadowProfile] syncing userId=%d issuer=%s force=%s',
       shadowUserId,
-      issuerDomain,
+      issuerDomain.replace(/[\r\n]/g, ''),
       opts?.force ?? false
     );
 
