@@ -385,6 +385,7 @@ async function syncShadowUserProfile(
         bannerId: users.bannerId,
         bio: users.bio,
         bannerColor: users.bannerColor,
+        customStatus: users.customStatus,
         updatedAt: users.updatedAt
       })
       .from(users)
@@ -442,6 +443,7 @@ async function syncShadowUserProfile(
       name: string;
       bio: string | null;
       bannerColor: string | null;
+      customStatus?: string | null;
       avatar: { name: string } | null;
       banner: { name: string } | null;
       createdAt: number;
@@ -493,12 +495,22 @@ async function syncShadowUserProfile(
       }
     }
 
-    // Sync bio and bannerColor
+    // Sync bio, bannerColor, and custom status
     if (profile.bio !== shadow.bio) {
       updates.bio = profile.bio;
     }
     if (profile.bannerColor !== shadow.bannerColor) {
       updates.bannerColor = profile.bannerColor;
+    }
+    // Optional — older peers don't send it; bound like the push path.
+    if (
+      profile.customStatus !== undefined &&
+      profile.customStatus !== shadow.customStatus
+    ) {
+      updates.customStatus =
+        profile.customStatus === null
+          ? null
+          : String(profile.customStatus).slice(0, 128);
     }
 
     if (Object.keys(updates).length > 0) {

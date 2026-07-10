@@ -221,6 +221,9 @@ const users = pgTable(
       onDelete: 'set null'
     }),
     bio: text('bio'),
+    // Short user-set presence line ("🎧 working late"). Persisted like bio
+    // (survives reconnects), unlike the runtime-only ONLINE/IDLE/DND status.
+    customStatus: text('custom_status'),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),

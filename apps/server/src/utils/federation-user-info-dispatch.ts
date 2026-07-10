@@ -24,6 +24,7 @@ type UserInfoChanges = {
   name?: string;
   bio?: string | null;
   bannerColor?: string | null;
+  customStatus?: string | null;
   status?: string; // UserStatus value
   // When true, peer instances re-fetch the full profile via the
   // existing pull endpoint (skipping the debounce). Used by

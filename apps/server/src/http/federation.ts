@@ -429,6 +429,7 @@ const federationUserInfoHandler = async (
       name: users.name,
       bio: users.bio,
       bannerColor: users.bannerColor,
+      customStatus: users.customStatus,
       avatar: logoFiles,
       banner: bannerFiles,
       createdAt: users.createdAt

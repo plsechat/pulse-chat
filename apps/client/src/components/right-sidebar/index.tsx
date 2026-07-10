@@ -20,11 +20,12 @@ type TUserProps = {
   name: string;
   banned: boolean;
   status?: UserStatus;
+  customStatus?: string | null;
   _identity?: string;
   e2ee?: boolean;
 };
 
-const User = memo(({ userId, name, banned, status, _identity, e2ee }: TUserProps) => {
+const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee }: TUserProps) => {
   const displayRole = useUserDisplayRole(userId);
   const nameColor =
     displayRole?.color && displayRole.color !== '#ffffff'
@@ -43,21 +44,28 @@ const User = memo(({ userId, name, banned, status, _identity, e2ee }: TUserProps
             />
           </div>
         </div>
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span
-            className={cn(
-              'text-sm truncate',
-              banned && 'line-through text-muted-foreground',
-              !banned && !nameColor && 'text-foreground/80'
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span
+              className={cn(
+                'text-sm truncate',
+                banned && 'line-through text-muted-foreground',
+                !banned && !nameColor && 'text-foreground/80'
+              )}
+              style={!banned && nameColor ? { color: nameColor } : undefined}
+            >
+              {name}
+            </span>
+            {_identity?.includes('@') && (
+              <Globe className="h-3 w-3 text-blue-500 shrink-0" />
             )}
-            style={!banned && nameColor ? { color: nameColor } : undefined}
-          >
-            {name}
-          </span>
-          {_identity?.includes('@') && (
-            <Globe className="h-3 w-3 text-blue-500 shrink-0" />
+            {e2ee && <VerifiedMemberDot userId={userId} />}
+          </div>
+          {customStatus && (
+            <span className="text-xs text-muted-foreground truncate">
+              {customStatus}
+            </span>
           )}
-          {e2ee && <VerifiedMemberDot userId={userId} />}
         </div>
       </div>
     </UserPopover>
@@ -105,6 +113,7 @@ const RoleGroupSection = memo(
             name={getDisplayName(user)}
             banned={user.banned}
             status={user.status}
+            customStatus={user.customStatus}
             _identity={user._identity}
             e2ee={e2ee}
           />

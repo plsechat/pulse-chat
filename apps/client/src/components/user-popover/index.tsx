@@ -428,6 +428,11 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               </span>
             </div>
           )}
+          {user.customStatus && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {user.customStatus}
+            </p>
+          )}
           <div className="flex items-center gap-1.5 mt-1.5">
             <UserStatusBadge
               status={user.status || UserStatus.OFFLINE}

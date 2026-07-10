@@ -123,6 +123,11 @@ const ProfileBody = memo(({ user }: { user: TJoinedPublicUser }) => {
           <span className={cn('h-2 w-2 rounded-full', STATUS_DOT[status])} />
           <span>{STATUS_LABEL[status]}</span>
         </div>
+        {user.customStatus && (
+          <p className="mt-1 text-xs text-muted-foreground truncate">
+            {user.customStatus}
+          </p>
+        )}
 
         {user.bio && (
           <Section label="About me">

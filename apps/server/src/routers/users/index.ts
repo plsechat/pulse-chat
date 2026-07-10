@@ -20,6 +20,7 @@ import { kickRoute } from './kick';
 import { removeRoleRoute } from './remove-role';
 import { resolveByDescriptorRoute } from './resolve-by-descriptor';
 import { setNicknameRoute, setUserNicknameRoute } from './set-nickname';
+import { setCustomStatusRoute } from './set-custom-status';
 import { setStatusRoute } from './set-status';
 import { unbanRoute } from './unban';
 import { updatePasswordRoute } from './update-password';
@@ -34,6 +35,7 @@ export const usersRouter = t.router({
   update: updateUserRoute,
   updatePassword: updatePasswordRoute,
   setStatus: setStatusRoute,
+  setCustomStatus: setCustomStatusRoute,
   setNickname: setNicknameRoute,
   setUserNickname: setUserNicknameRoute,
   getInfo: getUserInfoRoute,

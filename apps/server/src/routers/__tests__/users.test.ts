@@ -559,6 +559,32 @@ describe('users router', () => {
     });
   });
 
+  test('setCustomStatus persists, publishes, and clears', async () => {
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    await caller.users.setCustomStatus({ customStatus: '🎧 working late' });
+
+    const [row] = (await tdb.execute(
+      sql`SELECT custom_status FROM users WHERE id = 1`
+    )) as unknown as { custom_status: string | null }[];
+    expect(row?.custom_status).toBe('🎧 working late');
+
+    // Clearing with null wipes it
+    await caller.users.setCustomStatus({ customStatus: null });
+    const [cleared] = (await tdb.execute(
+      sql`SELECT custom_status FROM users WHERE id = 1`
+    )) as unknown as { custom_status: string | null }[];
+    expect(cleared?.custom_status).toBeNull();
+  });
+
+  test('setCustomStatus rejects over-length text', async () => {
+    const { caller } = await initTest(1);
+    await expect(
+      caller.users.setCustomStatus({ customStatus: 'x'.repeat(129) })
+    ).rejects.toThrow();
+  });
+
   test('joinServer publishes USER_JOIN carrying the server publicId', async () => {
     const publishedEvents: { topic: string; payload: unknown }[] = [];
     const original = pubsub.publishFor.bind(pubsub);

@@ -72,6 +72,10 @@ const federationUserInfoUpdateHandler = async (
   const nameChange = signedBody.name as string | undefined;
   const bioChange = signedBody.bio as string | null | undefined;
   const bannerColorChange = signedBody.bannerColor as string | null | undefined;
+  const customStatusChange = signedBody.customStatus as
+    | string
+    | null
+    | undefined;
   const statusChange = signedBody.status as string | undefined;
   const triggerProfileSync = signedBody.triggerProfileSync === true;
 
@@ -123,6 +127,14 @@ const federationUserInfoUpdateHandler = async (
   if (nameChange !== undefined) persistedSet.name = nameChange;
   if (bioChange !== undefined) persistedSet.bio = bioChange;
   if (bannerColorChange !== undefined) persistedSet.bannerColor = bannerColorChange;
+  if (customStatusChange !== undefined) {
+    // Bound like the local set-custom-status route — a peer must not be
+    // able to stuff arbitrary-length text onto our users table.
+    persistedSet.customStatus =
+      customStatusChange === null
+        ? null
+        : String(customStatusChange).slice(0, 128);
+  }
 
   if (Object.keys(persistedSet).length > 0) {
     persistedSet.updatedAt = Date.now();
