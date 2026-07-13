@@ -49,12 +49,14 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const currentVolume = getVolume(volumeKey);
   const isMuted = currentVolume === 0;
 
-  const isInVoice = useMemo(() => {
+  const voiceState = useMemo(() => {
     for (const ch of Object.values(voiceMap)) {
-      if (ch && ch.users[userId]) return true;
+      const state = ch?.users[userId];
+      if (state) return state;
     }
-    return false;
+    return undefined;
   }, [voiceMap, userId]);
+  const isInVoice = voiceState !== undefined;
 
   const userRoleIds = useMemo(
     () => new Set(userRoles.map((r) => r.id)),
@@ -130,6 +132,32 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     }
   }, [userId]);
 
+  const handleToggleServerMute = useCallback(async () => {
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.voice.moderateMember.mutate({
+        userId,
+        serverMuted: !voiceState?.serverMuted
+      });
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to update server mute'));
+    }
+  }, [userId, voiceState?.serverMuted]);
+
+  const handleToggleServerDeafen = useCallback(async () => {
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.voice.moderateMember.mutate({
+        userId,
+        serverDeafened: !voiceState?.serverDeafened
+      });
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to update server deafen'));
+    }
+  }, [userId, voiceState?.serverDeafened]);
+
   const handleToggleRole = useCallback(
     async (roleId: number, hasRole: boolean) => {
       try {
@@ -185,12 +213,24 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
               </ContextMenuSubContent>
             </ContextMenuSub>
             {can(Permission.MANAGE_USERS) && (
-              <ContextMenuItem
-                variant="destructive"
-                onClick={handleDisconnectFromVoice}
-              >
-                Disconnect from Voice
-              </ContextMenuItem>
+              <>
+                <ContextMenuItem onClick={handleToggleServerMute}>
+                  {voiceState?.serverMuted
+                    ? 'Unmute (Server)'
+                    : 'Server Mute'}
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleToggleServerDeafen}>
+                  {voiceState?.serverDeafened
+                    ? 'Undeafen (Server)'
+                    : 'Server Deafen'}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={handleDisconnectFromVoice}
+                >
+                  Disconnect from Voice
+                </ContextMenuItem>
+              </>
             )}
           </>
         )}

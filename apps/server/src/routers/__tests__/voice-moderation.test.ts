@@ -161,6 +161,89 @@ describe('voice.disconnectUser', () => {
   });
 });
 
+describe('voice.moderateMember (server mute / deafen)', () => {
+  test('moderator server-mutes and unmutes a member', async () => {
+    const { caller } = await initTest();
+    const target = await insertMemberUser();
+    const channel = await insertVoiceChannel();
+    stageUserInVoice(channel.id, target.id);
+
+    try {
+      await caller.voice.moderateMember({
+        userId: target.id,
+        serverMuted: true
+      });
+      expect(
+        VoiceRuntime.findById(channel.id)?.getUserState(target.id).serverMuted
+      ).toBe(true);
+
+      await caller.voice.moderateMember({
+        userId: target.id,
+        serverMuted: false
+      });
+      expect(
+        VoiceRuntime.findById(channel.id)?.getUserState(target.id).serverMuted
+      ).toBe(false);
+    } finally {
+      await VoiceRuntime.findById(channel.id)?.destroy();
+    }
+  });
+
+  test('server-deafen sets the flag independently of mute', async () => {
+    const { caller } = await initTest();
+    const target = await insertMemberUser();
+    const channel = await insertVoiceChannel();
+    stageUserInVoice(channel.id, target.id);
+
+    try {
+      await caller.voice.moderateMember({
+        userId: target.id,
+        serverDeafened: true
+      });
+      const state = VoiceRuntime.findById(channel.id)?.getUserState(target.id);
+      expect(state?.serverDeafened).toBe(true);
+      expect(state?.serverMuted).toBe(false);
+    } finally {
+      await VoiceRuntime.findById(channel.id)?.destroy();
+    }
+  });
+
+  test('requires MANAGE_USERS', async () => {
+    const actor = await insertMemberUser();
+    const target = await insertMemberUser();
+    const channel = await insertVoiceChannel();
+    stageUserInVoice(channel.id, target.id);
+
+    try {
+      const { caller } = await initTest(actor.id);
+      await expect(
+        caller.voice.moderateMember({ userId: target.id, serverMuted: true })
+      ).rejects.toThrow('Insufficient permissions');
+      expect(
+        VoiceRuntime.findById(channel.id)?.getUserState(target.id).serverMuted
+      ).toBe(false);
+    } finally {
+      await VoiceRuntime.findById(channel.id)?.destroy();
+    }
+  });
+
+  test('cannot moderate a member in another server (cross-server scope)', async () => {
+    const { caller } = await initTest();
+    const target = await insertMemberUser();
+    const otherServer = await insertOtherServer();
+    const foreignChannel = await insertVoiceChannel(otherServer.id);
+    stageUserInVoice(foreignChannel.id, target.id);
+
+    try {
+      await expect(
+        caller.voice.moderateMember({ userId: target.id, serverMuted: true })
+      ).rejects.toThrow('User is not in a voice channel');
+    } finally {
+      await VoiceRuntime.findById(foreignChannel.id)?.destroy();
+    }
+  });
+});
+
 describe('voice.leave runtime fallback', () => {
   test('leave removes a stale session when the connection context has no channel', async () => {
     // Simulates the post-refresh state: the user's old session is still

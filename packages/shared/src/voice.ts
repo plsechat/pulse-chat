@@ -6,6 +6,11 @@ export type TVoiceUserState = {
   soundMuted: boolean;
   webcamEnabled: boolean;
   sharingScreen: boolean;
+  // Moderator-forced overrides (distinct from the user's own micMuted/
+  // soundMuted). While set, the user cannot lift them; a moderator with
+  // MANAGE_USERS toggles them via voice.moderateMember.
+  serverMuted: boolean;
+  serverDeafened: boolean;
 };
 
 export type TVoiceUser = {
