@@ -1,25 +1,24 @@
 /**
- * Migration replay-safety check.
+ * Migration replay-safety check (defense-in-depth).
  *
- * The PULSE boot path (`db/index.ts:loadDb`) wipes drizzle's
- * `__drizzle_migrations` tracking table on every start and re-runs
- * every committed migration. That works only because each migration
- * SQL file is hand-written to be idempotent — `CREATE TABLE IF NOT
- * EXISTS`, `ADD COLUMN IF NOT EXISTS`, or `DO $$ … EXCEPTION WHEN
- * duplicate_<class> THEN null; END $$` blocks.
+ * Migrations run ONCE now: `db/index.ts:loadDb` calls drizzle's
+ * `migrate()`, which records applied migrations in
+ * `drizzle.__drizzle_migrations` and skips them on later boots. The old
+ * boot path wiped that table every start and re-ran everything, which is
+ * why migrations used to be forced idempotent (`docker/patch-migrations.ts`).
  *
- * CI uses a fresh Postgres for every test run, so the rerun path
- * never fires there — non-idempotent migrations slip through review
- * and only crash on dev/prod restarts. PR #73's `0016_huge_prodigy.sql`
- * shipped with `WHEN duplicate_object` only and crashed the chat2
- * boot on rebuild — caught by 34af6eb after the fact.
+ * Idempotency is retained as a SAFETY NET, not the primary mechanism:
+ * it covers the one residual edge case where an existing database's
+ * tracking table is emptied (manual intervention, or a boot that dies
+ * mid-migrate), in which case `migrate()` would re-run committed
+ * migrations against a populated schema. Keeping the DDL idempotent
+ * means that re-run is harmless rather than a crash loop.
  *
- * This script applies every committed migration twice in a row
- * against a clean Postgres. The second pass is the same operation
- * the boot loop performs on every restart of an existing instance.
- * If any DDL re-applies non-idempotently, the second pass throws
- * and the script exits non-zero — failing CI on the PR that
- * introduced the regression.
+ * This script applies every committed migration twice against a clean
+ * Postgres; if any DDL re-applies non-idempotently the second pass
+ * throws and CI fails on the PR that introduced it. PR #73's
+ * `0016_huge_prodigy.sql` shipped with `WHEN duplicate_object` only and
+ * crashed the chat2 boot on rebuild — caught by 34af6eb after the fact.
  *
  * Invoked by `.github/workflows/test.yml` (`migrations-idempotent`
  * job) on every push and pull request. Local invocation works too:
@@ -45,9 +44,11 @@ const client = postgres(databaseUrl);
 const db = drizzle({ client });
 
 async function pass(label: string): Promise<void> {
-  // Mirror `db/index.ts:loadDb` — wipe drizzle's tracking, then
-  // migrate from scratch. The wipe is what forces the rerun on every
-  // boot, and is exactly the production behaviour we need to verify.
+  // Wipe drizzle's tracking so migrate() re-runs every migration from
+  // scratch. This deliberately does NOT mirror the boot path anymore
+  // (which runs each migration once) — it FORCES the re-run so we can
+  // verify every migration stays idempotent, the safety net for an
+  // existing DB whose tracking table gets emptied.
   await client`DELETE FROM drizzle.__drizzle_migrations`.catch(() => {});
   await migrate(db, { migrationsFolder });
   console.log(`[check-migrations] ${label} pass OK`);

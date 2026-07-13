@@ -1,5 +1,5 @@
 {
-  "id": "a89225c1-372a-42b9-bccc-59797816a671",
+  "id": "7b4144de-5f2b-4f86-b1a9-a2731a6c3c48",
   "prevId": "a50ce896-de7e-4a08-a1e0-fdfc96ea04c6",
   "version": "7",
   "dialect": "postgresql",
@@ -6177,6 +6177,24 @@
         "custom_status": {
           "name": "custom_status",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pronouns": {
+          "name": "pronouns",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "custom_status_emoji": {
+          "name": "custom_status_emoji",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "custom_status_expires_at": {
+          "name": "custom_status_expires_at",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         }
