@@ -13,6 +13,16 @@ const STATUS_ORDER: Record<string, number> = {
 
 export const ownUserIdSelector = (state: IRootState) => state.server.ownUserId;
 
+/**
+ * The user's own id in HOME-instance id-space. state.server.ownUserId
+ * is instance-ambient — viewing a federated server overwrites it with
+ * the remote shadow id — so any comparison against home-scoped data
+ * (DMs, friends, friend requests) must use this. Falls back to the
+ * ambient id before the home join completes.
+ */
+export const homeOwnUserIdSelector = (state: IRootState) =>
+  state.app.homeOwnUserId ?? state.server.ownUserId;
+
 export const usersSelector = createSelector(
   (state: IRootState) => state.server.users,
   (users) => {

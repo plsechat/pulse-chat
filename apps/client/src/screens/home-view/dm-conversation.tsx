@@ -28,7 +28,7 @@ import {
 } from '@/features/dms/actions';
 import { useDmChannels, useDmTypingUsers } from '@/features/dms/hooks';
 import { useDmMessages } from '@/features/dms/use-dm-messages';
-import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
+import { useHomeOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -117,7 +117,7 @@ const DmConversation = memo(
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
   const dmChannels = useDmChannels();
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
   const dmMembers = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
@@ -604,7 +604,7 @@ const DmHeader = memo(({
   onToggleProfilePanel?: () => void;
 }) => {
   const channels = useDmChannels();
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
   const call = useDmCall(dmChannelId);
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
@@ -902,7 +902,7 @@ const DmMessagesGroup = memo(
     const firstMessage = group[0];
     const user = useUserById(firstMessage.userId);
     const date = new Date(firstMessage.createdAt);
-    const ownUserId = useOwnUserId();
+    const ownUserId = useHomeOwnUserId();
     const isOwnUser = firstMessage.userId === ownUserId;
 
     if (!user) return null;
@@ -1010,7 +1010,7 @@ const DmReplyBar = memo(
 
 const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onReply: () => void }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
   const isOwnMessage = message.userId === ownUserId;
 
   const handleDelete = useCallback(async () => {

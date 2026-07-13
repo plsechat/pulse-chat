@@ -2,7 +2,7 @@ import { useSelector } from 'react-redux';
 import { useMemo } from 'react';
 import type { IRootState } from '../store';
 import { blockedUsersSelector } from '../friends/selectors';
-import { ownUserIdSelector } from '../server/users/selectors';
+import { homeOwnUserIdSelector } from '../server/users/selectors';
 import {
   dmActiveCallsSelector,
   dmCallByChannelIdSelector,
@@ -27,7 +27,7 @@ import {
 export const useDmChannels = () => {
   const channels = useSelector(dmChannelsSelector);
   const blocked = useSelector(blockedUsersSelector);
-  const ownUserId = useSelector(ownUserIdSelector);
+  const ownUserId = useSelector(homeOwnUserIdSelector);
   return useMemo(() => {
     if (blocked.length === 0) return channels;
     const blockedIds = new Set(blocked.map((b) => b.id));

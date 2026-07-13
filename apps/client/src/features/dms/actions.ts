@@ -17,7 +17,7 @@ import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } f
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
-import { ownUserIdSelector } from '../server/users/selectors';
+import { homeOwnUserIdSelector } from '../server/users/selectors';
 import { addUserToVoiceChannel } from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
@@ -94,7 +94,7 @@ export const addDmMessages = async (
 
   if (isSubscription && messages.length > 0) {
     const state = store.getState();
-    const ownUserId = ownUserIdSelector(state);
+    const ownUserId = homeOwnUserIdSelector(state);
     const selectedId = state.dms.selectedChannelId;
     if (ownUserId != null && messages[0].userId !== ownUserId) {
       // selectedChannelId is sticky across navigation (kept so the user
@@ -282,7 +282,7 @@ export const fetchDmMessages = async (
  */
 function getDmRecipientUserId(dmChannelId: number): number | null {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   if (!channel) return null;
 
@@ -441,7 +441,7 @@ export async function decryptDmMessageInPlace<
     await deleteCachedPlaintext(message.id).catch(() => {});
   }
 
-  const ownUserId = ownUserIdSelector(store.getState());
+  const ownUserId = homeOwnUserIdSelector(store.getState());
 
   // Own messages are encrypted for the recipient — we cannot decrypt them.
   // Use the in-memory cache populated at send time for the current session.
@@ -524,7 +524,7 @@ export async function decryptDmMessages(
     e2eeMessages.map((m) => m.id)
   );
 
-  const ownUserId = ownUserIdSelector(store.getState());
+  const ownUserId = homeOwnUserIdSelector(store.getState());
 
   // Group messages by sender to parallelize across senders
   const bySender = new Map<number, { index: number; msg: TJoinedDmMessage }[]>();
@@ -706,7 +706,7 @@ export const sendDmMessage = async (
   // anyway. Surface the failure so the user knows.
   if (channel?.e2ee) {
     const plaintext: E2EEPlaintext = { content, fileKeys };
-    const ownUserId = ownUserIdSelector(state);
+    const ownUserId = homeOwnUserIdSelector(state);
     const isGroup = channel.members.length > 2;
 
     if (isGroup) {
@@ -835,7 +835,7 @@ export const enableDmEncryption = async (dmChannelId: number) => {
   // is idempotent — safe to call before any group send anyway.
   const state = store.getState();
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (channel && channel.members.length > 2 && ownUserId != null) {
     try {
       await ensureDmGroupSenderKey(
@@ -860,7 +860,7 @@ export const syncDmGroupSenderKeysOnMemberAdd = async (
   addedUserId: number
 ) => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (ownUserId == null || addedUserId === ownUserId) return;
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   if (!channel?.e2ee) return;
@@ -896,7 +896,7 @@ export const syncDmGroupSenderKeysOnMemberRemove = async (
   removedUserId: number
 ) => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (ownUserId == null || removedUserId === ownUserId) return;
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   if (!channel?.e2ee) return;
@@ -963,7 +963,7 @@ export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
   //  - we're already in this exact call (e.g. accepted from another
   //    tab / rejoin after a brief disconnect)
   const state = store.getState();
-  const ownUserId = state.server.ownUserId;
+  const ownUserId = homeOwnUserIdSelector(state);
   const ownDmCallChannelId = state.dms.ownDmCallChannelId;
   if (ownUserId == null || startedBy === ownUserId) return;
   if (ownDmCallChannelId === dmChannelId) return;
@@ -1010,7 +1010,7 @@ export const dmCallDeclined = (
   declinedByUserId: number
 ) => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (declinedByUserId === ownUserId) return;
 
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);

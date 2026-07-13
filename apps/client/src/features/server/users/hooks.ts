@@ -1,6 +1,7 @@
 import type { IRootState } from '@/features/store';
 import { useSelector } from 'react-redux';
 import {
+  homeOwnUserIdSelector,
   isOwnUserSelector,
   ownPublicUserSelector,
   ownUserIdSelector,
@@ -16,6 +17,7 @@ export const useUsers = () => useSelector(usersSelector);
 export const useOwnUser = () => useSelector(ownUserSelector);
 
 export const useOwnUserId = () => useSelector(ownUserIdSelector);
+export const useHomeOwnUserId = () => useSelector(homeOwnUserIdSelector);
 
 export const useIsOwnUser = (userId: number) =>
   useSelector((state: IRootState) => isOwnUserSelector(state, userId));
