@@ -10,7 +10,12 @@ import { DateDivider } from '@/components/chat-primitives/date-divider';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
-import { EmojiPicker } from '@/components/emoji-picker';
+import { EmojiPickerPanel } from '@/components/emoji-picker';
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent
+} from '@/components/ui/popover';
 import { MessageReactions } from '@/components/channel-view/text/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
@@ -1010,6 +1015,7 @@ const DmReplyBar = memo(
 
 const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onReply: () => void }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const ownUserId = useHomeOwnUserId();
   const isOwnMessage = message.userId === ownUserId;
 
@@ -1088,6 +1094,8 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 
   const onEmojiSelect = useCallback(
     async (emoji: TEmojiItem) => {
+      setReactionPickerOpen(false);
+
       const trpc = getHomeTRPCClient();
       if (!trpc) return;
 
@@ -1111,8 +1119,13 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   }, [message.content]);
 
   return (
+    // Reaction picker is a separate Popover wrapping the context menu (see
+    // message-context-menu.tsx for the rationale) — nesting it inside the
+    // menu made it vanish on hover when emoji-mart grabbed focus.
+    <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
     <ContextMenu>
       <ContextMenuTrigger asChild>
+    <PopoverAnchor asChild>
     <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 ml-1 relative hover:bg-secondary/50 rounded-md px-1 py-0.5 group">
       {message.replyTo && (
         <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToDmMessage} />
@@ -1150,6 +1163,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
         />
       )}
     </div>
+    </PopoverAnchor>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onClick={onReply}>
@@ -1166,12 +1180,10 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           {message.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
           {message.pinned ? 'Unpin' : 'Pin'}
         </ContextMenuItem>
-        <EmojiPicker onEmojiSelect={onEmojiSelect}>
-          <ContextMenuItem onSelect={(e) => e.preventDefault()}>
-            <Smile className="h-4 w-4" />
-            Add Reaction
-          </ContextMenuItem>
-        </EmojiPicker>
+        <ContextMenuItem onClick={() => setReactionPickerOpen(true)}>
+          <Smile className="h-4 w-4" />
+          Add Reaction
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onCopyText} disabled={!message.content}>
           <Copy className="h-4 w-4" />
@@ -1188,6 +1200,16 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
         )}
       </ContextMenuContent>
     </ContextMenu>
+
+      <PopoverContent
+        className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
+        align="start"
+        sideOffset={8}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
+      </PopoverContent>
+    </Popover>
   );
 });
 
