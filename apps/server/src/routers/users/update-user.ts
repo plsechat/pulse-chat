@@ -14,7 +14,8 @@ const updateUserRoute = protectedProcedure
       bannerColor: z
         .string()
         .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, 'Invalid hex color'),
-      bio: z.string().max(160).optional()
+      bio: z.string().max(160).optional(),
+      pronouns: z.string().trim().max(40).nullable().optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -29,7 +30,10 @@ const updateUserRoute = protectedProcedure
       .set({
         name: input.name,
         bannerColor: input.bannerColor,
-        bio: input.bio ?? null
+        bio: input.bio ?? null,
+        ...(input.pronouns !== undefined
+          ? { pronouns: input.pronouns || null }
+          : {})
       })
       .where(eq(users.id, ctx.userId))
       .returning();
@@ -43,7 +47,10 @@ const updateUserRoute = protectedProcedure
     relayUserInfoUpdate(ctx.userId, {
       name: input.name,
       bannerColor: input.bannerColor,
-      bio: input.bio ?? null
+      bio: input.bio ?? null,
+      ...(input.pronouns !== undefined
+        ? { pronouns: input.pronouns || null }
+        : {})
     });
   });
 

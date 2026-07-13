@@ -428,8 +428,16 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               </span>
             </div>
           )}
-          {user.customStatus && (
+          {user.pronouns && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {user.pronouns}
+            </p>
+          )}
+          {(user.customStatus || user.customStatusEmoji) && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {user.customStatusEmoji && (
+                <span className="mr-1">{user.customStatusEmoji}</span>
+              )}
               {user.customStatus}
             </p>
           )}

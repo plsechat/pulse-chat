@@ -221,9 +221,20 @@ const users = pgTable(
       onDelete: 'set null'
     }),
     bio: text('bio'),
+    // Optional pronouns shown on the profile (e.g. "she/her"). Plain text,
+    // persisted like bio.
+    pronouns: text('pronouns'),
     // Short user-set presence line ("🎧 working late"). Persisted like bio
     // (survives reconnects), unlike the runtime-only ONLINE/IDLE/DND status.
     customStatus: text('custom_status'),
+    // Optional emoji shown beside the custom status (unicode char or a
+    // custom-emoji shortcode).
+    customStatusEmoji: text('custom_status_emoji'),
+    // When set, the custom status (and its emoji) is treated as cleared
+    // once this timestamp passes — expired lazily on read, no cron.
+    customStatusExpiresAt: bigint('custom_status_expires_at', {
+      mode: 'number'
+    }),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
