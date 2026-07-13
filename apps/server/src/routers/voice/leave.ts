@@ -1,62 +1,35 @@
-import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
-import { db } from '../../db';
-import { getServerMemberIds } from '../../db/queries/servers';
-import { channels } from '../../db/schema';
+import { Permission } from '@pulse/shared';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
   await ctx.needsPermission(Permission.JOIN_VOICE_CHANNELS);
 
-  invariant(ctx.currentVoiceChannelId, {
+  // Fall back to the runtime lookup when the per-connection context has
+  // no channel — after a refresh the new connection never joined, but
+  // the user's stale session may still be in a runtime and they must be
+  // able to remove themselves from it.
+  const runtime = ctx.currentVoiceChannelId
+    ? VoiceRuntime.findById(ctx.currentVoiceChannelId)
+    : VoiceRuntime.findRuntimeByUserId(ctx.user.id);
+
+  invariant(runtime && runtime.getUser(ctx.user.id), {
     code: 'BAD_REQUEST',
     message: 'User is not in a voice channel'
   });
 
-  const [channel] = await db
-    .select()
-    .from(channels)
-    .where(eq(channels.id, ctx.currentVoiceChannelId))
-    .limit(1);
+  const channelId = runtime.id;
 
-  invariant(channel, {
-    code: 'NOT_FOUND',
-    message: 'Channel not found'
-  });
+  await removeUserFromVoice(ctx.user.id);
 
-  invariant(channel.type === ChannelType.VOICE, {
-    code: 'BAD_REQUEST',
-    message: 'Channel is not a voice channel'
-  });
-
-  const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
-
-  const userInChannel = runtime.getUser(ctx.user.id);
-
-  invariant(userInChannel, {
-    code: 'BAD_REQUEST',
-    message: 'User not in voice channel'
-  });
-
-  runtime.removeUser(ctx.user.id);
-
-  const memberIds = await getServerMemberIds(channel.serverId);
-  ctx.pubsub.publishFor(memberIds, ServerEvents.USER_LEAVE_VOICE, {
-    channelId: ctx.currentVoiceChannelId,
-    userId: ctx.user.id,
-    startedAt: runtime.getState().startedAt
-  });
   ctx.currentVoiceChannelId = undefined;
+  ctx.currentDmVoiceChannelId = undefined;
+  ctx.setWsVoiceChannelId(undefined);
 
-  // Destroy the runtime when no users remain to free mediasoup resources
-  if (runtime.getState().users.length === 0) {
-    await runtime.destroy();
-  }
-
-  logger.info('%s left voice channel %s', ctx.user.name, channel.name);
+  logger.info('%s left voice channel %d', ctx.user.name, channelId);
 });
 
 export { leaveVoiceRoute };

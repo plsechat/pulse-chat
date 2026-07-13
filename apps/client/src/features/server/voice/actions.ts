@@ -61,6 +61,19 @@ export const removeUserFromVoiceChannel = (
   if (userId !== ownUserId && channelId === currentChannelId) {
     playSound(SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL);
   }
+
+  // Server-initiated removal of THIS client (moderator disconnect,
+  // orphan sweep): tear down the local session. A voluntary leave never
+  // reaches here with a matching channel — leaveVoice clears Redux
+  // before its mutate, so currentChannelId is already undefined by the
+  // time our own USER_LEAVE_VOICE event arrives.
+  if (userId === ownUserId && channelId === currentChannelId) {
+    setCurrentVoiceChannelId(undefined);
+    setCurrentVoiceServerId(undefined);
+    setPinnedCard(undefined);
+    playSound(SoundType.OWN_USER_LEFT_VOICE_CHANNEL);
+    toast.info('You were disconnected from the voice channel');
+  }
 };
 
 export const addExternalStreamToVoiceChannel = (

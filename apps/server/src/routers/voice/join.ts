@@ -13,6 +13,7 @@ import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 const joinVoiceRoute = protectedProcedure
   .input(
@@ -46,14 +47,18 @@ const joinVoiceRoute = protectedProcedure
       message: 'Channel is not a voice channel'
     });
 
+    // Self-heal instead of hard-failing: a page refresh (or dropped
+    // connection) leaves the previous session's runtime entry behind,
+    // and rejecting the rejoin bricked the user with "already in a
+    // voice channel" until a server restart. Remove the stale session
+    // (publishing the leave to peers) and proceed with the join.
     const userAlreadyInVoiceChannel = VoiceRuntime.findRuntimeByUserId(
       ctx.user.id
     );
 
-    invariant(!userAlreadyInVoiceChannel, {
-      code: 'BAD_REQUEST',
-      message: 'User already in a voice channel'
-    });
+    if (userAlreadyInVoiceChannel) {
+      await removeUserFromVoice(ctx.user.id);
+    }
 
     // Re-create runtime if it was destroyed when the last user left
     let runtime = VoiceRuntime.findById(input.channelId);
@@ -73,6 +78,7 @@ const joinVoiceRoute = protectedProcedure
     const state = runtime.getUserState(ctx.user.id);
 
     ctx.currentVoiceChannelId = channel.id;
+    ctx.setWsVoiceChannelId(channel.id);
     const startedAt = runtime.getState().startedAt!;
     const memberIds = await getServerMemberIds(channel.serverId);
     ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN_VOICE, {

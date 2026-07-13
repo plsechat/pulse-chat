@@ -180,6 +180,10 @@ class VoiceRuntime {
     return runtime;
   };
 
+  public static getAll = (): VoiceRuntime[] => {
+    return [...voiceRuntimes.values()];
+  };
+
   public static findRuntimeByUserId = (
     userId: number
   ): VoiceRuntime | undefined => {

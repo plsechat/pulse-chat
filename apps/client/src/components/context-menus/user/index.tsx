@@ -93,6 +93,16 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     }
   }, [userId, user]);
 
+  const handleDisconnectFromVoice = useCallback(async () => {
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.voice.disconnectUser.mutate({ userId });
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to disconnect user from voice'));
+    }
+  }, [userId]);
+
   const handleToggleRole = useCallback(
     async (roleId: number, hasRole: boolean) => {
       try {
@@ -147,6 +157,14 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
                 </div>
               </ContextMenuSubContent>
             </ContextMenuSub>
+            {can(Permission.MANAGE_USERS) && (
+              <ContextMenuItem
+                variant="destructive"
+                onClick={handleDisconnectFromVoice}
+              >
+                Disconnect from Voice
+              </ContextMenuItem>
+            )}
           </>
         )}
 
