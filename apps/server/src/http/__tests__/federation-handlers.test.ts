@@ -33,6 +33,7 @@ import {
   dmChannels,
   dmE2eeSenderKeys,
   federationInstances,
+  serverMembers,
   userFederatedServers,
   userIdentityKeys,
   userOneTimePreKeys,
@@ -1390,6 +1391,147 @@ describe('POST /federation/member-removed (federated moderation)', () => {
         subjectPublicId: 'x',
         serverPublicId: 'y',
         action: 'kick'
+      })
+    });
+    expect([400, 401, 403]).toContain(res.status);
+  });
+});
+
+describe('POST /federation/shares-server (co-membership attestation)', () => {
+  const insertShadow = async (instanceId: number, remotePublicId: string) => {
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        supabaseId: `shares-shadow-supa-${remotePublicId}`,
+        name: `ShadowUser-${remotePublicId}`,
+        publicId: `shares-shadow-pid-${remotePublicId}`,
+        isFederated: true,
+        federatedInstanceId: instanceId,
+        federatedPublicId: remotePublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+    return shadow!;
+  };
+
+  const addToServer1 = async (userId: number) => {
+    await db.insert(serverMembers).values({
+      userId,
+      serverId: 1,
+      nickname: null,
+      joinedAt: Date.now()
+    });
+  };
+
+  test('true when the shadow and the local target share a server', async () => {
+    await initTest(1);
+    const { peerInstanceId, peerPrivateJwk } = await seedPeer();
+    const targetPublicId = await getUserPublicId(1); // user 1 = member of server 1
+    const shadow = await insertShadow(peerInstanceId, 'remote-shares-happy');
+    await addToServer1(shadow.id);
+
+    const res = await postSignedAsPeer(
+      '/federation/shares-server',
+      { fromPublicId: 'remote-shares-happy', targetPublicId },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.shares).toBe(true);
+  });
+
+  test('false when the shadow shares no server with the target', async () => {
+    await initTest(1);
+    const { peerInstanceId, peerPrivateJwk } = await seedPeer();
+    const targetPublicId = await getUserPublicId(1);
+    // Shadow exists but has NO serverMembers rows.
+    await insertShadow(peerInstanceId, 'remote-shares-none');
+
+    const res = await postSignedAsPeer(
+      '/federation/shares-server',
+      { fromPublicId: 'remote-shares-none', targetPublicId },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.shares).toBe(false);
+  });
+
+  test('false for a shadow homed on a DIFFERENT instance (peer scoping)', async () => {
+    await initTest(1);
+    const { peerPrivateJwk } = await seedPeer();
+    const targetPublicId = await getUserPublicId(1);
+
+    // The shadow belongs to another instance — the authenticated peer
+    // must not be able to attest on behalf of users it does not home.
+    const [otherInstance] = await db
+      .insert(federationInstances)
+      .values({
+        domain: 'shares-other.example',
+        name: 'Other',
+        status: 'active',
+        direction: 'outgoing',
+        createdAt: Date.now()
+      })
+      .returning();
+    const foreignShadow = await insertShadow(
+      otherInstance!.id,
+      'remote-shares-foreign'
+    );
+    await addToServer1(foreignShadow.id);
+
+    const res = await postSignedAsPeer(
+      '/federation/shares-server',
+      { fromPublicId: 'remote-shares-foreign', targetPublicId },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.shares).toBe(false);
+  });
+
+  test('false when the target is a federated user (locals only)', async () => {
+    await initTest(1);
+    const { peerInstanceId, peerPrivateJwk } = await seedPeer();
+    const shadowA = await insertShadow(peerInstanceId, 'remote-shares-a');
+    const shadowB = await insertShadow(peerInstanceId, 'remote-shares-b');
+    await addToServer1(shadowA.id);
+    await addToServer1(shadowB.id);
+
+    // Target addressed by shadowB's LOCAL publicId — the endpoint only
+    // attests for OUR local users, never shadow-to-shadow.
+    const res = await postSignedAsPeer(
+      '/federation/shares-server',
+      {
+        fromPublicId: 'remote-shares-a',
+        targetPublicId: shadowB.publicId
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+    expect(res.body?.shares).toBe(false);
+  });
+
+  test('400 when fields are missing', async () => {
+    await initTest(1);
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/shares-server',
+      { fromPublicId: 'remote-shares-incomplete' },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('rejects unsigned requests', async () => {
+    await initTest(1);
+    await seedPeer();
+
+    const res = await fetch(`${testsBaseUrl}/federation/shares-server`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromPublicId: 'remote-shares-unsigned',
+        targetPublicId: 'whatever',
+        fromDomain: PEER_DOMAIN
       })
     });
     expect([400, 401, 403]).toContain(res.status);

@@ -10,6 +10,7 @@ import {
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
 import { patchFilesWithE2eeMetadata, setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
@@ -241,6 +242,10 @@ export const getOrCreateDmChannel = async (
     return decrypted;
   } catch (err) {
     console.error('Failed to get or create DM channel:', err);
+    // Surface the real reason — the silent swallow here masked the
+    // server's FORBIDDEN shared-server guard, leaving users with a
+    // Message box that simply did nothing.
+    toast.error(getTrpcError(err, 'Failed to open DM'));
   }
 };
 

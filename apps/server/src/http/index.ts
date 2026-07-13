@@ -30,6 +30,7 @@ import {
   federationIdentityRotationHandler
 } from './federation-dm-group';
 import { federationMemberRemovedHandler } from './federation-member-removed';
+import { federationSharesServerHandler } from './federation-shares-server';
 import { federationUserInfoUpdateHandler } from './federation-user-info-update';
 import { healthRouteHandler } from './healthz';
 import { JsonBodyTooLargeError } from './helpers';
@@ -174,6 +175,11 @@ const createHttpServer = async (port: number = config.server.port) => {
         if (req.method === 'POST' && req.url === '/federation/dm-relay') {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationDmRelayHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/shares-server') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationSharesServerHandler(req, res);
         }
 
         if (

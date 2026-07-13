@@ -4,10 +4,10 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { isBlockBetween } from '../../db/queries/blocks';
 import { areFriends, getJoinedFriendRequest } from '../../db/queries/friends';
-import { sharesServerWith } from '../../db/queries/servers';
 import { getUserById } from '../../db/queries/users';
 import { federationInstances, friendRequests } from '../../db/schema';
 import { relayToInstance } from '../../utils/federation';
+import { sharesServerWithFederationAware } from '../../utils/federation-shares-server';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
@@ -34,8 +34,14 @@ const sendRequestRoute = protectedProcedure
       message: 'You are already friends with this user'
     });
 
-    // Require shared server to send a friend request
-    const shares = await sharesServerWith(ctx.userId, input.userId);
+    // Require a shared server to send a friend request. Federation-aware:
+    // when the target is a shadow user, the shadow's home instance is
+    // asked for a signed co-membership attestation — the local
+    // serverMembers self-join alone can never pass in that direction.
+    const shares = await sharesServerWithFederationAware(
+      ctx.userId,
+      input.userId
+    );
     invariant(shares, {
       code: 'FORBIDDEN',
       message: 'You must share a server to send a friend request'
