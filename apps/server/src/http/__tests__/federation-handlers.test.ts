@@ -959,6 +959,52 @@ describe('POST /federation/user-info-update (E3)', () => {
     ).toBe(true);
   });
 
+  // Regression: hasAnyChange omitted customStatus, so a customStatus-only
+  // push was rejected as 'No changes specified' and never propagated.
+  test('customStatus-only update is accepted and persisted', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const remoteSubjectPublicId = 'remote-subject-e3-custom-status';
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'CustomStatusUser',
+        supabaseId: 'shadow-e3-custom-status',
+        publicId: 'shadow-pid-e3-custom-status',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: remoteSubjectPublicId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const events = await withPubsubSpy(async (collected) => {
+      const res = await postSignedAsPeer(
+        '/federation/user-info-update',
+        {
+          subjectPublicId: remoteSubjectPublicId,
+          customStatus: 'listening to records'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+      expect(res.body?.applied).toBe(true);
+      return collected;
+    });
+
+    const [refreshed] = await db
+      .select({ customStatus: users.customStatus })
+      .from(users)
+      .where(eq(users.id, shadow!.id))
+      .limit(1);
+    expect(refreshed!.customStatus).toBe('listening to records');
+
+    expect(
+      events.some((e) => e.topic === ServerEvents.USER_UPDATE)
+    ).toBe(true);
+  });
+
   test('400 when subjectPublicId missing', async () => {
     await initTest();
     const { peerPrivateJwk } = await seedPeer();

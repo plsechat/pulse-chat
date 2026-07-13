@@ -1,6 +1,7 @@
 import {
   ActivityLogType,
   ChannelPermission,
+  MAX_MESSAGE_WIRE_LENGTH,
   Permission,
   toDomCommand
 } from '@pulse/shared';
@@ -28,7 +29,10 @@ import { protectedProcedure } from '../../utils/trpc';
 const sendMessageRoute = protectedProcedure
   .input(
     z.object({
-      content: z.string().max(16000).optional(),
+      content: z
+        .string()
+        .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
+        .optional(),
       e2ee: z.boolean().optional(),
       channelId: z.number(),
       files: z.array(z.string()).optional(),

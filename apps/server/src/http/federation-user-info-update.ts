@@ -89,6 +89,7 @@ const federationUserInfoUpdateHandler = async (
     nameChange !== undefined ||
     bioChange !== undefined ||
     bannerColorChange !== undefined ||
+    customStatusChange !== undefined ||
     statusChange !== undefined ||
     triggerProfileSync;
   if (!hasAnyChange) {

@@ -16,6 +16,7 @@ import { encryptChannelMessage, ensureChannelSenderKey } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import {
   ChannelPermission,
+  MAX_MESSAGE_CONTENT_LENGTH,
   Permission,
   TYPING_MS,
   type TJoinedMessage
@@ -237,6 +238,15 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
     try {
       const content = tiptapHtmlToTokens(newMessage);
+
+      // Check plaintext length BEFORE encryption — the server's wire cap
+      // is sized for the encrypted envelope, so this is the real budget.
+      if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+        toast.error(
+          `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+        );
+        return;
+      }
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members

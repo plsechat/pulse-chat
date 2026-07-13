@@ -1,3 +1,4 @@
+import { MAX_MESSAGE_WIRE_LENGTH } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -15,7 +16,10 @@ const editMessageRoute = protectedProcedure
   .input(
     z.object({
       messageId: z.number(),
-      content: z.string().max(16000).optional()
+      content: z
+        .string()
+        .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
+        .optional()
     })
   )
   .mutation(async ({ input, ctx }) => {

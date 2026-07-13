@@ -21,6 +21,7 @@ export enum SoundType {
 
   REMOTE_USER_JOINED_VOICE_CHANNEL = 'remote_user_joined_voice_channel',
   REMOTE_USER_LEFT_VOICE_CHANNEL = 'remote_user_left_voice_channel',
+  REMOTE_USER_STARTED_SCREENSHARE = 'remote_user_started_screenshare',
 
   INCOMING_CALL = 'incoming_call'
 }

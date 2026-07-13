@@ -362,6 +362,28 @@ const sfxRemoteUserLeftVoiceChannel = () => {
   });
 };
 
+// REMOTE STARTED_SCREENSHARE — two-note Bb5-Eb6 "incoming" chirp; brighter
+// and shorter than the sharer's own ascending arpeggio so the two are
+// distinguishable when sharer and viewer sit in the same room.
+const sfxRemoteUserStartedScreenshare = () => {
+  const tones = [
+    { freq: 932, gain: 0.06, delay: 0 }, // Bb5
+    { freq: 1245, gain: 0.05, delay: 0.08 } // Eb6
+  ];
+
+  tones.forEach(({ freq, gain: g, delay }) => {
+    const t = now() + delay;
+    const osc = createOsc('sine', freq);
+    const gain = createGain(g);
+
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.12);
+  });
+};
+
 export const playSound = (type: SoundType) => {
   if (!isCategoryEnabledForSound(type)) return;
 
@@ -400,6 +422,8 @@ export const playSound = (type: SoundType) => {
       return sfxRemoteUserJoinedVoiceChannel();
     case SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL:
       return sfxRemoteUserLeftVoiceChannel();
+    case SoundType.REMOTE_USER_STARTED_SCREENSHARE:
+      return sfxRemoteUserStartedScreenshare();
 
     case SoundType.INCOMING_CALL:
       return sfxIncomingCall();
@@ -488,6 +512,8 @@ export const playSoundForPreview = (type: SoundType) => {
       return sfxRemoteUserJoinedVoiceChannel();
     case SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL:
       return sfxRemoteUserLeftVoiceChannel();
+    case SoundType.REMOTE_USER_STARTED_SCREENSHARE:
+      return sfxRemoteUserStartedScreenshare();
     default:
       return;
   }

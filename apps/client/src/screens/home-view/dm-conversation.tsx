@@ -47,6 +47,7 @@ import type { TFile, TJoinedDmMessage } from '@pulse/shared';
 import {
   audioExtensions,
   imageExtensions,
+  MAX_MESSAGE_CONTENT_LENGTH,
   TYPING_MS,
   videoExtensions
 } from '@pulse/shared';
@@ -271,6 +272,17 @@ const DmConversation = memo(
 
     sendTypingSignal.cancel();
 
+    const content = tiptapHtmlToTokens(newMessage);
+
+    // Check plaintext length BEFORE encryption — the server's wire cap
+    // is sized for the encrypted envelope, so this is the real budget.
+    if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+      toast.error(
+        `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+      );
+      return;
+    }
+
     try {
       // Build fileKeys from encrypted upload key material. Includes
       // the real originalName + extension so the recipient can render
@@ -293,7 +305,7 @@ const DmConversation = memo(
 
       await sendDmMessage(
         dmChannelId,
-        tiptapHtmlToTokens(newMessage),
+        content,
         files.length > 0 ? files.map((f) => f.id) : undefined,
         replyingTo?.id,
         fileKeys
@@ -1231,6 +1243,9 @@ const DmNonMediaFile = memo(({
       href={loading ? undefined : url}
       target="_blank"
       rel="noopener noreferrer"
+      // Decrypted E2EE attachments are blob: URLs — without a download
+      // name the save dialog offers a random UUID instead of the filename.
+      download={url?.startsWith('blob:') ? file.originalName : undefined}
       className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
     >
       <span className="truncate">{file.originalName}</span>
