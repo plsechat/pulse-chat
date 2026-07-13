@@ -128,10 +128,18 @@ const registerKeysRoute = protectedProcedure
         logger.error('[E2EE] insertIdentityResetMessages failed: %o', err);
       }
 
+      // Include self: the user's OTHER devices/tabs must learn their
+      // account identity was replaced. getCoMemberIds filters the user
+      // out, so a second device never got the signal and kept operating
+      // under the dead identity. handlePeerIdentityReset's own-user
+      // branch (guarded by the local-reset flag on the initiator) picks
+      // it up and reloads → the initE2EE parity guard then warns.
       const coMemberIds = await getCoMemberIds(ctx.userId);
-      pubsub.publishFor(coMemberIds, ServerEvents.E2EE_IDENTITY_RESET, {
-        userId: ctx.userId
-      });
+      pubsub.publishFor(
+        [...coMemberIds, ctx.userId],
+        ServerEvents.E2EE_IDENTITY_RESET,
+        { userId: ctx.userId }
+      );
 
       // Phase D / D3 — propagate to federated DM peers. Active-DM-
       // channels-only scope; channel rotation propagation is out of
@@ -257,6 +265,20 @@ const getIdentityPublicKeyRoute = protectedProcedure
 
     return key?.identityPublicKey ?? null;
   });
+
+// The caller's OWN registered identity, no shared-server check. Used by
+// the client's identity-parity guard to detect that another device
+// replaced the account identity before it uploads prekeys signed by a
+// now-stale local identity (which would poison the account's bundle).
+const getOwnIdentityRoute = protectedProcedure.query(async ({ ctx }) => {
+  const [key] = await db
+    .select({ identityPublicKey: userIdentityKeys.identityPublicKey })
+    .from(userIdentityKeys)
+    .where(eq(userIdentityKeys.userId, ctx.userId))
+    .limit(1);
+
+  return key?.identityPublicKey ?? null;
+});
 
 const uploadOneTimePreKeysRoute = protectedProcedure
   .input(
@@ -512,23 +534,29 @@ const distributeSenderKeysBatchRoute = protectedProcedure
 
     if (insertRows.length === 0) return;
 
-    // ON CONFLICT DO NOTHING on the (channel, from, to, senderKeyId)
-    // unique index added in migration 0017. Concurrent client
-    // effects can fire distributeSenderKeysBatch twice within
-    // milliseconds for the same channel — observed on chat2.
-    // Without this guard the table grew duplicate SKDM rows; the
-    // receiver dedupes by senderKeyId so it's not catastrophic, but
-    // it wastes DB / pubsub fan-out and is structurally wrong.
+    // ON CONFLICT on the (channel, from, to, senderKeyId) unique index
+    // added in migration 0017. Concurrent client effects can fire
+    // distributeSenderKeysBatch twice within milliseconds for the same
+    // channel — observed on chat2 — normally with an IDENTICAL
+    // distributionMessage, where the update is a no-op.
+    //
+    // DO UPDATE (not DO NOTHING) so a DIFFERING distribution at the same
+    // tuple overwrites rather than being silently dropped: two devices on
+    // one account each build an outbound chain starting at senderKeyId=1,
+    // and DO NOTHING would strand whichever lost the race with the
+    // receiver marking distribution "succeeded". Last-writer-wins is
+    // deterministic; true per-device addressing is the Tier-2 fix.
     await db
       .insert(e2eeSenderKeys)
       .values(insertRows)
-      .onConflictDoNothing({
+      .onConflictDoUpdate({
         target: [
           e2eeSenderKeys.channelId,
           e2eeSenderKeys.fromUserId,
           e2eeSenderKeys.toUserId,
           e2eeSenderKeys.senderKeyId
-        ]
+        ],
+        set: { distributionMessage: sql`excluded.distribution_message` }
       });
     logger.debug(
       '[distributeSenderKeysBatch] channelId=%d senderKeyId=%d local=%d federated=%d',
@@ -735,6 +763,7 @@ export const e2eeRouter = t.router({
   getPreKeyBundle: getPreKeyBundleRoute,
   getFederatedPreKeyBundle: getFederatedPreKeyBundleRoute,
   getIdentityPublicKey: getIdentityPublicKeyRoute,
+  getOwnIdentity: getOwnIdentityRoute,
   uploadOneTimePreKeys: uploadOneTimePreKeysRoute,
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,

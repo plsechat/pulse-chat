@@ -56,6 +56,21 @@ const E2EESetupModal = memo(() => {
     return () => window.removeEventListener('e2ee-setup-needed', handler);
   }, []);
 
+  // The identity-parity guard (initE2EE) fires this when the server's
+  // registered identity no longer matches this device's — i.e. another
+  // device on the account replaced the keys. Surface it instead of
+  // silently continuing to run under a dead identity.
+  useEffect(() => {
+    const handler = () => {
+      toast.error(
+        'Your encryption keys were replaced on another device. Messages here may not decrypt. Restore your keys from backup, or regenerate them in Settings › Encryption.',
+        { duration: 12000 }
+      );
+    };
+    window.addEventListener('e2ee-identity-mismatch', handler);
+    return () => window.removeEventListener('e2ee-identity-mismatch', handler);
+  }, []);
+
   const handleCancel = useCallback(() => {
     setOpen(false);
     rejectRef.current?.(new Error('E2EE setup cancelled'));
@@ -140,6 +155,15 @@ const E2EESetupModal = memo(() => {
               </DialogDescription>
             </DialogHeader>
 
+            {/* PULSE E2EE is single-device: keys live only in this
+                browser and the account has one identity. Be explicit
+                about what each choice does to other signed-in devices. */}
+            <p className="text-xs text-muted-foreground">
+              {hasBackup
+                ? 'Restore moves encryption to this device using your existing identity. Generating new keys replaces your account identity everywhere — other signed-in devices will stop decrypting until they restore too.'
+                : 'Encryption keys live only on this device. Signing in elsewhere will need its own setup, and generating new keys there replaces this device’s identity.'}
+            </p>
+
             {hasBackup && (
               <div className="space-y-3 py-2">
                 <Input
@@ -198,8 +222,10 @@ const E2EESetupModal = memo(() => {
                 Generate New Keys?
               </DialogTitle>
               <DialogDescription>
-                This will create new encryption keys. Messages encrypted with
-                your previous keys will be unreadable on this device.
+                This replaces your account&apos;s encryption identity. Messages
+                encrypted with your previous keys will be unreadable on this
+                device, and any OTHER devices signed into this account will stop
+                decrypting new messages until they restore or regenerate too.
               </DialogDescription>
             </DialogHeader>
 

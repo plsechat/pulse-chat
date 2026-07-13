@@ -760,35 +760,63 @@ export const editDmMessage = async (messageId: number, content: string) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
 
-  // Check if the original message was E2EE
   const state = store.getState();
-  let isE2ee = false;
-  let recipientUserId: number | null = null;
 
+  // Locate the message and its channel.
+  let dmChannelId: number | null = null;
   for (const [, messages] of Object.entries(state.dms.messagesMap)) {
     const msg = messages.find((m) => m.id === messageId);
     if (msg) {
-      isE2ee = msg.e2ee;
-      if (isE2ee) {
-        recipientUserId = getDmRecipientUserId(msg.dmChannelId);
-      }
+      dmChannelId = msg.dmChannelId;
       break;
     }
   }
 
-  if (isE2ee && recipientUserId) {
-    try {
-      const encryptedContent = await encryptDmMessage(recipientUserId, {
-        content
-      });
-      // Cache plaintext so we can display our own edited message when the
-      // subscription echo arrives (same as sendDmMessage).
-      ownSentPlaintextCache.set(encryptedContent, { content });
-      await trpc.dms.editMessage.mutate({ messageId, content: encryptedContent });
-      return;
-    } catch (err) {
-      console.error('[E2EE] Edit encryption failed:', err);
+  const channel =
+    dmChannelId != null
+      ? state.dms.channels.find((c) => c.id === dmChannelId)
+      : undefined;
+
+  // Dispatch on the CHANNEL's e2ee flag, mirroring sendDmMessage — and
+  // NEVER fall through to a plaintext resend. The previous code keyed on
+  // the per-message flag, only handled the 1:1 recipient, and on any
+  // encryption failure (or ANY group-DM edit, which it never encrypted)
+  // resent the edit as cleartext into a channel the user believes is
+  // encrypted. Encryption errors now propagate to the caller's toast.
+  if (channel?.e2ee && dmChannelId != null) {
+    const ownUserId = homeOwnUserIdSelector(state);
+    if (ownUserId == null) {
+      throw new Error('Cannot edit encrypted message before login completes');
     }
+
+    const plaintext: E2EEPlaintext = { content };
+    const isGroup = channel.members.length > 2;
+
+    let encryptedContent: string;
+    if (isGroup) {
+      const memberIds = channel.members.map((m) => m.id);
+      await ensureDmGroupSenderKey(dmChannelId, ownUserId, memberIds);
+      encryptedContent = await encryptDmGroupMessage(
+        dmChannelId,
+        ownUserId,
+        plaintext
+      );
+    } else {
+      const recipientUserId = getDmRecipientUserId(dmChannelId);
+      if (!recipientUserId) {
+        throw new Error('Cannot edit encrypted message: recipient unavailable');
+      }
+      encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
+    }
+
+    // Cache plaintext so we can display our own edited message when the
+    // subscription echo arrives (own messages can't be self-decrypted).
+    ownSentPlaintextCache.set(encryptedContent, plaintext);
+    await trpc.dms.editMessage.mutate({
+      messageId,
+      content: encryptedContent
+    });
+    return;
   }
 
   await trpc.dms.editMessage.mutate({ messageId, content });

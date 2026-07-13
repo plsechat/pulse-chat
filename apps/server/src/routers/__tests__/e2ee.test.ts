@@ -78,6 +78,36 @@ describe('e2ee router', () => {
     expect(count).toBe(0);
   });
 
+  // --- getOwnIdentity (identity-parity guard) ---
+
+  test('getOwnIdentity returns null before registration and the key after', async () => {
+    const { caller } = await initTest();
+
+    expect(await caller.e2ee.getOwnIdentity()).toBeNull();
+
+    await caller.e2ee.registerKeys(mockKeys);
+
+    expect(await caller.e2ee.getOwnIdentity()).toBe(
+      'mock-identity-public-key-base64'
+    );
+  });
+
+  test('getOwnIdentity reflects a replaced identity (parity mismatch source)', async () => {
+    const { caller } = await initTest();
+
+    await caller.e2ee.registerKeys(mockKeys);
+    await caller.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'replaced-on-another-device'
+    });
+
+    // A device still holding 'mock-identity-public-key-base64' locally
+    // will see this differ and halt its uploads.
+    expect(await caller.e2ee.getOwnIdentity()).toBe(
+      'replaced-on-another-device'
+    );
+  });
+
   // --- getPreKeyBundle ---
 
   test('should return pre-key bundle for a user', async () => {
@@ -237,6 +267,33 @@ describe('e2ee router', () => {
     expect(pending[0]!.channelId).toBe(1);
     expect(pending[0]!.fromUserId).toBe(1);
     expect(pending[0]!.distributionMessage).toBe('encrypted-sender-key-data');
+  });
+
+  test('distributeSenderKeysBatch overwrites a differing distribution at the same tuple', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    // Two devices on account 1 each build an outbound chain at
+    // senderKeyId=1 and distribute to user 2. DO NOTHING would strand
+    // the second; DO UPDATE makes last-writer-win deterministic.
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      senderKeyId: 1,
+      distributions: [{ toUserId: 2, distributionMessage: 'device-A-chain' }]
+    });
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      senderKeyId: 1,
+      distributions: [{ toUserId: 2, distributionMessage: 'device-B-chain' }]
+    });
+
+    const pending = await caller2.e2ee.getPendingSenderKeys({});
+    const forChannel = pending.filter(
+      (p) => p.channelId === 1 && p.fromUserId === 1
+    );
+    // Exactly one row (unique tuple), carrying the latest distribution.
+    expect(forChannel.length).toBe(1);
+    expect(forChannel[0]!.distributionMessage).toBe('device-B-chain');
   });
 
   test('should keep sender keys until acknowledged', async () => {

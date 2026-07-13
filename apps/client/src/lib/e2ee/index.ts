@@ -155,6 +155,34 @@ export async function initE2EE(): Promise<void> {
   const keysExist = await hasKeys();
 
   if (keysExist) {
+    // Identity-parity guard: if the server's registered identity differs
+    // from this device's, another device replaced the account identity
+    // (all E2EE tables are keyed on userId alone — a second device's
+    // "Generate New Keys" overwrites the first's). Uploading OTPs and a
+    // rotated signed-prekey signed by our now-stale identity would poison
+    // the account's bundle: peers' X3DH/Ed25519 verification against the
+    // NEW identity fails, blocking all new sessions. Halt and warn rather
+    // than silently corrupt. Only a DEFINITE mismatch halts — a null
+    // server identity or a network failure falls through (fail-open) so a
+    // transient blip never disables encryption.
+    const localIdentity = await getIdentityPublicKey();
+    const trpc = getHomeTRPCClient();
+    if (trpc && localIdentity) {
+      let serverIdentity: string | null = null;
+      try {
+        serverIdentity = await trpc.e2ee.getOwnIdentity.query();
+      } catch (err) {
+        console.warn('[E2EE] identity-parity check failed (network):', err);
+      }
+      if (serverIdentity && serverIdentity !== localIdentity) {
+        console.error(
+          '[E2EE] Identity mismatch — this device holds keys that were replaced on another device. Halting key uploads.'
+        );
+        window.dispatchEvent(new CustomEvent('e2ee-identity-mismatch'));
+        return;
+      }
+    }
+
     await replenishOTPsIfNeeded();
     await rotateSignedPreKeyIfNeeded(signalStore);
   }
