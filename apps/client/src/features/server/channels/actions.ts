@@ -101,12 +101,32 @@ export const setHighlightedMessageId = (messageId: number | undefined) => {
   store.dispatch(serverSliceActions.setHighlightedMessageId(messageId));
 };
 
+/**
+ * True only when the user is *currently looking at* this channel.
+ * selectedChannelId is sticky per-server state (kept so re-entering the
+ * server lands you in the same place), so it alone must never be used
+ * to suppress badges: while the user is on Home or another server, the
+ * stale selection zeroed incoming counts — the badge then lied at 0 and
+ * the markAsRead gate (`unreadCount > 0`) skipped the real clear on
+ * return. Mirrors the gate in messages/actions.ts.
+ */
+const isViewingChannel = (
+  state: ReturnType<typeof store.getState>,
+  channelId: number
+) => {
+  if (selectedChannelIdSelector(state) !== channelId) return false;
+  const channel = state.server.channels.find((c) => c.id === channelId);
+  return (
+    state.app.activeView === 'server' &&
+    channel?.serverId === state.app.activeServerId
+  );
+};
+
 export const setChannelReadState = (
   channelId: number,
   count: number | undefined
 ) => {
   const state = store.getState();
-  const selectedChannel = selectedChannelIdSelector(state);
 
   let actualCount = count;
 
@@ -117,7 +137,7 @@ export const setChannelReadState = (
   // posts". Suppressing it here was the cause of the QA report:
   // posts to threads showed no badge while the forum was open, only
   // appearing after navigating away and back.
-  if (selectedChannel === channelId) {
+  if (isViewingChannel(state, channelId)) {
     const channel = state.server.channels.find((c) => c.id === channelId);
     if (channel?.type !== ChannelType.FORUM) {
       actualCount = 0;
@@ -134,11 +154,10 @@ export const setChannelMentionState = (
   count: number | undefined
 ) => {
   const state = store.getState();
-  const selectedChannel = selectedChannelIdSelector(state);
 
   let actualCount = count;
 
-  if (selectedChannel === channelId) {
+  if (isViewingChannel(state, channelId)) {
     const channel = state.server.channels.find((c) => c.id === channelId);
     if (channel?.type !== ChannelType.FORUM) {
       actualCount = 0;

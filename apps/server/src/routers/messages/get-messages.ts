@@ -1,5 +1,6 @@
 import {
   ChannelPermission,
+  ChannelType,
   DEFAULT_MESSAGES_LIMIT,
   ServerEvents,
   type TFile,
@@ -11,7 +12,11 @@ import {
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getChannelsReadStatesForUser } from '../../db/queries/channels';
+import {
+  getChannelsReadStatesForUser,
+  getForumUnreadForUser
+} from '../../db/queries/channels';
+import { getServerUnreadCount } from '../../db/queries/servers';
 import {
   channelReadStates,
   channels,
@@ -250,6 +255,58 @@ const getMessagesRoute = protectedProcedure
         count: readStates[channelId] ?? 0,
         mentionCount: mentionStates[channelId] ?? 0
       });
+
+      // Reading messages is the most common read path, but it only
+      // republished the fetched channel's own count — the server-rail
+      // badge and a forum parent's aggregate kept their stale values
+      // until a full refresh. Mirror the recompute block from
+      // channels/mark-as-read so every read path converges.
+      const [channelInfo] = await db
+        .select({
+          serverId: channels.serverId,
+          type: channels.type,
+          parentChannelId: channels.parentChannelId
+        })
+        .from(channels)
+        .where(eq(channels.id, channelId))
+        .limit(1);
+
+      if (channelInfo) {
+        const { unreadCount: serverCount, mentionCount: serverMentionCount } =
+          await getServerUnreadCount(ctx.userId, channelInfo.serverId);
+        pubsub.publishFor(ctx.userId, ServerEvents.SERVER_UNREAD_COUNT_UPDATE, {
+          serverId: channelInfo.serverId,
+          count: serverCount,
+          mentionCount: serverMentionCount
+        });
+
+        if (
+          channelInfo.type === ChannelType.THREAD &&
+          channelInfo.parentChannelId
+        ) {
+          const [parentInfo] = await db
+            .select({ type: channels.type })
+            .from(channels)
+            .where(eq(channels.id, channelInfo.parentChannelId))
+            .limit(1);
+
+          if (parentInfo?.type === ChannelType.FORUM) {
+            const { unreadCount, mentionCount } = await getForumUnreadForUser(
+              ctx.userId,
+              channelInfo.parentChannelId
+            );
+            pubsub.publishFor(
+              ctx.userId,
+              ServerEvents.CHANNEL_READ_STATES_UPDATE,
+              {
+                channelId: channelInfo.parentChannelId,
+                count: unreadCount,
+                mentionCount
+              }
+            );
+          }
+        }
+      }
     }
 
     return { messages: messagesWithFiles, nextCursor };

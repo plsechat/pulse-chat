@@ -938,6 +938,8 @@ const federationDmRelayHandler = async (
 
   let channelE2eeFlipped = false;
 
+  let channelCreated = false;
+
   if (!dmChannelId) {
     // New 1:1 channel — initialise its e2ee flag from the incoming envelope.
     const [newChannel] = await db
@@ -946,6 +948,7 @@ const federationDmRelayHandler = async (
       .returning();
 
     dmChannelId = newChannel!.id;
+    channelCreated = true;
 
     await db.insert(dmChannelMembers).values([
       { dmChannelId: dmChannelId, userId: shadowUser.id, createdAt: Date.now() },
@@ -985,10 +988,15 @@ const federationDmRelayHandler = async (
     })
     .returning();
 
-  // Notify the recipient that the channel just became encrypted so
-  // their client refreshes the badge + composer state. Same event
-  // shape as the same-instance `enableEncryption` mutation.
-  if (channelE2eeFlipped) {
+  // Notify the recipient about a brand-new channel BEFORE the message
+  // event — the client's unread/lastMessage reducers silently no-op for
+  // channels missing from its list, so a first DM from a new federated
+  // user produced no sidebar entry and no badge until a full refresh.
+  // Same event shape as the same-instance getOrCreateChannel publish.
+  // Also fires when the channel just became encrypted so the client
+  // refreshes the badge + composer state (same-instance
+  // `enableEncryption` parity).
+  if (channelCreated || channelE2eeFlipped) {
     pubsub.publishFor(localUser.id, ServerEvents.DM_CHANNEL_UPDATE, {
       dmChannelId,
       name: null,

@@ -6,6 +6,7 @@ import {
   setActiveServerId,
   setActiveView
 } from '@/features/app/actions';
+import { appSliceActions } from '@/features/app/slice';
 import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
 import {
   fetchBlockedUsers,
@@ -144,6 +145,12 @@ export const joinServer = async (
   }
 
   store.dispatch(serverSliceActions.setInitialData(data));
+
+  // This is the HOME join path (getHomeTRPCClient above) — record the
+  // home identity separately. state.server.ownUserId is overwritten
+  // with the remote shadow id when viewing a federated server, and
+  // home-scoped comparisons (friend requests, DMs) must not use it.
+  store.dispatch(appSliceActions.setHomeOwnUserId(data.ownUserId));
 
   // After state is initialized, handle preference sync
   if (data.userPreferences) {

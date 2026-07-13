@@ -70,12 +70,27 @@ export const navigateToDm = async (dmChannelId: number) => {
   setActiveView('home');
 };
 
-export const addDmMessages = (
+export const addDmMessages = async (
   dmChannelId: number,
   messages: TJoinedDmMessage[],
   opts: { prepend?: boolean } = {},
   isSubscription = false
 ) => {
+  // Message for a channel this client has never seen (brand-new DM, or a
+  // missed channel-create event): the unread/lastMessage reducers below
+  // silently no-op for unknown channels — no sidebar entry, no badge.
+  // Sync the channel list first so the alert state has somewhere to land.
+  if (
+    isSubscription &&
+    !store.getState().dms.channels.some((c) => c.id === dmChannelId)
+  ) {
+    try {
+      await fetchDmChannels();
+    } catch (err) {
+      console.error('Failed to sync DM channels for unknown channel:', err);
+    }
+  }
+
   if (isSubscription && messages.length > 0) {
     const state = store.getState();
     const ownUserId = ownUserIdSelector(state);

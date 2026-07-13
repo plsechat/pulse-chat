@@ -1,5 +1,6 @@
 import { useSelector } from 'react-redux';
 import { useMemo } from 'react';
+import type { IRootState } from '@/features/store';
 import { ownUserIdSelector } from '../server/users/selectors';
 import {
   blockedUsersSelector,
@@ -34,7 +35,15 @@ export const useIsUserBlocked = (userId: number | undefined) => {
  * inflates the badge by every outgoing request the user has sent.
  */
 export const useIncomingFriendRequestCount = () => {
-  const ownUserId = useSelector(ownUserIdSelector);
+  // Friend requests are HOME-instance rows, so compare against the home
+  // identity: state.server.ownUserId is overwritten with the remote
+  // shadow id while viewing a federated server, which zeroed (or
+  // miscounted) this badge until a refresh restored home context.
+  const homeOwnUserId = useSelector(
+    (state: IRootState) => state.app.homeOwnUserId
+  );
+  const ambientOwnUserId = useSelector(ownUserIdSelector);
+  const ownUserId = homeOwnUserId ?? ambientOwnUserId;
   const requests = useSelector(friendRequestsSelector);
   if (ownUserId == null) return 0;
   return requests.filter((r) => r.receiverId === ownUserId).length;
