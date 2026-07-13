@@ -14,6 +14,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { publishUser } from '../../db/publishers';
 import {
   getAllChannelUserPermissions,
   getChannelsReadStatesForUser,
@@ -173,6 +174,18 @@ const joinServerRoute = t.procedure
         }
       });
     }
+
+    // USER_JOIN is server-scoped, so DM partners and friends who share
+    // no server never learn the user came online. Publish a global
+    // status update for them — publishUser fans out to every
+    // presence-interested id (co-members, DM partners, friends), and the
+    // client handlers (updateUser/updateFriend) are idempotent. Not
+    // awaited: presence is best-effort and must not delay the join.
+    publishUser(ctx.user.id, 'update', {
+      statusOverride: ctx.getStatusById(ctx.user.id)
+    }).catch((err) => {
+      logger.error('Failed to publish join presence for user %d:', ctx.user.id, err);
+    });
 
     const connectionInfo = ctx.getConnectionInfo();
 

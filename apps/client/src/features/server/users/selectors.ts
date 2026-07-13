@@ -45,11 +45,18 @@ export const userByIdSelector = createCachedSelector(
   [
     usersSelector,
     (state: IRootState) => state.friends.friends,
+    (state: IRootState) => state.dms.channels,
     (_: IRootState, userId: number) => userId
   ],
-  (users, friends, userId) =>
+  (users, friends, dmChannels, userId) =>
     users.find((user) => user.id === userId) ??
-    friends.find((friend) => friend.id === userId)
+    friends.find((friend) => friend.id === userId) ??
+    // Non-friend DM partners (e.g. shared-server DMs) exist only in the
+    // DM channel member projections — without this fallback they resolve
+    // to undefined and every presence surface renders them OFFLINE.
+    dmChannels
+      .flatMap((channel) => channel.members)
+      .find((member) => member.id === userId)
 )((_, userId: number) => userId);
 
 export const isOwnUserSelector = createCachedSelector(

@@ -8,6 +8,7 @@ import { sharesServerWith } from '../../db/queries/servers';
 import { dmChannelMembers, dmChannels } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { attachMemberStatus } from './attach-member-status';
 
 const getOrCreateChannelRoute = protectedProcedure
   .input(z.object({ userId: z.number() }))
@@ -43,7 +44,10 @@ const getOrCreateChannelRoute = protectedProcedure
     );
 
     if (existingChannelId) {
-      const channels = await getDmChannelsForUser(ctx.userId);
+      const channels = attachMemberStatus(
+        await getDmChannelsForUser(ctx.userId),
+        ctx
+      );
       return channels.find((c) => c.id === existingChannelId)!;
     }
 
@@ -67,7 +71,10 @@ const getOrCreateChannelRoute = protectedProcedure
       iconFileId: null
     });
 
-    const channels = await getDmChannelsForUser(ctx.userId);
+    const channels = attachMemberStatus(
+      await getDmChannelsForUser(ctx.userId),
+      ctx
+    );
     return channels.find((c) => c.id === channel!.id)!;
   });
 

@@ -19,7 +19,10 @@ import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
 import { getServerPublicSettings } from './queries/server';
-import { getCoMemberIds, getServerMemberIds } from './queries/servers';
+import {
+  getPresenceInterestedIds,
+  getServerMemberIds
+} from './queries/servers';
 import { getPublicUserById } from './queries/users';
 import { categories, channels, servers, threadFollowers } from './schema';
 
@@ -261,9 +264,13 @@ const publishUser = async (
     return;
   }
 
+  // Global events (profile/status) reach everyone with a presence
+  // interest — server co-members, DM partners, and friends — not just
+  // co-members. DM-only contacts and friends previously never received
+  // status or profile updates.
   const baseRecipients = scopeServerId
     ? await getServerMemberIds(scopeServerId)
-    : await getCoMemberIds(userId);
+    : await getPresenceInterestedIds(userId);
   const recipients = Array.from(new Set([...baseRecipients, userId]));
 
   if (type === 'delete') {

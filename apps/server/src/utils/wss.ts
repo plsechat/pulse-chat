@@ -23,9 +23,8 @@ import { db } from '../db';
 import { findOrCreateShadowUser, syncShadowUserProfile } from '../db/mutations/federation';
 import { getAllChannelUserPermissions } from '../db/queries/channels';
 import {
-  getServerById,
-  getServerMemberIds,
-  getServersByUserId
+  getPresenceInterestedIds,
+  getServerById
 } from '../db/queries/servers';
 import { getUserById, getUserByToken } from '../db/queries/users';
 import { channels } from '../db/schema';
@@ -590,14 +589,12 @@ const createWsServer = async (server: http.Server) => {
         userStatusOverrides.delete(user.id);
 
         try {
-          // Scope USER_LEAVE to members of the user's servers
-          const userServers = await getServersByUserId(user.id);
-          const allMemberIds = new Set<number>();
-          for (const server of userServers) {
-            const memberIds = await getServerMemberIds(server.id);
-            for (const id of memberIds) allMemberIds.add(id);
-          }
-          pubsub.publishFor([...allMemberIds], ServerEvents.USER_LEAVE, user.id);
+          // Scope USER_LEAVE to everyone with a presence interest —
+          // server co-members, DM partners, and friends. The client
+          // handler is presence-only (flips status to offline), so the
+          // broader audience is safe.
+          const interestedIds = await getPresenceInterestedIds(user.id);
+          pubsub.publishFor(interestedIds, ServerEvents.USER_LEAVE, user.id);
         } catch (err) {
           logger.error('Failed to publish USER_LEAVE for user %d:', user.id, err);
         }
