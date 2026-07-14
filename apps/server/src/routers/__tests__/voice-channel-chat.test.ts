@@ -3,7 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import { randomUUIDv7 } from 'bun';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { channels } from '../../db/schema';
+import { testsBaseUrl } from '../../__tests__/setup';
+import { channels, webhooks } from '../../db/schema';
 
 // Voice channels have no chat: the client no longer renders one, and the
 // API layer must reject the capability too — both direct message sends
@@ -81,5 +82,64 @@ describe('voice channels have no chat', () => {
     });
 
     expect(webhook?.channelId).toBe(1);
+  });
+
+  test('webhook RECEIVE into a VOICE channel is rejected (legacy pre-gate webhooks)', async () => {
+    await initTest(1);
+    const voice = await createVoiceChannel('Voice Gate C', 92);
+
+    // Simulate a webhook created BEFORE the creation gate existed: insert
+    // the row directly, pointing at a voice channel.
+    const [hook] = await getTestDb()
+      .insert(webhooks)
+      .values({
+        name: 'legacy-voice-hook',
+        channelId: voice.id,
+        token: 'legacy-voice-token',
+        createdBy: 1,
+        serverId: 1,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const response = await fetch(
+      `${testsBaseUrl}/webhooks/${hook!.id}/legacy-voice-token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'injected into voice' })
+      }
+    );
+
+    expect(response.status).toBe(400);
+    const data = (await response.json()) as { error: string };
+    expect(data.error).toContain('Voice channels');
+  });
+
+  test('webhook RECEIVE into a TEXT channel still works', async () => {
+    await initTest(1);
+
+    const [hook] = await getTestDb()
+      .insert(webhooks)
+      .values({
+        name: 'text-hook-receive',
+        channelId: 1,
+        token: 'text-hook-token',
+        createdBy: 1,
+        serverId: 1,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const response = await fetch(
+      `${testsBaseUrl}/webhooks/${hook!.id}/text-hook-token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'webhook control message' })
+      }
+    );
+
+    expect(response.status).toBe(200);
   });
 });

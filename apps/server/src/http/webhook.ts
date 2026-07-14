@@ -1,7 +1,8 @@
+import { ChannelType } from '@pulse/shared';
 import type http from 'http';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
-import { messages, webhooks } from '../db/schema';
+import { channels, messages, webhooks } from '../db/schema';
 import { publishMessage } from '../db/publishers';
 import { logger } from '../logger';
 import { getJsonBody, JsonBodyTooLargeError } from './helpers';
@@ -27,6 +28,24 @@ const webhookRouteHandler = async (
   if (!webhook) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Webhook not found' }));
+    return;
+  }
+
+  // Voice channels have no chat. Creation of voice-channel webhooks is
+  // gated in webhooks.create, but webhooks created BEFORE that gate (or
+  // whose channel later changed) still exist — without this check they
+  // would keep injecting messages no client can display.
+  const [channel] = await db
+    .select({ type: channels.type })
+    .from(channels)
+    .where(eq(channels.id, webhook.channelId))
+    .limit(1);
+
+  if (channel?.type === ChannelType.VOICE) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({ error: 'Voice channels do not support text messages' })
+    );
     return;
   }
 
