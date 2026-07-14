@@ -475,7 +475,7 @@ describe('file manager', () => {
     expect(path1).not.toBe(path3);
   });
 
-  test('should append counter when same original name already exists', async () => {
+  test('two uploads of the same original name get distinct random names', async () => {
     const fileAPath = path.join(UPLOADS_PATH, `dup-${Date.now()}.txt`);
 
     await fs.writeFile(fileAPath, 'first');
@@ -510,8 +510,17 @@ describe('file manager', () => {
 
     tempFilesToCleanup.push(path.join(PUBLIC_PATH, savedB.name));
 
-    expect(savedA.name).toBe('my-file.txt');
-    expect(savedB.name).toBe('my-file-2.txt');
+    // Names are random UUIDs (extension preserved), never the original —
+    // and two uploads of the same original name don't collide or reveal
+    // the original filename in the URL.
+    expect(savedA.name).not.toBe('my-file.txt');
+    expect(savedB.name).not.toBe('my-file.txt');
+    expect(savedA.name).not.toBe(savedB.name);
+    expect(savedA.name).toMatch(/^[0-9a-f-]{36}\.txt$/i);
+    expect(savedB.name).toMatch(/^[0-9a-f-]{36}\.txt$/i);
+    // Original name is preserved on both records for display/download.
+    expect(savedA.originalName).toBe('my-file.txt');
+    expect(savedB.originalName).toBe('my-file.txt');
 
     const [dbA] = await tdb
       .select()
@@ -525,10 +534,8 @@ describe('file manager', () => {
       .where(eq(files.id, savedB.id))
       .limit(1);
 
-    expect(dbA).toBeDefined();
-    expect(dbA?.name).toBe('my-file.txt');
-    expect(dbB).toBeDefined();
-    expect(dbB?.name).toBe('my-file-2.txt');
+    expect(dbA?.name).toBe(savedA.name);
+    expect(dbB?.name).toBe(savedB.name);
   });
 
   test('temporaryFileExists returns correct boolean', async () => {
