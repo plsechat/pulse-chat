@@ -2,7 +2,7 @@ import type { TFile, TJoinedDmMessage, TJoinedDmMessageReaction, TMessageReplyPr
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getDmChannelMemberIds } from '../../db/queries/dms';
+import { attachDmFileTokens, getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmMessageFiles, dmMessageReactions, dmMessages, files } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -116,7 +116,10 @@ const getPinnedDmMessagesRoute = protectedProcedure
 
     const pinnedMessages: TJoinedDmMessage[] = rows.map((msg) => ({
       ...msg,
-      files: filesByMessage[msg.id] ?? [],
+      files: attachDmFileTokens(
+        filesByMessage[msg.id] ?? [],
+        input.dmChannelId
+      ),
       reactions: reactionsByMessage[msg.id] ?? [],
       replyTo: msg.replyToId ? (replyToMap[msg.replyToId] ?? null) : null
     }));

@@ -3,10 +3,11 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { db } from '../db';
+import { getDmChannelIdByFileId } from '../db/queries/dms';
 import { isFileOrphaned } from '../db/queries/files';
 import { getMessageByFileId } from '../db/queries/messages';
 import { channels, files } from '../db/schema';
-import { verifyFileToken } from '../helpers/files-crypto';
+import { dmFileSalt, verifyFileToken } from '../helpers/files-crypto';
 import { PUBLIC_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 
@@ -43,12 +44,14 @@ const publicRouteHandler = async (
     return;
   }
 
-  // it's gonna be defined if it's a message file
-  // otherwise is something like an avatar or banner or something else
-  // we can assume this because of the orphaned check above
+  // A file is one of: a server-channel message attachment, a DM message
+  // attachment, or profile/emoji media (avatar/banner/logo/emoji). The
+  // orphaned check above already rejected files referenced by nothing.
   const associatedMessage = await getMessageByFileId(dbFile.id);
 
   if (associatedMessage) {
+    // Server-channel attachment: gate PRIVATE channels behind the
+    // per-channel file token.
     const [channel] = await db
       .select()
       .from(channels)
@@ -60,6 +63,26 @@ const publicRouteHandler = async (
       const isValidToken = verifyFileToken(
         dbFile.id,
         channel.fileAccessToken,
+        accessToken || ''
+      );
+
+      if (!isValidToken) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden' }));
+        return;
+      }
+    }
+  } else {
+    // DM attachment: always gated. DMs are private by definition, and
+    // these previously fell through to the fully-public branch below
+    // (getMessageByFileId only covers server messages), so DM files were
+    // served with no check at all. Require the DM file token.
+    const dmChannelId = await getDmChannelIdByFileId(dbFile.id);
+    if (dmChannelId !== undefined) {
+      const accessToken = url.searchParams.get('accessToken');
+      const isValidToken = verifyFileToken(
+        dbFile.id,
+        dmFileSalt(dmChannelId),
         accessToken || ''
       );
 

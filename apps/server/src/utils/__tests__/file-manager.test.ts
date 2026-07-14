@@ -178,7 +178,12 @@ describe('file manager', () => {
 
     expect(savedFile).toBeDefined();
     expect(savedFile.id).toBeGreaterThan(0);
-    expect(savedFile.name).toBe(testFileName);
+    // Security: the served name is a random UUID (keeping the extension),
+    // NOT the user's original filename — a predictable name would let
+    // anyone guess/enumerate other users' uploads on the public route.
+    expect(savedFile.name).not.toBe(testFileName);
+    expect(savedFile.name).toMatch(/^[0-9a-f-]{36}\.txt$/i);
+    // The real name is preserved for display / download.
     expect(savedFile.originalName).toBe(testFileName);
     expect(savedFile.extension).toBe('.txt');
     expect(savedFile.size).toBe(stats.size);

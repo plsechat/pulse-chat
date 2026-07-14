@@ -6,6 +6,7 @@ import type {
 } from '@pulse/shared';
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '..';
+import { dmFileSalt, generateFileToken } from '../../helpers/files-crypto';
 import {
   dmChannelMembers,
   dmChannels,
@@ -16,6 +17,38 @@ import {
   files
 } from '../schema';
 import { getPublicUsersByIds } from './users';
+
+/**
+ * Attach the DM file access token to each file so an authorized member's
+ * client includes it when fetching from the public route (getFileUrl
+ * appends `?accessToken`). Without it the serve path now 403s DM
+ * attachments. Mirrors the private-channel `_accessToken` pattern.
+ */
+const attachDmFileTokens = <T extends { id: number }>(
+  fileList: T[],
+  dmChannelId: number
+): (T & { _accessToken: string })[] =>
+  fileList.map((f) => ({
+    ...f,
+    _accessToken: generateFileToken(f.id, dmFileSalt(dmChannelId))
+  }));
+
+/**
+ * Resolve the DM channel a file belongs to (via its DM message), or
+ * undefined if the file isn't a DM attachment. Used by the public serve
+ * route to gate DM files behind the DM token.
+ */
+const getDmChannelIdByFileId = async (
+  fileId: number
+): Promise<number | undefined> => {
+  const [row] = await db
+    .select({ dmChannelId: dmMessages.dmChannelId })
+    .from(dmMessageFiles)
+    .innerJoin(dmMessages, eq(dmMessages.id, dmMessageFiles.dmMessageId))
+    .where(eq(dmMessageFiles.fileId, fileId))
+    .limit(1);
+  return row?.dmChannelId;
+};
 
 const getDmChannelsForUser = async (
   userId: number
@@ -239,7 +272,10 @@ const getDmMessage = async (
 
   return {
     ...msg,
-    files: fileRows.map((r) => r.file),
+    files: attachDmFileTokens(
+      fileRows.map((r) => r.file),
+      msg.dmChannelId
+    ),
     reactions,
     replyTo
   };
@@ -277,7 +313,9 @@ const getDmChannelMemberIds = async (
 };
 
 export {
+  attachDmFileTokens,
   findDmChannelBetween,
+  getDmChannelIdByFileId,
   getDmChannelMemberIds,
   getDmChannelsForUser,
   getDmMessage,

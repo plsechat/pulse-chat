@@ -5,7 +5,6 @@ import {
 } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { createHash } from 'crypto';
-import { eq } from 'drizzle-orm';
 import fs from 'fs/promises';
 import path from 'path';
 import { db } from '../db';
@@ -186,30 +185,18 @@ class FileManager {
     }
   };
 
-  private getUniqueName = async (originalName: string): Promise<string> => {
-    const baseName = path.basename(originalName, path.extname(originalName));
-    const extension = path.extname(originalName);
-
-    let fileName = originalName;
-    let counter = 2;
-
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const [existingFile] = await db
-        .select()
-        .from(files)
-        .where(eq(files.name, fileName))
-        .limit(1);
-
-      if (!existingFile) {
-        break;
-      }
-
-      fileName = `${baseName}-${counter}${extension}`;
-      counter++;
-    }
-
-    return fileName;
+  /**
+   * The on-disk / served name for a stored file. Deliberately a random
+   * UUID (keeping only the extension) rather than the user's original
+   * filename: files are served from a public route addressed by this
+   * name, so a predictable name (e.g. "screenshot.png") let anyone
+   * guess/enumerate other users' uploads. The real name is preserved in
+   * files.originalName for display and the download Content-Disposition.
+   * randomUUIDv7 collisions are not a practical concern, but the unique
+   * index on files.name is the backstop.
+   */
+  private getUniqueName = (originalName: string): string => {
+    return `${randomUUIDv7()}${path.extname(originalName)}`;
   };
 
   public async saveFile(tempFileId: string, userId: number): Promise<TFile> {
@@ -225,7 +212,7 @@ class FileManager {
 
     await this.handleStorageLimits(tempFile);
 
-    const fileName = await this.getUniqueName(tempFile.originalName);
+    const fileName = this.getUniqueName(tempFile.originalName);
     const destinationPath = path.join(PUBLIC_PATH, fileName);
 
     await fs.rename(tempFile.path, destinationPath);

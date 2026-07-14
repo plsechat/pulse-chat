@@ -6,9 +6,17 @@ import path from 'path';
 import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
 import { loadCrons } from '../../crons';
-import { channels, files, messageFiles, messages } from '../../db/schema';
+import {
+  channels,
+  dmChannels,
+  dmMessageFiles,
+  dmMessages,
+  files,
+  messageFiles,
+  messages
+} from '../../db/schema';
 import { fileExists } from '../../utils/file-manager';
-import { generateFileToken } from '../../helpers/files-crypto';
+import { dmFileSalt, generateFileToken } from '../../helpers/files-crypto';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { fileManager } from '../../utils/file-manager';
 
@@ -142,8 +150,10 @@ describe('/public', () => {
     expect(response.headers.get('Content-Length')).toBe(
       dbFile!.size.toString()
     );
+    // Content-Disposition carries the real (original) filename for
+    // download, not the random stored name.
     expect(response.headers.get('Content-Disposition')).toBe(
-      `inline; filename="${dbFile!.name}"`
+      `inline; filename="${dbFile!.originalName}"`
     );
 
     const responseText = await response.text();
@@ -573,6 +583,78 @@ describe('/public', () => {
     const responseText = await response.text();
 
     expect(responseText).toBe(fileContent);
+  });
+
+  test('DM attachment is 403 without a token and 200 with the DM token', async () => {
+    // A DM attachment previously fell through to the fully-public branch
+    // (getMessageByFileId only covers server messages) and was served
+    // with no check. Now it's gated behind the DM file token. The serve
+    // path checks only the token, so a direct DB setup exercises it.
+    const now = Date.now();
+    const [dmChannel] = await tdb
+      .insert(dmChannels)
+      .values({ createdAt: now })
+      .returning();
+    const [dmMessage] = await tdb
+      .insert(dmMessages)
+      .values({
+        dmChannelId: dmChannel!.id,
+        userId: 1,
+        content: 'dm with a private file',
+        createdAt: now
+      })
+      .returning();
+
+    const fileName = `dm-attachment-${now}.txt`;
+    const fileContent = 'secret DM attachment content';
+    await fs.writeFile(path.join(PUBLIC_PATH, fileName), fileContent);
+
+    const [dbFile] = await tdb
+      .insert(files)
+      .values({
+        name: fileName,
+        originalName: 'secret.txt',
+        md5: `dm-md5-${now}`,
+        userId: 1,
+        size: fileContent.length,
+        mimeType: 'text/plain',
+        extension: '.txt',
+        createdAt: now
+      })
+      .returning();
+
+    await tdb.insert(dmMessageFiles).values({
+      dmMessageId: dmMessage!.id,
+      fileId: dbFile!.id,
+      createdAt: now
+    });
+
+    try {
+      // No token → 403 (was 200 before the fix).
+      const noToken = await fetch(
+        `${testsBaseUrl}/public/${encodeURIComponent(fileName)}`
+      );
+      expect(noToken.status).toBe(403);
+
+      // Wrong token → 403.
+      const wrong = await fetch(
+        `${testsBaseUrl}/public/${encodeURIComponent(fileName)}?accessToken=nope`
+      );
+      expect(wrong.status).toBe(403);
+
+      // Correct DM token → 200.
+      const validToken = generateFileToken(
+        dbFile!.id,
+        dmFileSalt(dmChannel!.id)
+      );
+      const ok = await fetch(
+        `${testsBaseUrl}/public/${encodeURIComponent(fileName)}?accessToken=${validToken}`
+      );
+      expect(ok.status).toBe(200);
+      expect(await ok.text()).toBe(fileContent);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, fileName), { force: true });
+    }
   });
 
   test('should allow access to non-message files without token', async () => {
