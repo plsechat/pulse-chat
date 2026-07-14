@@ -1,10 +1,39 @@
 import { ChannelPermission, ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
+import { randomUUIDv7 } from 'bun';
 import { db } from '../../db';
-import { federationInstances, serverMembers, users } from '../../db/schema';
+import {
+  channels,
+  federationInstances,
+  serverMembers,
+  users
+} from '../../db/schema';
 import { initTest } from '../../__tests__/helpers';
 import { getChannelsReadStatesForUser } from '../../db/queries/channels';
 import { generateFileToken, verifyFileToken } from '../../helpers/files-crypto';
+
+// Read-state tests need a TEXT channel with no seeded messages: channel 1
+// carries a seed message, and channel 2 is the seeded VOICE channel, which
+// no longer accepts messages. Called inside each test (not beforeEach) so
+// it doesn't compete with the global per-test TRUNCATE.
+const createEmptyTextChannel = async (name: string) => {
+  const [channel] = await db
+    .insert(channels)
+    .values({
+      type: ChannelType.TEXT,
+      name,
+      position: 50,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    })
+    .returning();
+
+  return channel!;
+};
 
 describe('channels router', () => {
   test('should throw when user lacks permissions (add)', async () => {
@@ -425,165 +454,170 @@ describe('channels router', () => {
   test('should mark channel as read', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
+    const channel = await createEmptyTextChannel('read-state-basic');
 
-    const beforeMsgSend = await getChannelsReadStatesForUser(2, 2);
+    const beforeMsgSend = await getChannelsReadStatesForUser(2, channel.id);
 
     // before sending any messages, there should be no read state
-    expect(beforeMsgSend.readStates[2]).toBeUndefined();
+    expect(beforeMsgSend.readStates[channel.id]).toBeUndefined();
 
     // Send an initial message and mark as read to establish a baseline
     // read state (channels with no read state show 0 unread by design)
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Baseline message',
       files: []
     });
-    await caller2.channels.markAsRead({ channelId: 2 });
+    await caller2.channels.markAsRead({ channelId: channel.id });
 
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Test message for read state',
       files: []
     });
 
-    const beforeRead = await getChannelsReadStatesForUser(2, 2);
+    const beforeRead = await getChannelsReadStatesForUser(2, channel.id);
 
     // message has been sent, there should be 1 unread message
-    expect(beforeRead.readStates[2]).toBeDefined();
-    expect(beforeRead.readStates[2]).toBe(1);
+    expect(beforeRead.readStates[channel.id]).toBeDefined();
+    expect(beforeRead.readStates[channel.id]).toBe(1);
 
     await caller2.channels.markAsRead({
-      channelId: 2
+      channelId: channel.id
     });
 
-    const afterRead = await getChannelsReadStatesForUser(2, 2);
+    const afterRead = await getChannelsReadStatesForUser(2, channel.id);
 
     // after marking as read, there should be 0 unread messages
-    expect(afterRead.readStates[2]).toBeDefined();
-    expect(afterRead.readStates[2]).toBe(0);
+    expect(afterRead.readStates[channel.id]).toBeDefined();
+    expect(afterRead.readStates[channel.id]).toBe(0);
   });
 
   test('should mark channel as read with no messages', async () => {
     const { caller } = await initTest();
+    const channel = await createEmptyTextChannel('read-state-empty');
 
-    // channel 2 has no messages, so marking as read should do nothing
+    // the channel has no messages, so marking as read should do nothing
     await caller.channels.markAsRead({
-      channelId: 2
+      channelId: channel.id
     });
 
-    const result = await getChannelsReadStatesForUser(1, 2);
+    const result = await getChannelsReadStatesForUser(1, channel.id);
 
     // should not create a read state for empty channel
-    expect(result.readStates[2]).toBeUndefined();
+    expect(result.readStates[channel.id]).toBeUndefined();
   });
 
   test('should update existing read state when marking as read again', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
+    const channel = await createEmptyTextChannel('read-state-update');
 
     // user 1 sends first message
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'First message',
       files: []
     });
 
     // user 2 marks as read
     await caller2.channels.markAsRead({
-      channelId: 2
+      channelId: channel.id
     });
 
-    const firstResult = await getChannelsReadStatesForUser(2, 2);
+    const firstResult = await getChannelsReadStatesForUser(2, channel.id);
 
-    expect(firstResult.readStates[2]).toBe(0);
+    expect(firstResult.readStates[channel.id]).toBe(0);
 
     // user 1 sends another message
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Second message',
       files: []
     });
 
-    const beforeSecondMark = await getChannelsReadStatesForUser(2, 2);
+    const beforeSecondMark = await getChannelsReadStatesForUser(2, channel.id);
 
-    expect(beforeSecondMark.readStates[2]).toBe(1);
+    expect(beforeSecondMark.readStates[channel.id]).toBe(1);
 
     // user 2 marks as read again
     await caller2.channels.markAsRead({
-      channelId: 2
+      channelId: channel.id
     });
 
-    const afterSecondMark = await getChannelsReadStatesForUser(2, 2);
+    const afterSecondMark = await getChannelsReadStatesForUser(2, channel.id);
 
-    expect(afterSecondMark.readStates[2]).toBe(0);
+    expect(afterSecondMark.readStates[channel.id]).toBe(0);
   });
 
   test('should track unread count correctly with multiple messages', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
+    const channel = await createEmptyTextChannel('read-state-multi');
 
     // Establish a baseline read state for user 2
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Baseline message',
       files: []
     });
-    await caller2.channels.markAsRead({ channelId: 2 });
+    await caller2.channels.markAsRead({ channelId: channel.id });
 
     // user 1 sends 3 messages
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Message 1',
       files: []
     });
 
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Message 2',
       files: []
     });
 
     await caller1.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Message 3',
       files: []
     });
 
-    const result = await getChannelsReadStatesForUser(2, 2);
+    const result = await getChannelsReadStatesForUser(2, channel.id);
 
     // user 2 should have 3 unread messages
-    expect(result.readStates[2]).toBe(3);
+    expect(result.readStates[channel.id]).toBe(3);
 
     // user 2 marks as read
     await caller2.channels.markAsRead({
-      channelId: 2
+      channelId: channel.id
     });
 
-    const afterMark = await getChannelsReadStatesForUser(2, 2);
+    const afterMark = await getChannelsReadStatesForUser(2, channel.id);
 
-    expect(afterMark.readStates[2]).toBe(0);
+    expect(afterMark.readStates[channel.id]).toBe(0);
   });
 
   test('should not count own messages as unread', async () => {
     const { caller } = await initTest();
+    const channel = await createEmptyTextChannel('read-state-own');
 
     // user sends messages to channel
     await caller.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'My message 1',
       files: []
     });
 
     await caller.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'My message 2',
       files: []
     });
 
-    const result = await getChannelsReadStatesForUser(1, 2);
+    const result = await getChannelsReadStatesForUser(1, channel.id);
 
     // should have 0 unread messages since user sent them themselves
-    expect(result.readStates[2]).toBe(0);
+    expect(result.readStates[channel.id]).toBe(0);
   });
 
   test('should validate channel name length (too short)', async () => {
