@@ -91,7 +91,8 @@ describe('federation.addInstance', () => {
     });
 
     // The canonical stored identity is the advertised domain
-    expect(result.instance.domain).toBe('peer.example');
+    expect(result).toBeDefined();
+    expect(result!.instance.domain).toBe('peer.example');
 
     const requestCall = fetchCalls.find((c) =>
       c.url.includes('/federation/request')
