@@ -1165,7 +1165,14 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
     </div>
     </PopoverAnchor>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
+      <ContextMenuContent
+        className="w-48"
+        // Don't restore focus to the trigger when the picker opened — the
+        // yank registers as focus-outside on the picker Popover.
+        onCloseAutoFocus={(e) => {
+          if (reactionPickerOpen) e.preventDefault();
+        }}
+      >
         <ContextMenuItem onClick={onReply}>
           <Reply className="h-4 w-4" />
           Reply
@@ -1205,7 +1212,13 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
         className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
         align="start"
         sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
+        // The exiting context menu's trapped FocusScope steals focus from
+        // emoji-mart, and a non-modal Popover dismisses on focus-outside —
+        // the "instantly closes" bug. Ignore focus movement; only
+        // pointer-down outside, Escape, or picking an emoji closes it.
+        onFocusOutside={(e) => e.preventDefault()}
       >
         <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
       </PopoverContent>

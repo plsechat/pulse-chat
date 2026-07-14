@@ -185,7 +185,15 @@ const MessageContextMenu = memo(
           <ContextMenuTrigger asChild>
             <PopoverAnchor asChild>{children}</PopoverAnchor>
           </ContextMenuTrigger>
-          <ContextMenuContent className="w-52">
+          <ContextMenuContent
+            className="w-52"
+            // When "Add Reaction" opened the picker, don't let the closing
+            // menu restore focus to the trigger — that focus yank is a
+            // focus-outside event for the picker Popover.
+            onCloseAutoFocus={(e) => {
+              if (reactionPickerOpen) e.preventDefault();
+            }}
+          >
           <ContextMenuItem onClick={onReply}>
             <Reply className="h-4 w-4" />
             Reply
@@ -258,7 +266,16 @@ const MessageContextMenu = memo(
           className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
           align="start"
           sideOffset={8}
+          onOpenAutoFocus={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => e.preventDefault()}
+          // The context menu that opened this picker is still mid-exit-
+          // animation with a TRAPPED FocusScope: the instant emoji-mart
+          // autofocuses, the dying menu steals focus back (then its unmount
+          // refocuses the trigger). A non-modal Popover dismisses on ANY
+          // focus landing outside it, so either steal closed the picker
+          // instantly. Ignore focus movement entirely — only pointer-down
+          // outside, Escape, or picking an emoji closes it.
+          onFocusOutside={(e) => e.preventDefault()}
         >
           <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
         </PopoverContent>
