@@ -33,6 +33,26 @@ describe('/info', () => {
     expect(data.passwordRegistrationEnabled).toBe(false);
   });
 
+  test('passwordLoginEnabled is true by default', async () => {
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+    expect(data.passwordLoginEnabled).toBe(true);
+  });
+
+  test('passwordLoginEnabled is false in SSO-only mode (password registration off + provider advertised)', async () => {
+    globalThis.__disabledRegistrationMethods = ['password'];
+    process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+    expect(data.passwordLoginEnabled).toBe(false);
+  });
+
+  test('passwordLoginEnabled stays true when password registration is off but NO provider is configured', async () => {
+    // Guard rail: without any SSO provider, hiding password login would
+    // leave the deployment with no way to sign in at all.
+    globalThis.__disabledRegistrationMethods = ['password'];
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+    expect(data.passwordLoginEnabled).toBe(true);
+  });
+
   test('should return server info', async () => {
     const response = await fetch(`${testsBaseUrl}/info`);
 

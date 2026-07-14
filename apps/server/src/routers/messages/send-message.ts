@@ -1,6 +1,7 @@
 import {
   ActivityLogType,
   ChannelPermission,
+  ChannelType,
   MAX_MESSAGE_WIRE_LENGTH,
   Permission,
   toDomCommand
@@ -52,10 +53,22 @@ const sendMessageRoute = protectedProcedure
 
     // Check channel E2EE flag matches the message
     const [channel] = await db
-      .select({ slowMode: channels.slowMode, e2ee: channels.e2ee })
+      .select({
+        slowMode: channels.slowMode,
+        e2ee: channels.e2ee,
+        type: channels.type
+      })
       .from(channels)
       .where(eq(channels.id, input.channelId))
       .limit(1);
+
+    // Voice channels have no chat. The UI no longer offers one, but the
+    // capability must be gated here too — otherwise messages could still
+    // be pushed into voice channels via the raw API.
+    invariant(channel?.type !== ChannelType.VOICE, {
+      code: 'BAD_REQUEST',
+      message: 'Voice channels do not support text messages'
+    });
 
     if (channel?.e2ee) {
       invariant(isE2ee && input.content, {

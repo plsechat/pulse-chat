@@ -1,4 +1,4 @@
-import { Permission } from '@pulse/shared';
+import { ChannelType, Permission } from '@pulse/shared';
 import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -20,7 +20,7 @@ const createWebhookRoute = protectedProcedure
 
     // Verify the channel belongs to the caller's active server
     const [channel] = await db
-      .select({ id: channels.id })
+      .select({ id: channels.id, type: channels.type })
       .from(channels)
       .where(
         and(
@@ -33,6 +33,13 @@ const createWebhookRoute = protectedProcedure
     invariant(channel, {
       code: 'NOT_FOUND',
       message: 'Channel not found'
+    });
+
+    // Voice channels have no chat — a webhook pointed at one could still
+    // inject messages, so reject at creation.
+    invariant(channel.type !== ChannelType.VOICE, {
+      code: 'BAD_REQUEST',
+      message: 'Webhooks cannot target voice channels'
     });
 
     const [webhook] = await db

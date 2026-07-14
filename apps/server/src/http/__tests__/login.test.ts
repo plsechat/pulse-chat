@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { login } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
@@ -258,5 +258,84 @@ describe('/login', () => {
 
       expect(userRole).toBeTruthy();
     }
+  });
+});
+
+// SSO-only mode is DERIVED (see utils/auth-providers.ts): password login
+// is disabled when password self-registration is off AND at least one SSO
+// provider is advertised. /login must reject then — hiding the form alone
+// would leave the endpoint open to credential stuffing.
+describe('/login in SSO-only mode', () => {
+  afterEach(() => {
+    globalThis.__disabledRegistrationMethods = undefined;
+    delete process.env.GOOGLE_OAUTH_ENABLED;
+  });
+
+  test('rejects password login when password registration is off and a provider is advertised', async () => {
+    globalThis.__disabledRegistrationMethods = ['password'];
+    process.env.GOOGLE_OAUTH_ENABLED = 'true';
+
+    const response = await login('testowner@pulse.local', 'password123');
+
+    expect(response.status).toBe(400);
+
+    const data = (await response.json()) as { errors: Record<string, string> };
+    expect(data.errors.email).toContain('disabled');
+  });
+
+  test('a valid invite is a break-glass for password login in SSO-only mode', async () => {
+    globalThis.__disabledRegistrationMethods = ['password'];
+    process.env.GOOGLE_OAUTH_ENABLED = 'true';
+
+    const tdb = getTestDb();
+    await tdb.insert(invites).values({
+      code: 'SSO-LOGIN-BREAKGLASS',
+      creatorId: 1,
+      serverId: 1,
+      maxUses: 5,
+      uses: 0,
+      expiresAt: Date.now() + 86400000,
+      createdAt: Date.now()
+    });
+
+    const response = await login(
+      'testowner@pulse.local',
+      'password123',
+      'SSO-LOGIN-BREAKGLASS'
+    );
+
+    expect(response.status).toBe(200);
+
+    // Login break-glass only VALIDATES the invite — consumption happens at
+    // registration. The use count must be untouched.
+    const [invite] = await tdb
+      .select()
+      .from(invites)
+      .where(eq(invites.code, 'SSO-LOGIN-BREAKGLASS'))
+      .limit(1);
+    expect(invite?.uses).toBe(0);
+  });
+
+  test('an invalid invite does NOT bypass the SSO-only gate', async () => {
+    globalThis.__disabledRegistrationMethods = ['password'];
+    process.env.GOOGLE_OAUTH_ENABLED = 'true';
+
+    const response = await login(
+      'testowner@pulse.local',
+      'password123',
+      'NO-SUCH-INVITE'
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  test('password login stays enabled when no SSO provider is configured', async () => {
+    // Guard rail: disabling password registration alone must not lock the
+    // deployment out of its only sign-in method.
+    globalThis.__disabledRegistrationMethods = ['password'];
+
+    const response = await login('testowner@pulse.local', 'password123');
+
+    expect(response.status).toBe(200);
   });
 });
