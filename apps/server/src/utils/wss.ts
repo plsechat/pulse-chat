@@ -124,6 +124,16 @@ const createContext = async ({
     });
   }
 
+  if (decodedUser?.banned) {
+    // Close with the BANNED code (not a generic FORBIDDEN) so the client
+    // recognises this as non-recoverable and shows the banned screen with
+    // the reason. Without this, a banned user whose client reconnects
+    // (e.g. the ban raced a transient reconnect) loops on "Reconnecting…"
+    // forever, since only DisconnectCode.BANNED is treated as terminal.
+    // `res?.` — the mock context in unit tests has no res; the invariant
+    // below still carries the rejection there.
+    res?.close(DisconnectCode.BANNED, decodedUser.banReason ?? undefined);
+  }
   invariant(!decodedUser.banned, {
     code: 'FORBIDDEN',
     message: 'User is banned'

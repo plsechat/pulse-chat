@@ -28,7 +28,13 @@ export function channelButton(page: Page, name: string): Locator {
 }
 
 export async function selectChannel(page: Page, name: string): Promise<void> {
-  await channelButton(page, name).click();
+  const button = channelButton(page, name);
+  await expect(button).toBeVisible();
+  // Members without the reorder permission (any non-owner, and every
+  // federated row) see channel rows with aria-disabled — it's the dnd
+  // sortable marker, not a click gate. Force past the actionability
+  // check; the explicit visibility assert above keeps the wait.
+  await button.click({ force: true });
 }
 
 export async function sendChannelMessage(
@@ -76,9 +82,11 @@ export async function waitForAppReady(page: Page): Promise<void> {
   // The left sidebar's seeded channel list is the "logged in AND a member
   // of the default server" signal — only renders after WS connect + join.
   // Role-scoped: the bare text also matches top-bar titles.
+  // 30s (not 20s): with all projects running in parallel the shared host
+  // is loaded, and initial WS connect + first data load can lag.
   await expect(
     page.getByRole('button', { name: 'General Text', exact: true }).first()
-  ).toBeVisible({ timeout: 20_000 });
+  ).toBeVisible({ timeout: 30_000 });
 }
 
 /**
@@ -90,7 +98,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
 export async function waitForAuthedShell(page: Page): Promise<void> {
   await expect(
     page.getByRole('button', { name: 'Home' }).first()
-  ).toBeVisible({ timeout: 20_000 });
+  ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByPlaceholder('you@example.com')).toHaveCount(0);
 }
 
@@ -117,6 +125,99 @@ export async function gotoApp(page: Page, url = '/'): Promise<void> {
   await disableAnimations(page);
   await page.goto(url);
   await waitForAppReady(page);
+}
+
+/**
+ * Navigate to the Home view via the left rail.
+ *
+ * Located by title attribute — the unread badge's TEXT replaces the
+ * button's accessible name, so role+name matching breaks whenever unread
+ * DMs exist. force: the badge overlays the button and fails the
+ * actionability hit-test even though real clicks land fine.
+ */
+export async function goHome(page: Page): Promise<void> {
+  await page
+    .locator('button[title="Home"]')
+    .filter({ visible: true })
+    .first()
+    .click({ force: true });
+}
+
+/**
+ * Open a user's inline DM composer by clicking their name on a channel
+ * message, returning the composer scoped to THAT user.
+ *
+ * Targets the user-specific placeholder (`Message @<name>`), not the
+ * generic one: under load the message-author popover can briefly bind to
+ * a previously-rendered author, so clicking one name can surface a
+ * different user's popover. Retrying past a stale/wrong popover (Escape +
+ * re-click) makes the DM-open deterministic instead of silently
+ * addressing the wrong recipient.
+ */
+export async function openDmViaAuthor(
+  page: Page,
+  displayName: string
+): Promise<Locator> {
+  const composer = page.locator(
+    `[contenteditable="true"]:has(p[data-placeholder="Message @${displayName}"])`
+  );
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.getByText(displayName, { exact: true }).first().click();
+    try {
+      await expect(composer).toBeVisible({ timeout: 5_000 });
+      return composer;
+    } catch {
+      await page.keyboard.press('Escape');
+    }
+  }
+  await expect(composer).toBeVisible({ timeout: 5_000 });
+  return composer;
+}
+
+/** DM sidebar rows / DM open: click the entry named after the peer. */
+export async function openDmWith(page: Page, name: string): Promise<void> {
+  await goHome(page);
+  await page.getByText(name).first().click();
+  await expect(dmComposer(page)).toBeVisible({ timeout: 15_000 });
+}
+
+/** The DM message ROW element (`#dm-msg-<id>`) containing the text. */
+export function dmMessageRow(page: Page, text: string): Locator {
+  return page.locator('[id^="dm-msg-"]').filter({ hasText: text }).first();
+}
+
+/** Send a message in the open DM conversation and wait for round-trip. */
+export async function sendDmMessage(page: Page, text: string): Promise<void> {
+  const composer = dmComposer(page);
+  await composer.click();
+  await composer.fill(text);
+  // Keyboard send — see sendChannelMessage for the tiptap rationale.
+  await page.keyboard.press('Enter');
+  await expect(
+    page.locator('[id^="dm-msg-"]').getByText(text, { exact: true })
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+/**
+ * Open user settings (bottom-left gear) at the given section. Settings
+ * screens close with Escape (useEscapeKey on the server-screens host).
+ */
+export async function openUserSettings(
+  page: Page,
+  section: string
+): Promise<void> {
+  // Two gears exist (desktop + hidden responsive variant).
+  await page
+    .locator('button[title="User settings"]')
+    .filter({ visible: true })
+    .first()
+    .click();
+  await page.getByRole('button', { name: section, exact: true }).click();
+}
+
+/** Sonner toast with the given text (they auto-dismiss — assert early). */
+export function toast(page: Page, text: string | RegExp): Locator {
+  return page.getByText(text).first();
 }
 
 /**

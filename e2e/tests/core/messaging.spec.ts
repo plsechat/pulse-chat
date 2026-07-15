@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { psql } from '../../helpers/db';
 import {
   authedGoto,
   messageRow,
@@ -101,4 +102,44 @@ test('delete own message removes it from the pane', async ({ page }) => {
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
   await expect(page.getByText(text, { exact: true })).toHaveCount(0);
+});
+
+test('a 16k code-block message renders without freezing the tab', async ({
+  page
+}) => {
+  // Regression (reported 2026-07-15): a message holding a ~16k code block
+  // blocked the main thread for many seconds — hljs.highlightAuto ran
+  // every registered grammar over the block, and re-ran on every remount,
+  // so the conversation was effectively bricked. Fixed by budgeting the
+  // highlight work (auto-detect ≤4k chars, explicit language ≤30k, plain
+  // text beyond).
+  //
+  // The row is injected directly: the freeze lived in the RENDER path,
+  // which this exercises fully, and the tiptap composer can't produce a
+  // 16k code block in reasonable test time. chr(96) = backtick.
+  const marker = `bigcode ${Date.now().toString(36)}`;
+  psql(
+    'core',
+    `INSERT INTO messages (content, user_id, channel_id, created_at)
+     SELECT '${marker}' || E'\n' || repeat(chr(96), 3) || E'\n' || repeat('x', 15900) || E'\n' || repeat(chr(96), 3),
+            u.id, c.id, (extract(epoch from now()) * 1000)::bigint
+     FROM users u, channels c
+     WHERE u.name = 'E2EOwner' AND c.name = 'General Text 2'`
+  );
+
+  await selectChannel(page, 'General Text 2');
+  // The marker renders as a bare text node beside the code block (no own
+  // wrapper element), so match the message ROW by substring.
+  await expect(
+    page.locator('[id^="msg-"]').filter({ hasText: marker }).first()
+  ).toBeVisible({ timeout: 15_000 });
+
+  // The tab must stay responsive while (and after) the block renders: a
+  // trivial evaluate has to come back promptly. Pre-fix this timed out —
+  // the main thread was pinned inside highlightAuto.
+  const responsive = await Promise.race([
+    page.evaluate(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 3_000))
+  ]);
+  expect(responsive).toBe(true);
 });

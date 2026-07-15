@@ -42,19 +42,6 @@ test('channel attachment is stored under an unguessable UUID name and serves', a
   expect(res.headers()['content-disposition']).toContain('pixel.png');
 });
 
-/**
- * DM attachment token gating (403 without token / 200 with / no cold-boot
- * 500) through the real DM UI.
- *
- * Deferred: reliably reaching a DM composer needs a second user who is
- * ONLINE (a member joined via API but never WS-connected doesn't surface
- * in the member list, and the message-author popover path races the live
- * session). Wants a proper "live second user" fixture.
- *
- * The underlying security is already covered where it's deterministic:
- *   - server unit test apps/server/src/http/__tests__/public.test.ts
- *     asserts DM 403-without / 200-with-token and the HMAC path
- *   - the b6b06a5 cold-boot regression is caught by the server booting at
- *     all (warmFileHmacSecret runs in the boot sequence)
- */
-test.fixme('DM attachment: 403 without token, 200 with, no cold-boot 500', () => {});
+// DM attachment token gating (403 without token / 200 with) through the
+// real DM UI now lives in dm-depth.spec.ts — the friend-request loop plus
+// two authed contexts supply the "live second user" this test once lacked.

@@ -83,7 +83,13 @@ const UserAvatar = memo(
 
     if (!showUserPopover) return content;
 
-    return <UserPopover userId={userId}>{content}</UserPopover>;
+    // Forward the scope: a correctly home-resolved avatar wrapping an
+    // ambient-resolved popover would show the WRONG identity on click.
+    return (
+      <UserPopover userId={userId} homeScope={homeScope}>
+        {content}
+      </UserPopover>
+    );
   }
 );
 

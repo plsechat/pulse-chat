@@ -1,6 +1,9 @@
 import { expect, test as setup } from '@playwright/test';
 import { loginUser, registerUser, storageStateFor } from '../../helpers/api';
+import { CORE_OWNER, CORE_USER_B } from '../../helpers/fixtures';
 import { waitForAppReady } from '../../helpers/ui';
+
+export { CORE_OWNER, CORE_USER_B };
 
 /**
  * One-time setup for the `core` project:
@@ -15,18 +18,6 @@ import { waitForAppReady } from '../../helpers/ui';
  */
 
 const BASE = 'http://127.0.0.1:14991';
-
-export const CORE_OWNER = {
-  email: 'owner@e2e.local',
-  password: 'e2e-password-1234',
-  displayName: 'E2EOwner'
-};
-
-export const CORE_USER_B = {
-  email: 'userb@e2e.local',
-  password: 'e2e-password-1234',
-  displayName: 'E2EUserB'
-};
 
 setup('register core users and join the default server', async ({
   browser

@@ -670,6 +670,7 @@ const DmHeader = memo(({
                 i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
               )}
               showUserPopover={false}
+              homeScope
             />
           ))}
         </div>
@@ -678,6 +679,7 @@ const DmHeader = memo(({
           userId={otherMembers[0].id}
           className="h-7 w-7"
           showUserPopover
+          homeScope
         />
       )}
       <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
@@ -923,7 +925,7 @@ const DmMessagesGroup = memo(
         <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline pl-1 select-none">
-            <UserPopover userId={user.id}>
+            <UserPopover userId={user.id} homeScope>
               <span
                 className={cn(
                   'cursor-pointer hover:underline',

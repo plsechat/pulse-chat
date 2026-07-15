@@ -8,18 +8,33 @@ type TCodeBlockOverrideProps = {
   language?: string;
 };
 
+// Highlighting is synchronous main-thread work. highlightAuto runs EVERY
+// registered grammar over the text — a 16k block blocks the tab for
+// ~8 seconds (and re-runs on every remount), which users experience as
+// the page freezing. Auto-detection is a nicety: give it a small budget.
+// An explicit language runs ONE grammar, so it gets a higher ceiling.
+// Beyond the budget the block renders as plain (still styled) text.
+const AUTO_HIGHLIGHT_MAX_CHARS = 4_000;
+const EXPLICIT_HIGHLIGHT_MAX_CHARS = 30_000;
+
 const CodeBlockOverride = memo(({ code, language }: TCodeBlockOverrideProps) => {
   const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
     if (language && hljs.getLanguage(language)) {
-      return hljs.highlight(code, { language });
+      if (code.length <= EXPLICIT_HIGHLIGHT_MAX_CHARS) {
+        return hljs.highlight(code, { language });
+      }
+      return null;
     }
 
-    return hljs.highlightAuto(code);
+    if (code.length <= AUTO_HIGHLIGHT_MAX_CHARS) {
+      return hljs.highlightAuto(code);
+    }
+    return null;
   }, [code, language]);
 
-  const displayLang = language || result.language || '';
+  const displayLang = language || result?.language || '';
 
   const onCopy = useCallback(async () => {
     try {
@@ -50,7 +65,11 @@ const CodeBlockOverride = memo(({ code, language }: TCodeBlockOverrideProps) => 
         </button>
       </div>
       <pre>
-        <code dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(result.value) }} />
+        {result ? (
+          <code dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(result.value) }} />
+        ) : (
+          <code>{code}</code>
+        )}
       </pre>
     </div>
   );

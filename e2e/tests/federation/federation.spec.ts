@@ -328,4 +328,65 @@ test.describe.serial('federation: peer, join, message, DM', () => {
       pageB.locator('[id^="dm-msg-"]').getByText(DM_MSG, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
   });
+
+  test('DM user popover resolves HOME identities while a federated server is active', async () => {
+    // Regression for the UserPopover half of the identity-swap family:
+    // avatars were fixed in aa2feb6 (homeScope), but the popover they
+    // wrapped kept resolving via the AMBIENT roster — with fed-b active,
+    // a home userId collides with a different person's remote id and the
+    // popover showed the wrong profile.
+
+    // B replies so the conversation has a message authored by EACH side.
+    const dmReply = `dm reply from B ${RUN_TAG}`;
+    const composerB = pageB.locator(
+      '[contenteditable="true"]:has(p[data-placeholder^="Message @"])'
+    );
+    await composerB.click();
+    await composerB.fill(dmReply);
+    await pageB.keyboard.press('Enter');
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').getByText(dmReply, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+
+    // A activates the federated server (the ambient roster becomes the
+    // REMOTE one), then opens the home DM.
+    await pageA
+      .getByTitle('Pulse Server (pulse-fed-b:4991)')
+      .filter({ visible: true })
+      .first()
+      .click();
+    await expect(
+      pageA
+        .getByRole('button', { name: 'General Text', exact: true, disabled: true })
+        .first()
+    ).toBeVisible({ timeout: 15_000 });
+    await pageA
+      .locator('button[title="Home"]')
+      .filter({ visible: true })
+      .first()
+      .click({ force: true });
+    await pageA.getByText('FedOwnerB').first().click({ timeout: 15_000 });
+    await expect(
+      pageA.locator('[id^="dm-msg-"]').getByText(dmReply, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Author-name spans (cursor-pointer style — distinct from the
+    // sidebar row button and the header title) open the popover; each
+    // must resolve to the clicked user's HOME identity. Scope the
+    // assertion to the popover's own heading (h3.text-lg.font-bold) —
+    // the DM profile panel renders its own h3 for the partner too.
+    for (const name of ['FedOwnerA', 'FedOwnerB']) {
+      await pageA
+        .locator('span.cursor-pointer')
+        .filter({ hasText: name })
+        .first()
+        .click();
+      const popoverHeading = pageA
+        .locator('h3.text-lg.font-bold')
+        .filter({ hasText: name });
+      await expect(popoverHeading).toBeVisible({ timeout: 10_000 });
+      await pageA.keyboard.press('Escape');
+      await expect(popoverHeading).toHaveCount(0);
+    }
+  });
 });
