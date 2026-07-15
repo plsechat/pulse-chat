@@ -69,6 +69,32 @@ export const userByIdSelector = createCachedSelector(
       .find((member) => member.id === userId)
 )((_, userId: number) => userId);
 
+/**
+ * Resolve a user in HOME id-space. `state.server.users` is instance-
+ * ambient — while a federated server is active it holds the REMOTE
+ * roster, where the same numeric id belongs to a different person.
+ * Home-scoped surfaces (DMs, friends) hold home ids, so resolving them
+ * through the ambient roster swaps identities (observed: a fresh
+ * federated DM rendering the sender as the recipient). Only consult the
+ * ambient roster when it IS the home roster; otherwise fall back to the
+ * home-scoped sources (friends + DM member projections).
+ */
+export const homeUserByIdSelector = createCachedSelector(
+  [
+    (state: IRootState) =>
+      state.app.activeInstanceDomain ? undefined : state.server.users,
+    (state: IRootState) => state.friends.friends,
+    (state: IRootState) => state.dms.channels,
+    (_: IRootState, userId: number) => userId
+  ],
+  (users, friends, dmChannels, userId) =>
+    users?.find((user) => user.id === userId) ??
+    friends.find((friend) => friend.id === userId) ??
+    dmChannels
+      .flatMap((channel) => channel.members)
+      .find((member) => member.id === userId)
+)((_, userId: number) => userId);
+
 export const isOwnUserSelector = createCachedSelector(
   [ownUserIdSelector, (_: IRootState, userId: number) => userId],
   (ownUserId, userId) => ownUserId === userId

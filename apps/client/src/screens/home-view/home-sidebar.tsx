@@ -18,7 +18,7 @@ import {
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
-import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
+import { useHomeOwnUserId, useUserStatus } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
@@ -135,7 +135,7 @@ type TDmChannelItemProps = {
 
 const DmChannelItem = memo(
   ({ channel, isSelected, onSelect }: TDmChannelItemProps) => {
-    const ownUserId = useOwnUserId();
+    const ownUserId = useHomeOwnUserId();
 
     const otherMembers = useMemo(
       () => channel.members.filter((m) => m.id !== ownUserId),

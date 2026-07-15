@@ -21,6 +21,13 @@ import { disableAnimations, waitForAppReady } from '../../helpers/ui';
  *    https:// and never connect to plain-http LAN peers)
  */
 
+// Per-run unique message bodies: reruns against a live environment must
+// not strict-mode-collide with rows persisted by earlier runs.
+const RUN_TAG = Date.now();
+const SMOKE_MSG = `federation smoke from A ${RUN_TAG}`;
+const ACK_MSG = `ack from B ${RUN_TAG}`;
+const DM_MSG = `cross-instance dm from A ${RUN_TAG}`;
+
 const A_URL = 'http://127.0.0.1:14994';
 const B_URL = 'http://127.0.0.1:14995';
 
@@ -173,24 +180,16 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     });
   });
 
-  // fixme: this flow is real and DOES pass, but only intermittently —
-  // it's gated on the unfixed federated-channel-load bug (#5 below).
-  // Directly selecting a federated channel whose numeric id collides with
-  // the currently selected local channel frequently never dispatches the
-  // history fetch; the manual smoke needed 20+ retries. The
-  // visit-another-channel-first workaround below reduces but does not
-  // eliminate the flake, so this stays fixme (executable documentation of
-  // the full path) until #5 is fixed — shipping it green would make CI
-  // flaky. The peer/accept/federatable/join steps above cover the
-  // handshake regressions deterministically.
-  test.fixme('cross-instance messaging works in both directions', async () => {
+  test('cross-instance messaging works in both directions', async () => {
+    // DIRECT navigation into the federated channel — no visit-another-
+    // channel-first workaround. This pins the fixed channel-load bug:
+    // the pane used to stay empty (or show the HOME channel's history for
+    // the colliding numeric id) because the content key didn't change and
+    // getTRPCClient fell back to the home client.
+    //
     // force: the federated channel rows carry aria-disabled (a dnd
     // reorder-permission marker, NOT a clickability gate) which Playwright
     // otherwise waits on forever.
-    await pageA
-      .getByRole('button', { name: 'General Text 2', exact: true })
-      .first()
-      .click({ force: true });
     await pageA
       .getByRole('button', { name: 'General Text', exact: true })
       .first()
@@ -200,7 +199,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
       '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
     );
     await expect(composerA).toBeVisible({ timeout: 15_000 });
-    await composerA.fill('federation smoke from A');
+    await composerA.fill(SMOKE_MSG);
     await pageA.keyboard.press('Enter');
 
     // Arrives on B's native view, authored by the federated shadow user
@@ -208,7 +207,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await waitForAppReady(pageB);
     await pageB.getByText('General Text', { exact: true }).first().click();
     await expect(
-      pageB.getByText('federation smoke from A', { exact: true })
+      pageB.getByText(SMOKE_MSG, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
     await expect(pageB.getByText('FedOwnerA').first()).toBeVisible();
 
@@ -216,62 +215,117 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     const composerB = pageB.locator(
       '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
     );
-    await composerB.fill('ack from B');
+    await composerB.fill(ACK_MSG);
     await pageB.keyboard.press('Enter');
 
     await expect(
-      pageA.getByText('ack from B', { exact: true })
+      pageA.getByText(ACK_MSG, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  // fixme: depends on the same flaky federated-channel-load (#5) to reach
-  // the author popover, plus the sender-side identity-swap bug (#6). Kept
-  // as executable documentation of the cross-instance DM path.
-  test.fixme('cross-instance DM reaches the peer', async () => {
+  test('a channel id that collides across instances loads the right history', async () => {
+    // The exact id-collision repro: the federated "General Text" and the
+    // home "General Text" share numeric id 1. View the HOME channel, then
+    // the FEDERATED channel (same numeric id) — each must show its own
+    // instance's content. Pre-fix, the unchanged numeric content key
+    // skipped the remount and getTRPCClient fell back to the home client,
+    // so the federated pane kept the home channel's (empty) content.
+    //
+    // Rail server buttons are distinguished by title: the home server is
+    // "Pulse Server"; the federated one is "Pulse Server (pulse-fed-b:4991)".
+    const homeServer = pageA.getByTitle('Pulse Server', { exact: true });
+    const fedServer = pageA.getByTitle(/pulse-fed-b:4991/);
+
+    // Home General Text has no federation messages.
+    await homeServer.click();
+    await waitForAppReady(pageA);
+    await pageA
+      .getByRole('button', { name: 'General Text', exact: true })
+      .first()
+      .click();
+    await expect(
+      pageA.getByText(SMOKE_MSG, { exact: true })
+    ).toHaveCount(0);
+
+    // Federated General Text (same numeric id 1) must load the federated
+    // history — the content component must remount despite the id match.
+    // The channel is clicked explicitly: selection auto-restore across
+    // instances rides on preference sync, which is its own machinery and
+    // not what this test pins.
+    await fedServer.click();
+    // Wait for the SWITCH to complete before clicking: the home sidebar
+    // (identical channel names!) stays mounted until the remote data
+    // lands, so an early click selects the HOME channel and the arriving
+    // setInitialData then resets the selection. The federated rows are
+    // the ones carrying aria-disabled (no reorder permission there).
+    const fedGeneralText = pageA.getByRole('button', {
+      name: 'General Text',
+      exact: true,
+      disabled: true
+    });
+    await expect(fedGeneralText.first()).toBeVisible({ timeout: 15_000 });
+    await fedGeneralText.first().click({ force: true });
+    await expect(
+      pageA.getByText(SMOKE_MSG, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageA.getByText(ACK_MSG, { exact: true })
+    ).toBeVisible();
+  });
+
+  test('cross-instance DM reaches the peer with correct identities on BOTH sides', async () => {
     // From A's federated context, open B's author popover and use the
-    // inline DM composer
+    // inline DM composer.
     await pageA.getByText('FedOwnerB').first().click();
     const popover = pageA.locator(
       '[contenteditable="true"]:has(p[data-placeholder^="Message @"])'
     );
     await expect(popover).toBeVisible();
-    await popover.fill('cross-instance dm from A');
+    await popover.fill(DM_MSG);
     await pageA.keyboard.press('Enter');
 
+    // SENDER-side identity pins (the fixed identity-swap bug: a fresh
+    // federated DM used to render with sender/recipient swapped because
+    // home-scoped surfaces resolved home ids against the REMOTE roster).
+    // The app auto-navigates into the new DM conversation:
+    //  - the conversation targets FedOwnerB (composer placeholder derives
+    //    from the OTHER member via home ownUserId)
+    //  - the sent message is authored by FedOwnerA (home id resolution)
+    await expect(
+      pageA.locator(
+        '[contenteditable="true"]:has(p[data-placeholder="Message @FedOwnerB"])'
+      )
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageA.locator('[id^="dm-msg-"]').getByText(DM_MSG, { exact: true })
+    ).toBeVisible();
+    await expect(
+      pageA
+        .getByText('FedOwnerA', { exact: true })
+        .filter({ visible: true })
+        .first()
+    ).toBeVisible();
+
     // Receipt on B: navigate to Home, open the DM from the federated
-    // FedOwnerA, and assert the message text arrived. (The SENDER-side
-    // rendering of a fresh federated DM has a separate known identity-swap
-    // bug — see the test.fixme below — but the receiver side is correct.)
+    // FedOwnerA, and assert the message text arrived.
     await pageB.goto(B_URL);
     await waitForAppReady(pageB);
-    await pageB.getByRole('button', { name: 'Home' }).first().click();
+    // force: the unread-DM badge overlays the Home button and fails the
+    // actionability hit-test even though real clicks land fine.
+    // Locate by title attribute: the unread-DM badge's text REPLACES the
+    // button's accessible name (content beats the title attr), so any
+    // role+name match breaks whenever unread DMs exist.
+    await pageB
+      .locator('button[title="Home"]')
+      .filter({ visible: true })
+      .first()
+      .click({ force: true });
     await pageB
       .getByText('FedOwnerA')
       .first()
       .click({ timeout: 15_000 });
     await expect(
-      pageB.getByText('cross-instance dm from A', { exact: true })
+      pageB.locator('[id^="dm-msg-"]').getByText(DM_MSG, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
   });
-
-  test.fixme(
-    'direct navigation into a federated channel with a colliding id loads history',
-    async () => {
-      // Pins the KNOWN BUG worked around above: select the federated
-      // server and click straight into "General Text" (id collides with
-      // the local instance's id-1 channel) — history must load without
-      // visiting another channel first. Un-fixme once text-channel
-      // selection is keyed by publicId like voice channels already are.
-    }
-  );
-
-  test.fixme(
-    "sender's own view of a fresh federated DM shows correct identities",
-    async () => {
-      // Pins the KNOWN BUG found 2026-07-14: on the sending instance, a
-      // just-created federated DM (via profile-popover composer) renders
-      // with sender/recipient swapped (sidebar label, author, friend
-      // banner) while the receiving side is correct.
-    }
-  );
 });

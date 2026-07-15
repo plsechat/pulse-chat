@@ -14,7 +14,7 @@ import {
   useFriendRequests,
   useFriends
 } from '@/features/friends/hooks';
-import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
+import { useHomeOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
@@ -106,7 +106,7 @@ const BlockedUsers = memo(() => {
           key={user.id}
           className="flex items-center gap-3 rounded-md p-2 hover:bg-muted/50"
         >
-          <UserAvatar userId={user.id} className="h-9 w-9 shrink-0" />
+          <UserAvatar userId={user.id} className="h-9 w-9 shrink-0" homeScope />
           <div className="flex-1 min-w-0">
             <span className="font-medium truncate block">{user.name}</span>
             {user._identity && user._identity !== user.name && (
@@ -208,6 +208,7 @@ const FriendRow = memo(
           userId={user.id}
           className="h-9 w-9"
           showUserPopover
+          homeScope
         />
         <div className="flex flex-col">
           <div className="flex items-center gap-1.5">
@@ -249,7 +250,7 @@ const FriendRow = memo(
 
 const PendingRequests = memo(() => {
   const requests = useFriendRequests();
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
 
   const handleAccept = useCallback(async (requestId: number) => {
     try {
@@ -321,6 +322,7 @@ const RequestRow = memo(
             userId={otherUser.id}
             className="h-9 w-9"
             showUserPopover
+            homeScope
           />
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
@@ -421,6 +423,7 @@ const AddFriend = memo(() => {
                   userId={user.id}
                   className="h-9 w-9"
                   showUserPopover
+                  homeScope
                 />
                 <span className="text-sm font-medium">{user.name}</span>
               </div>

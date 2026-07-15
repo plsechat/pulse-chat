@@ -19,6 +19,11 @@ export const useMessages = (channelId: number) => {
   const [loading, setLoading] = useState(messages.length === 0);
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  // Bumped to re-attempt the initial load while the tRPC client is
+  // unavailable (e.g. a federated instance's WS still connecting right
+  // after a server switch). Without the retry, fetchMessages would no-op
+  // once, `inited` would latch, and the pane would stay empty forever.
+  const [clientRetryTick, setClientRetryTick] = useState(0);
 
   const fetchMessages = useCallback(
     async (cursorToFetch: number | null) => {
@@ -69,10 +74,15 @@ export const useMessages = (channelId: number) => {
   useEffect(() => {
     if (inited.current) return;
 
+    if (!getTRPCClient()) {
+      const timer = setTimeout(() => setClientRetryTick((t) => t + 1), 300);
+      return () => clearTimeout(timer);
+    }
+
     fetchMessages(null);
 
     inited.current = true;
-  }, [fetchMessages]);
+  }, [fetchMessages, clientRetryTick]);
 
   const isEmpty = useMemo(
     () => !messages.length && !fetching,

@@ -33,7 +33,7 @@ import {
 } from '@/features/dms/actions';
 import { useDmChannels, useDmTypingUsers } from '@/features/dms/hooks';
 import { useDmMessages } from '@/features/dms/use-dm-messages';
-import { useHomeOwnUserId, useUserById } from '@/features/server/users/hooks';
+import { useHomeOwnUserId, useHomeUserById } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -569,8 +569,8 @@ const DmUsersTyping = memo(({ dmChannelId }: { dmChannelId: number }) => {
 });
 
 const DmTypingNames = memo(({ userIds }: { userIds: number[] }) => {
-  const user0 = useUserById(userIds[0]);
-  const user1 = useUserById(userIds[1] ?? 0);
+  const user0 = useHomeUserById(userIds[0]);
+  const user1 = useHomeUserById(userIds[1] ?? 0);
 
   if (userIds.length === 1) {
     return (
@@ -858,7 +858,7 @@ const DmPinnedMessageItem = memo(
     message: TJoinedDmMessage;
     onUnpin: (dmMessageId: number) => void;
   }) => {
-    const user = useUserById(message.userId);
+    const user = useHomeUserById(message.userId);
 
     const content = message.content ?? '';
     const legacy = isLegacyHtml(content);
@@ -873,7 +873,7 @@ const DmPinnedMessageItem = memo(
     return (
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
         <div className="flex items-center gap-2 mb-1">
-          <UserAvatar userId={message.userId} className="h-5 w-5" />
+          <UserAvatar userId={message.userId} className="h-5 w-5" homeScope />
           <span className="text-sm font-medium">
             {user?.name ?? 'Unknown'}
           </span>
@@ -905,7 +905,7 @@ const DmPinnedMessageItem = memo(
 const DmMessagesGroup = memo(
   ({ group, onReply }: { group: TJoinedDmMessage[]; onReply: (message: TJoinedDmMessage) => void }) => {
     const firstMessage = group[0];
-    const user = useUserById(firstMessage.userId);
+    const user = useHomeUserById(firstMessage.userId);
     const date = new Date(firstMessage.createdAt);
     const ownUserId = useHomeOwnUserId();
     const isOwnUser = firstMessage.userId === ownUserId;
@@ -920,7 +920,7 @@ const DmMessagesGroup = memo(
 
     return (
       <div className="flex min-w-0 gap-1 pl-2 pt-2 pr-2 group/msggroup">
-        <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
+        <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline pl-1 select-none">
             <UserPopover userId={user.id}>
@@ -969,7 +969,7 @@ const DmReplyBar = memo(
     message: TJoinedDmMessage;
     onDismiss: () => void;
   }) => {
-    const user = useUserById(message.userId);
+    const user = useHomeUserById(message.userId);
 
     const scrollToMessage = useCallback(() => {
       const el = document.getElementById(`dm-msg-${message.id}`);

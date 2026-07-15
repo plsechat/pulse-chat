@@ -6,7 +6,7 @@ import {
   sendFriendRequest
 } from '@/features/friends/actions';
 import { useFriends, useIsUserBlocked } from '@/features/friends/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useHomeOwnUserId } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { UserPlus, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -34,7 +34,7 @@ const ACCEPTED_KEY_PREFIX = 'dm-accepted-from:';
  */
 const DmNonFriendBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
   const dmChannels = useDmChannels();
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
   const friends = useFriends();
 
   const channel = useMemo(

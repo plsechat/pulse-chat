@@ -13,7 +13,10 @@ import {
   useSelectedChannelId,
   useSelectedChannelType
 } from '@/features/server/channels/hooks';
-import { useServerName } from '@/features/server/hooks';
+import {
+  useConnectedServerPublicId,
+  useServerName
+} from '@/features/server/hooks';
 import { ChannelType } from '@pulse/shared';
 import { memo, useCallback, useState } from 'react';
 
@@ -33,6 +36,22 @@ const ContentWrapper = memo(() => {
   const selectedChannelType = useSelectedChannelType();
   const serverName = useServerName();
   const activeThreadId = useActiveThreadId();
+  const connectedServerPublicId = useConnectedServerPublicId();
+
+  // Content components remount via `key` when the channel changes.
+  // Numeric channel ids COLLIDE across federated instances (a remote
+  // server's "General Text" can share our home channel's id), so a bare
+  // id key wouldn't remount when switching instances while the same id
+  // stays selected — leaving stale content and never refetching history.
+  //
+  // Scope by the CONNECTED server's publicId, which flips atomically with
+  // setInitialData's slice replacement — NOT by activeInstanceDomain,
+  // which flips optimistically before the remote data lands. Keying on
+  // the optimistic flip made the remounted view fetch BEFORE
+  // setInitialData cleared messagesMap, wiping the just-loaded history.
+  const serverScope = connectedServerPublicId ?? 'connecting';
+  const channelKey = `${serverScope}:${selectedChannelId}`;
+  const threadKey = `${serverScope}:${activeThreadId}`;
 
   const isForum = selectedChannelType === ChannelType.FORUM;
 
@@ -52,11 +71,11 @@ const ContentWrapper = memo(() => {
           onLayoutChanged={onLayoutChanged}
         >
           <ResizablePanel id="forum-posts" minSize="15" maxSize="85">
-            <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
+            <ForumChannel key={channelKey} channelId={selectedChannelId} />
           </ResizablePanel>
           <ResizableHandle />
           <ResizablePanel id="forum-thread" minSize="15">
-            <ForumThreadView key={activeThreadId} />
+            <ForumThreadView key={threadKey} />
           </ResizablePanel>
         </ResizablePanelGroup>
       </main>
@@ -68,15 +87,15 @@ const ContentWrapper = memo(() => {
   if (selectedChannelId) {
     if (selectedChannelType === ChannelType.TEXT) {
       content = (
-        <TextChannel key={selectedChannelId} channelId={selectedChannelId} />
+        <TextChannel key={channelKey} channelId={selectedChannelId} />
       );
     } else if (selectedChannelType === ChannelType.VOICE) {
       content = (
-        <VoiceChannel key={selectedChannelId} channelId={selectedChannelId} />
+        <VoiceChannel key={channelKey} channelId={selectedChannelId} />
       );
     } else if (isForum) {
       content = (
-        <ForumChannel key={selectedChannelId} channelId={selectedChannelId} />
+        <ForumChannel key={channelKey} channelId={selectedChannelId} />
       );
     }
   } else {
@@ -99,7 +118,7 @@ const ContentWrapper = memo(() => {
       </div>
       {/* Non-forum: standard thread side panel */}
       {activeThreadId && !isForum && (
-        <ThreadPanel key={activeThreadId} />
+        <ThreadPanel key={threadKey} />
       )}
     </main>
   );

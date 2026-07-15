@@ -2,6 +2,7 @@ import type { IRootState } from '@/features/store';
 import { useSelector } from 'react-redux';
 import {
   homeOwnUserIdSelector,
+  homeUserByIdSelector,
   isOwnUserSelector,
   ownPublicUserSelector,
   ownUserIdSelector,
@@ -24,6 +25,14 @@ export const useIsOwnUser = (userId: number) =>
 
 export const useUserById = (userId: number) =>
   useSelector((state: IRootState) => userByIdSelector(state, userId));
+
+/**
+ * HOME id-space user resolution — required on home-scoped surfaces (DM
+ * conversations, DM sidebar, friends) whose ids never refer to the
+ * ambient (possibly remote) roster. See homeUserByIdSelector.
+ */
+export const useHomeUserById = (userId: number) =>
+  useSelector((state: IRootState) => homeUserByIdSelector(state, userId));
 
 export const useOwnPublicUser = () =>
   useSelector((state: IRootState) => ownPublicUserSelector(state));

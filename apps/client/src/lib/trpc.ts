@@ -99,8 +99,14 @@ const getTRPCClient = ():
   const instanceDomain = state.app.activeInstanceDomain;
 
   if (instanceDomain) {
-    const remote = connectionManager.getRemoteTRPCClient(instanceDomain);
-    if (remote) return remote;
+    // Never fall back to the home client while a remote instance is
+    // active: an instance-scoped call routed to the home server silently
+    // reads/writes the WRONG instance's data. Observed as the federated
+    // message pane showing the HOME channel's history for a colliding
+    // numeric channel id while the remote connection was still coming up
+    // (and markAsRead flagging the wrong channel). Callers already guard
+    // null.
+    return connectionManager.getRemoteTRPCClient(instanceDomain) ?? null;
   }
 
   return trpc;

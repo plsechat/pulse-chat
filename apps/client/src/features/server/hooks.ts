@@ -40,6 +40,16 @@ export const useReconnectAttempt = () => useSelector(reconnectAttemptSelector);
 
 export const useServerName = () => useSelector(serverNameSelector);
 
+/**
+ * The connected server's globally-unique publicId (state.server.serverId).
+ * Flips atomically with setInitialData's wholesale slice replacement —
+ * use it (not activeInstanceDomain, which flips optimistically BEFORE the
+ * remote data lands) to key views that must remount exactly when the new
+ * server's data is in place.
+ */
+export const useConnectedServerPublicId = () =>
+  useSelector((state: IRootState) => state.server.serverId);
+
 export const usePublicServerSettings = () =>
   useSelector(publicServerSettingsSelector);
 
