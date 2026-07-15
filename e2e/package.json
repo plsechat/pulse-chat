@@ -1,0 +1,19 @@
+{
+  "name": "@pulse/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright end-to-end suite for Pulse — runs against the dockerized instances in docker/compose.yml",
+  "scripts": {
+    "env:up": "docker compose -f docker/compose.yml up --build -d --wait",
+    "env:down": "docker compose -f docker/compose.yml down -v",
+    "env:logs": "docker compose -f docker/compose.yml logs -f",
+    "test": "playwright test",
+    "test:core": "playwright test --project=core",
+    "test:sso": "playwright test --project=sso",
+    "test:federation": "playwright test --project=federation",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

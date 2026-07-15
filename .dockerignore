@@ -20,3 +20,10 @@ apps/desktop/dist/
 log/
 *.log
 test-deploy/
+
+# E2E suite: specs/node_modules never ship in the image and must not
+# bust the docker layer cache on every test edit. The docker/ subdir is
+# re-included — the e2e image's own Dockerfile COPYs its entrypoint.
+e2e/
+!e2e/docker
+!e2e/docker/**
