@@ -44,8 +44,12 @@ const getMessagesRoute = protectedProcedure
     let nextCursor: number | null = null;
 
     if (rows.length > limit) {
-      const next = rows.pop();
-      nextCursor = next ? next.createdAt : null;
+      // Cursor = createdAt of the last RETURNED row: pointing at the
+      // popped probe row made the next page's strict lt() skip it — one
+      // message silently lost at every page boundary (same fix as the
+      // channel messages route).
+      rows.pop();
+      nextCursor = rows[rows.length - 1]?.createdAt ?? null;
     }
 
     if (rows.length === 0) {

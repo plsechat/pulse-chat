@@ -22,9 +22,20 @@ export function dmComposer(page: Page): Locator {
   );
 }
 
-/** Sidebar channel row (rendered as a button named after the channel). */
+/**
+ * Sidebar channel row (a button named after the channel).
+ *
+ * An unread badge renders INSIDE the button, so its digits merge into the
+ * accessible name ("General Text 2" → "General Text 2 3") and a
+ * role+exact-name match then fails — exactly when you need to click an
+ * unread channel. Match the button by its exact-text name span instead,
+ * which the badge doesn't touch.
+ */
 export function channelButton(page: Page, name: string): Locator {
-  return page.getByRole('button', { name, exact: true }).first();
+  return page
+    .getByRole('button')
+    .filter({ has: page.getByText(name, { exact: true }) })
+    .first();
 }
 
 export async function selectChannel(page: Page, name: string): Promise<void> {

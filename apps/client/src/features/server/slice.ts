@@ -464,6 +464,21 @@ export const serverSlice = createSlice({
       state,
       action: PayloadAction<number | undefined>
     ) => {
+      // Leaving a channel counts everything loaded there as seen: the
+      // "New messages" divider on the NEXT visit should mark messages
+      // that arrived after this point, not the connect-time snapshot.
+      const prev = state.selectedChannelId;
+      if (prev != null && prev !== action.payload) {
+        const prevMessages = state.messagesMap[prev];
+        if (prevMessages?.length) {
+          const newestId = prevMessages[prevMessages.length - 1]!.id;
+          const prevRead = state.lastReadMessageIdMap[prev];
+          if (prevRead == null || newestId > prevRead) {
+            state.lastReadMessageIdMap[prev] = newestId;
+          }
+        }
+      }
+
       state.selectedChannelId = action.payload;
       state.activeThreadId = undefined;
 

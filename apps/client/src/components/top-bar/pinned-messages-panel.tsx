@@ -4,6 +4,7 @@ import { Protect } from '@/components/protect';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
 import { decryptChannelMessages } from '@/features/server/messages/decrypt';
+import { jumpToMessage } from '@/features/server/messages/jump';
 import { useUserById } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { longDateTime } from '@/helpers/time-format';
@@ -22,15 +23,19 @@ type TPinnedMessagesPanelProps = {
 const PinnedMessageItem = memo(
   ({
     message,
-    onUnpin
+    onUnpin,
+    onJump
   }: {
     message: TJoinedMessage;
     onUnpin: (messageId: number) => void;
+    onJump: (messageId: number) => void;
   }) => {
     const user = useUserById(message.userId);
 
     return (
-      <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30 overflow-hidden">
+      <div
+        className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30 overflow-hidden cursor-pointer"
+        onClick={() => onJump(message.id)}>
         <div className="flex items-center gap-2 mb-1 min-w-0">
           <UserAvatar userId={message.userId} className="h-5 w-5 shrink-0" />
           <span className="text-sm font-medium truncate">
@@ -57,7 +62,11 @@ const PinnedMessageItem = memo(
               variant="ghost"
               size="sm"
               className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => onUnpin(message.id)}
+              onClick={(e) => {
+                // Don't trigger the row's jump-to-message.
+                e.stopPropagation();
+                onUnpin(message.id);
+              }}
             >
               <PinOff className="w-3 h-3 mr-1" />
               Unpin
@@ -141,6 +150,10 @@ const PinnedMessagesPanel = memo(
             key={message.id}
             message={message}
             onUnpin={onUnpin}
+            onJump={(messageId) => {
+              jumpToMessage(channelId, messageId);
+              onClose();
+            }}
           />
         ))}
       </PopoverPanelShell>

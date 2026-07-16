@@ -9,7 +9,7 @@ import {
   type TMessage,
   type TMessageReplyPreview
 } from '@pulse/shared';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -35,6 +35,12 @@ const getMessagesRoute = protectedProcedure
     z.object({
       channelId: z.number(),
       cursor: z.number().nullish(),
+      // Jump-to-message support: `aroundId` returns a window of messages
+      // centered on that message id; `after` pages FORWARD (ascending)
+      // from a createdAt cursor to fill the gap below an around-window.
+      // Mutually exclusive with `cursor`; aroundId wins if both given.
+      aroundId: z.number().nullish(),
+      after: z.number().nullish(),
       limit: z.number().default(DEFAULT_MESSAGES_LIMIT)
     })
   )
@@ -61,30 +67,125 @@ const getMessagesRoute = protectedProcedure
       message: 'Channel not found'
     });
 
-    const rows: TMessage[] = await db
-      .select()
-      .from(messages)
-      .where(
-        cursor
-          ? and(
-              eq(messages.channelId, channelId),
-              lt(messages.createdAt, cursor)
-            )
-          : eq(messages.channelId, channelId)
-      )
-      .orderBy(desc(messages.createdAt))
-      .limit(limit + 1);
-
+    let rows: TMessage[];
     let nextCursor: number | null = null;
+    // Non-null when newer messages than the returned window exist — pass
+    // back as `after` to page toward the present. null = window reaches
+    // the live tail.
+    let afterCursor: number | null = null;
 
-    if (rows.length > limit) {
-      const next = rows.pop();
+    if (input.aroundId != null) {
+      const [anchor] = await db
+        .select({ createdAt: messages.createdAt })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.id, input.aroundId),
+            eq(messages.channelId, channelId)
+          )
+        )
+        .limit(1);
 
-      nextCursor = next ? next.createdAt : null;
+      invariant(anchor, {
+        code: 'NOT_FOUND',
+        message: 'Message not found'
+      });
+
+      // Half the window on each side of the anchor. `lte` includes the
+      // anchor itself (and any equal-timestamp siblings) on the old side.
+      const half = Math.max(1, Math.floor(limit / 2));
+      const [olderRows, newerRows] = await Promise.all([
+        db
+          .select()
+          .from(messages)
+          .where(
+            and(
+              eq(messages.channelId, channelId),
+              lte(messages.createdAt, anchor.createdAt)
+            )
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(half + 1),
+        db
+          .select()
+          .from(messages)
+          .where(
+            and(
+              eq(messages.channelId, channelId),
+              gt(messages.createdAt, anchor.createdAt)
+            )
+          )
+          .orderBy(asc(messages.createdAt))
+          .limit(half + 1)
+      ]);
+
+      if (olderRows.length > half) {
+        // The (half+1)th row only proves more history exists — it is NOT
+        // returned, so the cursor must point at the last row we DO
+        // return: the next page's strict lt() starts exactly at the
+        // dropped row. Using the dropped row's createdAt instead loses
+        // one message at every page boundary.
+        olderRows.pop();
+        nextCursor = olderRows[olderRows.length - 1]?.createdAt ?? null;
+      }
+
+      let hasNewer = false;
+      if (newerRows.length > half) {
+        newerRows.pop();
+        hasNewer = true;
+      }
+
+      // Keep the response newest-first like the cursor pages.
+      rows = [...newerRows.reverse(), ...olderRows];
+      afterCursor = hasNewer && rows.length > 0 ? rows[0]!.createdAt : null;
+    } else if (input.after != null) {
+      const newerRows: TMessage[] = await db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.channelId, channelId),
+            gt(messages.createdAt, input.after)
+          )
+        )
+        .orderBy(asc(messages.createdAt))
+        .limit(limit + 1);
+
+      let hasNewer = false;
+      if (newerRows.length > limit) {
+        newerRows.pop();
+        hasNewer = true;
+      }
+
+      rows = newerRows.reverse();
+      afterCursor = hasNewer && rows.length > 0 ? rows[0]!.createdAt : null;
+    } else {
+      rows = await db
+        .select()
+        .from(messages)
+        .where(
+          cursor
+            ? and(
+                eq(messages.channelId, channelId),
+                lt(messages.createdAt, cursor)
+              )
+            : eq(messages.channelId, channelId)
+        )
+        .orderBy(desc(messages.createdAt))
+        .limit(limit + 1);
+
+      if (rows.length > limit) {
+        // Cursor = createdAt of the last RETURNED row (see the around
+        // branch): pointing at the popped probe row instead made the
+        // next page's strict lt() skip it — one message silently lost
+        // at every page boundary while scrolling up.
+        rows.pop();
+        nextCursor = rows[rows.length - 1]?.createdAt ?? null;
+      }
     }
 
     if (rows.length === 0) {
-      return { messages: [], nextCursor };
+      return { messages: [], nextCursor, afterCursor };
     }
 
     const messageIds = rows.map((m) => m.id);
@@ -214,19 +315,18 @@ const getMessagesRoute = protectedProcedure
       replyTo: msg.replyToId ? (replyToMap[msg.replyToId] ?? null) : null
     }));
 
-    // always update read state to the absolute latest message in the channel
-    // (not just the newest in this batch, in case user is scrolling back through history)
-    // this is not ideal, but it's good enough for now
-    const [, , [latestMessage]] = await Promise.all([
-      Promise.resolve(fileRows),
-      Promise.resolve(reactionRows),
-      db
-        .select()
-        .from(messages)
-        .where(eq(messages.channelId, channelId))
-        .orderBy(desc(messages.createdAt))
-        .limit(1)
-    ]);
+    // Mark read on the INITIAL load only — NOT when paging history
+    // (cursor/around/after). The old code force-marked read to the
+    // absolute latest on EVERY fetch, so paging up through history erased
+    // your unread state and wiped the "New messages" divider anchor. The
+    // initial load still creates/advances the read-state row (so opening a
+    // channel clears its badge and a never-read channel gets a row), but
+    // to the newest message in THIS batch, not a re-query of the absolute
+    // latest. The client-side divider survives because it reads the
+    // connect-time snapshot, which this in-session update doesn't touch.
+    const isInitialLoad =
+      cursor == null && input.aroundId == null && input.after == null;
+    const latestMessage = isInitialLoad ? rows[0] : undefined;
 
     if (latestMessage) {
       await db
@@ -309,7 +409,7 @@ const getMessagesRoute = protectedProcedure
       }
     }
 
-    return { messages: messagesWithFiles, nextCursor };
+    return { messages: messagesWithFiles, nextCursor, afterCursor };
   });
 
 export { getMessagesRoute };

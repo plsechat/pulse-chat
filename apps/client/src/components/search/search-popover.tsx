@@ -1,6 +1,6 @@
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { Button } from '@/components/ui/button';
-import { setSelectedChannelId } from '@/features/server/channels/actions';
+import { jumpToMessage } from '@/features/server/messages/jump';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedMessage } from '@pulse/shared';
 import { Loader2, Search } from 'lucide-react';
@@ -94,8 +94,8 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
   );
 
   const onJump = useCallback(
-    (channelId: number, _messageId: number) => {
-      setSelectedChannelId(channelId);
+    (channelId: number, messageId: number) => {
+      jumpToMessage(channelId, messageId);
       onClose();
     },
     [onClose]

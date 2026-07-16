@@ -3,8 +3,9 @@ import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { addMessages } from './actions';
+import { addMessages, purgeChannelMessages } from './actions';
 import { decryptChannelMessages } from './decrypt';
+import { finishJump, JUMP_EVENT, peekPendingJump } from './jump';
 import { messagesByChannelIdSelector } from './selectors';
 
 export const useMessagesByChannelId = (channelId: number) =>
@@ -19,6 +20,10 @@ export const useMessages = (channelId: number) => {
   const [loading, setLoading] = useState(messages.length === 0);
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  // Non-null while the loaded window is DETACHED from the live tail
+  // (after a jump to an old message): the createdAt cursor for paging
+  // forward. null = attached, new messages append contiguously.
+  const [afterCursor, setAfterCursor] = useState<number | null>(null);
   // Bumped to re-attempt the initial load while the tRPC client is
   // unavailable (e.g. a federated instance's WS still connecting right
   // after a server switch). Without the retry, fetchMessages would no-op
@@ -71,6 +76,96 @@ export const useMessages = (channelId: number) => {
     await fetchMessages(cursor);
   }, [fetching, hasMore, cursor, fetchMessages]);
 
+  /**
+   * Jump to a message that may be far outside the loaded history: fetch
+   * a window AROUND it and REPLACE the channel's loaded messages with
+   * that window. Replacing (not merging) matters — the reducer renders
+   * whatever it holds as contiguous, so merging a distant window into
+   * existing history would display unrelated messages as adjacent.
+   */
+  const jumpTo = useCallback(
+    async (messageId: number) => {
+      if (messages.some((m) => m.id === messageId)) {
+        finishJump(channelId, messageId);
+        return;
+      }
+
+      const trpcClient = getTRPCClient();
+      if (!trpcClient) return;
+
+      setFetching(true);
+      try {
+        const res = await trpcClient.messages.get.query({
+          channelId,
+          aroundId: messageId,
+          limit: DEFAULT_MESSAGES_LIMIT
+        });
+        const decrypted = await decryptChannelMessages(res.messages);
+        purgeChannelMessages(channelId);
+        addMessages(channelId, [...decrypted].reverse());
+        setCursor(res.nextCursor);
+        setHasMore(res.nextCursor !== null);
+        setAfterCursor(res.afterCursor);
+        finishJump(channelId, messageId);
+      } finally {
+        setFetching(false);
+        setLoading(false);
+      }
+    },
+    [channelId, messages]
+  );
+
+  /** Page forward (toward the present) while detached. */
+  const loadNewer = useCallback(async () => {
+    if (fetching || afterCursor === null) return;
+
+    const trpcClient = getTRPCClient();
+    if (!trpcClient) return;
+
+    setFetching(true);
+    try {
+      const res = await trpcClient.messages.get.query({
+        channelId,
+        after: afterCursor,
+        limit: DEFAULT_MESSAGES_LIMIT
+      });
+      const decrypted = await decryptChannelMessages(res.messages);
+      addMessages(channelId, [...decrypted].reverse());
+      setAfterCursor(res.afterCursor);
+    } finally {
+      setFetching(false);
+    }
+  }, [channelId, fetching, afterCursor]);
+
+  /**
+   * Drop the detached window and rejoin the live tail ("Jump to
+   * Present"). Fetches the latest page BEFORE purging so the pane never
+   * flashes empty.
+   */
+  const reattach = useCallback(async () => {
+    if (fetching) return;
+
+    const trpcClient = getTRPCClient();
+    if (!trpcClient) return;
+
+    setFetching(true);
+    try {
+      const res = await trpcClient.messages.get.query({
+        channelId,
+        cursor: null,
+        limit: DEFAULT_MESSAGES_LIMIT
+      });
+      const decrypted = await decryptChannelMessages(res.messages);
+      purgeChannelMessages(channelId);
+      addMessages(channelId, [...decrypted].reverse());
+      setCursor(res.nextCursor);
+      setHasMore(res.nextCursor !== null);
+      setAfterCursor(null);
+    } finally {
+      setFetching(false);
+    }
+  }, [channelId, fetching]);
+
   useEffect(() => {
     if (inited.current) return;
 
@@ -79,10 +174,28 @@ export const useMessages = (channelId: number) => {
       return () => clearTimeout(timer);
     }
 
-    fetchMessages(null);
-
     inited.current = true;
-  }, [fetchMessages, clientRetryTick]);
+
+    // A jump was requested before this channel mounted (message link /
+    // search result) — load around the target instead of the tail.
+    const pending = peekPendingJump(channelId);
+    if (pending) {
+      void jumpTo(pending.messageId);
+    } else {
+      fetchMessages(null);
+    }
+  }, [fetchMessages, jumpTo, channelId, clientRetryTick]);
+
+  // Jump requested while this channel is already mounted (link to an
+  // older message in the same channel).
+  useEffect(() => {
+    const handler = () => {
+      const pending = peekPendingJump(channelId);
+      if (pending && inited.current) void jumpTo(pending.messageId);
+    };
+    window.addEventListener(JUMP_EVENT, handler);
+    return () => window.removeEventListener(JUMP_EVENT, handler);
+  }, [channelId, jumpTo]);
 
   const isEmpty = useMemo(
     () => !messages.length && !fetching,
@@ -128,6 +241,9 @@ export const useMessages = (channelId: number) => {
     hasMore,
     messages,
     loadMore,
+    loadNewer,
+    reattach,
+    detached: afterCursor !== null,
     cursor,
     groupedMessages,
     isEmpty
