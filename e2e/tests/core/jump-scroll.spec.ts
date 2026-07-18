@@ -38,6 +38,27 @@ function messagePane(page: Page) {
   return page.getByTestId('message-scroll');
 }
 
+/**
+ * Wait until the pane's scrollTop stops changing. The initial-scroll
+ * retry ladder re-asserts the bottom for ~200ms after a channel loads, so
+ * a test that then drives its own scroll must let it settle first or get
+ * yanked back to the bottom (viewport-ratio-0 flake).
+ */
+async function waitForScrollSettle(page: Page) {
+  let last = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const cur = await messagePane(page).evaluate((el) => el.scrollTop);
+        const stable = cur === last;
+        last = cur;
+        return stable;
+      },
+      { timeout: 5_000, intervals: [150, 150, 150] }
+    )
+    .toBe(true);
+}
+
 /** Create a dedicated TEXT channel on the default server; returns its id. */
 function createChannel(name: string): string {
   psql(
@@ -150,6 +171,9 @@ test.describe('message jump + scroll memory', () => {
         .filter({ hasText: `filler ${RUN} 150` })
         .first()
     ).toBeVisible({ timeout: 15_000 });
+    // Let the app's initial scroll-to-bottom ladder finish before we drive
+    // our own scroll, or its 200ms retry yanks the anchor back off-screen.
+    await waitForScrollSettle(ownerPage);
 
     // Scroll a mid-page message up from the bottom — a real scroll (drives
     // onScroll, saving position) via a message anchor, not pixel math.

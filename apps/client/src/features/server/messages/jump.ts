@@ -33,13 +33,19 @@ export const consumePendingJump = (channelId: number): void => {
 
 const HIGHLIGHT_DURATION_MS = 2500;
 
+// How long the jump keeps ownership of the scroll after it fires. The
+// scroll controller's auto-follow / initial-scroll defer to a pending
+// jump; releasing the latch only after the scroll ladder settles (past
+// the last retry below) stops them from racing the target to the bottom
+// in the window where the detached-window state hasn't propagated yet.
+const JUMP_SETTLE_MS = 400;
+
 /**
  * Scroll the (now rendered) target into view and flash it. Retried
  * across a few frames because the row renders asynchronously after the
  * fetch — same retry ladder the initial-scroll restore uses.
  */
 export const finishJump = (channelId: number, messageId: number): void => {
-  consumePendingJump(channelId);
   setHighlightedMessageId(messageId);
   setTimeout(() => setHighlightedMessageId(undefined), HIGHLIGHT_DURATION_MS);
 
@@ -51,6 +57,10 @@ export const finishJump = (channelId: number, messageId: number): void => {
   requestAnimationFrame(scroll);
   setTimeout(scroll, 60);
   setTimeout(scroll, 250);
+
+  // Hold the latch until the scroll settles so no competing auto-scroll
+  // fires in between; only then hand scroll control back to the user.
+  setTimeout(() => consumePendingJump(channelId), JUMP_SETTLE_MS);
 };
 
 /**

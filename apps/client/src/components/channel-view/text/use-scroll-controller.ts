@@ -268,13 +268,20 @@ const useScrollController = ({
     // loaded window is mid-history, not the present.
     if (detached) return;
 
+    // A jump owns the scroll while it settles. The around-fetch changes
+    // messages.length here, but the detached flag it also sets propagates
+    // a beat later (Redux message insert vs. local state) — without this
+    // guard the auto-follow fires in that gap and scrolls the highlighted
+    // target to the bottom (the "jumped, highlighted, off-screen" flake).
+    if (peekPendingJump(channelId)) return;
+
     if (checkIsAtBottom()) {
       // scroll after a short delay to allow content to render
       setTimeout(() => {
         scrollToBottom();
       }, 10);
     }
-  }, [messages.length, scrollToBottom, checkIsAtBottom, detached]);
+  }, [messages.length, scrollToBottom, checkIsAtBottom, detached, channelId]);
 
   return {
     containerRef,
