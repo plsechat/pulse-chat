@@ -1,11 +1,14 @@
 import type {
   TFile,
+  TFileRef,
   TJoinedMessage,
   TJoinedMessageReaction,
   TMessage,
-  TMessageReaction
+  TMessageReaction,
+  TReactionUser
 } from '@pulse/shared';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';
 import {
@@ -13,8 +16,70 @@ import {
   files,
   messageFiles,
   messageReactions,
-  messages
+  messages,
+  users
 } from '../schema';
+
+/** Slim a joined avatar file row to the ref the client needs for a URL. */
+const toReactionAvatar = (file: TFile | null): TFileRef | null =>
+  file?.id ? { id: file.id, name: file.name } : null;
+
+/**
+ * Fetch reactions for a set of messages, each enriched with the reactor's
+ * name + avatar (see TReactionUser). Centralizes the join so every
+ * message-fetch path (channel messages, pinned, search, live updates)
+ * carries identical reaction shape — the client resolves "who reacted"
+ * from this payload, never the ambient roster.
+ */
+const getReactionsForMessageIds = async (
+  messageIds: number[]
+): Promise<Record<number, TJoinedMessageReaction[]>> => {
+  if (messageIds.length === 0) return {};
+
+  const reactorAvatar = alias(files, 'reactorAvatarFile');
+
+  const rows = await db
+    .select({
+      messageId: messageReactions.messageId,
+      userId: messageReactions.userId,
+      emoji: messageReactions.emoji,
+      createdAt: messageReactions.createdAt,
+      fileId: messageReactions.fileId,
+      file: files,
+      reactorName: users.name,
+      reactorAvatar
+    })
+    .from(messageReactions)
+    .leftJoin(files, eq(messageReactions.fileId, files.id))
+    .leftJoin(users, eq(messageReactions.userId, users.id))
+    .leftJoin(reactorAvatar, eq(users.avatarId, reactorAvatar.id))
+    .where(inArray(messageReactions.messageId, messageIds));
+
+  return rows.reduce<Record<number, TJoinedMessageReaction[]>>((acc, r) => {
+    // Null (not falsy) — users.name is notNull but '' passes it; an
+    // empty-named user still has a matched join and a real identity.
+    const user: TReactionUser | null =
+      r.reactorName != null
+        ? {
+            id: r.userId,
+            name: r.reactorName,
+            avatar: toReactionAvatar(r.reactorAvatar)
+          }
+        : null;
+
+    (acc[r.messageId] ??= []).push({
+      messageId: r.messageId,
+      userId: r.userId,
+      emoji: r.emoji,
+      createdAt: r.createdAt,
+      fileId: r.fileId,
+      file: r.file,
+      user
+    });
+
+    return acc;
+  }, {});
+};
 
 const getMessageByFileId = async (
   fileId: number
@@ -93,27 +158,7 @@ const getMessage = async (
     return r.file;
   });
 
-  const reactionRows = await db
-    .select({
-      messageId: messageReactions.messageId,
-      userId: messageReactions.userId,
-      emoji: messageReactions.emoji,
-      createdAt: messageReactions.createdAt,
-      fileId: messageReactions.fileId,
-      file: files
-    })
-    .from(messageReactions)
-    .leftJoin(files, eq(messageReactions.fileId, files.id))
-    .where(eq(messageReactions.messageId, messageId));
-
-  const reactions: TJoinedMessageReaction[] = reactionRows.map((r) => ({
-    messageId: r.messageId,
-    userId: r.userId,
-    emoji: r.emoji,
-    createdAt: r.createdAt,
-    fileId: r.fileId,
-    file: r.file
-  }));
+  const reactions = (await getReactionsForMessageIds([messageId]))[messageId] ?? [];
 
   let replyTo: TJoinedMessage['replyTo'] = null;
 
@@ -182,5 +227,6 @@ export {
   getMessageByFileId,
   getMessageInActiveServer,
   getMessagesByUserId,
-  getReaction
+  getReaction,
+  getReactionsForMessageIds
 };

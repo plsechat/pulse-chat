@@ -5,7 +5,6 @@ import {
   ServerEvents,
   type TFile,
   type TJoinedMessage,
-  type TJoinedMessageReaction,
   type TMessage,
   type TMessageReplyPreview
 } from '@pulse/shared';
@@ -16,13 +15,13 @@ import {
   getChannelsReadStatesForUser,
   getForumUnreadForUser
 } from '../../db/queries/channels';
+import { getReactionsForMessageIds } from '../../db/queries/messages';
 import { getServerUnreadCount } from '../../db/queries/servers';
 import {
   channelReadStates,
   channels,
   files,
   messageFiles,
-  messageReactions,
   messages
 } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
@@ -190,7 +189,7 @@ const getMessagesRoute = protectedProcedure
 
     const messageIds = rows.map((m) => m.id);
 
-    const [fileRows, reactionRows] = await Promise.all([
+    const [fileRows, reactionsByMessage] = await Promise.all([
       db
         .select({
           messageId: messageFiles.messageId,
@@ -199,18 +198,7 @@ const getMessagesRoute = protectedProcedure
         .from(messageFiles)
         .innerJoin(files, eq(messageFiles.fileId, files.id))
         .where(inArray(messageFiles.messageId, messageIds)),
-      db
-        .select({
-          messageId: messageReactions.messageId,
-          userId: messageReactions.userId,
-          emoji: messageReactions.emoji,
-          createdAt: messageReactions.createdAt,
-          fileId: messageReactions.fileId,
-          file: files
-        })
-        .from(messageReactions)
-        .leftJoin(files, eq(messageReactions.fileId, files.id))
-        .where(inArray(messageReactions.messageId, messageIds))
+      getReactionsForMessageIds(messageIds)
     ]);
 
     const filesByMessage = fileRows.reduce<Record<number, TFile[]>>(
@@ -241,27 +229,6 @@ const getMessagesRoute = protectedProcedure
       },
       {}
     );
-
-    const reactionsByMessage = reactionRows.reduce<
-      Record<number, TJoinedMessageReaction[]>
-    >((acc, r) => {
-      const reaction: TJoinedMessageReaction = {
-        messageId: r.messageId,
-        userId: r.userId,
-        emoji: r.emoji,
-        createdAt: r.createdAt,
-        fileId: r.fileId,
-        file: r.file
-      };
-
-      if (!acc[r.messageId]) {
-        acc[r.messageId] = [];
-      }
-
-      acc[r.messageId]!.push(reaction);
-
-      return acc;
-    }, {});
 
     // Fetch reply-to previews
     const replyToIds = rows

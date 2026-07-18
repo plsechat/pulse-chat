@@ -1,9 +1,13 @@
-import type { TFile, TJoinedDmMessage, TJoinedDmMessageReaction, TMessageReplyPreview } from '@pulse/shared';
+import type { TFile, TJoinedDmMessage, TMessageReplyPreview } from '@pulse/shared';
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { attachDmFileTokens, getDmChannelMemberIds } from '../../db/queries/dms';
-import { dmMessageFiles, dmMessageReactions, dmMessages, dmReadStates, files } from '../../db/schema';
+import {
+  attachDmFileTokens,
+  getDmChannelMemberIds,
+  getReactionsForDmMessageIds
+} from '../../db/queries/dms';
+import { dmMessageFiles, dmMessages, dmReadStates, files } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -58,7 +62,7 @@ const getMessagesRoute = protectedProcedure
 
     const messageIds = rows.map((m) => m.id);
 
-    const [fileRows, reactionRows] = await Promise.all([
+    const [fileRows, reactionsByMessage] = await Promise.all([
       db
         .select({
           dmMessageId: dmMessageFiles.dmMessageId,
@@ -67,18 +71,7 @@ const getMessagesRoute = protectedProcedure
         .from(dmMessageFiles)
         .innerJoin(files, eq(dmMessageFiles.fileId, files.id))
         .where(inArray(dmMessageFiles.dmMessageId, messageIds)),
-      db
-        .select({
-          dmMessageId: dmMessageReactions.dmMessageId,
-          userId: dmMessageReactions.userId,
-          emoji: dmMessageReactions.emoji,
-          createdAt: dmMessageReactions.createdAt,
-          fileId: dmMessageReactions.fileId,
-          file: files
-        })
-        .from(dmMessageReactions)
-        .leftJoin(files, eq(dmMessageReactions.fileId, files.id))
-        .where(inArray(dmMessageReactions.dmMessageId, messageIds))
+      getReactionsForDmMessageIds(messageIds)
     ]);
 
     const filesByMessage = fileRows.reduce<Record<number, TFile[]>>(
@@ -91,23 +84,6 @@ const getMessagesRoute = protectedProcedure
       },
       {}
     );
-
-    const reactionsByMessage = reactionRows.reduce<
-      Record<number, TJoinedDmMessageReaction[]>
-    >((acc, r) => {
-      if (!acc[r.dmMessageId]) {
-        acc[r.dmMessageId] = [];
-      }
-      acc[r.dmMessageId]!.push({
-        dmMessageId: r.dmMessageId,
-        userId: r.userId,
-        emoji: r.emoji,
-        createdAt: r.createdAt,
-        fileId: r.fileId,
-        file: r.file
-      });
-      return acc;
-    }, {});
 
     // Fetch reply-to previews
     const replyToIds = rows

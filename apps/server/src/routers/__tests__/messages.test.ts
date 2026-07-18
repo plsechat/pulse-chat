@@ -170,6 +170,44 @@ describe('messages router', () => {
     expect(result.messages.length).toBe(3);
   });
 
+  test('reactions carry each reactor identity for the hover list', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const channel = await createEmptyTextChannel('reaction-identity');
+
+    await caller1.messages.send({
+      channelId: channel.id,
+      content: 'react to me',
+      files: []
+    });
+
+    const before = await caller1.messages.get({
+      channelId: channel.id,
+      cursor: null,
+      limit: 50
+    });
+    const messageId = before.messages[0]!.id;
+
+    await caller1.messages.toggleReaction({ messageId, emoji: '👍' });
+    await caller2.messages.toggleReaction({ messageId, emoji: '👍' });
+
+    const after = await caller1.messages.get({
+      channelId: channel.id,
+      cursor: null,
+      limit: 50
+    });
+    const reactions = after.messages.find((m) => m.id === messageId)!.reactions;
+
+    // The client's hover resolves "who reacted" from these payloads alone —
+    // each reaction must carry the reactor's name (never the raw id).
+    expect(reactions).toHaveLength(2);
+    const byUser = new Map(reactions.map((r) => [r.userId, r]));
+    expect(byUser.get(1)!.user?.name).toBe('Test Owner');
+    expect(byUser.get(2)!.user?.name).toBe('Test User');
+    // Seeded users have no avatar → null (client falls back to initials).
+    expect(byUser.get(1)!.user?.avatar).toBeNull();
+  });
+
   test('should edit own message', async () => {
     const { caller } = await initTest();
 

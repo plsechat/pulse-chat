@@ -1172,6 +1172,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
               messageId={message.id}
               reactions={message.reactions}
               onToggle={handleToggleReaction}
+              homeScope
             />
           )}
           <MessageActions
