@@ -187,16 +187,23 @@ const useScrollController = ({
   // Handle initial scroll after messages load
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // A jump owns the initial position — finishJump scrolls to the target
+    // once it renders; restoring/scroll-to-bottom on top of that fights it.
+    // This MUST be checked before the empty-messages guard below: on a jump
+    // to an unloaded channel the first render has no messages, and finishJump
+    // consumes the latch after its around-fetch — so if we waited for
+    // messages, this effect would re-run post-fetch with the latch already
+    // gone and scroll to the bottom, leaving the (highlighted) target
+    // off-screen. Latch as soon as the jump is seen.
+    if (!hasInitialScroll.current && peekPendingJump(channelId)) {
+      hasInitialScroll.current = true;
+      return;
+    }
+
     if (fetching || messages.length === 0) return;
 
     if (!hasInitialScroll.current) {
-      // A jump owns the initial position — finishJump scrolls to the
-      // target once it renders; restoring on top of that would fight it.
-      if (peekPendingJump(channelId)) {
-        hasInitialScroll.current = true;
-        return;
-      }
-
       const saved = scrollPositions[posKey];
 
       const performScroll = () => {

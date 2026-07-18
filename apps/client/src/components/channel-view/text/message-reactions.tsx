@@ -169,9 +169,11 @@ const MessageReactions = memo(
 
         return (
           <div className="flex max-w-[220px] flex-col gap-1.5">
-            <div className="flex items-center gap-1.5 border-b border-background/20 pb-1">
+            <div className="flex items-center justify-center gap-1.5 border-b border-background/20 pb-1.5">
               {renderEmoji(reaction.emoji, reaction.file)}
-              <span className="text-xs font-medium">reacted with</span>
+              <span className="text-xs text-background/80">
+                :{reaction.emoji}:
+              </span>
             </div>
             {shown.map((reactor, i) => (
               <div
