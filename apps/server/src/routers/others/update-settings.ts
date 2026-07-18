@@ -6,9 +6,15 @@ import {
 } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { config } from '../../config';
 import { db } from '../../db';
 import { getServerPublicSettings } from '../../db/queries/server';
-import { getServerById, getServerMemberIds } from '../../db/queries/servers';
+import {
+  getServerById,
+  getServerMemberIds,
+  isInstanceOwner,
+  isServerOwner
+} from '../../db/queries/servers';
 import { servers } from '../../db/schema';
 import { pluginManager } from '../../plugins';
 import { enqueueActivityLog } from '../../queues/activity-log';
@@ -41,6 +47,35 @@ const updateSettingsRoute = protectedProcedure
     });
 
     await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
+
+    // "Federatable" is owner-controlled and instance-gated, unlike the
+    // rest of these MANAGE_SETTINGS fields: only the server OWNER may
+    // change it, and turning it ON also requires the instance owner to
+    // have allowed user-federatable servers (you being the instance owner
+    // always counts). The client submits the whole settings object, so
+    // only enforce when the value actually changes — otherwise a non-owner
+    // admin editing the name would trip on the unchanged federatable flag.
+    if (
+      input.federatable !== undefined &&
+      input.federatable !== server.federatable
+    ) {
+      invariant(await isServerOwner(input.serverId, ctx.userId), {
+        code: 'FORBIDDEN',
+        message:
+          'Only the server owner can change whether this server is federatable'
+      });
+
+      if (input.federatable === true) {
+        const allowed =
+          (await isInstanceOwner(ctx.userId)) ||
+          config.federation.allowUserFederatableServers;
+        invariant(allowed, {
+          code: 'FORBIDDEN',
+          message:
+            'The instance owner has not allowed users to make servers federatable'
+        });
+      }
+    }
 
     const oldEnablePlugins = server.enablePlugins;
     const { serverId, ...updates } = input;

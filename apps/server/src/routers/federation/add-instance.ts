@@ -1,5 +1,5 @@
 import type { TFederationInfo } from '@pulse/shared';
-import { Permission, ServerEvents } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
 import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import z from 'zod';
@@ -15,6 +15,7 @@ import {
   validateFederationUrl
 } from '../../utils/validate-url';
 import { logger } from '../../logger';
+import { assertInstanceOwner } from './guard';
 
 const addInstanceRoute = protectedProcedure
   .input(
@@ -23,10 +24,7 @@ const addInstanceRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
-    const primaryServer = await import('../../db/queries/servers').then(
-      (m) => m.getFirstServer()
-    );
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, primaryServer?.id);
+    await assertInstanceOwner(ctx.userId);
 
     if (!config.federation.enabled) {
       ctx.throwValidationError('federation', 'Federation is not enabled');

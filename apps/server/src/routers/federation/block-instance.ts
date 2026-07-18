@@ -1,14 +1,14 @@
-import { Permission, ServerEvents } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import z from 'zod';
 import { db } from '../../db';
 import { deleteShadowUsersByInstance } from '../../db/mutations/federation';
 import { getFederationInstanceById } from '../../db/queries/federation';
-import { getFirstServer } from '../../db/queries/servers';
 import { federationInstances } from '../../db/schema';
 import { invalidateCorsCache } from '../../http/cors';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { assertInstanceOwner } from './guard';
 
 const blockInstanceRoute = protectedProcedure
   .input(
@@ -17,8 +17,7 @@ const blockInstanceRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
-    const server = await getFirstServer();
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, server?.id);
+    await assertInstanceOwner(ctx.userId);
 
     // Look up domain before blocking so we can include it in the event
     const instance = await getFederationInstanceById(input.instanceId);

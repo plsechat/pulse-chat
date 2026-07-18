@@ -13,6 +13,7 @@ import {
 } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { config } from '../../config';
 import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
 import {
@@ -26,6 +27,7 @@ import {
   getServerById,
   getServerMemberIds,
   getServersByUserId,
+  isInstanceOwner,
   isServerMember
 } from '../../db/queries/servers';
 import { getPublicUserById } from '../../db/queries/users';
@@ -71,6 +73,15 @@ const joinServerRoute = t.procedure
     // Find the user's joined servers
     const userServers = await getServersByUserId(ctx.user.id);
 
+    // Instance-level federation facts for the client's UI gating: whether
+    // this user owns the instance's first server (the operator), and
+    // whether the operator lets other server owners make servers
+    // federatable. Both reflect THIS instance (federated connections get
+    // the remote's values; the federation UI is home-only anyway).
+    const isInstanceOwnerFlag = await isInstanceOwner(ctx.user.id);
+    const federatableServersAllowed =
+      config.federation.allowUserFederatableServers;
+
     // If user has no servers, return a minimal response so the client can show the discover view
     if (userServers.length === 0) {
       const connectionInfo = ctx.getConnectionInfo();
@@ -105,7 +116,9 @@ const joinServerRoute = t.procedure
         mentionStates: {} as TMentionStateMap,
         lastReadMessageIds: {} as Record<number, number | null>,
         commands: pluginManager.getCommands(),
-        userPreferences: (prefsRow?.data as TUserPreferences) ?? undefined
+        userPreferences: (prefsRow?.data as TUserPreferences) ?? undefined,
+        isInstanceOwner: isInstanceOwnerFlag,
+        federatableServersAllowed
       };
     }
 
@@ -241,7 +254,9 @@ const joinServerRoute = t.procedure
       lastReadMessageIds: readStatesResult.lastReadMessageIds,
       commands: pluginManager.getCommands(),
       userPreferences:
-        (userPrefsRows[0]?.data as TUserPreferences) ?? undefined
+        (userPrefsRows[0]?.data as TUserPreferences) ?? undefined,
+      isInstanceOwner: isInstanceOwnerFlag,
+      federatableServersAllowed
     };
   });
 

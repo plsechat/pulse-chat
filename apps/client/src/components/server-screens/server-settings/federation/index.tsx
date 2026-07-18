@@ -52,6 +52,8 @@ const Federation = memo(() => {
   const [instances, setInstances] = useState<TFederationInstanceSummary[]>([]);
   const [domain, setDomain] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [allowUserFederatableServers, setAllowUserFederatableServers] =
+    useState(false);
   const [addUrl, setAddUrl] = useState('');
   const [adding, setAdding] = useState(false);
 
@@ -67,6 +69,9 @@ const Federation = memo(() => {
       setInstances(instancesResult);
       setDomain(configResult.domain);
       setEnabled(configResult.enabled);
+      setAllowUserFederatableServers(
+        configResult.allowUserFederatableServers
+      );
     } catch (error) {
       console.error('Failed to load federation config:', error);
     } finally {
@@ -95,14 +100,18 @@ const Federation = memo(() => {
     try {
       const trpc = getHomeTRPCClient();
       if (!trpc) return;
-      await trpc.federation.setConfig.mutate({ enabled, domain });
+      await trpc.federation.setConfig.mutate({
+        enabled,
+        domain,
+        allowUserFederatableServers
+      });
       toast.success('Federation settings saved');
       fetchData();
     } catch (error) {
       console.error('Failed to save federation config:', error);
       toast.error('Failed to save settings');
     }
-  }, [enabled, domain, fetchData]);
+  }, [enabled, domain, allowUserFederatableServers, fetchData]);
 
   const handleAddInstance = useCallback(async () => {
     if (!addUrl.trim()) return;
@@ -203,6 +212,17 @@ const Federation = memo(() => {
               value={domain}
               onChange={(e) => setDomain(e.target.value)}
               placeholder="pulse.example.com"
+              disabled={!enabled}
+            />
+          </Group>
+
+          <Group
+            label="Allow users to create federatable servers"
+            description="When off, only you can mark a server as federatable. When on, any server owner may make their own server federatable."
+          >
+            <Switch
+              checked={allowUserFederatableServers}
+              onCheckedChange={setAllowUserFederatableServers}
               disabled={!enabled}
             />
           </Group>

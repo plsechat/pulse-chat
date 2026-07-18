@@ -50,6 +50,20 @@ export const useServerName = () => useSelector(serverNameSelector);
 export const useConnectedServerPublicId = () =>
   useSelector((state: IRootState) => state.server.serverId);
 
+/**
+ * True when the connected user owns the instance's first server — the
+ * operator. Gates instance-level federation (the Federation settings tab).
+ */
+export const useIsInstanceOwner = () =>
+  useSelector((state: IRootState) => state.server.isInstanceOwner);
+
+/**
+ * Whether the instance owner permits non-owner server owners to mark their
+ * own servers federatable.
+ */
+export const useFederatableServersAllowed = () =>
+  useSelector((state: IRootState) => state.server.federatableServersAllowed);
+
 export const usePublicServerSettings = () =>
   useSelector(publicServerSettingsSelector);
 

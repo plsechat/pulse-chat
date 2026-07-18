@@ -43,6 +43,10 @@ type TConfig = {
   federation: {
     enabled: boolean;
     domain: string;
+    // When false (default), only the instance owner may mark a server
+    // federatable. When true, any server owner may make their own server
+    // federatable. Instance-owner-controlled; see federation/set-config.
+    allowUserFederatableServers: boolean;
   };
 };
 
@@ -77,7 +81,8 @@ let config: TConfig = {
   },
   federation: {
     enabled: false,
-    domain: ''
+    domain: '',
+    allowUserFederatableServers: false
   }
 };
 
@@ -130,6 +135,8 @@ config.mediasoup.audio.fec = String(config.mediasoup.audio.fec) === 'true';
 config.mediasoup.audio.dtx = String(config.mediasoup.audio.dtx) === 'true';
 config.mediasoup.video.initialAvailableOutgoingBitrate = Number(config.mediasoup.video.initialAvailableOutgoingBitrate);
 config.federation.enabled = String(config.federation.enabled) === 'true';
+config.federation.allowUserFederatableServers =
+  String(config.federation.allowUserFederatableServers) === 'true';
 
 // Env vars take precedence over the INI file. The INI is operator-
 // persisted runtime state; env vars are explicit overrides applied

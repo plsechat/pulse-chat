@@ -219,8 +219,8 @@ describe('federation membership', () => {
   });
 });
 
-describe('listInstances permission gate (F8)', () => {
-  test('owner (user 1) can list federation peers', async () => {
+describe('listInstances instance-owner gate', () => {
+  test('instance owner (user 1) can list federation peers', async () => {
     const { caller } = await initTest();
     await createTestInstance('peer.example.com', 'Peer');
     const instances = await caller.federation.listInstances();
@@ -228,10 +228,12 @@ describe('listInstances permission gate (F8)', () => {
     expect(instances.some((i) => i.domain === 'peer.example.com')).toBe(true);
   });
 
-  test('non-MANAGE_SETTINGS user is rejected', async () => {
+  test('a non-instance-owner is rejected (not just MANAGE_SETTINGS)', async () => {
+    // user 2 is a member of the first server but not its owner. Federation
+    // is the operator's alone — MANAGE_SETTINGS is no longer sufficient.
     const { caller } = await initTest(2);
     await expect(caller.federation.listInstances()).rejects.toThrow(
-      'Insufficient permissions'
+      'Only the instance owner'
     );
   });
 });

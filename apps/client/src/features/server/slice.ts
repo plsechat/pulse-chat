@@ -91,6 +91,13 @@ export interface IServerState {
   highlightedMessageId: number | undefined;
   usersLoaded: boolean;
   emojisLoaded: boolean;
+  // Instance-level federation facts for THIS connection (set by
+  // setInitialData). isInstanceOwner: the connected user owns the
+  // instance's first server (the operator) — gates the Federation
+  // settings. federatableServersAllowed: the operator lets other server
+  // owners mark their servers federatable.
+  isInstanceOwner: boolean;
+  federatableServersAllowed: boolean;
 }
 
 const initialState: IServerState = {
@@ -135,7 +142,9 @@ const initialState: IServerState = {
   activeThreadId: undefined,
   highlightedMessageId: undefined,
   usersLoaded: false,
-  emojisLoaded: false
+  emojisLoaded: false,
+  isInstanceOwner: false,
+  federatableServersAllowed: false
 };
 
 export const serverSlice = createSlice({
@@ -192,6 +201,8 @@ export const serverSlice = createSlice({
         readStates: TReadStateMap;
         mentionStates?: TMentionStateMap;
         lastReadMessageIds?: TLastReadMessageIdMap;
+        isInstanceOwner?: boolean;
+        federatableServersAllowed?: boolean;
       }>
     ) => {
       state.connected = true;
@@ -206,6 +217,9 @@ export const serverSlice = createSlice({
       state.readStatesMap = action.payload.readStates;
       state.mentionStatesMap = action.payload.mentionStates ?? {};
       state.lastReadMessageIdMap = action.payload.lastReadMessageIds ?? {};
+      state.isInstanceOwner = action.payload.isInstanceOwner ?? false;
+      state.federatableServersAllowed =
+        action.payload.federatableServersAllowed ?? false;
       // Clear deferred state from previous server (will be populated by separate fetches)
       state.users = [];
       state.emojis = [];

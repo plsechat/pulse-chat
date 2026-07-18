@@ -11,7 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { deleteServer } from '@/features/app/actions';
 import { useActiveInstanceDomain, useActiveServerId, useJoinedServers } from '@/features/app/hooks';
-import { useCan } from '@/features/server/hooks';
+import { useCan, useIsInstanceOwner } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { Permission } from '@pulse/shared';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -30,6 +30,7 @@ type TServerSettingsProps = TServerScreenBaseProps;
 
 const ServerSettings = memo(({ close }: TServerSettingsProps) => {
   const can = useCan();
+  const isInstanceOwner = useIsInstanceOwner();
   const ownUserId = useOwnUserId();
   const activeServerId = useActiveServerId();
   const activeInstanceDomain = useActiveInstanceDomain();
@@ -99,13 +100,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             >
               Auto-Mod
             </TabsTrigger>
-            {!activeInstanceDomain && (
-              <TabsTrigger
-                value="federation"
-                disabled={!can(Permission.MANAGE_SETTINGS)}
-              >
-                Federation
-              </TabsTrigger>
+            {/* Instance-level federation — enabling federation and peering
+                with other instances — belongs to the instance owner (the
+                operator who owns the first server) alone, never a mere
+                MANAGE_SETTINGS holder or a user who made their own server. */}
+            {!activeInstanceDomain && isInstanceOwner && (
+              <TabsTrigger value="federation">Federation</TabsTrigger>
             )}
             {isOwner && (
               <TabsTrigger
@@ -137,9 +137,9 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
           <TabsContent value="automod" className="space-y-6">
             {can(Permission.MANAGE_AUTOMOD) && <AutoMod />}
           </TabsContent>
-          {!activeInstanceDomain && (
+          {!activeInstanceDomain && isInstanceOwner && (
             <TabsContent value="federation" className="space-y-6">
-              {can(Permission.MANAGE_SETTINGS) && <Federation />}
+              <Federation />
             </TabsContent>
           )}
           {isOwner && (

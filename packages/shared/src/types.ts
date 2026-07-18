@@ -268,6 +268,7 @@ export type TFederationConfig = {
   domain: string;
   hasKeys: boolean;
   publicKey?: string;
+  allowUserFederatableServers: boolean;
 };
 
 export type TRemoteServerSummary = {

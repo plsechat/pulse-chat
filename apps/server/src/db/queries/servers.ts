@@ -460,6 +460,24 @@ const isServerOwner = async (
   return !!match;
 };
 
+/**
+ * True iff `userId` owns the instance's first (lowest-id, bootstrap)
+ * server — i.e. the operator who set the instance up. This is the
+ * "original server owner" that governs instance-level federation:
+ * enabling federation and peering with other instances are theirs alone,
+ * never a mere MANAGE_SETTINGS holder or a user who spun up their own
+ * server (and is therefore its owner with all permissions).
+ */
+const isInstanceOwner = async (userId: number): Promise<boolean> => {
+  const [server] = await db
+    .select({ ownerId: servers.ownerId })
+    .from(servers)
+    .orderBy(servers.id)
+    .limit(1);
+
+  return server?.ownerId != null && server.ownerId === userId;
+};
+
 const sharesServerWith = async (
   userId1: number,
   userId2: number
@@ -492,6 +510,7 @@ export {
   getServerUnreadCount,
   getServerUnreadCounts,
   getServersByUserId,
+  isInstanceOwner,
   isServerMember,
   isServerOwner,
   removeServerMember,
