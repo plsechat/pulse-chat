@@ -7,7 +7,6 @@ import {
 import { psql } from '../../helpers/db';
 import { authedPage, CORE_OWNER } from '../../helpers/fixtures';
 import {
-  channelButton,
   messageRow,
   openMessageContextMenu,
   selectChannel,

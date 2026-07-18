@@ -31,10 +31,6 @@ let ownerId = '';
 let ownerCtx: BrowserContext;
 let ownerPage: Page;
 
-function messagePane(page: Page) {
-  return page.getByTestId('message-scroll');
-}
-
 function createChannel(name: string): string {
   psql(
     'core',

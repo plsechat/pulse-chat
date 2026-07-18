@@ -7,7 +7,6 @@ import {
 import { psql } from '../../helpers/db';
 import { authedPage, registerAndJoin, runUser } from '../../helpers/fixtures';
 import {
-  dmComposer,
   dmMessageRow,
   goHome,
   openDmViaAuthor,
