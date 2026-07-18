@@ -227,9 +227,30 @@ const Connect = memo(() => {
     return '/logo.png';
   }, [info]);
 
-  const OAuthSection = useMemo(() => {
+  const providerButtons = useMemo(() => {
       const providers = info?.enabledAuthProviders ?? [];
       return providers.length > 0 ? (
+        <div className="flex gap-2">
+          {providers.map((provider) => (
+            <Button
+              key={provider.name}
+              className="flex-1"
+              variant="outline"
+              disabled={loading}
+              onClick={() => onProviderClick(provider)}
+            >
+              {provider.label}
+            </Button>
+          ))}
+        </div>
+      ) : null;
+    },
+    [info?.enabledAuthProviders, loading, onProviderClick]
+  );
+
+  const OAuthSection = useMemo(
+    () =>
+      providerButtons ? (
         <>
           <div className="flex items-center gap-3 my-1">
             <Separator className="flex-1" />
@@ -238,23 +259,10 @@ const Connect = memo(() => {
             </span>
             <Separator className="flex-1" />
           </div>
-          <div className="flex gap-2">
-            {providers.map((provider) => (
-              <Button
-                key={provider.name}
-                className="flex-1"
-                variant="outline"
-                disabled={loading}
-                onClick={() => onProviderClick(provider)}
-              >
-                {provider.label}
-              </Button>
-            ))}
-          </div>
+          {providerButtons}
         </>
-      ) : null;
-    },
-    [info?.enabledAuthProviders, loading, onProviderClick]
+      ) : null,
+    [providerButtons]
   );
 
   // Hide the Create Account (password) form when password self-registration
@@ -262,6 +270,13 @@ const Connect = memo(() => {
   // which is a break-glass path. Absent flag = enabled (older servers).
   const canRegisterPassword =
     info?.passwordRegistrationEnabled !== false || !!inviteCode;
+
+  // SSO-only mode (derived server-side: password registration off + at
+  // least one provider advertised): hide the email/password login form and
+  // show only the provider buttons. An invite link is the same break-glass
+  // as for registration — /login accepts it too.
+  const canLoginPassword =
+    info?.passwordLoginEnabled !== false || !!inviteCode;
 
   return (
     <>
@@ -424,44 +439,55 @@ const Connect = memo(() => {
                 {/* Login Tab */}
                 <TabsContent value="login" className="mt-0">
                   <div className="flex flex-col gap-4">
-                    <Group label="Email">
-                      <Input
-                        {...loginForm.r('email')}
-                        type="email"
-                        placeholder="you@example.com"
-                        className="h-10"
-                      />
-                    </Group>
-                    <Group label="Password">
-                      <Input
-                        {...loginForm.r('password')}
-                        type="password"
-                        placeholder="Enter your password"
-                        onEnter={onLoginClick}
-                        className="h-10"
-                      />
-                    </Group>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">
-                        Remember me
-                      </span>
-                      <Switch
-                        checked={loginForm.values.rememberCredentials}
-                        onCheckedChange={onRememberCredentialsChange}
-                      />
-                    </div>
-                    <Button
-                      className="w-full mt-1 h-11 text-sm font-medium"
-                      onClick={onLoginClick}
-                      disabled={
-                        loading ||
-                        !loginForm.values.email ||
-                        !loginForm.values.password
-                      }
-                    >
-                      Sign In
-                    </Button>
-                    {OAuthSection}
+                    {canLoginPassword ? (
+                      <>
+                        <Group label="Email">
+                          <Input
+                            {...loginForm.r('email')}
+                            type="email"
+                            placeholder="you@example.com"
+                            className="h-10"
+                          />
+                        </Group>
+                        <Group label="Password">
+                          <Input
+                            {...loginForm.r('password')}
+                            type="password"
+                            placeholder="Enter your password"
+                            onEnter={onLoginClick}
+                            className="h-10"
+                          />
+                        </Group>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">
+                            Remember me
+                          </span>
+                          <Switch
+                            checked={loginForm.values.rememberCredentials}
+                            onCheckedChange={onRememberCredentialsChange}
+                          />
+                        </div>
+                        <Button
+                          className="w-full mt-1 h-11 text-sm font-medium"
+                          onClick={onLoginClick}
+                          disabled={
+                            loading ||
+                            !loginForm.values.email ||
+                            !loginForm.values.password
+                          }
+                        >
+                          Sign In
+                        </Button>
+                        {OAuthSection}
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground text-center">
+                          Sign in to continue
+                        </p>
+                        {providerButtons}
+                      </>
+                    )}
                   </div>
                 </TabsContent>
 

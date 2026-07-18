@@ -2,7 +2,8 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   TJoinedDmChannel,
   TJoinedDmMessage,
-  TVoiceUserState
+  TVoiceUserState,
+  UserStatus
 } from '@pulse/shared';
 
 export type TDmMessagesMap = {
@@ -68,6 +69,22 @@ export const dmsSlice = createSlice({
       }
       delete state.messagesMap[action.payload];
       delete state.dmTypingMap[action.payload];
+    },
+    // Presence transitions arrive as USER_JOIN/USER_LEAVE/USER_UPDATE
+    // events; without mirroring them onto the cached member projections
+    // the DM sidebar/panel would only refresh status on a full refetch.
+    updateMemberPresence: (
+      state,
+      action: PayloadAction<{ userId: number; status?: UserStatus }>
+    ) => {
+      for (const channel of state.channels) {
+        const member = channel.members.find(
+          (m) => m.id === action.payload.userId
+        );
+        if (member) {
+          member.status = action.payload.status;
+        }
+      }
     },
     setSelectedChannelId: (
       state,

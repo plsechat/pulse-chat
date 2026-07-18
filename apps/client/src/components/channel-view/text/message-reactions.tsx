@@ -1,14 +1,17 @@
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { useCan } from '@/features/server/hooks';
 import { useOwnUserId, useUsernames } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import {
   Permission,
-  type TFile
+  type TFile,
+  type TReactionUser
 } from '@pulse/shared';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { memo, useCallback, useMemo } from 'react';
@@ -19,29 +22,52 @@ type TReactionLike = {
   emoji: string;
   createdAt: number;
   file: TFile | null;
+  // Reactor identity, denormalized server-side. Null only when the row's
+  // user no longer exists — then we fall back to the roster/Unknown.
+  user?: TReactionUser | null;
+};
+
+type TReactor = {
+  id: number;
+  name: string;
+  avatar: TReactionUser['avatar'];
 };
 
 type TMessageReactionsProps = {
   messageId: number;
   reactions: TReactionLike[];
   onToggle?: (emoji: string) => void;
+  /**
+   * Resolve reactor avatars in HOME id-space (serve from the home
+   * instance, not the active federated one). Set on DM surfaces — mirrors
+   * UserAvatar's homeScope. See feedback-context-provider-scope.
+   */
+  homeScope?: boolean;
 };
 
 type TAggregatedReaction = {
   emoji: string;
   count: number;
-  userIds: number[];
+  reactors: TReactor[];
   isUserReacted: boolean;
   createdAt: number;
   file: TFile | null;
 };
 
+// Cap the hover list so a wildly-reacted message can't render a
+// screen-tall tooltip; the rest collapse into a "+N more" line.
+const MAX_REACTORS_SHOWN = 20;
+
 const MessageReactions = memo(
-  ({ messageId, reactions, onToggle }: TMessageReactionsProps) => {
+  ({ messageId, reactions, onToggle, homeScope = false }: TMessageReactionsProps) => {
     const ownUserId = useOwnUserId();
     const instanceDomain = useActiveInstanceDomain() ?? undefined;
     const can = useCan();
     const usernames = useUsernames();
+    // Home-scoped files (reactor avatars AND custom-emoji images) live on
+    // the HOME instance — never route them through the active federated
+    // instance's public route, or they 404 to the text fallback.
+    const fileDomain = homeScope ? undefined : instanceDomain;
 
     const handleReactionClick = useCallback(
       async (emoji: string) => {
@@ -80,7 +106,7 @@ const MessageReactions = memo(
 
         return (
           <img
-            src={getFileUrl(file, instanceDomain)}
+            src={getFileUrl(file, fileDomain)}
             alt={`:${emojiName}:`}
             className="w-5 h-5 object-contain"
             onError={(e) => {
@@ -92,7 +118,7 @@ const MessageReactions = memo(
           />
         );
       },
-      [instanceDomain]
+      [fileDomain]
     );
 
     const aggregatedReactions = useMemo((): TAggregatedReaction[] => {
@@ -103,7 +129,7 @@ const MessageReactions = memo(
           reactionMap.set(reaction.emoji, {
             emoji: reaction.emoji,
             count: 0,
-            userIds: [],
+            reactors: [],
             isUserReacted: false,
             createdAt: reaction.createdAt,
             file: reaction.file
@@ -113,7 +139,17 @@ const MessageReactions = memo(
         const aggregated = reactionMap.get(reaction.emoji)!;
 
         aggregated.count++;
-        aggregated.userIds.push(reaction.userId);
+        // Prefer the server-sent identity (correct in DMs, for federated
+        // shadow users, and for members who have left); fall back to the
+        // ambient roster, then to a placeholder.
+        aggregated.reactors.push({
+          id: reaction.userId,
+          name:
+            reaction.user?.name ??
+            usernames[reaction.userId] ??
+            'Unknown user',
+          avatar: reaction.user?.avatar ?? null
+        });
 
         if (ownUserId && reaction.userId === ownUserId) {
           aggregated.isUserReacted = true;
@@ -124,20 +160,56 @@ const MessageReactions = memo(
       return Array.from(reactionMap.values()).sort(
         (a, b) => a.createdAt - b.createdAt
       );
-    }, [reactions, ownUserId]);
+    }, [reactions, ownUserId, usernames]);
+
+    const renderReactorList = useCallback(
+      (reaction: TAggregatedReaction): React.ReactNode => {
+        const shown = reaction.reactors.slice(0, MAX_REACTORS_SHOWN);
+        const overflow = reaction.count - shown.length;
+
+        return (
+          <div className="flex max-w-[220px] flex-col gap-1.5">
+            <div className="flex items-center justify-center gap-1.5 border-b border-background/20 pb-1.5">
+              {renderEmoji(reaction.emoji, reaction.file)}
+              <span className="text-xs text-background/80">
+                :{reaction.emoji}:
+              </span>
+            </div>
+            {shown.map((reactor, i) => (
+              <div
+                key={`${reactor.id}-${i}`}
+                className="flex items-center gap-2"
+              >
+                <Avatar className="h-5 w-5 ring-0 shadow-none">
+                  <AvatarImage
+                    src={getFileUrl(reactor.avatar, fileDomain)}
+                  />
+                  <AvatarFallback className="bg-background/20 text-[9px] text-background">
+                    {getInitialsFromName(reactor.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate text-xs">{reactor.name}</span>
+              </div>
+            ))}
+            {overflow > 0 && (
+              <span className="text-xs text-background/70">
+                +{overflow} more
+              </span>
+            )}
+          </div>
+        );
+      },
+      [renderEmoji, fileDomain]
+    );
 
     if (!aggregatedReactions.length) return null;
 
     return (
       <div className="mt-1 flex flex-wrap gap-1.5">
         {aggregatedReactions.map((reaction) => {
-          const tooltipContent = reaction.userIds
-            .map((userId) => usernames[userId] || 'Unknown')
-            .join(', ');
-
           return (
             <Tooltip
-              content={tooltipContent}
+              content={renderReactorList(reaction)}
               key={`reaction-${reaction.emoji}`}
             >
               <button

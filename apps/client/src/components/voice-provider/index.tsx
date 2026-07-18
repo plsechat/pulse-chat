@@ -103,7 +103,9 @@ const VoiceProviderContext = createContext<TVoiceProvider>({
     micMuted: false,
     soundMuted: false,
     webcamEnabled: false,
-    sharingScreen: false
+    sharingScreen: false,
+    serverMuted: false,
+    serverDeafened: false
   },
   sharingSystemAudio: false,
   realOutputSinkId: undefined,

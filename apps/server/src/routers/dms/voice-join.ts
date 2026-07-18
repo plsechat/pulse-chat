@@ -8,6 +8,7 @@ import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 const dmVoiceJoinRoute = protectedProcedure
   .input(
@@ -38,12 +39,14 @@ const dmVoiceJoinRoute = protectedProcedure
       message: 'Not a member of this DM channel'
     });
 
+    // Self-heal instead of hard-failing — same rationale as voice/join:
+    // a refresh strands the previous session in the runtime and the
+    // rejoin must clear it, not brick the user.
     const userAlreadyInVoice = VoiceRuntime.findRuntimeByUserId(ctx.user.id);
 
-    invariant(!userAlreadyInVoice, {
-      code: 'BAD_REQUEST',
-      message: 'Already in a voice channel'
-    });
+    if (userAlreadyInVoice) {
+      await removeUserFromVoice(ctx.user.id);
+    }
 
     // Get or create a voice runtime for this DM channel
     let runtime = VoiceRuntime.findById(input.dmChannelId);
@@ -63,6 +66,7 @@ const dmVoiceJoinRoute = protectedProcedure
 
     ctx.currentDmVoiceChannelId = input.dmChannelId;
     ctx.currentVoiceChannelId = input.dmChannelId;
+    ctx.setWsVoiceChannelId(input.dmChannelId);
 
     const state = runtime.getUserState(ctx.user.id);
 

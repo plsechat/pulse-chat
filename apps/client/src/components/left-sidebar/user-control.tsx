@@ -16,6 +16,8 @@ import {
   DialogTitle
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { EmojiPicker } from '@/components/emoji-picker';
+import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { openServerScreen } from '@/features/server-screens/actions';
@@ -58,6 +60,13 @@ const UserControl = memo(() => {
   const { devices, saveDevices } = useDevices();
   const [customStatusDialogOpen, setCustomStatusDialogOpen] = useState(false);
   const [customStatusDraft, setCustomStatusDraft] = useState('');
+  const [customStatusEmojiDraft, setCustomStatusEmojiDraft] = useState<
+    string | null
+  >(null);
+  // Auto-clear duration in minutes; null = don't clear.
+  const [customStatusExpiryDraft, setCustomStatusExpiryDraft] = useState<
+    number | null
+  >(null);
 
   const handleSettingsClick = useCallback(() => {
     openServerScreen(ServerScreen.USER_SETTINGS);
@@ -71,19 +80,51 @@ const UserControl = memo(() => {
 
   const openCustomStatusDialog = useCallback(() => {
     setCustomStatusDraft(ownPublicUser?.customStatus ?? '');
+    setCustomStatusEmojiDraft(ownPublicUser?.customStatusEmoji ?? null);
+    setCustomStatusExpiryDraft(null);
     setCustomStatusDialogOpen(true);
-  }, [ownPublicUser?.customStatus]);
+  }, [ownPublicUser?.customStatus, ownPublicUser?.customStatusEmoji]);
 
-  const saveCustomStatus = useCallback(async (customStatus: string | null) => {
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    await trpc.users.setCustomStatus.mutate({ customStatus });
-    setCustomStatusDialogOpen(false);
-  }, []);
+  const saveCustomStatus = useCallback(
+    async (
+      customStatus: string | null,
+      emoji: string | null,
+      expiresInMinutes: number | null
+    ) => {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.users.setCustomStatus.mutate({
+        customStatus,
+        emoji,
+        expiresInMinutes
+      });
+      setCustomStatusDialogOpen(false);
+    },
+    []
+  );
 
   const handleCustomStatusSubmit = useCallback(() => {
-    void saveCustomStatus(customStatusDraft.trim() || null);
-  }, [saveCustomStatus, customStatusDraft]);
+    const text = customStatusDraft.trim();
+    // Allow an emoji-only status, but if there's nothing at all, clear.
+    if (!text && !customStatusEmojiDraft) {
+      void saveCustomStatus(null, null, null);
+      return;
+    }
+    void saveCustomStatus(
+      text || null,
+      customStatusEmojiDraft,
+      customStatusExpiryDraft
+    );
+  }, [
+    saveCustomStatus,
+    customStatusDraft,
+    customStatusEmojiDraft,
+    customStatusExpiryDraft
+  ]);
+
+  const handleStatusEmojiSelect = useCallback((emoji: TEmojiItem) => {
+    setCustomStatusEmojiDraft(emoji.emoji ?? emoji.name);
+  }, []);
 
   const handleMicDeviceChange = useCallback(
     (deviceId: string) => {
@@ -171,17 +212,62 @@ const UserControl = memo(() => {
           <DialogHeader>
             <DialogTitle>Set custom status</DialogTitle>
           </DialogHeader>
-          <Input
-            value={customStatusDraft}
-            onChange={(e) => setCustomStatusDraft(e.target.value)}
-            onEnter={handleCustomStatusSubmit}
-            maxLength={128}
-            placeholder="What's happening?"
-            autoFocus
-          />
+          <div className="flex items-center gap-2">
+            <EmojiPicker onEmojiSelect={handleStatusEmojiSelect}>
+              <Button
+                variant="outline"
+                size="icon"
+                className="shrink-0 text-lg"
+                title="Add an emoji"
+              >
+                {customStatusEmojiDraft ?? '🙂'}
+              </Button>
+            </EmojiPicker>
+            <Input
+              value={customStatusDraft}
+              onChange={(e) => setCustomStatusDraft(e.target.value)}
+              onEnter={handleCustomStatusSubmit}
+              maxLength={128}
+              placeholder="What's happening?"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground mr-1">
+              Clear after:
+            </span>
+            {(
+              [
+                ['Don’t clear', null],
+                ['30m', 30],
+                ['1h', 60],
+                ['4h', 240],
+                ['1d', 1440]
+              ] as const
+            ).map(([label, minutes]) => (
+              <Button
+                key={label}
+                type="button"
+                size="sm"
+                variant={
+                  customStatusExpiryDraft === minutes ? 'default' : 'outline'
+                }
+                className="h-7 px-2 text-xs"
+                onClick={() => setCustomStatusExpiryDraft(minutes)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+
           <DialogFooter className="gap-2">
-            {ownPublicUser.customStatus && (
-              <Button variant="ghost" onClick={() => saveCustomStatus(null)}>
+            {(ownPublicUser.customStatus ||
+              ownPublicUser.customStatusEmoji) && (
+              <Button
+                variant="ghost"
+                onClick={() => saveCustomStatus(null, null, null)}
+              >
                 Clear
               </Button>
             )}

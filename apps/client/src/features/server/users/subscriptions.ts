@@ -4,6 +4,7 @@ import {
   setActiveView
 } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
+import { dmsSliceActions } from '@/features/dms/slice';
 import { updateFriend } from '@/features/friends/actions';
 import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
@@ -44,6 +45,12 @@ const subscribeToUsers = () => {
     subscribe('onUserJoin', trpc.users.onJoin, (payload) => {
       handleUserJoin(payload.serverId, payload.user, payload.serverPublicId);
       updateFriend(payload.user.id, payload.user);
+      store.dispatch(
+        dmsSliceActions.updateMemberPresence({
+          userId: payload.user.id,
+          status: payload.user.status
+        })
+      );
 
       // Fire-and-forget: distribute sender keys to the newly online user
       distributeE2eeKeysToUser(payload.user.id).catch((err) =>
@@ -54,10 +61,26 @@ const subscribeToUsers = () => {
     subscribe('onUserLeave', trpc.users.onLeave, (userId) => {
       updateUser(userId, { status: UserStatus.OFFLINE });
       updateFriend(userId, { status: UserStatus.OFFLINE });
+      store.dispatch(
+        dmsSliceActions.updateMemberPresence({
+          userId,
+          status: UserStatus.OFFLINE
+        })
+      );
     }),
     subscribe('onUserUpdate', trpc.users.onUpdate, (user) => {
       updateUser(user.id, user);
       updateFriend(user.id, user);
+      // Only mirror presence when the event actually carries a status —
+      // profile-only USER_UPDATEs omit the field and must not wipe it.
+      if (user.status !== undefined) {
+        store.dispatch(
+          dmsSliceActions.updateMemberPresence({
+            userId: user.id,
+            status: user.status
+          })
+        );
+      }
     }),
     subscribe(
       'onUserDelete',

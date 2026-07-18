@@ -5,7 +5,6 @@ import { Protect } from '@/components/protect';
 import { RightSidebar } from '@/components/right-sidebar';
 import { TopBar } from '@/components/top-bar';
 import { PinBanner } from '@/components/top-bar/pin-banner';
-import { VoiceChatSidebar } from '@/components/voice-chat-sidebar';
 import { useSelectedChannelId } from '@/features/server/channels/hooks';
 import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
 import { useIsMobile } from '@/hooks/use-is-mobile';
@@ -22,10 +21,6 @@ const ServerView = memo(() => {
   const [isMobileUsersOpen, setIsMobileUsersOpen] = useState(false);
   const [isDesktopRightSidebarOpen, setIsDesktopRightSidebarOpen] = useState(
     getLocalStorageItem(LocalStorageKey.RIGHT_SIDEBAR_STATE) === 'true' || false
-  );
-  const [isVoiceChatSidebarOpen, setIsVoiceChatSidebarOpen] = useState(
-    getLocalStorageItem(LocalStorageKey.VOICE_CHAT_SIDEBAR_STATE) === 'true' ||
-      false
   );
   const selectedChannelId = useSelectedChannelId();
   const isMobile = useIsMobile();
@@ -47,14 +42,6 @@ const ServerView = memo(() => {
     );
     syncPreference({ rightSidebarOpen: newState });
   }, [isDesktopRightSidebarOpen]);
-
-  const handleVoiceChatSidebarToggle = useCallback(() => {
-    setIsVoiceChatSidebarOpen((prev) => !prev);
-    localStorage.setItem(
-      LocalStorageKey.VOICE_CHAT_SIDEBAR_STATE,
-      !isVoiceChatSidebarOpen ? 'true' : 'false'
-    );
-  }, [isVoiceChatSidebarOpen]);
 
   const handleSwipeRight = useCallback(() => {
     if (isMobileMenuOpen || isMobileUsersOpen) {
@@ -121,14 +108,10 @@ const ServerView = memo(() => {
           <TopBar
             onToggleRightSidebar={handleDesktopRightSidebarToggle}
             isOpen={isDesktopRightSidebarOpen}
-            onToggleVoiceChat={handleVoiceChatSidebarToggle}
-            isVoiceChatOpen={isVoiceChatSidebarOpen}
           />
           <PinBanner />
           <ContentWrapper />
         </div>
-
-        <VoiceChatSidebar isOpen={isVoiceChatSidebarOpen} />
 
         <RightSidebar
           className={cn(

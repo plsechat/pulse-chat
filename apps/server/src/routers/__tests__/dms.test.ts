@@ -512,3 +512,35 @@ describe('DM declineCall', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('DM reactions', () => {
+  test('DM reactions carry the reactor identity for the hover list', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    await caller1.dms.sendMessage({
+      dmChannelId: channel.id,
+      content: 'react to me'
+    });
+
+    const before = await caller1.dms.getMessages({ dmChannelId: channel.id });
+    const dmMessageId = before.messages.find(
+      (m) => m.content === 'react to me'
+    )!.id;
+
+    await caller1.dms.toggleReaction({ dmMessageId, emoji: '👍' });
+    await caller2.dms.toggleReaction({ dmMessageId, emoji: '👍' });
+
+    const after = await caller1.dms.getMessages({ dmChannelId: channel.id });
+    const reactions = after.messages.find((m) => m.id === dmMessageId)!
+      .reactions;
+
+    // DM ids are home id-space — the client can't resolve them from the
+    // ambient server roster, so the name must ride along with the reaction.
+    expect(reactions).toHaveLength(2);
+    const byUser = new Map(reactions.map((r) => [r.userId, r]));
+    expect(byUser.get(1)!.user?.name).toBe('Test Owner');
+    expect(byUser.get(2)!.user?.name).toBe('Test User');
+  });
+});

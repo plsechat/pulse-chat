@@ -140,7 +140,9 @@ type TPublicUser = Pick<
   | "publicId"
   | "bannerColor"
   | "bio"
+  | "pronouns"
   | "customStatus"
+  | "customStatusEmoji"
   | "avatar"
   | "avatarId"
   | "banner"
@@ -156,8 +158,23 @@ export type TJoinedRole = TRole & {
   permissions: Permission[];
 };
 
+/**
+ * The reactor's identity, denormalized onto each reaction so the client
+ * can show "who reacted" on hover without a roster lookup. Roster lookup
+ * fails in exactly the cases that matter — DMs (home id-space, not the
+ * ambient server roster), federated shadow users, and members who have
+ * since left — so name/avatar travel with the reaction instead. Null only
+ * when the reactor's user row no longer exists.
+ */
+export type TReactionUser = {
+  id: number;
+  name: string;
+  avatar: TFileRef | null;
+};
+
 export type TJoinedMessageReaction = TMessageReaction & {
   file: TFile | null;
+  user: TReactionUser | null;
 };
 
 export type TMessageReplyPreview = {
@@ -235,6 +252,7 @@ export type TJoinedDmChannel = TDmChannel & {
 
 export type TJoinedDmMessageReaction = TDmMessageReaction & {
   file: TFile | null;
+  user: TReactionUser | null;
 };
 
 export type TJoinedDmMessage = TDmMessage & {

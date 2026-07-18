@@ -76,6 +76,11 @@ const federationUserInfoUpdateHandler = async (
     | string
     | null
     | undefined;
+  const customStatusEmojiChange = signedBody.customStatusEmoji as
+    | string
+    | null
+    | undefined;
+  const pronounsChange = signedBody.pronouns as string | null | undefined;
   const statusChange = signedBody.status as string | undefined;
   const triggerProfileSync = signedBody.triggerProfileSync === true;
 
@@ -89,6 +94,9 @@ const federationUserInfoUpdateHandler = async (
     nameChange !== undefined ||
     bioChange !== undefined ||
     bannerColorChange !== undefined ||
+    customStatusChange !== undefined ||
+    customStatusEmojiChange !== undefined ||
+    pronounsChange !== undefined ||
     statusChange !== undefined ||
     triggerProfileSync;
   if (!hasAnyChange) {
@@ -134,6 +142,16 @@ const federationUserInfoUpdateHandler = async (
       customStatusChange === null
         ? null
         : String(customStatusChange).slice(0, 128);
+  }
+  if (customStatusEmojiChange !== undefined) {
+    persistedSet.customStatusEmoji =
+      customStatusEmojiChange === null
+        ? null
+        : String(customStatusEmojiChange).slice(0, 64);
+  }
+  if (pronounsChange !== undefined) {
+    persistedSet.pronouns =
+      pronounsChange === null ? null : String(pronounsChange).slice(0, 40);
   }
 
   if (Object.keys(persistedSet).length > 0) {

@@ -1,4 +1,4 @@
-import { ServerEvents } from '@pulse/shared';
+import { MAX_MESSAGE_WIRE_LENGTH, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -19,7 +19,10 @@ const sendMessageRoute = protectedProcedure
   .input(
     z.object({
       dmChannelId: z.number(),
-      content: z.string().max(16000).optional(),
+      content: z
+        .string()
+        .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
+        .optional(),
       e2ee: z.boolean().optional(),
       files: z.array(z.string()).optional(),
       replyToId: z.number().optional()

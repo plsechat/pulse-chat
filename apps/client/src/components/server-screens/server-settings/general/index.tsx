@@ -11,16 +11,40 @@ import { LoadingCard } from '@/components/ui/loading-card';
 import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { useActiveServerId } from '@/features/app/hooks';
+import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
 import { closeServerScreens } from '@/features/server-screens/actions';
+import {
+  useFederatableServersAllowed,
+  useIsInstanceOwner
+} from '@/features/server/hooks';
 import { useAdminGeneral } from '@/features/server/admin/hooks';
-import { memo } from 'react';
+import { useOwnUserId } from '@/features/server/users/hooks';
+import { memo, useMemo } from 'react';
 import { LogoManager } from './logo-manager';
 
 const General = memo(() => {
   const activeServerId = useActiveServerId();
   const { settings, logo, loading, onChange, submit, errors, refetch } =
     useAdminGeneral(activeServerId);
+
+  // The Federatable toggle is owner-only and gated by the instance policy
+  // (see federation/set-config + others/update-settings). Show it only to
+  // the server owner; enable it only when they may actually change it —
+  // the instance owner always may, a plain owner only if the operator
+  // allowed it, and it stays interactive while already on so the owner can
+  // always turn it back off.
+  const ownUserId = useOwnUserId();
+  const joinedServers = useJoinedServers();
+  const isInstanceOwner = useIsInstanceOwner();
+  const federatableServersAllowed = useFederatableServersAllowed();
+
+  const isServerOwner = useMemo(() => {
+    const server = joinedServers.find((s) => s.id === activeServerId);
+    return ownUserId != null && server?.ownerId === ownUserId;
+  }, [joinedServers, activeServerId, ownUserId]);
+
+  const canToggleFederatable =
+    isInstanceOwner || federatableServersAllowed || settings.federatable;
 
   if (loading) {
     return <LoadingCard className="h-[600px]" />;
@@ -84,15 +108,22 @@ const General = memo(() => {
           />
         </Group>
 
-        <Group
-          label="Federatable"
-          description="Allow users from federated Pulse instances to discover and join this server."
-        >
-          <Switch
-            checked={settings.federatable}
-            onCheckedChange={(checked) => onChange('federatable', checked)}
-          />
-        </Group>
+        {isServerOwner && (
+          <Group
+            label="Federatable"
+            description={
+              canToggleFederatable
+                ? 'Allow users from federated Pulse instances to discover and join this server.'
+                : 'The instance owner has not allowed users to make servers federatable.'
+            }
+          >
+            <Switch
+              checked={settings.federatable}
+              disabled={!canToggleFederatable}
+              onCheckedChange={(checked) => onChange('federatable', checked)}
+            />
+          </Group>
+        )}
 
         <SettingsFormFooter
           onCancel={closeServerScreens}

@@ -10,13 +10,14 @@ import {
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
 import { patchFilesWithE2eeMetadata, setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
-import { ownUserIdSelector } from '../server/users/selectors';
+import { homeOwnUserIdSelector } from '../server/users/selectors';
 import { addUserToVoiceChannel } from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
@@ -70,15 +71,30 @@ export const navigateToDm = async (dmChannelId: number) => {
   setActiveView('home');
 };
 
-export const addDmMessages = (
+export const addDmMessages = async (
   dmChannelId: number,
   messages: TJoinedDmMessage[],
   opts: { prepend?: boolean } = {},
   isSubscription = false
 ) => {
+  // Message for a channel this client has never seen (brand-new DM, or a
+  // missed channel-create event): the unread/lastMessage reducers below
+  // silently no-op for unknown channels — no sidebar entry, no badge.
+  // Sync the channel list first so the alert state has somewhere to land.
+  if (
+    isSubscription &&
+    !store.getState().dms.channels.some((c) => c.id === dmChannelId)
+  ) {
+    try {
+      await fetchDmChannels();
+    } catch (err) {
+      console.error('Failed to sync DM channels for unknown channel:', err);
+    }
+  }
+
   if (isSubscription && messages.length > 0) {
     const state = store.getState();
-    const ownUserId = ownUserIdSelector(state);
+    const ownUserId = homeOwnUserIdSelector(state);
     const selectedId = state.dms.selectedChannelId;
     if (ownUserId != null && messages[0].userId !== ownUserId) {
       // selectedChannelId is sticky across navigation (kept so the user
@@ -226,6 +242,10 @@ export const getOrCreateDmChannel = async (
     return decrypted;
   } catch (err) {
     console.error('Failed to get or create DM channel:', err);
+    // Surface the real reason — the silent swallow here masked the
+    // server's FORBIDDEN shared-server guard, leaving users with a
+    // Message box that simply did nothing.
+    toast.error(getTrpcError(err, 'Failed to open DM'));
   }
 };
 
@@ -262,7 +282,7 @@ export const fetchDmMessages = async (
  */
 function getDmRecipientUserId(dmChannelId: number): number | null {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   if (!channel) return null;
 
@@ -421,7 +441,7 @@ export async function decryptDmMessageInPlace<
     await deleteCachedPlaintext(message.id).catch(() => {});
   }
 
-  const ownUserId = ownUserIdSelector(store.getState());
+  const ownUserId = homeOwnUserIdSelector(store.getState());
 
   // Own messages are encrypted for the recipient — we cannot decrypt them.
   // Use the in-memory cache populated at send time for the current session.
@@ -504,7 +524,7 @@ export async function decryptDmMessages(
     e2eeMessages.map((m) => m.id)
   );
 
-  const ownUserId = ownUserIdSelector(store.getState());
+  const ownUserId = homeOwnUserIdSelector(store.getState());
 
   // Group messages by sender to parallelize across senders
   const bySender = new Map<number, { index: number; msg: TJoinedDmMessage }[]>();
@@ -686,7 +706,7 @@ export const sendDmMessage = async (
   // anyway. Surface the failure so the user knows.
   if (channel?.e2ee) {
     const plaintext: E2EEPlaintext = { content, fileKeys };
-    const ownUserId = ownUserIdSelector(state);
+    const ownUserId = homeOwnUserIdSelector(state);
     const isGroup = channel.members.length > 2;
 
     if (isGroup) {
@@ -740,35 +760,63 @@ export const editDmMessage = async (messageId: number, content: string) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
 
-  // Check if the original message was E2EE
   const state = store.getState();
-  let isE2ee = false;
-  let recipientUserId: number | null = null;
 
+  // Locate the message and its channel.
+  let dmChannelId: number | null = null;
   for (const [, messages] of Object.entries(state.dms.messagesMap)) {
     const msg = messages.find((m) => m.id === messageId);
     if (msg) {
-      isE2ee = msg.e2ee;
-      if (isE2ee) {
-        recipientUserId = getDmRecipientUserId(msg.dmChannelId);
-      }
+      dmChannelId = msg.dmChannelId;
       break;
     }
   }
 
-  if (isE2ee && recipientUserId) {
-    try {
-      const encryptedContent = await encryptDmMessage(recipientUserId, {
-        content
-      });
-      // Cache plaintext so we can display our own edited message when the
-      // subscription echo arrives (same as sendDmMessage).
-      ownSentPlaintextCache.set(encryptedContent, { content });
-      await trpc.dms.editMessage.mutate({ messageId, content: encryptedContent });
-      return;
-    } catch (err) {
-      console.error('[E2EE] Edit encryption failed:', err);
+  const channel =
+    dmChannelId != null
+      ? state.dms.channels.find((c) => c.id === dmChannelId)
+      : undefined;
+
+  // Dispatch on the CHANNEL's e2ee flag, mirroring sendDmMessage — and
+  // NEVER fall through to a plaintext resend. The previous code keyed on
+  // the per-message flag, only handled the 1:1 recipient, and on any
+  // encryption failure (or ANY group-DM edit, which it never encrypted)
+  // resent the edit as cleartext into a channel the user believes is
+  // encrypted. Encryption errors now propagate to the caller's toast.
+  if (channel?.e2ee && dmChannelId != null) {
+    const ownUserId = homeOwnUserIdSelector(state);
+    if (ownUserId == null) {
+      throw new Error('Cannot edit encrypted message before login completes');
     }
+
+    const plaintext: E2EEPlaintext = { content };
+    const isGroup = channel.members.length > 2;
+
+    let encryptedContent: string;
+    if (isGroup) {
+      const memberIds = channel.members.map((m) => m.id);
+      await ensureDmGroupSenderKey(dmChannelId, ownUserId, memberIds);
+      encryptedContent = await encryptDmGroupMessage(
+        dmChannelId,
+        ownUserId,
+        plaintext
+      );
+    } else {
+      const recipientUserId = getDmRecipientUserId(dmChannelId);
+      if (!recipientUserId) {
+        throw new Error('Cannot edit encrypted message: recipient unavailable');
+      }
+      encryptedContent = await encryptDmMessage(recipientUserId, plaintext);
+    }
+
+    // Cache plaintext so we can display our own edited message when the
+    // subscription echo arrives (own messages can't be self-decrypted).
+    ownSentPlaintextCache.set(encryptedContent, plaintext);
+    await trpc.dms.editMessage.mutate({
+      messageId,
+      content: encryptedContent
+    });
+    return;
   }
 
   await trpc.dms.editMessage.mutate({ messageId, content });
@@ -815,7 +863,7 @@ export const enableDmEncryption = async (dmChannelId: number) => {
   // is idempotent — safe to call before any group send anyway.
   const state = store.getState();
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (channel && channel.members.length > 2 && ownUserId != null) {
     try {
       await ensureDmGroupSenderKey(
@@ -840,7 +888,7 @@ export const syncDmGroupSenderKeysOnMemberAdd = async (
   addedUserId: number
 ) => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (ownUserId == null || addedUserId === ownUserId) return;
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   if (!channel?.e2ee) return;
@@ -876,7 +924,7 @@ export const syncDmGroupSenderKeysOnMemberRemove = async (
   removedUserId: number
 ) => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (ownUserId == null || removedUserId === ownUserId) return;
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   if (!channel?.e2ee) return;
@@ -943,7 +991,7 @@ export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
   //  - we're already in this exact call (e.g. accepted from another
   //    tab / rejoin after a brief disconnect)
   const state = store.getState();
-  const ownUserId = state.server.ownUserId;
+  const ownUserId = homeOwnUserIdSelector(state);
   const ownDmCallChannelId = state.dms.ownDmCallChannelId;
   if (ownUserId == null || startedBy === ownUserId) return;
   if (ownDmCallChannelId === dmChannelId) return;
@@ -990,7 +1038,7 @@ export const dmCallDeclined = (
   declinedByUserId: number
 ) => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = homeOwnUserIdSelector(state);
   if (declinedByUserId === ownUserId) return;
 
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);

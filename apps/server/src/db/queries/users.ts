@@ -15,6 +15,28 @@ import { federationInstances, files, roles, serverMembers, userRoles, users } fr
 const slimFile = (file: TFile | null): TFileRef | null =>
   file ? { id: file.id, name: file.name } : null;
 
+/**
+ * Resolve the persisted profile-status fields for a projection, applying
+ * the custom-status auto-expiry lazily: once customStatusExpiresAt has
+ * passed, the status and its emoji read as cleared without a cron ever
+ * touching the row.
+ */
+const statusTrio = (row: {
+  customStatus: string | null;
+  customStatusEmoji: string | null;
+  customStatusExpiresAt: number | null;
+  pronouns: string | null;
+}) => {
+  const expired =
+    row.customStatusExpiresAt != null &&
+    row.customStatusExpiresAt <= Date.now();
+  return {
+    pronouns: row.pronouns,
+    customStatus: expired ? null : row.customStatus,
+    customStatusEmoji: expired ? null : row.customStatusEmoji
+  };
+};
+
 const getPublicUserById = async (
   userId: number
 ): Promise<TJoinedPublicUser | undefined> => {
@@ -29,6 +51,9 @@ const getPublicUserById = async (
       bannerColor: users.bannerColor,
       bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -70,7 +95,7 @@ const getPublicUserById = async (
     publicId: results.publicId,
     bannerColor: results.bannerColor,
     bio: results.bio,
-    customStatus: results.customStatus,
+    ...statusTrio(results),
     avatarId: results.avatarId,
     bannerId: results.bannerId,
     avatar: slimFile(results.avatar),
@@ -99,6 +124,9 @@ const getPublicUsersByIds = async (
       bannerColor: users.bannerColor,
       bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -160,7 +188,7 @@ const getPublicUsersByIds = async (
       publicId: row.publicId,
       bannerColor: row.bannerColor,
       bio: row.bio,
-      customStatus: row.customStatus,
+      ...statusTrio(row),
       avatarId: row.avatarId,
       bannerId: row.bannerId,
       avatar: slimFile(row.avatar),
@@ -190,6 +218,9 @@ const getPublicUsers = async (
         bannerColor: users.bannerColor,
         bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
         banned: users.banned,
         avatarId: users.avatarId,
         bannerId: users.bannerId,
@@ -254,7 +285,7 @@ const getPublicUsers = async (
         publicId: result.publicId,
         bannerColor: result.bannerColor,
         bio: result.bio,
-      customStatus: result.customStatus,
+      ...statusTrio(result),
         banned: result.banned,
         avatarId: result.avatarId,
         bannerId: result.bannerId,
@@ -275,6 +306,9 @@ const getPublicUsers = async (
         bannerColor: users.bannerColor,
         bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
         avatarId: users.avatarId,
         bannerId: users.bannerId,
         avatar: avatarFiles,
@@ -309,7 +343,7 @@ const getPublicUsers = async (
       banned: result.banned,
       bannerColor: result.bannerColor,
       bio: result.bio,
-      customStatus: result.customStatus,
+      ...statusTrio(result),
       avatarId: result.avatarId,
       bannerId: result.bannerId,
       avatar: slimFile(result.avatar),
@@ -354,6 +388,9 @@ const getUserById = async (
       bannerId: users.bannerId,
       bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
       bannerColor: users.bannerColor,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -405,6 +442,9 @@ const getUserBySupabaseId = async (
       bannerId: users.bannerId,
       bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
       bannerColor: users.bannerColor,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -494,6 +534,9 @@ const getUsers = async (serverId?: number): Promise<TJoinedUser[]> => {
     bannerColor: users.bannerColor,
     bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
     avatarId: users.avatarId,
     bannerId: users.bannerId,
     updatedAt: users.updatedAt,
@@ -548,7 +591,10 @@ const getUsers = async (serverId?: number): Promise<TJoinedUser[]> => {
     name: result.name,
     bannerColor: result.bannerColor,
     bio: result.bio,
-      customStatus: result.customStatus,
+    pronouns: result.pronouns,
+    customStatus: result.customStatus,
+    customStatusEmoji: result.customStatusEmoji,
+    customStatusExpiresAt: result.customStatusExpiresAt,
     avatarId: result.avatarId,
     bannerId: result.bannerId,
     avatar: slimFile(result.avatar),
@@ -583,6 +629,9 @@ const getPublicUsersForServer = async (
       bannerColor: users.bannerColor,
       bio: users.bio,
       customStatus: users.customStatus,
+      customStatusEmoji: users.customStatusEmoji,
+      customStatusExpiresAt: users.customStatusExpiresAt,
+      pronouns: users.pronouns,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -655,7 +704,7 @@ const getPublicUsersForServer = async (
       publicId: result.publicId,
       bannerColor: result.bannerColor,
       bio: result.bio,
-      customStatus: result.customStatus,
+      ...statusTrio(result),
       banned: result.banned,
       avatarId: result.avatarId,
       bannerId: result.bannerId,

@@ -7,7 +7,7 @@ import {
 import { useDismissOnOutsideClick } from '@/hooks/use-dismiss-on-outside-click';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { cn } from '@/lib/utils';
-import { Hash, LayoutList, List, Lock, MessageSquare, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
+import { Hash, LayoutList, List, Lock, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SearchPopover } from '../search/search-popover';
 import { Tooltip } from '../ui/tooltip';
@@ -19,17 +19,10 @@ import { VolumeController } from './volume-controller';
 type TTopBarProps = {
   onToggleRightSidebar: () => void;
   isOpen: boolean;
-  onToggleVoiceChat: () => void;
-  isVoiceChatOpen: boolean;
 };
 
 const TopBar = memo(
-  ({
-    onToggleRightSidebar,
-    isOpen,
-    onToggleVoiceChat,
-    isVoiceChatOpen
-  }: TTopBarProps) => {
+  ({ onToggleRightSidebar, isOpen }: TTopBarProps) => {
     const isCurrentVoiceChannelSelected = useIsCurrentVoiceChannelSelected();
     const currentVoiceChannelId = useCurrentVoiceChannelId();
     const selectedChannel = useSelectedChannel();
@@ -109,29 +102,7 @@ const TopBar = memo(
         {/* Controls on right */}
         <div className="flex items-center gap-1 ml-auto">
           {isCurrentVoiceChannelSelected && currentVoiceChannelId && (
-            <>
-              <VolumeController channelId={currentVoiceChannelId} />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onToggleVoiceChat}
-                className="h-7 px-2 transition-all duration-200 ease-in-out"
-              >
-                <Tooltip
-                  content={
-                    isVoiceChatOpen ? 'Close Voice Chat' : 'Open Voice Chat'
-                  }
-                  asChild={false}
-                >
-                  <MessageSquare
-                    className={cn(
-                      'w-4 h-4 transition-all duration-200 ease-in-out',
-                      isVoiceChatOpen && 'fill-current'
-                    )}
-                  />
-                </Tooltip>
-              </Button>
-            </>
+            <VolumeController channelId={currentVoiceChannelId} />
           )}
 
           {selectedChannel && selectedChannel.type === 'TEXT' && (

@@ -1,3 +1,5 @@
+import { useConnectedServerPublicId } from '@/features/server/hooks';
+import { peekPendingJump } from '@/features/server/messages/jump';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -9,21 +11,26 @@ type TScrollPositionEntry = {
   scrollTop: number;
   atBottom: boolean;
 };
-type TScrollPositionMap = Record<number, TScrollPositionEntry>;
+// Keyed by `${serverPublicId}:${channelId}` — bare numeric channel ids
+// collide across federated instances (same reason content-wrapper keys
+// the view on the connected server's publicId).
+type TScrollPositionMap = Record<string, TScrollPositionEntry>;
 
 // In-memory cache (fast reads), backed by localStorage (survives refresh)
 const scrollPositions: TScrollPositionMap = loadScrollPositions();
 
 function loadScrollPositions(): TScrollPositionMap {
   const raw = getLocalStorageItemAsJSON<
-    Record<number, number | TScrollPositionEntry>
+    Record<string, number | TScrollPositionEntry>
   >(LocalStorageKey.SCROLL_POSITIONS);
   if (!raw) return {};
-  // Migrate legacy number-only shape to {scrollTop, atBottom}
   const out: TScrollPositionMap = {};
   for (const [k, v] of Object.entries(raw)) {
-    out[Number(k)] =
-      typeof v === 'number' ? { scrollTop: v, atBottom: false } : v;
+    // Drop legacy entries: bare-number values and unscoped numeric keys
+    // predate the {scrollTop, atBottom} shape / publicId scoping and
+    // would restore wrong positions.
+    if (typeof v === 'number' || !k.includes(':')) continue;
+    out[k] = v;
   }
   return out;
 }
@@ -42,12 +49,31 @@ function schedulePersist() {
   }, 300);
 }
 
+/**
+ * "At bottom" as an absolute pixel distance. The previous check used
+ * `scrollHeight * 0.9`, which scales with content: with a long history
+ * loaded, positions several screens above the end still counted as
+ * "at bottom" — saved positions restored to the wrong place and the
+ * auto-follow yanked the view down while reading. 100px is roughly the
+ * height of the last message group.
+ */
+const AT_BOTTOM_PX = 100;
+function isNearBottom(container: HTMLElement): boolean {
+  return (
+    container.scrollHeight - (container.scrollTop + container.clientHeight) <
+    AT_BOTTOM_PX
+  );
+}
+
 type TUseScrollControllerProps = {
   channelId: number;
   messages: unknown[];
   fetching: boolean;
   hasMore: boolean;
   loadMore: () => Promise<unknown>;
+  /** Detached-window mode (after a jump): page forward near the bottom. */
+  detached?: boolean;
+  loadNewer?: () => Promise<unknown>;
 };
 
 type TUseScrollControllerReturn = {
@@ -62,18 +88,21 @@ const useScrollController = ({
   messages,
   fetching,
   hasMore,
-  loadMore
+  loadMore,
+  detached = false,
+  loadNewer
 }: TUseScrollControllerProps): TUseScrollControllerReturn => {
   const containerRef = useRef<HTMLDivElement>(null);
   const hasInitialScroll = useRef(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
+  const serverPublicId = useConnectedServerPublicId();
+  const posKey = `${serverPublicId ?? 'connecting'}:${channelId}`;
+
   const checkIsAtBottom = useCallback(() => {
     const container = containerRef.current;
     if (!container) return true;
-    const scrollPosition = container.scrollTop + container.clientHeight;
-    const threshold = container.scrollHeight * 0.9;
-    return scrollPosition >= threshold;
+    return isNearBottom(container);
   }, []);
 
   // scroll to bottom function
@@ -82,13 +111,13 @@ const useScrollController = ({
     if (!container) return;
 
     container.scrollTop = container.scrollHeight;
-    scrollPositions[channelId] = {
+    scrollPositions[posKey] = {
       scrollTop: container.scrollTop,
       atBottom: true
     };
     schedulePersist();
     setIsAtBottom(true);
-  }, [channelId]);
+  }, [posKey]);
 
   // detect scroll-to-top and load more messages
   const onScroll = useCallback(() => {
@@ -101,7 +130,7 @@ const useScrollController = ({
     // becomes meaningless once scrollHeight grows (more messages loaded), but
     // atBottom stays correct because it's a relative concept.
     const atBottom = checkIsAtBottom();
-    scrollPositions[channelId] = {
+    scrollPositions[posKey] = {
       scrollTop: container.scrollTop,
       atBottom
     };
@@ -118,7 +147,19 @@ const useScrollController = ({
           newScrollHeight - prevScrollHeight + container.scrollTop;
       });
     }
-  }, [loadMore, hasMore, fetching, channelId, checkIsAtBottom]);
+
+    // Detached window: fill toward the present when nearing the bottom
+    // edge. Appending below doesn't move scrollTop, so no compensation.
+    if (
+      detached &&
+      loadNewer &&
+      container.scrollHeight -
+        (container.scrollTop + container.clientHeight) <
+        300
+    ) {
+      void loadNewer();
+    }
+  }, [loadMore, hasMore, fetching, posKey, checkIsAtBottom, detached, loadNewer]);
 
   // Reset the "did we restore yet?" flag when the channel changes.
   // Without this, switching A→B→A keeps the flag true from the A visit and
@@ -133,26 +174,37 @@ const useScrollController = ({
     const container = containerRef.current;
     return () => {
       if (container) {
-        const atBottom =
-          container.scrollTop + container.clientHeight >=
-          container.scrollHeight * 0.9;
-        scrollPositions[channelId] = {
+        scrollPositions[posKey] = {
           scrollTop: container.scrollTop,
-          atBottom
+          atBottom: isNearBottom(container)
         };
         // Flush immediately on unmount so it's saved before page unload
         persistScrollPositions();
       }
     };
-  }, [channelId]);
+  }, [posKey]);
 
   // Handle initial scroll after messages load
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // A jump owns the initial position — finishJump scrolls to the target
+    // once it renders; restoring/scroll-to-bottom on top of that fights it.
+    // This MUST be checked before the empty-messages guard below: on a jump
+    // to an unloaded channel the first render has no messages, and finishJump
+    // consumes the latch after its around-fetch — so if we waited for
+    // messages, this effect would re-run post-fetch with the latch already
+    // gone and scroll to the bottom, leaving the (highlighted) target
+    // off-screen. Latch as soon as the jump is seen.
+    if (!hasInitialScroll.current && peekPendingJump(channelId)) {
+      hasInitialScroll.current = true;
+      return;
+    }
+
     if (fetching || messages.length === 0) return;
 
     if (!hasInitialScroll.current) {
-      const saved = scrollPositions[channelId];
+      const saved = scrollPositions[posKey];
 
       const performScroll = () => {
         const container = containerRef.current;
@@ -163,7 +215,15 @@ const useScrollController = ({
         // loaded), so a saved scrollTop near the old bottom would land in
         // the middle of the new content. atBottom stays correct regardless.
         if (saved?.atBottom || saved === undefined) {
-          scrollToBottom();
+          // Discord behavior: if messages arrived since the last visit,
+          // land on the "New messages" divider instead of the bottom.
+          const divider = document.getElementById('new-messages-divider');
+          if (divider) {
+            divider.scrollIntoView({ block: 'center' });
+            setIsAtBottom(checkIsAtBottom());
+          } else {
+            scrollToBottom();
+          }
         } else {
           container.scrollTop = saved.scrollTop;
           setIsAtBottom(checkIsAtBottom());
@@ -189,7 +249,7 @@ const useScrollController = ({
         performScroll();
       }, 200);
     }
-  }, [fetching, messages.length, scrollToBottom, channelId, checkIsAtBottom]);
+  }, [fetching, messages.length, scrollToBottom, channelId, posKey, checkIsAtBottom]);
 
   // auto-scroll on new messages if user is near bottom.
   // Depend on `messages.length`, NOT the whole `messages` array ref —
@@ -204,13 +264,24 @@ const useScrollController = ({
     if (!container || !hasInitialScroll.current || messages.length === 0)
       return;
 
+    // Detached from the tail: never yank the view — the bottom of the
+    // loaded window is mid-history, not the present.
+    if (detached) return;
+
+    // A jump owns the scroll while it settles. The around-fetch changes
+    // messages.length here, but the detached flag it also sets propagates
+    // a beat later (Redux message insert vs. local state) — without this
+    // guard the auto-follow fires in that gap and scrolls the highlighted
+    // target to the bottom (the "jumped, highlighted, off-screen" flake).
+    if (peekPendingJump(channelId)) return;
+
     if (checkIsAtBottom()) {
       // scroll after a short delay to allow content to render
       setTimeout(() => {
         scrollToBottom();
       }, 10);
     }
-  }, [messages.length, scrollToBottom, checkIsAtBottom]);
+  }, [messages.length, scrollToBottom, checkIsAtBottom, detached, channelId]);
 
   return {
     containerRef,

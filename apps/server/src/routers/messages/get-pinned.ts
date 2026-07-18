@@ -2,20 +2,14 @@ import {
   ChannelPermission,
   type TFile,
   type TJoinedMessage,
-  type TJoinedMessageReaction,
   type TMessage,
   type TMessageReplyPreview
 } from '@pulse/shared';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import {
-  channels,
-  files,
-  messageFiles,
-  messageReactions,
-  messages
-} from '../../db/schema';
+import { getReactionsForMessageIds } from '../../db/queries/messages';
+import { channels, files, messageFiles, messages } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -63,7 +57,7 @@ const getPinnedMessagesRoute = protectedProcedure
 
     const messageIds = rows.map((m) => m.id);
 
-    const [fileRows, reactionRows] = await Promise.all([
+    const [fileRows, reactionsByMessage] = await Promise.all([
       db
         .select({
           messageId: messageFiles.messageId,
@@ -72,18 +66,7 @@ const getPinnedMessagesRoute = protectedProcedure
         .from(messageFiles)
         .innerJoin(files, eq(messageFiles.fileId, files.id))
         .where(inArray(messageFiles.messageId, messageIds)),
-      db
-        .select({
-          messageId: messageReactions.messageId,
-          userId: messageReactions.userId,
-          emoji: messageReactions.emoji,
-          createdAt: messageReactions.createdAt,
-          fileId: messageReactions.fileId,
-          file: files
-        })
-        .from(messageReactions)
-        .leftJoin(files, eq(messageReactions.fileId, files.id))
-        .where(inArray(messageReactions.messageId, messageIds))
+      getReactionsForMessageIds(messageIds)
     ]);
 
     const filesByMessage = fileRows.reduce<Record<number, TFile[]>>(
@@ -107,27 +90,6 @@ const getPinnedMessagesRoute = protectedProcedure
       },
       {}
     );
-
-    const reactionsByMessage = reactionRows.reduce<
-      Record<number, TJoinedMessageReaction[]>
-    >((acc, r) => {
-      const reaction: TJoinedMessageReaction = {
-        messageId: r.messageId,
-        userId: r.userId,
-        emoji: r.emoji,
-        createdAt: r.createdAt,
-        fileId: r.fileId,
-        file: r.file
-      };
-
-      if (!acc[r.messageId]) {
-        acc[r.messageId] = [];
-      }
-
-      acc[r.messageId]!.push(reaction);
-
-      return acc;
-    }, {});
 
     const replyToIds = rows
       .map((m) => m.replyToId)

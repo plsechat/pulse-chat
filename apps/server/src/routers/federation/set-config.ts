@@ -1,11 +1,10 @@
-import { Permission, ServerEvents } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
 import { stringify } from 'ini';
 import fs from 'node:fs/promises';
 import z from 'zod';
 import { config } from '../../config';
 import { db } from '../../db';
 import { deleteShadowUsersByInstance } from '../../db/mutations/federation';
-import { getFirstServer } from '../../db/queries/servers';
 import { federationInstances, federationKeys } from '../../db/schema';
 import { CONFIG_INI_PATH } from '../../helpers/paths';
 import { invalidateCorsCache } from '../../http/cors';
@@ -16,29 +15,29 @@ import {
 } from '../../utils/federation';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { assertInstanceOwner } from './guard';
 
 const setConfigRoute = protectedProcedure
   .input(
     z.object({
       enabled: z.boolean(),
-      domain: z.string().min(1)
+      domain: z.string().min(1),
+      // Instance-owner policy: whether non-owner server owners may mark
+      // their own servers federatable. Omitted → left unchanged.
+      allowUserFederatableServers: z.boolean().optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
     try {
-      logger.info('[federation/setConfig] called by userId=%d, input=%o', ctx.userId, input);
-
-      const server = await getFirstServer();
-      logger.info('[federation/setConfig] firstServer id=%s, ownerId=%s', server?.id, server?.ownerId);
-
-      await ctx.needsPermission(Permission.MANAGE_SETTINGS, server?.id);
-      logger.info('[federation/setConfig] permission check passed');
+      await assertInstanceOwner(ctx.userId);
 
       // Mutate config in memory
-      logger.info('[federation/setConfig] config.federation before: %o', config.federation);
       config.federation.enabled = input.enabled;
       config.federation.domain = input.domain;
-      logger.info('[federation/setConfig] config.federation after: %o', config.federation);
+      if (input.allowUserFederatableServers !== undefined) {
+        config.federation.allowUserFederatableServers =
+          input.allowUserFederatableServers;
+      }
 
       // Persist to INI file
       logger.info('[federation/setConfig] writing INI to %s', CONFIG_INI_PATH);

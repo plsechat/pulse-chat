@@ -37,41 +37,77 @@ const THEME_MAP: Record<string, 'light' | 'dark' | 'auto'> = {
   system: 'auto'
 };
 
+/**
+ * The bare emoji-mart panel (custom-emoji category + theme wiring),
+ * decoupled from any Popover. Use this directly when the picker must be
+ * hosted by an overlay the parent already owns — e.g. opened FROM a
+ * context/dropdown menu, where nesting a second Popover inside the menu
+ * makes the menu's dismiss layer tear the picker down on hover/focus.
+ */
+const EmojiPickerPanel = memo(
+  ({ onEmojiSelect }: { onEmojiSelect: (emoji: TEmojiItem) => void }) => {
+    const customEmojis = useCustomEmojis();
+    const { theme } = useTheme();
+
+    const customCategory = useMemo(() => {
+      if (customEmojis.length === 0) return [];
+      return [
+        {
+          id: 'server-emojis',
+          name: 'Server Emojis',
+          emojis: customEmojis.map((e) => ({
+            id: e.name,
+            name: e.name,
+            keywords: [e.name, 'custom'],
+            skins: [{ src: e.fallbackImage }]
+          }))
+        }
+      ];
+    }, [customEmojis]);
+
+    const handleEmojiSelect = useCallback(
+      (emoji: TEmojiMartEmoji) => {
+        const custom = customEmojis.find((e) => e.name === emoji.id);
+        const item: TEmojiItem = {
+          id: custom?.id as number | undefined,
+          name: emoji.id,
+          shortcodes: [emoji.shortcodes?.replace(/:/g, '') || emoji.id],
+          emoji: emoji.native,
+          fallbackImage: emoji.src
+        };
+        onEmojiSelect(item);
+      },
+      [onEmojiSelect, customEmojis]
+    );
+
+    return (
+      <Picker
+        data={data}
+        onEmojiSelect={handleEmojiSelect}
+        theme={THEME_MAP[theme] ?? 'auto'}
+        set="native"
+        custom={customCategory}
+        autoFocus
+        previewPosition="none"
+        skinTonePosition="search"
+        maxFrequentRows={2}
+        perLine={8}
+      />
+    );
+  }
+);
+
+EmojiPickerPanel.displayName = 'EmojiPickerPanel';
+
 const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
   const [open, setOpen] = useState(false);
-  const customEmojis = useCustomEmojis();
-  const { theme } = useTheme();
 
-  const customCategory = useMemo(() => {
-    if (customEmojis.length === 0) return [];
-    return [
-      {
-        id: 'server-emojis',
-        name: 'Server Emojis',
-        emojis: customEmojis.map((e) => ({
-          id: e.name,
-          name: e.name,
-          keywords: [e.name, 'custom'],
-          skins: [{ src: e.fallbackImage }]
-        }))
-      }
-    ];
-  }, [customEmojis]);
-
-  const handleEmojiSelect = useCallback(
-    (emoji: TEmojiMartEmoji) => {
-      const custom = customEmojis.find((e) => e.name === emoji.id);
-      const item: TEmojiItem = {
-        id: custom?.id as number | undefined,
-        name: emoji.id,
-        shortcodes: [emoji.shortcodes?.replace(/:/g, '') || emoji.id],
-        emoji: emoji.native,
-        fallbackImage: emoji.src
-      };
+  const handleSelect = useCallback(
+    (item: TEmojiItem) => {
       onEmojiSelect(item);
       setOpen(false);
     },
-    [onEmojiSelect, customEmojis]
+    [onEmojiSelect]
   );
 
   return (
@@ -92,18 +128,7 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <Picker
-          data={data}
-          onEmojiSelect={handleEmojiSelect}
-          theme={THEME_MAP[theme] ?? 'auto'}
-          set="native"
-          custom={customCategory}
-          autoFocus
-          previewPosition="none"
-          skinTonePosition="search"
-          maxFrequentRows={2}
-          perLine={8}
-        />
+        <EmojiPickerPanel onEmojiSelect={handleSelect} />
       </PopoverContent>
     </Popover>
   );
@@ -111,4 +136,4 @@ const EmojiPicker = memo(({ children, onEmojiSelect }: TEmojiPickerProps) => {
 
 EmojiPicker.displayName = 'EmojiPicker';
 
-export { EmojiPicker };
+export { EmojiPicker, EmojiPickerPanel };

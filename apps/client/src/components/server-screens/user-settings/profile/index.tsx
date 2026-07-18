@@ -17,7 +17,8 @@ const Profile = memo(() => {
   const { setTrpcErrors, r, rr, values } = useForm({
     name: ownPublicUser?.name ?? '',
     bannerColor: ownPublicUser?.bannerColor ?? '#FFFFFF',
-    bio: ownPublicUser?.bio ?? ''
+    bio: ownPublicUser?.bio ?? '',
+    pronouns: ownPublicUser?.pronouns ?? ''
   });
 
   const onUpdateUser = useCallback(async () => {
@@ -40,6 +41,10 @@ const Profile = memo(() => {
 
         <Group label="Display Name">
           <Input placeholder="Display Name" {...r('name')} />
+        </Group>
+
+        <Group label="Pronouns">
+          <Input placeholder="e.g. she/her" maxLength={40} {...r('pronouns')} />
         </Group>
 
         <Group label="Bio">

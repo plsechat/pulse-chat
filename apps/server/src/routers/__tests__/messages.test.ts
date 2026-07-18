@@ -1,8 +1,33 @@
+import { ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
+import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { userRoles } from '../../db/schema';
+import { channels, userRoles } from '../../db/schema';
+
+// Exact-count tests need a TEXT channel with no seeded messages: channel 1
+// carries a seed message, and channel 2 is the seeded VOICE channel, which
+// no longer accepts messages. Called inside each test (not beforeEach) so
+// it doesn't compete with the global per-test TRUNCATE.
+const createEmptyTextChannel = async (name: string) => {
+  const [channel] = await getTestDb()
+    .insert(channels)
+    .values({
+      type: ChannelType.TEXT,
+      name,
+      position: 50,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    })
+    .returning();
+
+  return channel!;
+};
 
 describe('messages router', () => {
   test('should throw when user lacks permissions (edit - not own message)', async () => {
@@ -114,27 +139,28 @@ describe('messages router', () => {
 
   test('should get messages from channel', async () => {
     const { caller } = await initTest();
+    const channel = await createEmptyTextChannel('get-messages');
 
     await caller.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Message 1',
       files: []
     });
 
     await caller.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Message 2',
       files: []
     });
 
     await caller.messages.send({
-      channelId: 2,
+      channelId: channel.id,
       content: 'Message 3',
       files: []
     });
 
     const result = await caller.messages.get({
-      channelId: 2,
+      channelId: channel.id,
       cursor: null,
       limit: 50
     });
@@ -142,6 +168,44 @@ describe('messages router', () => {
     expect(result.messages).toBeDefined();
     expect(Array.isArray(result.messages)).toBe(true);
     expect(result.messages.length).toBe(3);
+  });
+
+  test('reactions carry each reactor identity for the hover list', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const channel = await createEmptyTextChannel('reaction-identity');
+
+    await caller1.messages.send({
+      channelId: channel.id,
+      content: 'react to me',
+      files: []
+    });
+
+    const before = await caller1.messages.get({
+      channelId: channel.id,
+      cursor: null,
+      limit: 50
+    });
+    const messageId = before.messages[0]!.id;
+
+    await caller1.messages.toggleReaction({ messageId, emoji: '👍' });
+    await caller2.messages.toggleReaction({ messageId, emoji: '👍' });
+
+    const after = await caller1.messages.get({
+      channelId: channel.id,
+      cursor: null,
+      limit: 50
+    });
+    const reactions = after.messages.find((m) => m.id === messageId)!.reactions;
+
+    // The client's hover resolves "who reacted" from these payloads alone —
+    // each reaction must carry the reactor's name (never the raw id).
+    expect(reactions).toHaveLength(2);
+    const byUser = new Map(reactions.map((r) => [r.userId, r]));
+    expect(byUser.get(1)!.user?.name).toBe('Test Owner');
+    expect(byUser.get(2)!.user?.name).toBe('Test User');
+    // Seeded users have no avatar → null (client falls back to initials).
+    expect(byUser.get(1)!.user?.avatar).toBeNull();
   });
 
   test('should edit own message', async () => {
@@ -449,6 +513,7 @@ describe('messages router', () => {
 
   test('should send multiple messages', async () => {
     const { caller } = await initTest();
+    const channel = await createEmptyTextChannel('multi-send');
 
     const messageCount = 5;
     const promises = [];
@@ -456,7 +521,7 @@ describe('messages router', () => {
     for (let i = 0; i < messageCount; i++) {
       promises.push(
         caller.messages.send({
-          channelId: 2,
+          channelId: channel.id,
           content: `Message ${i + 1}`,
           files: []
         })
@@ -466,7 +531,7 @@ describe('messages router', () => {
     await Promise.all(promises);
 
     const messages = await caller.messages.get({
-      channelId: 2,
+      channelId: channel.id,
       cursor: null,
       limit: 50
     });
@@ -527,9 +592,10 @@ describe('messages router', () => {
 
   test('should return empty messages for empty channel', async () => {
     const { caller } = await initTest();
+    const channel = await createEmptyTextChannel('empty-channel');
 
     const messages = await caller.messages.get({
-      channelId: 2,
+      channelId: channel.id,
       cursor: null,
       limit: 50
     });

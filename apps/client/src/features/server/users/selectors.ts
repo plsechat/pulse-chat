@@ -13,6 +13,16 @@ const STATUS_ORDER: Record<string, number> = {
 
 export const ownUserIdSelector = (state: IRootState) => state.server.ownUserId;
 
+/**
+ * The user's own id in HOME-instance id-space. state.server.ownUserId
+ * is instance-ambient — viewing a federated server overwrites it with
+ * the remote shadow id — so any comparison against home-scoped data
+ * (DMs, friends, friend requests) must use this. Falls back to the
+ * ambient id before the home join completes.
+ */
+export const homeOwnUserIdSelector = (state: IRootState) =>
+  state.app.homeOwnUserId ?? state.server.ownUserId;
+
 export const usersSelector = createSelector(
   (state: IRootState) => state.server.users,
   (users) => {
@@ -45,11 +55,44 @@ export const userByIdSelector = createCachedSelector(
   [
     usersSelector,
     (state: IRootState) => state.friends.friends,
+    (state: IRootState) => state.dms.channels,
     (_: IRootState, userId: number) => userId
   ],
-  (users, friends, userId) =>
+  (users, friends, dmChannels, userId) =>
     users.find((user) => user.id === userId) ??
-    friends.find((friend) => friend.id === userId)
+    friends.find((friend) => friend.id === userId) ??
+    // Non-friend DM partners (e.g. shared-server DMs) exist only in the
+    // DM channel member projections — without this fallback they resolve
+    // to undefined and every presence surface renders them OFFLINE.
+    dmChannels
+      .flatMap((channel) => channel.members)
+      .find((member) => member.id === userId)
+)((_, userId: number) => userId);
+
+/**
+ * Resolve a user in HOME id-space. `state.server.users` is instance-
+ * ambient — while a federated server is active it holds the REMOTE
+ * roster, where the same numeric id belongs to a different person.
+ * Home-scoped surfaces (DMs, friends) hold home ids, so resolving them
+ * through the ambient roster swaps identities (observed: a fresh
+ * federated DM rendering the sender as the recipient). Only consult the
+ * ambient roster when it IS the home roster; otherwise fall back to the
+ * home-scoped sources (friends + DM member projections).
+ */
+export const homeUserByIdSelector = createCachedSelector(
+  [
+    (state: IRootState) =>
+      state.app.activeInstanceDomain ? undefined : state.server.users,
+    (state: IRootState) => state.friends.friends,
+    (state: IRootState) => state.dms.channels,
+    (_: IRootState, userId: number) => userId
+  ],
+  (users, friends, dmChannels, userId) =>
+    users?.find((user) => user.id === userId) ??
+    friends.find((friend) => friend.id === userId) ??
+    dmChannels
+      .flatMap((channel) => channel.members)
+      .find((member) => member.id === userId)
 )((_, userId: number) => userId);
 
 export const isOwnUserSelector = createCachedSelector(

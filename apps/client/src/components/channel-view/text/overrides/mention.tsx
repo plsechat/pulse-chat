@@ -1,10 +1,11 @@
 import { UserPopover } from '@/components/user-popover';
+import { setActiveView } from '@/features/app/actions';
 import {
   setActiveThreadId,
-  setHighlightedMessageId,
   setSelectedChannelId
 } from '@/features/server/channels/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
+import { jumpToMessage } from '@/features/server/messages/jump';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
@@ -113,6 +114,8 @@ const ForumPostLink = memo(
   ({ channelId, threadId }: { channelId: number; threadId: number }) => {
     const thread = useChannelById(threadId);
     const handleClick = useCallback(() => {
+      // Post links are clickable from the home view (DMs) too.
+      setActiveView('server');
       setSelectedChannelId(channelId);
       setActiveThreadId(threadId);
     }, [channelId, threadId]);
@@ -135,20 +138,16 @@ const ForumPostLink = memo(
 );
 
 /**
- * Renders a `<#msg:channelId/messageId>` token. Click switches to the
- * channel and uses the existing scroll-to-message highlight pulse to
- * land on the message. Falls back to a label-only badge if the channel
- * isn't loaded.
+ * Renders a `<#msg:channelId/messageId>` token. Click hands off to the
+ * jump engine: switches to the server view + channel, around-fetches the
+ * message when it's outside the loaded history, then scrolls to it with
+ * the highlight pulse.
  */
 const MessageLink = memo(
   ({ channelId, messageId }: { channelId: number; messageId: number }) => {
     const channel = useChannelById(channelId);
     const handleClick = useCallback(() => {
-      setSelectedChannelId(channelId);
-      // Channel selection is async (messages load); the highlight effect
-      // tolerates the message not being in the DOM yet — it'll latch on
-      // when the row mounts. Same hook the existing reply-jump uses.
-      setHighlightedMessageId(messageId);
+      jumpToMessage(channelId, messageId);
     }, [channelId, messageId]);
 
     return (

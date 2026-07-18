@@ -1,10 +1,12 @@
 import { OWNER_ROLE_ID, type TJoinedServer, type TServerSummary } from '@pulse/shared';
-import { and, asc, count, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, max, or, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   channelReadStates,
   channels,
+  dmChannelMembers,
   files,
+  friendships,
   messages,
   roles,
   serverMembers,
@@ -374,6 +376,47 @@ const getCoMemberIds = async (userId: number): Promise<number[]> => {
 };
 
 /**
+ * Everyone who should see `userId`'s presence transitions: co-members of
+ * shared servers, members of shared DM channels, and friends. Presence
+ * events fanned only to server co-members left DM partners and friends
+ * with a permanently stale status — the client defaults a missing status
+ * to OFFLINE, which is exactly the "everyone in DMs looks offline" bug.
+ */
+const getPresenceInterestedIds = async (userId: number): Promise<number[]> => {
+  const [coMemberIds, dmRows, friendRows] = await Promise.all([
+    getCoMemberIds(userId),
+    db
+      .selectDistinct({ userId: dmChannelMembers.userId })
+      .from(dmChannelMembers)
+      .where(
+        inArray(
+          dmChannelMembers.dmChannelId,
+          db
+            .select({ dmChannelId: dmChannelMembers.dmChannelId })
+            .from(dmChannelMembers)
+            .where(eq(dmChannelMembers.userId, userId))
+        )
+      ),
+    db
+      .select({ userId: friendships.userId, friendId: friendships.friendId })
+      .from(friendships)
+      .where(
+        or(eq(friendships.userId, userId), eq(friendships.friendId, userId))
+      )
+  ]);
+
+  const ids = new Set<number>(coMemberIds);
+  for (const row of dmRows) ids.add(row.userId);
+  for (const row of friendRows) {
+    ids.add(row.userId);
+    ids.add(row.friendId);
+  }
+  ids.delete(userId);
+
+  return [...ids];
+};
+
+/**
  * True if `userId` owns `serverId`. Considers both:
  *   - servers.owner_id (canonical, set by Phase 3 first-user-claim and
  *     servers/create), and
@@ -417,6 +460,24 @@ const isServerOwner = async (
   return !!match;
 };
 
+/**
+ * True iff `userId` owns the instance's first (lowest-id, bootstrap)
+ * server — i.e. the operator who set the instance up. This is the
+ * "original server owner" that governs instance-level federation:
+ * enabling federation and peering with other instances are theirs alone,
+ * never a mere MANAGE_SETTINGS holder or a user who spun up their own
+ * server (and is therefore its owner with all permissions).
+ */
+const isInstanceOwner = async (userId: number): Promise<boolean> => {
+  const [server] = await db
+    .select({ ownerId: servers.ownerId })
+    .from(servers)
+    .orderBy(servers.id)
+    .limit(1);
+
+  return server?.ownerId != null && server.ownerId === userId;
+};
+
 const sharesServerWith = async (
   userId1: number,
   userId2: number
@@ -442,12 +503,14 @@ export {
   getCoMemberIds,
   getDiscoverableServers,
   getFirstServer,
+  getPresenceInterestedIds,
   getServerById,
   getServerByPublicId,
   getServerMemberIds,
   getServerUnreadCount,
   getServerUnreadCounts,
   getServersByUserId,
+  isInstanceOwner,
   isServerMember,
   isServerOwner,
   removeServerMember,

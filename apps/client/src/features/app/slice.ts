@@ -28,6 +28,13 @@ export interface TAppState {
   activeServerId: number | undefined;
   federatedServers: TFederatedServerEntry[];
   activeInstanceDomain: string | null;
+  /**
+   * The user's id on their HOME instance. state.server.ownUserId is
+   * instance-ambient — switching to a federated server overwrites it
+   * with the remote shadow id — so anything comparing against
+   * home-scoped data (friends, DMs, friend requests) must use this.
+   */
+  homeOwnUserId: number | undefined;
   serverUnreadCounts: Record<number, number>;
   serverMentionCounts: Record<number, number>;
   /** Keyed by "instanceDomain:serverId" */
@@ -50,6 +57,7 @@ const initialState: TAppState = {
   activeServerId: undefined,
   federatedServers: [],
   activeInstanceDomain: null,
+  homeOwnUserId: undefined,
   serverUnreadCounts: {},
   serverMentionCounts: {},
   federatedUnreadCounts: {},
@@ -79,6 +87,9 @@ export const appSlice = createSlice({
     },
     setActiveView: (state, action: PayloadAction<TActiveView>) => {
       state.activeView = action.payload;
+    },
+    setHomeOwnUserId: (state, action: PayloadAction<number | undefined>) => {
+      state.homeOwnUserId = action.payload;
     },
     setJoinedServers: (state, action: PayloadAction<TServerSummary[]>) => {
       state.joinedServers = action.payload;

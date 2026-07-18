@@ -1,8 +1,7 @@
-import { Permission, ServerEvents } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import z from 'zod';
 import { db } from '../../db';
-import { getFirstServer } from '../../db/queries/servers';
 import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
 import { protectedProcedure } from '../../utils/trpc';
@@ -12,6 +11,7 @@ import { getFederationProtocol } from '../../utils/validate-url';
 import { pubsub } from '../../utils/pubsub';
 import { invalidateCorsCache } from '../../http/cors';
 import { logger } from '../../logger';
+import { assertInstanceOwner } from './guard';
 
 const acceptInstanceRoute = protectedProcedure
   .input(
@@ -20,8 +20,7 @@ const acceptInstanceRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
-    const server = await getFirstServer();
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, server?.id);
+    await assertInstanceOwner(ctx.userId);
 
     const [instance] = await db
       .select()

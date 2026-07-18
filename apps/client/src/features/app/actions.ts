@@ -1,4 +1,7 @@
-import { getUrlFromServer } from '@/helpers/get-file-url';
+import {
+  getUrlFromServer,
+  registerRemoteInstanceUrl
+} from '@/helpers/get-file-url';
 import { setGiphyApiKey } from '@/helpers/giphy';
 import {
   getLocalStorageItem,
@@ -369,6 +372,9 @@ export const joinFederatedServer = async (
 ) => {
   try {
     console.log('[joinFederatedServer] connecting to remote:', instanceDomain, remoteUrl);
+    // Let file URLs resolve against the server-provided base instead of
+    // guessing the protocol from the domain string.
+    registerRemoteInstanceUrl(instanceDomain, remoteUrl);
     // Connect to remote instance
     connectionManager.connectRemote(instanceDomain, remoteUrl, federationToken);
     console.log('[joinFederatedServer] connected, getting remote tRPC client...');
@@ -778,14 +784,22 @@ export const loadFederatedServers = async () => {
           targetDomain: m.instanceDomain
         });
 
-        const protocol = m.instanceDomain.includes('localhost')
-          ? 'http'
-          : 'https';
+        // The home server computes the peer's protocol (http for LAN /
+        // allowlisted-private peers, https otherwise) — never guess it
+        // here. The old localhost-only heuristic dialed wss:// against
+        // plain-http peers, so previously joined federated servers never
+        // reconnected. Fallback only covers a home server predating the
+        // remoteUrl field.
+        const remoteUrl =
+          m.remoteUrl ??
+          `${m.instanceDomain.includes('localhost') ? 'http' : 'https'}://${m.instanceDomain}`;
+
+        registerRemoteInstanceUrl(m.instanceDomain, remoteUrl);
 
         entries.push({
           instanceDomain: m.instanceDomain,
           instanceName: m.instanceName ?? m.instanceDomain,
-          remoteUrl: `${protocol}://${m.instanceDomain}`,
+          remoteUrl,
           server: {
             id: m.remoteServerId,
             publicId: m.remoteServerPublicId,

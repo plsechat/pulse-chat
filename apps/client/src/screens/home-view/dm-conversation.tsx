@@ -10,7 +10,12 @@ import { DateDivider } from '@/components/chat-primitives/date-divider';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
-import { EmojiPicker } from '@/components/emoji-picker';
+import { EmojiPickerPanel } from '@/components/emoji-picker';
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent
+} from '@/components/ui/popover';
 import { MessageReactions } from '@/components/channel-view/text/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
@@ -28,7 +33,7 @@ import {
 } from '@/features/dms/actions';
 import { useDmChannels, useDmTypingUsers } from '@/features/dms/hooks';
 import { useDmMessages } from '@/features/dms/use-dm-messages';
-import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
+import { useHomeOwnUserId, useHomeUserById } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -47,6 +52,7 @@ import type { TFile, TJoinedDmMessage } from '@pulse/shared';
 import {
   audioExtensions,
   imageExtensions,
+  MAX_MESSAGE_CONTENT_LENGTH,
   TYPING_MS,
   videoExtensions
 } from '@pulse/shared';
@@ -116,7 +122,7 @@ const DmConversation = memo(
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
   const dmChannels = useDmChannels();
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
   const dmMembers = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
@@ -194,26 +200,46 @@ const DmConversation = memo(
   const hasInitialScroll = useRef(false);
   const isNearBottom = useRef(true);
 
+  // "At bottom" as an absolute pixel distance — a scrollHeight-ratio
+  // check misclassifies positions screens above the end once a long
+  // history is loaded (same fix as the channel scroll controller).
+  const checkNearBottom = (c: HTMLElement) =>
+    c.scrollHeight - (c.scrollTop + c.clientHeight) < 100;
+
+  // DmConversation is NOT remounted per conversation (no key on it) —
+  // without this reset, switching DM A→B skips B's restore entirely and
+  // leaves the view wherever A's scroll happened to be.
+  useEffect(() => {
+    hasInitialScroll.current = false;
+  }, [dmChannelId]);
+
   // Restore saved scroll position or scroll to bottom on initial load
   useEffect(() => {
     if (!containerRef.current || loading || messages.length === 0) return;
     if (hasInitialScroll.current) return;
 
     const positions =
-      getLocalStorageItemAsJSON<Record<number, number>>(
-        LocalStorageKey.DM_SCROLL_POSITIONS
-      ) ?? {};
-    const saved = positions[dmChannelId];
+      getLocalStorageItemAsJSON<
+        Record<number, number | { scrollTop: number; atBottom: boolean }>
+      >(LocalStorageKey.DM_SCROLL_POSITIONS) ?? {};
+    const rawSaved = positions[dmChannelId];
+    // Legacy entries were a bare scrollTop with no atBottom flag; treat
+    // them as mid-history (a stale pixel restore beats a wrong bottom).
+    const saved =
+      typeof rawSaved === 'number'
+        ? { scrollTop: rawSaved, atBottom: false }
+        : rawSaved;
 
     const perform = () => {
       const c = containerRef.current;
       if (!c) return;
-      if (saved !== undefined) {
-        c.scrollTop = saved;
-        const atBottom =
-          c.scrollTop + c.clientHeight >= c.scrollHeight * 0.9;
-        isNearBottom.current = atBottom;
+      if (saved !== undefined && !saved.atBottom) {
+        c.scrollTop = saved.scrollTop;
+        isNearBottom.current = checkNearBottom(c);
       } else {
+        // No save, or the user left anchored at the bottom: land at the
+        // bottom (scrollHeight has likely changed since save time, so
+        // the pixel value would be stale anyway).
         c.scrollTop = c.scrollHeight;
         isNearBottom.current = true;
       }
@@ -238,16 +264,21 @@ const DmConversation = memo(
     }
   }, [messages.length]);
 
-  // Save scroll position on unmount
+  // Save scroll position when leaving the conversation (channel switch
+  // or unmount — the effect cleanup runs for both since it's keyed on
+  // dmChannelId).
   useEffect(() => {
     const c = containerRef.current;
     return () => {
       if (c) {
         const positions =
-          getLocalStorageItemAsJSON<Record<number, number>>(
-            LocalStorageKey.DM_SCROLL_POSITIONS
-          ) ?? {};
-        positions[dmChannelId] = c.scrollTop;
+          getLocalStorageItemAsJSON<
+            Record<number, number | { scrollTop: number; atBottom: boolean }>
+          >(LocalStorageKey.DM_SCROLL_POSITIONS) ?? {};
+        positions[dmChannelId] = {
+          scrollTop: c.scrollTop,
+          atBottom: checkNearBottom(c)
+        };
         setLocalStorageItemAsJSON(LocalStorageKey.DM_SCROLL_POSITIONS, positions);
       }
     };
@@ -258,11 +289,18 @@ const DmConversation = memo(
 
     // Track whether user is near bottom
     const c = containerRef.current;
-    isNearBottom.current =
-      c.scrollTop + c.clientHeight >= c.scrollHeight * 0.9;
+    isNearBottom.current = checkNearBottom(c);
 
     if (!fetching && hasMore && c.scrollTop < 100) {
-      loadMore();
+      // Compensate for the prepended page so the viewport doesn't jump
+      // (same pattern as the channel scroll controller).
+      const prevScrollHeight = c.scrollHeight;
+      loadMore().then(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        container.scrollTop =
+          container.scrollHeight - prevScrollHeight + container.scrollTop;
+      });
     }
   }, [fetching, hasMore, loadMore]);
 
@@ -270,6 +308,17 @@ const DmConversation = memo(
     if (isHtmlEmpty(newMessage) && !files.length) return;
 
     sendTypingSignal.cancel();
+
+    const content = tiptapHtmlToTokens(newMessage);
+
+    // Check plaintext length BEFORE encryption — the server's wire cap
+    // is sized for the encrypted envelope, so this is the real budget.
+    if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+      toast.error(
+        `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+      );
+      return;
+    }
 
     try {
       // Build fileKeys from encrypted upload key material. Includes
@@ -293,7 +342,7 @@ const DmConversation = memo(
 
       await sendDmMessage(
         dmChannelId,
-        tiptapHtmlToTokens(newMessage),
+        content,
         files.length > 0 ? files.map((f) => f.id) : undefined,
         replyingTo?.id,
         fileKeys
@@ -552,8 +601,8 @@ const DmUsersTyping = memo(({ dmChannelId }: { dmChannelId: number }) => {
 });
 
 const DmTypingNames = memo(({ userIds }: { userIds: number[] }) => {
-  const user0 = useUserById(userIds[0]);
-  const user1 = useUserById(userIds[1] ?? 0);
+  const user0 = useHomeUserById(userIds[0]);
+  const user1 = useHomeUserById(userIds[1] ?? 0);
 
   if (userIds.length === 1) {
     return (
@@ -592,7 +641,7 @@ const DmHeader = memo(({
   onToggleProfilePanel?: () => void;
 }) => {
   const channels = useDmChannels();
-  const ownUserId = useOwnUserId();
+  const ownUserId = useHomeOwnUserId();
   const call = useDmCall(dmChannelId);
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
@@ -653,6 +702,7 @@ const DmHeader = memo(({
                 i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
               )}
               showUserPopover={false}
+              homeScope
             />
           ))}
         </div>
@@ -661,6 +711,7 @@ const DmHeader = memo(({
           userId={otherMembers[0].id}
           className="h-7 w-7"
           showUserPopover
+          homeScope
         />
       )}
       <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
@@ -841,7 +892,7 @@ const DmPinnedMessageItem = memo(
     message: TJoinedDmMessage;
     onUnpin: (dmMessageId: number) => void;
   }) => {
-    const user = useUserById(message.userId);
+    const user = useHomeUserById(message.userId);
 
     const content = message.content ?? '';
     const legacy = isLegacyHtml(content);
@@ -856,7 +907,7 @@ const DmPinnedMessageItem = memo(
     return (
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
         <div className="flex items-center gap-2 mb-1">
-          <UserAvatar userId={message.userId} className="h-5 w-5" />
+          <UserAvatar userId={message.userId} className="h-5 w-5" homeScope />
           <span className="text-sm font-medium">
             {user?.name ?? 'Unknown'}
           </span>
@@ -888,9 +939,9 @@ const DmPinnedMessageItem = memo(
 const DmMessagesGroup = memo(
   ({ group, onReply }: { group: TJoinedDmMessage[]; onReply: (message: TJoinedDmMessage) => void }) => {
     const firstMessage = group[0];
-    const user = useUserById(firstMessage.userId);
+    const user = useHomeUserById(firstMessage.userId);
     const date = new Date(firstMessage.createdAt);
-    const ownUserId = useOwnUserId();
+    const ownUserId = useHomeOwnUserId();
     const isOwnUser = firstMessage.userId === ownUserId;
 
     if (!user) return null;
@@ -903,10 +954,10 @@ const DmMessagesGroup = memo(
 
     return (
       <div className="flex min-w-0 gap-1 pl-2 pt-2 pr-2 group/msggroup">
-        <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
+        <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline pl-1 select-none">
-            <UserPopover userId={user.id}>
+            <UserPopover userId={user.id} homeScope>
               <span
                 className={cn(
                   'cursor-pointer hover:underline',
@@ -952,7 +1003,7 @@ const DmReplyBar = memo(
     message: TJoinedDmMessage;
     onDismiss: () => void;
   }) => {
-    const user = useUserById(message.userId);
+    const user = useHomeUserById(message.userId);
 
     const scrollToMessage = useCallback(() => {
       const el = document.getElementById(`dm-msg-${message.id}`);
@@ -998,7 +1049,8 @@ const DmReplyBar = memo(
 
 const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onReply: () => void }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const ownUserId = useOwnUserId();
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const ownUserId = useHomeOwnUserId();
   const isOwnMessage = message.userId === ownUserId;
 
   const handleDelete = useCallback(async () => {
@@ -1076,6 +1128,8 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 
   const onEmojiSelect = useCallback(
     async (emoji: TEmojiItem) => {
+      setReactionPickerOpen(false);
+
       const trpc = getHomeTRPCClient();
       if (!trpc) return;
 
@@ -1099,8 +1153,13 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   }, [message.content]);
 
   return (
+    // Reaction picker is a separate Popover wrapping the context menu (see
+    // message-context-menu.tsx for the rationale) — nesting it inside the
+    // menu made it vanish on hover when emoji-mart grabbed focus.
+    <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
     <ContextMenu>
       <ContextMenuTrigger asChild>
+    <PopoverAnchor asChild>
     <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 ml-1 relative hover:bg-secondary/50 rounded-md px-1 py-0.5 group">
       {message.replyTo && (
         <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToDmMessage} />
@@ -1113,6 +1172,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
               messageId={message.id}
               reactions={message.reactions}
               onToggle={handleToggleReaction}
+              homeScope
             />
           )}
           <MessageActions
@@ -1138,8 +1198,16 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
         />
       )}
     </div>
+    </PopoverAnchor>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
+      <ContextMenuContent
+        className="w-48"
+        // Don't restore focus to the trigger when the picker opened — the
+        // yank registers as focus-outside on the picker Popover.
+        onCloseAutoFocus={(e) => {
+          if (reactionPickerOpen) e.preventDefault();
+        }}
+      >
         <ContextMenuItem onClick={onReply}>
           <Reply className="h-4 w-4" />
           Reply
@@ -1154,12 +1222,10 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           {message.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
           {message.pinned ? 'Unpin' : 'Pin'}
         </ContextMenuItem>
-        <EmojiPicker onEmojiSelect={onEmojiSelect}>
-          <ContextMenuItem onSelect={(e) => e.preventDefault()}>
-            <Smile className="h-4 w-4" />
-            Add Reaction
-          </ContextMenuItem>
-        </EmojiPicker>
+        <ContextMenuItem onClick={() => setReactionPickerOpen(true)}>
+          <Smile className="h-4 w-4" />
+          Add Reaction
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onCopyText} disabled={!message.content}>
           <Copy className="h-4 w-4" />
@@ -1176,6 +1242,22 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
         )}
       </ContextMenuContent>
     </ContextMenu>
+
+      <PopoverContent
+        className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
+        align="start"
+        sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        // The exiting context menu's trapped FocusScope steals focus from
+        // emoji-mart, and a non-modal Popover dismisses on focus-outside —
+        // the "instantly closes" bug. Ignore focus movement; only
+        // pointer-down outside, Escape, or picking an emoji closes it.
+        onFocusOutside={(e) => e.preventDefault()}
+      >
+        <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
+      </PopoverContent>
+    </Popover>
   );
 });
 
@@ -1231,6 +1313,9 @@ const DmNonMediaFile = memo(({
       href={loading ? undefined : url}
       target="_blank"
       rel="noopener noreferrer"
+      // Decrypted E2EE attachments are blob: URLs — without a download
+      // name the save dialog offers a random UUID instead of the filename.
+      download={url?.startsWith('blob:') ? file.originalName : undefined}
       className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
     >
       <span className="truncate">{file.originalName}</span>

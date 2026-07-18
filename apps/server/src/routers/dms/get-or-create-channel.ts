@@ -4,10 +4,11 @@ import { db } from '../../db';
 import { isBlockBetween } from '../../db/queries/blocks';
 import { findDmChannelBetween, getDmChannelsForUser } from '../../db/queries/dms';
 import { areFriends } from '../../db/queries/friends';
-import { sharesServerWith } from '../../db/queries/servers';
+import { sharesServerWithFederationAware } from '../../utils/federation-shares-server';
 import { dmChannelMembers, dmChannels } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { attachMemberStatus } from './attach-member-status';
 
 const getOrCreateChannelRoute = protectedProcedure
   .input(z.object({ userId: z.number() }))
@@ -26,10 +27,15 @@ const getOrCreateChannelRoute = protectedProcedure
       message: 'Cannot start a DM with this user.'
     });
 
-    // Require shared server or existing friendship to create a DM
+    // Require shared server or existing friendship to create a DM.
+    // Federation-aware: shadow targets are checked via a signed
+    // co-membership attestation from their home instance.
     const friends = await areFriends(ctx.userId, input.userId);
     if (!friends) {
-      const shares = await sharesServerWith(ctx.userId, input.userId);
+      const shares = await sharesServerWithFederationAware(
+        ctx.userId,
+        input.userId
+      );
       invariant(shares, {
         code: 'FORBIDDEN',
         message: 'You must share a server or be friends to start a DM'
@@ -43,7 +49,10 @@ const getOrCreateChannelRoute = protectedProcedure
     );
 
     if (existingChannelId) {
-      const channels = await getDmChannelsForUser(ctx.userId);
+      const channels = attachMemberStatus(
+        await getDmChannelsForUser(ctx.userId),
+        ctx
+      );
       return channels.find((c) => c.id === existingChannelId)!;
     }
 
@@ -67,7 +76,10 @@ const getOrCreateChannelRoute = protectedProcedure
       iconFileId: null
     });
 
-    const channels = await getDmChannelsForUser(ctx.userId);
+    const channels = attachMemberStatus(
+      await getDmChannelsForUser(ctx.userId),
+      ctx
+    );
     return channels.find((c) => c.id === channel!.id)!;
   });
 

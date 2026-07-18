@@ -75,17 +75,29 @@ const VoiceUser = memo(({ user }: TVoiceUserProps) => {
       </span>
 
       <div className="flex items-center gap-1 opacity-60">
-        <div>
-          {user.state.micMuted ? (
-            <MicOff className="h-3 w-3 text-red-500" />
+        <div title={user.state.serverMuted ? 'Muted by a moderator' : undefined}>
+          {user.state.serverMuted || user.state.micMuted ? (
+            <MicOff
+              className={
+                user.state.serverMuted
+                  ? 'h-3 w-3 text-red-600'
+                  : 'h-3 w-3 text-red-500'
+              }
+            />
           ) : (
             <Mic className="h-3 w-3 text-green-500" />
           )}
         </div>
 
-        <div>
-          {user.state.soundMuted ? (
-            <HeadphoneOff className="h-3 w-3 text-red-500" />
+        <div title={user.state.serverDeafened ? 'Deafened by a moderator' : undefined}>
+          {user.state.serverDeafened || user.state.soundMuted ? (
+            <HeadphoneOff
+              className={
+                user.state.serverDeafened
+                  ? 'h-3 w-3 text-red-600'
+                  : 'h-3 w-3 text-red-500'
+              }
+            />
           ) : (
             <Headphones className="h-3 w-3 text-green-500" />
           )}

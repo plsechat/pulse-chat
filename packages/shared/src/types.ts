@@ -137,6 +137,11 @@ export type TServerInfo = Pick<
    * client hides the Create Account form (unless an invite link is present).
    * Absent = enabled (backwards compat with older servers). */
   passwordRegistrationEnabled?: boolean;
+  /** Derived SSO-only flag: false when password registration is disabled
+   * AND at least one SSO provider is advertised. The client then hides the
+   * email/password login form (unless an invite link is present) and the
+   * server rejects password logins. Absent = enabled (backwards compat). */
+  passwordLoginEnabled?: boolean;
   enabledAuthProviders?: TAuthProvider[];
   supabaseUrl: string;
   supabaseAnonKey: string;
@@ -263,6 +268,7 @@ export type TFederationConfig = {
   domain: string;
   hasKeys: boolean;
   publicKey?: string;
+  allowUserFederatableServers: boolean;
 };
 
 export type TRemoteServerSummary = {

@@ -1,39 +1,34 @@
-import { ServerEvents } from '@pulse/shared';
-import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 const dmVoiceLeaveRoute = protectedProcedure.mutation(async ({ ctx }) => {
-  invariant(ctx.currentDmVoiceChannelId, {
+  // Fall back to the runtime lookup when the per-connection context has
+  // no channel — after a refresh the new connection never joined, but
+  // the user's stale session may still occupy the call.
+  let runtime = ctx.currentDmVoiceChannelId
+    ? VoiceRuntime.findById(ctx.currentDmVoiceChannelId)
+    : undefined;
+
+  if (!runtime) {
+    const found = VoiceRuntime.findRuntimeByUserId(ctx.user.id);
+    if (found?.isDmVoice) runtime = found;
+  }
+
+  invariant(runtime && runtime.getUser(ctx.user.id), {
     code: 'BAD_REQUEST',
     message: 'Not in a DM voice call'
   });
 
-  const runtime = VoiceRuntime.requireById(ctx.currentDmVoiceChannelId);
+  const dmChannelId = runtime.id;
 
-  const dmChannelId = ctx.currentDmVoiceChannelId;
-  const memberIds = await getDmChannelMemberIds(dmChannelId);
-
-  runtime.removeUser(ctx.user.id);
-
-  ctx.pubsub.publishFor(memberIds, ServerEvents.DM_CALL_USER_LEFT, {
-    dmChannelId,
-    userId: ctx.userId
-  });
+  await removeUserFromVoice(ctx.user.id);
 
   ctx.currentDmVoiceChannelId = undefined;
   ctx.currentVoiceChannelId = undefined;
-
-  // Destroy runtime if no users remain
-  if (runtime.getState().users.length === 0) {
-    await runtime.destroy();
-
-    ctx.pubsub.publishFor(memberIds, ServerEvents.DM_CALL_ENDED, {
-      dmChannelId
-    });
-  }
+  ctx.setWsVoiceChannelId(undefined);
 
   logger.info('%s left DM voice call %d', ctx.user.name, dmChannelId);
 });

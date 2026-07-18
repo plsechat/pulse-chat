@@ -1,0 +1,130 @@
+# =============================================================================
+# Pulse — E2E compose (Playwright suite environment)
+# =============================================================================
+# Three independent Pulse instances, each with its own postgres:
+#
+#   pulse-core   host 14991  — auth / messaging / voice / files specs
+#   pulse-sso    host 14993  — SSO-only login mode (password auth derived-off)
+#   pulse-fed-a  host 14994  — federation specs, "home" instance
+#   pulse-fed-b  host 14995  — federation specs, remote peer
+#
+# fed-a and fed-b reach each other over the compose network as
+# pulse-fed-a:4991 / pulse-fed-b:4991 (their configured Instance
+# Domains). The Playwright federation project maps pulse-fed-b:4991 to
+# 127.0.0.1:14995 via a Chromium host-resolver rule so the host browser
+# can follow the same URLs the client uses.
+#
+# All state is ephemeral (no volumes): `docker compose down` fully
+# resets the environment, and every `up` starts from a first-boot seed.
+
+x-pulse-common: &pulse-common
+  image: pulse-e2e:latest
+  build:
+    context: ../..
+    dockerfile: e2e/docker/Dockerfile
+  restart: unless-stopped
+  environment: &pulse-env
+    AUTH_BACKEND: local
+    RUNNING_IN_DOCKER: "true"
+    TRUST_PROXY: "true"
+    PUBLIC_IP: 127.0.0.1
+    REGISTRATION_DISABLED: "false"
+    # The suite authenticates per-test over the API (refresh tokens are
+    # one-time-use, so sessions can't be shared across contexts); the
+    # default 10-per-15-min auth budget would 429 immediately.
+    AUTH_RATE_LIMIT_MAX: "10000"
+
+x-db-common: &db-common
+  image: postgres:16-alpine
+  restart: unless-stopped
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: postgres
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres"]
+    interval: 3s
+    timeout: 3s
+    retries: 20
+
+services:
+  pulse-core:
+    <<: *pulse-common
+    container_name: pulse-e2e-core
+    ports:
+      - "14991:4991"
+    environment:
+      <<: *pulse-env
+      AUTH_SECRET: e2e-core-secret-0123456789abcdef0123456789abcdef
+      DATABASE_URL: postgresql://postgres:postgres@db-core:5432/postgres
+    depends_on:
+      db-core:
+        condition: service_healthy
+
+  pulse-sso:
+    <<: *pulse-common
+    container_name: pulse-e2e-sso
+    ports:
+      - "14993:4991"
+    environment:
+      <<: *pulse-env
+      AUTH_SECRET: e2e-sso-secret-0123456789abcdef0123456789abcdef
+      DATABASE_URL: postgresql://postgres:postgres@db-sso:5432/postgres
+      # Derived SSO-only mode: password self-registration off + one
+      # advertised provider => passwordLoginEnabled=false
+      REGISTRATION_PASSWORD_ENABLED: "false"
+      GOOGLE_OAUTH_ENABLED: "true"
+    depends_on:
+      db-sso:
+        condition: service_healthy
+
+  pulse-fed-a:
+    <<: *pulse-common
+    container_name: pulse-e2e-fed-a
+    ports:
+      - "14994:4991"
+    environment:
+      <<: *pulse-env
+      AUTH_SECRET: e2e-fed-a-secret-0123456789abcdef0123456789abcdef
+      DATABASE_URL: postgresql://postgres:postgres@db-fed-a:5432/postgres
+      PULSE_FEDERATION_ENABLED: "true"
+      PULSE_FEDERATION_DOMAIN: pulse-fed-a:4991
+      FEDERATION_ALLOW_PRIVATE_CIDRS: 172.16.0.0/12
+    depends_on:
+      db-fed-a:
+        condition: service_healthy
+
+  pulse-fed-b:
+    <<: *pulse-common
+    container_name: pulse-e2e-fed-b
+    ports:
+      - "14995:4991"
+    environment:
+      <<: *pulse-env
+      AUTH_SECRET: e2e-fed-b-secret-0123456789abcdef0123456789abcdef
+      DATABASE_URL: postgresql://postgres:postgres@db-fed-b:5432/postgres
+      PULSE_FEDERATION_ENABLED: "true"
+      PULSE_FEDERATION_DOMAIN: pulse-fed-b:4991
+      FEDERATION_ALLOW_PRIVATE_CIDRS: 172.16.0.0/12
+    depends_on:
+      db-fed-b:
+        condition: service_healthy
+      pulse-fed-a:
+        # Build the image once via pulse-core/fed-a, reuse here.
+        condition: service_started
+
+  db-core:
+    <<: *db-common
+    container_name: pulse-e2e-db-core
+
+  db-sso:
+    <<: *db-common
+    container_name: pulse-e2e-db-sso
+
+  db-fed-a:
+    <<: *db-common
+    container_name: pulse-e2e-db-fed-a
+
+  db-fed-b:
+    <<: *db-common
+    container_name: pulse-e2e-db-fed-b

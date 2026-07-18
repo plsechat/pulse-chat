@@ -99,7 +99,9 @@ const defaultUserState: TVoiceUserState = {
   micMuted: false,
   soundMuted: false,
   webcamEnabled: false,
-  sharingScreen: false
+  sharingScreen: false,
+  serverMuted: false,
+  serverDeafened: false
 };
 
 type TTransportMap = {
@@ -178,6 +180,10 @@ class VoiceRuntime {
       message: 'Voice runtime not found for this channel'
     });
     return runtime;
+  };
+
+  public static getAll = (): VoiceRuntime[] => {
+    return [...voiceRuntimes.values()];
   };
 
   public static findRuntimeByUserId = (
@@ -394,6 +400,23 @@ class VoiceRuntime {
     if (!user) return;
 
     user.state = { ...user.state, ...newState };
+  };
+
+  /**
+   * Pause or resume a user's outbound audio producer — the enforcement
+   * behind a moderator server-mute. Pausing at the SFU stops audio from
+   * reaching other peers regardless of what the muted user's client does.
+   * No-op when the user has no audio producer (hasn't spoken yet); the
+   * serverMuted state flag still gates their next produce.
+   */
+  public setAudioPaused = async (userId: number, paused: boolean) => {
+    const producer = this.audioProducers[userId];
+    if (!producer || producer.closed) return;
+    if (paused && !producer.paused) {
+      await producer.pause();
+    } else if (!paused && producer.paused) {
+      await producer.resume();
+    }
   };
 
   public getRouter = (): Router<AppData> => {

@@ -23,9 +23,8 @@ import { db } from '../db';
 import { findOrCreateShadowUser, syncShadowUserProfile } from '../db/mutations/federation';
 import { getAllChannelUserPermissions } from '../db/queries/channels';
 import {
-  getServerById,
-  getServerMemberIds,
-  getServersByUserId
+  getPresenceInterestedIds,
+  getServerById
 } from '../db/queries/servers';
 import { getUserById, getUserByToken } from '../db/queries/users';
 import { channels } from '../db/schema';
@@ -38,6 +37,7 @@ import { VoiceRuntime } from '../runtimes/voice';
 import { verifyFederationToken } from './federation';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
+import { removeUserFromVoice } from './voice-cleanup';
 import type { Context } from './trpc';
 
 let wss: WebSocketServer | undefined;
@@ -124,6 +124,16 @@ const createContext = async ({
     });
   }
 
+  if (decodedUser?.banned) {
+    // Close with the BANNED code (not a generic FORBIDDEN) so the client
+    // recognises this as non-recoverable and shows the banned screen with
+    // the reason. Without this, a banned user whose client reconnects
+    // (e.g. the ban raced a transient reconnect) loops on "Reconnecting…"
+    // forever, since only DisconnectCode.BANNED is treated as terminal.
+    // `res?.` — the mock context in unit tests has no res; the invariant
+    // below still carries the rejection there.
+    res?.close(DisconnectCode.BANNED, decodedUser.banReason ?? undefined);
+  }
   invariant(!decodedUser.banned, {
     code: 'FORBIDDEN',
     message: 'User is banned'
@@ -357,6 +367,24 @@ const createContext = async ({
     }
   };
 
+  // Stamp voice-session ownership on the socket (see declarations.d.ts).
+  // Setting a channel clears the stamp on the user's OTHER sockets so a
+  // zombie connection's delayed close can't tear down the session a
+  // fresh connection just (re)joined.
+  const setWsVoiceChannelId = (channelId?: number) => {
+    const ws = wsMapByToken.get(accessToken);
+    if (!ws) return;
+
+    if (ws.userId === undefined) ws.userId = decodedUser.id;
+    ws.voiceChannelId = channelId;
+
+    if (channelId !== undefined) {
+      for (const other of wsMapByUserId.get(ws.userId) ?? []) {
+        if (other !== ws) other.voiceChannelId = undefined;
+      }
+    }
+  };
+
   const getConnectionInfo = () => {
     const ws = wsMapByToken.get(accessToken);
 
@@ -425,6 +453,7 @@ const createContext = async ({
     getStatusById,
     setUserStatus,
     setWsUserId,
+    setWsVoiceChannelId,
     getUserWs,
     getConnectionInfo,
     throwValidationError,
@@ -466,8 +495,14 @@ const createWsServer = async (server: http.Server) => {
       ws.on('close', async () => {
         logger.debug('[WS] connection close userId=%s', ws.userId ?? '-');
 
-        // Clean up lookup Maps immediately (before any async work)
-        if (ws.token) wsMapByToken.delete(ws.token);
+        // Clean up the token map only if it still points at THIS socket.
+        // A refreshed page reuses the same access token, so the old
+        // socket's close must not delete the NEW socket's registration —
+        // that made setWsUserId a no-op for the fresh connection and
+        // permanently broke its own eventual cleanup.
+        if (ws.token && wsMapByToken.get(ws.token) === ws) {
+          wsMapByToken.delete(ws.token);
+        }
 
         // Remove THIS connection from the per-user Set.
         // Only do full cleanup when the last connection closes.
@@ -485,32 +520,64 @@ const createWsServer = async (server: http.Server) => {
           }
         }
 
+        // Voice teardown runs for EVERY closing socket that owns a voice
+        // session — independent of the last-connection gate (voice
+        // membership belongs to the connection that joined, not the
+        // account) and of token validity (a token that expired mid-call
+        // must not leak the runtime entry). The ownership stamp keeps an
+        // overlapping reconnect that already re-joined from being evicted
+        // by the old socket's delayed close.
+        if (ws.userId !== undefined && ws.voiceChannelId !== undefined) {
+          try {
+            const runtime = VoiceRuntime.findRuntimeByUserId(ws.userId);
+            if (runtime && runtime.id === ws.voiceChannelId) {
+              await removeUserFromVoice(ws.userId);
+            }
+          } catch (err) {
+            logger.error(
+              'Voice cleanup failed during WS close for user %d:',
+              ws.userId,
+              err
+            );
+          }
+        }
+
         if (!isLastConnection) return;
 
         let user;
 
         try {
-          // Handle federated user disconnect
-          const fedToken = ws.federationToken;
-          if (fedToken) {
-            const fedResult = await verifyFederationToken(fedToken).catch(
-              () => null
-            );
-            if (fedResult) {
-              user = await getUserById(
-                (
-                  await findOrCreateShadowUser(
-                    fedResult.instanceId,
-                    fedResult.userId,
-                    fedResult.username,
-                    undefined,
-                    fedResult.publicId
-                  )
-                ).id
+          // Resolve by the userId already authenticated at join time —
+          // never by re-verifying the connect-time token, which may have
+          // expired during the session and would silently skip USER_LEAVE
+          // (peers keep a stale ONLINE dot until the next refetch).
+          if (ws.userId !== undefined) {
+            user = await getUserById(ws.userId);
+          }
+
+          if (!user) {
+            // Fallback for sockets that never completed a join.
+            const fedToken = ws.federationToken;
+            if (fedToken) {
+              const fedResult = await verifyFederationToken(fedToken).catch(
+                () => null
               );
+              if (fedResult) {
+                user = await getUserById(
+                  (
+                    await findOrCreateShadowUser(
+                      fedResult.instanceId,
+                      fedResult.userId,
+                      fedResult.username,
+                      undefined,
+                      fedResult.publicId
+                    )
+                  ).id
+                );
+              }
+            } else {
+              user = await getUserByToken(ws.token);
             }
-          } else {
-            user = await getUserByToken(ws.token);
           }
         } catch (err) {
           logger.error('Failed to resolve user during WS close:', err);
@@ -518,57 +585,11 @@ const createWsServer = async (server: http.Server) => {
 
         if (!user) return;
 
+        // Safety net for sessions without an ownership stamp (e.g. a
+        // socket that lost voiceChannelId): the account's last connection
+        // is gone, so any remaining runtime entry is unreachable.
         try {
-          const voiceRuntime = VoiceRuntime.findRuntimeByUserId(user.id);
-
-          if (voiceRuntime) {
-            voiceRuntime.removeUser(user.id);
-
-            // Scope voice leave to server members or DM members
-            if (voiceRuntime.isDmVoice) {
-              const { getDmChannelMemberIds } = await import('../db/queries/dms');
-              const dmMemberIds = await getDmChannelMemberIds(voiceRuntime.id);
-              pubsub.publishFor(dmMemberIds, ServerEvents.USER_LEAVE_VOICE, {
-                channelId: voiceRuntime.id,
-                userId: user.id,
-                startedAt: voiceRuntime.getState().startedAt
-              });
-            } else {
-              const [ch] = await db
-                .select({ serverId: channels.serverId })
-                .from(channels)
-                .where(eq(channels.id, voiceRuntime.id))
-                .limit(1);
-              if (ch) {
-                const voiceMemberIds = await getServerMemberIds(ch.serverId);
-                pubsub.publishFor(voiceMemberIds, ServerEvents.USER_LEAVE_VOICE, {
-                  channelId: voiceRuntime.id,
-                  userId: user.id,
-                  startedAt: voiceRuntime.getState().startedAt
-                });
-              }
-            }
-
-            // If this was a DM voice call and no users remain, destroy the runtime
-            if (voiceRuntime.isDmVoice && voiceRuntime.getState().users.length === 0) {
-              await voiceRuntime.destroy();
-              const { getDmChannelMemberIds } = await import('../db/queries/dms');
-              const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
-              pubsub.publishFor(memberIds, ServerEvents.DM_CALL_ENDED, {
-                dmChannelId: voiceRuntime.id
-              });
-            } else if (voiceRuntime.isDmVoice) {
-              const { getDmChannelMemberIds } = await import('../db/queries/dms');
-              const memberIds = await getDmChannelMemberIds(voiceRuntime.id);
-              pubsub.publishFor(memberIds, ServerEvents.DM_CALL_USER_LEFT, {
-                dmChannelId: voiceRuntime.id,
-                userId: user.id
-              });
-            } else if (voiceRuntime.getState().users.length === 0) {
-              // Destroy empty server voice runtimes to free mediasoup resources
-              await voiceRuntime.destroy();
-            }
-          }
+          await removeUserFromVoice(user.id);
         } catch (err) {
           logger.error('Voice cleanup failed during WS close for user %d:', user.id, err);
         }
@@ -578,14 +599,12 @@ const createWsServer = async (server: http.Server) => {
         userStatusOverrides.delete(user.id);
 
         try {
-          // Scope USER_LEAVE to members of the user's servers
-          const userServers = await getServersByUserId(user.id);
-          const allMemberIds = new Set<number>();
-          for (const server of userServers) {
-            const memberIds = await getServerMemberIds(server.id);
-            for (const id of memberIds) allMemberIds.add(id);
-          }
-          pubsub.publishFor([...allMemberIds], ServerEvents.USER_LEAVE, user.id);
+          // Scope USER_LEAVE to everyone with a presence interest —
+          // server co-members, DM partners, and friends. The client
+          // handler is presence-only (flips status to offline), so the
+          // broader audience is safe.
+          const interestedIds = await getPresenceInterestedIds(user.id);
+          pubsub.publishFor(interestedIds, ServerEvents.USER_LEAVE, user.id);
         } catch (err) {
           logger.error('Failed to publish USER_LEAVE for user %d:', user.id, err);
         }
@@ -630,4 +649,18 @@ const createWsServer = async (server: http.Server) => {
   });
 };
 
-export { createContext, createWsServer, getUserIp, setRuntimeUserStatus };
+/**
+ * True when the user has at least one live WS connection. Used by the
+ * orphan-voice sweep to reconcile in-memory voice membership against
+ * actual connections.
+ */
+const hasLiveWsConnection = (userId: number): boolean =>
+  (wsMapByUserId.get(userId)?.size ?? 0) > 0;
+
+export {
+  createContext,
+  createWsServer,
+  getUserIp,
+  hasLiveWsConnection,
+  setRuntimeUserStatus
+};

@@ -1,8 +1,10 @@
 import { getDmChannelsForUser } from '../../db/queries/dms';
 import { protectedProcedure } from '../../utils/trpc';
+import { attachMemberStatus } from './attach-member-status';
 
 const getChannelsRoute = protectedProcedure.query(async ({ ctx }) => {
-  return getDmChannelsForUser(ctx.userId);
+  const channels = await getDmChannelsForUser(ctx.userId);
+  return attachMemberStatus(channels, ctx);
 });
 
 export { getChannelsRoute };

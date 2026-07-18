@@ -30,6 +30,7 @@ import {
   federationIdentityRotationHandler
 } from './federation-dm-group';
 import { federationMemberRemovedHandler } from './federation-member-removed';
+import { federationSharesServerHandler } from './federation-shares-server';
 import { federationUserInfoUpdateHandler } from './federation-user-info-update';
 import { healthRouteHandler } from './healthz';
 import { JsonBodyTooLargeError } from './helpers';
@@ -97,7 +98,7 @@ const createHttpServer = async (port: number = config.server.port) => {
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
       );
 
       const info = getWsInfo(undefined, req);
@@ -174,6 +175,11 @@ const createHttpServer = async (port: number = config.server.port) => {
         if (req.method === 'POST' && req.url === '/federation/dm-relay') {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationDmRelayHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/shares-server') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationSharesServerHandler(req, res);
         }
 
         if (

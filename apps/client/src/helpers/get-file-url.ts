@@ -21,6 +21,20 @@ const getUrlFromServer = () => {
   return finalUrl;
 };
 
+// Base URLs of federated instances, registered by the federation actions
+// whenever an entry is joined/loaded. The HOME SERVER computes each peer's
+// protocol (http for LAN/allowlisted-private peers, https otherwise) —
+// resolving from this map avoids guessing. The inline localhost-only
+// fallback below only covers domains that were never registered.
+const remoteInstanceBaseUrls = new Map<string, string>();
+
+const registerRemoteInstanceUrl = (
+  instanceDomain: string,
+  baseUrl: string
+) => {
+  remoteInstanceBaseUrls.set(instanceDomain, baseUrl.replace(/\/+$/, ''));
+};
+
 const getFileUrl = (
   file: (TFileRef & { _accessToken?: string }) | undefined | null,
   instanceDomain?: string
@@ -29,8 +43,10 @@ const getFileUrl = (
 
   // If on a remote federated server, resolve URL to remote instance
   if (instanceDomain) {
-    const protocol = instanceDomain.includes('localhost') ? 'http' : 'https';
-    let baseUrl = `${protocol}://${instanceDomain}/public/${file.name}`;
+    const base =
+      remoteInstanceBaseUrls.get(instanceDomain) ??
+      `${instanceDomain.includes('localhost') ? 'http' : 'https'}://${instanceDomain}`;
+    let baseUrl = `${base}/public/${file.name}`;
 
     if (file._accessToken) {
       baseUrl += `?accessToken=${file._accessToken}`;
@@ -50,4 +66,9 @@ const getFileUrl = (
   return encodeURI(baseUrl);
 };
 
-export { getFileUrl, getHostFromServer, getUrlFromServer };
+export {
+  getFileUrl,
+  getHostFromServer,
+  getUrlFromServer,
+  registerRemoteInstanceUrl
+};

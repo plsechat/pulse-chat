@@ -18,7 +18,8 @@ import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { voiceMapSelector } from '@/features/server/voice/selectors';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { dispatchMentionUser } from '@/lib/events';
-import { getTRPCClient } from '@/lib/trpc';
+import type { IRootState } from '@/features/store';
+import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
 import { Permission } from '@pulse/shared';
 import { memo, useCallback, useMemo } from 'react';
@@ -37,6 +38,9 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const roles = useRoles();
   const userRoles = useUserRoles(userId);
   const voiceMap = useSelector(voiceMapSelector);
+  const activeInstanceDomain = useSelector(
+    (state: IRootState) => state.app.activeInstanceDomain
+  );
   const { getVolume, setVolume, toggleMute, getUserVolumeKey } =
     useVolumeControl();
   const isOwnUser = userId === ownUserId;
@@ -45,12 +49,14 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const currentVolume = getVolume(volumeKey);
   const isMuted = currentVolume === 0;
 
-  const isInVoice = useMemo(() => {
+  const voiceState = useMemo(() => {
     for (const ch of Object.values(voiceMap)) {
-      if (ch && ch.users[userId]) return true;
+      const state = ch?.users[userId];
+      if (state) return state;
     }
-    return false;
+    return undefined;
   }, [voiceMap, userId]);
+  const isInVoice = voiceState !== undefined;
 
   const userRoleIds = useMemo(
     () => new Set(userRoles.map((r) => r.id)),
@@ -64,14 +70,37 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   }, [user]);
 
   const handleMessage = useCallback(async () => {
-    const channel = await getOrCreateDmChannel(userId);
-    if (channel) {
-      // Land on the new DM, not just the home view in general.
-      // navigateToDm bridges through HomeView's local state via the
-      // dm-navigate CustomEvent — Redux alone doesn't re-render.
-      await navigateToDm(channel.id);
+    try {
+      let localId = userId;
+
+      // While browsing a federated server, roster ids live in the REMOTE
+      // instance's id-space — resolve to a home-side shadow user first
+      // (same flow as the user popover). Sending the raw remote numeric
+      // id to the home instance's dms.getOrCreateChannel targeted
+      // whatever home user happened to share that id.
+      if (activeInstanceDomain && user?.publicId) {
+        const trpc = getHomeTRPCClient();
+        if (!trpc) return;
+        const result = await trpc.federation.ensureShadowUser.mutate({
+          instanceDomain: activeInstanceDomain,
+          remoteUserId: userId,
+          username: user.name,
+          remotePublicId: user.publicId
+        });
+        localId = result.localUserId;
+      }
+
+      const channel = await getOrCreateDmChannel(localId);
+      if (channel) {
+        // Land on the new DM, not just the home view in general.
+        // navigateToDm bridges through HomeView's local state via the
+        // dm-navigate CustomEvent — Redux alone doesn't re-render.
+        await navigateToDm(channel.id);
+      }
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to open DM'));
     }
-  }, [userId]);
+  }, [userId, user, activeInstanceDomain]);
 
   const handleAddNote = useCallback(async () => {
     const text = await requestTextInput({
@@ -92,6 +121,42 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
       }
     }
   }, [userId, user]);
+
+  const handleDisconnectFromVoice = useCallback(async () => {
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.voice.disconnectUser.mutate({ userId });
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to disconnect user from voice'));
+    }
+  }, [userId]);
+
+  const handleToggleServerMute = useCallback(async () => {
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.voice.moderateMember.mutate({
+        userId,
+        serverMuted: !voiceState?.serverMuted
+      });
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to update server mute'));
+    }
+  }, [userId, voiceState?.serverMuted]);
+
+  const handleToggleServerDeafen = useCallback(async () => {
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.voice.moderateMember.mutate({
+        userId,
+        serverDeafened: !voiceState?.serverDeafened
+      });
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to update server deafen'));
+    }
+  }, [userId, voiceState?.serverDeafened]);
 
   const handleToggleRole = useCallback(
     async (roleId: number, hasRole: boolean) => {
@@ -147,6 +212,26 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
                 </div>
               </ContextMenuSubContent>
             </ContextMenuSub>
+            {can(Permission.MANAGE_USERS) && (
+              <>
+                <ContextMenuItem onClick={handleToggleServerMute}>
+                  {voiceState?.serverMuted
+                    ? 'Unmute (Server)'
+                    : 'Server Mute'}
+                </ContextMenuItem>
+                <ContextMenuItem onClick={handleToggleServerDeafen}>
+                  {voiceState?.serverDeafened
+                    ? 'Undeafen (Server)'
+                    : 'Server Deafen'}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={handleDisconnectFromVoice}
+                >
+                  Disconnect from Voice
+                </ContextMenuItem>
+              </>
+            )}
           </>
         )}
 

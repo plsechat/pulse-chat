@@ -44,11 +44,26 @@ const loadDb = async () => {
       : false
   });
 
+  // Serialize migration across concurrently-booting instances so two
+  // replicas don't race `migrate()` against the same database.
   const MIGRATION_LOCK_ID = 827394827;
 
   await client`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID})`;
   try {
-    await client`DELETE FROM drizzle.__drizzle_migrations`.catch(() => { });
+    // Run migrations the normal drizzle way: `migrate()` records applied
+    // migrations in `drizzle.__drizzle_migrations` and, on each boot,
+    // runs only those newer than the last recorded one (it compares the
+    // journal's `when` timestamp against the table's max `created_at`).
+    //
+    // We do NOT wipe that tracking table. The old boot path deleted it
+    // every start, forcing every migration to re-run on every restart —
+    // which is why they all had to be hand-written idempotent. Deleting
+    // it defeated the exact bookkeeping that makes migrations run once,
+    // and made one-shot data migrations (backfills, NOT NULL enforcement)
+    // silently re-execute forever. Migrations now run once, in order.
+    // Idempotency (docker/patch-migrations.ts) is retained only as a
+    // safety net for the rare case of an existing DB with an emptied
+    // tracking table — not as the primary mechanism.
     await migrate(db, { migrationsFolder: DRIZZLE_PATH });
     await seedDatabase();
   } finally {

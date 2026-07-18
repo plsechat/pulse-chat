@@ -16,6 +16,7 @@ import { encryptChannelMessage, ensureChannelSenderKey } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import {
   ChannelPermission,
+  MAX_MESSAGE_CONTENT_LENGTH,
   Permission,
   TYPING_MS,
   type TJoinedMessage
@@ -111,8 +112,17 @@ const TextChannel = memo(({ channelId }: TChannelProps) => (
 ));
 
 const TextChannelInner = memo(({ channelId }: TChannelProps) => {
-  const { messages, hasMore, loadMore, loading, fetching, groupedMessages } =
-    useMessages(channelId);
+  const {
+    messages,
+    hasMore,
+    loadMore,
+    loadNewer,
+    reattach,
+    detached,
+    loading,
+    fetching,
+    groupedMessages
+  } = useMessages(channelId);
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedMessage | null>(null);
   const [slowModeRemaining, setSlowModeRemaining] = useState(0);
@@ -129,7 +139,9 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     messages,
     fetching,
     hasMore,
-    loadMore
+    loadMore,
+    detached,
+    loadNewer
   });
   const can = useCan();
   const channelCan = useChannelCan(channelId);
@@ -237,6 +249,15 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
     try {
       const content = tiptapHtmlToTokens(newMessage);
+
+      // Check plaintext length BEFORE encryption — the server's wire cap
+      // is sized for the encrypted envelope, so this is the real budget.
+      if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+        toast.error(
+          `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+        );
+        return;
+      }
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
@@ -389,6 +410,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       <div
         ref={containerRef}
         onScroll={onScroll}
+        data-testid="message-scroll"
         className="flex-1 overflow-y-auto overflow-x-hidden pb-4 animate-in fade-in duration-500"
       >
         {groupedMessages.map((group, index) => {
@@ -420,11 +442,20 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         })}
       </div>
 
-      {!isAtBottom && (
+      {(!isAtBottom || detached) && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10 animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
           <button
             type="button"
-            onClick={scrollToBottom}
+            onClick={async () => {
+              if (detached) {
+                // The loaded window is mid-history — rejoin the live
+                // tail first, then land at the bottom of it.
+                await reattach();
+                requestAnimationFrame(scrollToBottom);
+              } else {
+                scrollToBottom();
+              }
+            }}
             className="flex items-center gap-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-full px-4 py-2 shadow-lg text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowDown className="h-4 w-4" />

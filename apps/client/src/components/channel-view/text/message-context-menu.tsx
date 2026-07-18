@@ -1,4 +1,4 @@
-import { EmojiPicker } from '@/components/emoji-picker';
+import { EmojiPickerPanel } from '@/components/emoji-picker';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import {
   ContextMenu,
@@ -7,6 +7,11 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent
+} from '@/components/ui/popover';
 import { useCan } from '@/features/server/hooks';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { requestConfirmation } from '@/features/dialogs/actions';
@@ -61,6 +66,7 @@ const MessageContextMenu = memo(
     const can = useCan();
     const { selectionMode, enterSelectionMode } = useSelection();
     const [creatingThread, setCreatingThread] = useState(false);
+    const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
 
     const onDeleteClick = useCallback(async () => {
       const choice = await requestConfirmation({
@@ -129,6 +135,8 @@ const MessageContextMenu = memo(
 
     const onEmojiSelect = useCallback(
       async (emoji: TEmojiItem) => {
+        setReactionPickerOpen(false);
+
         const trpc = getTRPCClient();
         if (!trpc) return;
 
@@ -165,9 +173,27 @@ const MessageContextMenu = memo(
     }, [channelId, messageId]);
 
     return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-        <ContextMenuContent className="w-52">
+      // The reaction picker lives in its OWN Popover that WRAPS the context
+      // menu, anchored to the message row. Nesting the picker's Popover
+      // inside ContextMenuContent (the previous approach) let the menu's
+      // dismiss layer tear the picker down the moment emoji-mart's autoFocus
+      // pulled focus into the portaled panel — the "hover makes it vanish"
+      // bug. Decoupling them: "Add Reaction" closes the menu and opens this
+      // independent, state-controlled Popover.
+      <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <PopoverAnchor asChild>{children}</PopoverAnchor>
+          </ContextMenuTrigger>
+          <ContextMenuContent
+            className="w-52"
+            // When "Add Reaction" opened the picker, don't let the closing
+            // menu restore focus to the trigger — that focus yank is a
+            // focus-outside event for the picker Popover.
+            onCloseAutoFocus={(e) => {
+              if (reactionPickerOpen) e.preventDefault();
+            }}
+          >
           <ContextMenuItem onClick={onReply}>
             <Reply className="h-4 w-4" />
             Reply
@@ -195,12 +221,10 @@ const MessageContextMenu = memo(
           )}
 
           {can(Permission.REACT_TO_MESSAGES) && (
-            <EmojiPicker onEmojiSelect={onEmojiSelect}>
-              <ContextMenuItem onSelect={(e) => e.preventDefault()}>
-                <Smile className="h-4 w-4" />
-                Add Reaction
-              </ContextMenuItem>
-            </EmojiPicker>
+            <ContextMenuItem onClick={() => setReactionPickerOpen(true)}>
+              <Smile className="h-4 w-4" />
+              Add Reaction
+            </ContextMenuItem>
           )}
 
           <ContextMenuSeparator />
@@ -235,8 +259,27 @@ const MessageContextMenu = memo(
             </>
           )}
 
-        </ContextMenuContent>
-      </ContextMenu>
+          </ContextMenuContent>
+        </ContextMenu>
+
+        <PopoverContent
+          className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
+          align="start"
+          sideOffset={8}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          // The context menu that opened this picker is still mid-exit-
+          // animation with a TRAPPED FocusScope: the instant emoji-mart
+          // autofocuses, the dying menu steals focus back (then its unmount
+          // refocuses the trigger). A non-modal Popover dismisses on ANY
+          // focus landing outside it, so either steal closed the picker
+          // instantly. Ignore focus movement entirely — only pointer-down
+          // outside, Escape, or picking an emoji closes it.
+          onFocusOutside={(e) => e.preventDefault()}
+        >
+          <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
+        </PopoverContent>
+      </Popover>
     );
   }
 );

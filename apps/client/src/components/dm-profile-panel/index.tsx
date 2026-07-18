@@ -1,6 +1,9 @@
 import { UserAvatar } from '@/components/user-avatar';
 import { useDmChannels } from '@/features/dms/hooks';
-import { useOwnUserId, useUserStatus } from '@/features/server/users/hooks';
+import {
+  useHomeOwnUserId,
+  useHomeUserById
+} from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { cn } from '@/lib/utils';
 import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
@@ -46,8 +49,11 @@ const DmProfilePanel = memo(
     dmChannelId: number;
     isOpen: boolean;
   }) => {
+    // DM members are HOME ids — resolve own id in home space so the
+    // "other members" split stays correct while a federated server is
+    // active (the ambient own-id is the REMOTE session's id there).
     const dmChannels = useDmChannels();
-    const ownUserId = useOwnUserId();
+    const ownUserId = useHomeOwnUserId();
 
     const channel = useMemo(
       () => dmChannels.find((c) => c.id === dmChannelId),
@@ -80,10 +86,10 @@ const DmProfilePanel = memo(
 const ProfileBody = memo(({ user }: { user: TJoinedPublicUser }) => {
   // Read status from Redux rather than the channel-member snapshot.
   // channel.members is fetched once when DM channels load, so its
-  // user.status field never reflects USER_UPDATE pubsub events. The
-  // avatar's status badge already pulls fresh data via useUserStatus —
-  // matching that here keeps the dot and the text in sync.
-  const status = useUserStatus(user.id) ?? UserStatus.OFFLINE;
+  // user.status field never reflects USER_UPDATE pubsub events. Resolve
+  // in HOME id-space (this is a DM surface) — the ambient roster is the
+  // remote one while a federated server is active.
+  const status = useHomeUserById(user.id)?.status ?? UserStatus.OFFLINE;
   const memberSince = useMemo(() => {
     if (!user.createdAt) return null;
     return format(new Date(user.createdAt), 'MMM d, yyyy');
@@ -106,6 +112,7 @@ const ProfileBody = memo(({ user }: { user: TJoinedPublicUser }) => {
             className="h-20 w-20 ring-4 ring-card"
             showStatusBadge
             showUserPopover={false}
+            homeScope
           />
         </div>
         <div className="mt-3 flex items-center gap-2">
@@ -188,6 +195,7 @@ const MemberRow = memo(({ user }: { user: TJoinedPublicUser }) => {
         className="h-7 w-7"
         showStatusBadge
         showUserPopover
+        homeScope
       />
       <span className="text-sm text-foreground truncate flex-1">
         {getDisplayName(user)}

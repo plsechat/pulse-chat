@@ -162,6 +162,15 @@ const produceRoute = protectedProcedure
 
     runtime.addProducer(ctx.user.id, input.kind, producer);
 
+    // Honor an active moderator server-mute for a producer created AFTER
+    // the mute was applied (user muted before they first spoke).
+    if (
+      input.kind === StreamKind.AUDIO &&
+      runtime.getUserState(ctx.user.id).serverMuted
+    ) {
+      await runtime.setAudioPaused(ctx.user.id, true);
+    }
+
     ctx.pubsub.publishForChannel(
       ctx.currentVoiceChannelId,
       ServerEvents.VOICE_NEW_PRODUCER,

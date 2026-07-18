@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
+import { getPublicUserById } from '../../db/queries/users';
 import { appRouter } from '../../routers';
 import { pubsub } from '../../utils/pubsub';
 
@@ -583,6 +584,66 @@ describe('users router', () => {
     await expect(
       caller.users.setCustomStatus({ customStatus: 'x'.repeat(129) })
     ).rejects.toThrow();
+  });
+
+  test('setCustomStatus persists an emoji and clears it with the status', async () => {
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    await caller.users.setCustomStatus({
+      customStatus: 'in a meeting',
+      emoji: '📅'
+    });
+    const [row] = (await tdb.execute(
+      sql`SELECT custom_status_emoji FROM users WHERE id = 1`
+    )) as unknown as { custom_status_emoji: string | null }[];
+    expect(row?.custom_status_emoji).toBe('📅');
+
+    await caller.users.setCustomStatus({ customStatus: null });
+    const [cleared] = (await tdb.execute(
+      sql`SELECT custom_status_emoji FROM users WHERE id = 1`
+    )) as unknown as { custom_status_emoji: string | null }[];
+    expect(cleared?.custom_status_emoji).toBeNull();
+  });
+
+  test('custom status auto-expires lazily on read', async () => {
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    await caller.users.setCustomStatus({
+      customStatus: 'brb',
+      expiresInMinutes: 30
+    });
+
+    // Force the expiry into the past to simulate time passing.
+    await tdb.execute(
+      sql`UPDATE users SET custom_status_expires_at = ${Date.now() - 1000} WHERE id = 1`
+    );
+
+    // The public projection applies the expiry and reads it as cleared,
+    // even though the row still holds the text.
+    const projected = await getPublicUserById(1);
+    expect(projected?.customStatus).toBeNull();
+
+    const [raw] = (await tdb.execute(
+      sql`SELECT custom_status FROM users WHERE id = 1`
+    )) as unknown as { custom_status: string | null }[];
+    expect(raw?.custom_status).toBe('brb');
+  });
+
+  test('setUser persists pronouns', async () => {
+    const { caller } = await initTest(1);
+    const tdb = getTestDb();
+
+    await caller.users.update({
+      name: 'User One',
+      bannerColor: '#abcdef',
+      pronouns: 'they/them'
+    });
+    const [row] = (await tdb.execute(
+      sql`SELECT pronouns FROM users WHERE id = 1`
+    )) as unknown as { pronouns: string | null }[];
+    expect(row?.pronouns).toBe('they/them');
   });
 
   test('joinServer publishes USER_JOIN carrying the server publicId', async () => {

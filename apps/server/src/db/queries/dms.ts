@@ -1,11 +1,16 @@
 import type {
   TDmMessageReaction,
+  TFile,
+  TFileRef,
   TJoinedDmChannel,
   TJoinedDmMessage,
-  TJoinedDmMessageReaction
+  TJoinedDmMessageReaction,
+  TReactionUser
 } from '@pulse/shared';
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
+import { dmFileSalt, generateFileToken } from '../../helpers/files-crypto';
 import {
   dmChannelMembers,
   dmChannels,
@@ -13,9 +18,102 @@ import {
   dmMessageReactions,
   dmMessages,
   dmReadStates,
-  files
+  files,
+  users
 } from '../schema';
 import { getPublicUsersByIds } from './users';
+
+/** Slim a joined avatar file row to the ref the client needs for a URL. */
+const toReactionAvatar = (file: TFile | null): TFileRef | null =>
+  file?.id ? { id: file.id, name: file.name } : null;
+
+/**
+ * DM counterpart of getReactionsForMessageIds — each reaction carries the
+ * reactor's name + avatar so the "who reacted" hover resolves correctly in
+ * the home id-space (DM participants are never in the ambient server
+ * roster). See TReactionUser.
+ */
+const getReactionsForDmMessageIds = async (
+  messageIds: number[]
+): Promise<Record<number, TJoinedDmMessageReaction[]>> => {
+  if (messageIds.length === 0) return {};
+
+  const reactorAvatar = alias(files, 'dmReactorAvatarFile');
+
+  const rows = await db
+    .select({
+      dmMessageId: dmMessageReactions.dmMessageId,
+      userId: dmMessageReactions.userId,
+      emoji: dmMessageReactions.emoji,
+      createdAt: dmMessageReactions.createdAt,
+      fileId: dmMessageReactions.fileId,
+      file: files,
+      reactorName: users.name,
+      reactorAvatar
+    })
+    .from(dmMessageReactions)
+    .leftJoin(files, eq(dmMessageReactions.fileId, files.id))
+    .leftJoin(users, eq(dmMessageReactions.userId, users.id))
+    .leftJoin(reactorAvatar, eq(users.avatarId, reactorAvatar.id))
+    .where(inArray(dmMessageReactions.dmMessageId, messageIds));
+
+  return rows.reduce<Record<number, TJoinedDmMessageReaction[]>>((acc, r) => {
+    // Null (not falsy) — users.name is notNull but '' passes it; an
+    // empty-named user still has a matched join and a real identity.
+    const user: TReactionUser | null =
+      r.reactorName != null
+        ? {
+            id: r.userId,
+            name: r.reactorName,
+            avatar: toReactionAvatar(r.reactorAvatar)
+          }
+        : null;
+
+    (acc[r.dmMessageId] ??= []).push({
+      dmMessageId: r.dmMessageId,
+      userId: r.userId,
+      emoji: r.emoji,
+      createdAt: r.createdAt,
+      fileId: r.fileId,
+      file: r.file,
+      user
+    });
+
+    return acc;
+  }, {});
+};
+
+/**
+ * Attach the DM file access token to each file so an authorized member's
+ * client includes it when fetching from the public route (getFileUrl
+ * appends `?accessToken`). Without it the serve path now 403s DM
+ * attachments. Mirrors the private-channel `_accessToken` pattern.
+ */
+const attachDmFileTokens = <T extends { id: number }>(
+  fileList: T[],
+  dmChannelId: number
+): (T & { _accessToken: string })[] =>
+  fileList.map((f) => ({
+    ...f,
+    _accessToken: generateFileToken(f.id, dmFileSalt(dmChannelId))
+  }));
+
+/**
+ * Resolve the DM channel a file belongs to (via its DM message), or
+ * undefined if the file isn't a DM attachment. Used by the public serve
+ * route to gate DM files behind the DM token.
+ */
+const getDmChannelIdByFileId = async (
+  fileId: number
+): Promise<number | undefined> => {
+  const [row] = await db
+    .select({ dmChannelId: dmMessages.dmChannelId })
+    .from(dmMessageFiles)
+    .innerJoin(dmMessages, eq(dmMessages.id, dmMessageFiles.dmMessageId))
+    .where(eq(dmMessageFiles.fileId, fileId))
+    .limit(1);
+  return row?.dmChannelId;
+};
 
 const getDmChannelsForUser = async (
   userId: number
@@ -188,27 +286,8 @@ const getDmMessage = async (
     .innerJoin(files, eq(dmMessageFiles.fileId, files.id))
     .where(eq(dmMessageFiles.dmMessageId, messageId));
 
-  const reactionRows = await db
-    .select({
-      dmMessageId: dmMessageReactions.dmMessageId,
-      userId: dmMessageReactions.userId,
-      emoji: dmMessageReactions.emoji,
-      createdAt: dmMessageReactions.createdAt,
-      fileId: dmMessageReactions.fileId,
-      file: files
-    })
-    .from(dmMessageReactions)
-    .leftJoin(files, eq(dmMessageReactions.fileId, files.id))
-    .where(eq(dmMessageReactions.dmMessageId, messageId));
-
-  const reactions: TJoinedDmMessageReaction[] = reactionRows.map((r) => ({
-    dmMessageId: r.dmMessageId,
-    userId: r.userId,
-    emoji: r.emoji,
-    createdAt: r.createdAt,
-    fileId: r.fileId,
-    file: r.file
-  }));
+  const reactions =
+    (await getReactionsForDmMessageIds([messageId]))[messageId] ?? [];
 
   let replyTo: TJoinedDmMessage['replyTo'] = null;
 
@@ -239,7 +318,10 @@ const getDmMessage = async (
 
   return {
     ...msg,
-    files: fileRows.map((r) => r.file),
+    files: attachDmFileTokens(
+      fileRows.map((r) => r.file),
+      msg.dmChannelId
+    ),
     reactions,
     replyTo
   };
@@ -277,9 +359,12 @@ const getDmChannelMemberIds = async (
 };
 
 export {
+  attachDmFileTokens,
   findDmChannelBetween,
+  getDmChannelIdByFileId,
   getDmChannelMemberIds,
   getDmChannelsForUser,
   getDmMessage,
-  getDmReaction
+  getDmReaction,
+  getReactionsForDmMessageIds
 };

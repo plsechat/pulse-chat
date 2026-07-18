@@ -1,5 +1,5 @@
 import { useActiveInstanceDomain } from '@/features/app/hooks';
-import { useUserById } from '@/features/server/users/hooks';
+import { useHomeUserById, useUserById } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,15 @@ type TUserAvatarProps = {
   className?: string;
   showUserPopover?: boolean;
   showStatusBadge?: boolean;
+  /**
+   * Resolve `userId` in HOME id-space and serve the avatar file from the
+   * home instance. REQUIRED on home-scoped surfaces (DM conversations,
+   * friends) rendered while a federated server is active: their ids are
+   * home ids, but the default ambient lookup reads the REMOTE roster,
+   * where the same numeric id is a different person (the federated-DM
+   * identity-swap bug).
+   */
+  homeScope?: boolean;
   onClick?: () => void;
 };
 
@@ -39,17 +48,26 @@ const UserAvatar = memo(
     className,
     showUserPopover = false,
     showStatusBadge = true,
+    homeScope = false,
     onClick
   }: TUserAvatarProps) => {
-    const user = useUserById(userId);
+    const ambientUser = useUserById(userId);
+    const homeUser = useHomeUserById(userId);
     const activeInstanceDomain = useActiveInstanceDomain();
+
+    const user = homeScope ? homeUser : ambientUser;
+    // Home-scoped avatars are files on the HOME instance — never route
+    // them through the active federated instance's public route.
+    const fileInstanceDomain = homeScope
+      ? undefined
+      : (activeInstanceDomain ?? undefined);
 
     if (!user) return null;
 
     const content = (
       <div className="relative w-fit h-fit" onClick={onClick}>
         <Avatar className={cn('h-8 w-8 ring-1 ring-border/50 shadow-sm', className)}>
-          <AvatarImage src={getFileUrl(user.avatar, activeInstanceDomain ?? undefined)} key={user.avatarId} />
+          <AvatarImage src={getFileUrl(user.avatar, fileInstanceDomain)} key={user.avatarId} />
           <AvatarFallback className={cn('text-xs text-white bg-gradient-to-br', avatarGradients[userId % avatarGradients.length])}>
             {getInitialsFromName(user.name)}
           </AvatarFallback>
@@ -65,7 +83,13 @@ const UserAvatar = memo(
 
     if (!showUserPopover) return content;
 
-    return <UserPopover userId={userId}>{content}</UserPopover>;
+    // Forward the scope: a correctly home-resolved avatar wrapping an
+    // ambient-resolved popover would show the WRONG identity on click.
+    return (
+      <UserPopover userId={userId} homeScope={homeScope}>
+        {content}
+      </UserPopover>
+    );
   }
 );
 

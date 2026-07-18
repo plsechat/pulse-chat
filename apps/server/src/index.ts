@@ -13,6 +13,7 @@ import chalk from 'chalk';
 import { config, SERVER_PRIVATE_IP } from './config';
 import { loadCrons } from './crons';
 import { loadDb } from './db';
+import { warmFileHmacSecret } from './db/queries/server';
 import { pluginManager } from './plugins';
 import { loadBannedUsersCache } from './utils/banned-cache';
 import { enqueueActivityLog } from './queues/activity-log';
@@ -32,6 +33,14 @@ try {
   // mutation, which is fine but worth the millisecond-scale primer
   // to keep the cache truthful from request #1.
   await loadBannedUsersCache();
+  // Warm the file-token HMAC secret (servers.secret_token, seeded by
+  // loadDb on first boot). Every file-token mint/verify — private-channel
+  // attachments, DM attachments — goes through getFileHmacSecretSync(),
+  // which THROWS if nothing warmed the cache. Outside the test setup this
+  // is the only warm call: without it, any file-token path 500s on a
+  // freshly booted server (caught live in the test-deploy harness; latent
+  // in v0.2.3 too).
+  await warmFileHmacSecret();
 } catch (e) {
   console.error('[pulse] FATAL: Database connection failed:', e);
   process.exit(1);

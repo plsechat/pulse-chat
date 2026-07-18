@@ -22,7 +22,12 @@ import {
   unblockUser
 } from '@/features/friends/actions';
 import { useUserRoles } from '@/features/server/hooks';
-import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
+import {
+  useHomeOwnUserId,
+  useHomeUserById,
+  useOwnUserId,
+  useUserById
+} from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
@@ -71,16 +76,35 @@ type TNote = {
 type TUserPopoverProps = {
   userId: number;
   children: React.ReactNode;
+  /**
+   * Resolve `userId` in HOME id-space (see UserAvatar's prop of the same
+   * name). REQUIRED on home-scoped surfaces (DM conversations, friends)
+   * rendered while a federated server is active: their ids are home ids,
+   * but the ambient lookup reads the REMOTE roster, where the same
+   * numeric id is a different person.
+   */
+  homeScope?: boolean;
 };
 
-const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
-  const user = useUserById(userId);
-  const roles = useUserRoles(userId);
+const UserPopover = memo(
+  ({ userId, children, homeScope = false }: TUserPopoverProps) => {
+  // Both hooks run unconditionally (hooks rule); pick by scope after.
+  const ambientUser = useUserById(userId);
+  const homeUser = useHomeUserById(userId);
+  const user = homeScope ? homeUser : ambientUser;
+  const ambientRoles = useUserRoles(userId);
   const ownUserId = useOwnUserId();
+  const homeOwnUserId = useHomeOwnUserId();
   const friends = useFriends();
   const activeInstanceDomain = useActiveInstanceDomain();
   const activeServerId = useActiveServerId();
-  const isOwnUser = !activeInstanceDomain && userId === ownUserId;
+  const isOwnUser = homeScope
+    ? userId === homeOwnUserId
+    : !activeInstanceDomain && userId === ownUserId;
+  // Roles are ambient-server data. A home id looked up against the
+  // remote roster's roles is a different person's role list — hide the
+  // section on home-scoped surfaces while a federated server is active.
+  const roles = homeScope && activeInstanceDomain ? [] : ambientRoles;
   // Moderation View is a per-server tool — hide it whenever the popover
   // is opened from a context with no active local server (e.g. the
   // home/DMs Friends panel, where there's no shared server to moderate).
@@ -123,9 +147,17 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     }
   }, [isBlocked, user, userId]);
 
+  // Notes and nicknames must follow the id-space of `userId`: home ids
+  // go to the home client even while a federated instance is active
+  // (getTRPCClient() returns the ACTIVE instance's client).
+  const getScopedClient = useCallback(
+    () => (homeScope ? getHomeTRPCClient() : getTRPCClient()),
+    [homeScope]
+  );
+
   const fetchNotes = useCallback(async () => {
     try {
-      const trpc = getTRPCClient();
+      const trpc = getScopedClient();
       if (!trpc) return;
       const result = await trpc.notes.getAll.query({ targetUserId: userId });
       setNotes(result.notes);
@@ -133,7 +165,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
     } catch {
       // silently fail
     }
-  }, [userId]);
+  }, [userId, getScopedClient]);
 
   // Refetch notes when they change in another tab
   useEffect(() => {
@@ -167,7 +199,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
 
     if (text) {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getScopedClient();
         if (!trpc) return;
         await trpc.notes.add.mutate({ targetUserId: userId, content: text });
         toast.success('Note saved');
@@ -176,12 +208,12 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
-  }, [userId, user, fetchNotes]);
+  }, [userId, user, fetchNotes, getScopedClient]);
 
   const handleDeleteNote = useCallback(
     async (noteId: number) => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getScopedClient();
         if (!trpc) return;
         await trpc.notes.delete.mutate({ noteId });
         setNotes((prev) => prev.filter((n) => n.id !== noteId));
@@ -190,11 +222,13 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         toast.error(getTrpcError(err, 'Failed to delete note'));
       }
     },
-    []
+    [getScopedClient]
   );
 
   const resolveLocalUserId = useCallback(async (): Promise<number> => {
-    if (!activeInstanceDomain || !user) return userId;
+    // Home-scoped ids ARE local ids — no shadow-user resolution needed
+    // (and running one would misinterpret the home id as a remote id).
+    if (homeScope || !activeInstanceDomain || !user) return userId;
 
     if (!user.publicId) {
       console.error('Cannot resolve federated user without publicId');
@@ -210,7 +244,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
       remotePublicId: user.publicId
     });
     return result.localUserId;
-  }, [activeInstanceDomain, userId, user]);
+  }, [homeScope, activeInstanceDomain, userId, user]);
 
   const handleSendPopoverMessage = useCallback(async () => {
     if (isHtmlEmpty(popoverMessage)) return;
@@ -264,7 +298,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
 
     if (text !== null && text !== undefined) {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getScopedClient();
         if (!trpc) return;
         const nickname = text.trim() || null;
         if (isOwnUser) {
@@ -277,7 +311,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
         toast.error(getTrpcError(err, 'Failed to update nickname'));
       }
     }
-  }, [userId, user, isOwnUser]);
+  }, [userId, user, isOwnUser, getScopedClient]);
 
   if (!user) return <>{children}</>;
 
@@ -291,7 +325,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
             <div
               className="h-24 w-full rounded-t-md bg-cover bg-center bg-no-repeat"
               style={{
-                backgroundImage: `url(${getFileUrl(user.banner, activeInstanceDomain ?? undefined)})`
+                backgroundImage: `url(${getFileUrl(user.banner, homeScope ? undefined : (activeInstanceDomain ?? undefined))})`
               }}
             />
           ) : (
@@ -307,6 +341,7 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               userId={user.id}
               className="h-16 w-16 border-4 border-card"
               showStatusBadge={false}
+              homeScope={homeScope}
             />
           </div>
 
@@ -428,8 +463,16 @@ const UserPopover = memo(({ userId, children }: TUserPopoverProps) => {
               </span>
             </div>
           )}
-          {user.customStatus && (
+          {user.pronouns && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {user.pronouns}
+            </p>
+          )}
+          {(user.customStatus || user.customStatusEmoji) && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {user.customStatusEmoji && (
+                <span className="mr-1">{user.customStatusEmoji}</span>
+              )}
               {user.customStatus}
             </p>
           )}

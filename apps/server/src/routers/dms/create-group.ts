@@ -10,6 +10,7 @@ import {
 } from '../../utils/federation-dm-group-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { attachMemberStatus } from './attach-member-status';
 
 const createGroupRoute = protectedProcedure
   .input(
@@ -93,7 +94,10 @@ const createGroupRoute = protectedProcedure
       void announceFederatedGroupCreate(channel!.id, ctx.userId);
     }
 
-    const channels = await getDmChannelsForUser(ctx.userId);
+    const channels = attachMemberStatus(
+      await getDmChannelsForUser(ctx.userId),
+      ctx
+    );
     return channels.find((c) => c.id === channel!.id)!;
   });
 

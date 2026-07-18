@@ -47,6 +47,14 @@ const useVoiceControls = ({
 
   const toggleMic = useCallback(async () => {
     const newState = !ownVoiceState.micMuted;
+
+    // A moderator server-mute can't be lifted by the user. Block the
+    // unmute attempt locally (the server enforces it too) and tell them why.
+    if (!newState && ownVoiceState.serverMuted) {
+      toast.error('You have been muted by a moderator');
+      return;
+    }
+
     const trpc = getTRPCClient();
     if (!trpc) return;
 
@@ -110,6 +118,7 @@ const useVoiceControls = ({
     }
   }, [
     ownVoiceState.micMuted,
+    ownVoiceState.serverMuted,
     startMicStream,
     currentVoiceChannelId,
     localAudioProducer
@@ -117,6 +126,13 @@ const useVoiceControls = ({
 
   const toggleSound = useCallback(async () => {
     const newState = !ownVoiceState.soundMuted;
+
+    // A moderator server-deafen can't be lifted by the user.
+    if (!newState && ownVoiceState.serverDeafened) {
+      toast.error('You have been deafened by a moderator');
+      return;
+    }
+
     const trpc = getTRPCClient();
     if (!trpc) return;
 
@@ -136,7 +152,11 @@ const useVoiceControls = ({
     } catch (error) {
       toast.error(getTrpcError(error, 'Failed to update sound state'));
     }
-  }, [ownVoiceState.soundMuted, currentVoiceChannelId]);
+  }, [
+    ownVoiceState.soundMuted,
+    ownVoiceState.serverDeafened,
+    currentVoiceChannelId
+  ]);
 
   const toggleWebcam = useCallback(async () => {
     if (!currentVoiceChannelId) return;

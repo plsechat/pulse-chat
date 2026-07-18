@@ -11,6 +11,7 @@ import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { isRegistrationDisabled } from '../utils/env';
 import { logger } from '../logger';
 import { authBackend } from '../utils/auth';
+import { isPasswordLoginEnabled } from '../utils/auth-providers';
 import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
@@ -33,6 +34,23 @@ const loginRouteHandler = async (
     sanitizeForLog(data.email),
     sanitizeForLog(connectionInfo?.ip)
   );
+
+  // SSO-only mode (see utils/auth-providers.ts): reject password logins,
+  // not just hide the form — otherwise the endpoint stays open to
+  // credential-stuffing against old password accounts. A valid invite is
+  // the break-glass, mirroring register.ts: invite-created password
+  // accounts sign in through their invite link. Validation only — the
+  // invite's use count is consumed at registration, not here.
+  if (!isPasswordLoginEnabled()) {
+    const inviteError = data.invite
+      ? await isInviteValid(data.invite)
+      : 'Password login is disabled on this server';
+
+    if (inviteError) {
+      logger.debug('[login] rejected: SSO-only mode (%s)', inviteError);
+      throw new HttpValidationError('email', inviteError);
+    }
+  }
 
   // Try to sign in via the active auth backend (local or supabase)
   const { data: signInData, error: signInError } =

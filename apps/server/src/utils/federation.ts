@@ -61,6 +61,7 @@ async function getFederationConfig(): Promise<{
   domain: string;
   hasKeys: boolean;
   publicKey?: string;
+  allowUserFederatableServers: boolean;
 }> {
   const keys = await getLocalKeys();
 
@@ -68,7 +69,8 @@ async function getFederationConfig(): Promise<{
     enabled: config.federation.enabled,
     domain: config.federation.domain,
     hasKeys: keys !== null,
-    publicKey: keys ? JSON.stringify(keys.publicKey) : undefined
+    publicKey: keys ? JSON.stringify(keys.publicKey) : undefined,
+    allowUserFederatableServers: config.federation.allowUserFederatableServers
   };
 }
 

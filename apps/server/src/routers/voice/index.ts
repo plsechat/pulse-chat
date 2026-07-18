@@ -2,6 +2,8 @@ import { t } from '../../utils/trpc';
 import { closeProducerRoute } from './close-producer';
 import { connectConsumerTransportRoute } from './connect-consumer-transport';
 import { connectProducerTransportRoute } from './connect-producer-transport';
+import { disconnectUserRoute } from './disconnect-user';
+import { moderateMemberRoute } from './moderate-member';
 import { consumeRoute } from './consume';
 import { createConsumerTransportRoute } from './create-consumer-transport';
 import { createProducerTransportRoute } from './create-producer-transport';
@@ -25,6 +27,8 @@ import { updateVoiceStateRoute } from './update-state';
 export const voiceRouter = t.router({
   join: joinVoiceRoute,
   leave: leaveVoiceRoute,
+  disconnectUser: disconnectUserRoute,
+  moderateMember: moderateMemberRoute,
   updateState: updateVoiceStateRoute,
   createProducerTransport: createProducerTransportRoute,
   connectProducerTransport: connectProducerTransportRoute,

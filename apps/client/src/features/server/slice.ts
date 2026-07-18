@@ -91,6 +91,13 @@ export interface IServerState {
   highlightedMessageId: number | undefined;
   usersLoaded: boolean;
   emojisLoaded: boolean;
+  // Instance-level federation facts for THIS connection (set by
+  // setInitialData). isInstanceOwner: the connected user owns the
+  // instance's first server (the operator) — gates the Federation
+  // settings. federatableServersAllowed: the operator lets other server
+  // owners mark their servers federatable.
+  isInstanceOwner: boolean;
+  federatableServersAllowed: boolean;
 }
 
 const initialState: IServerState = {
@@ -122,7 +129,9 @@ const initialState: IServerState = {
     micMuted: false,
     soundMuted: false,
     webcamEnabled: false,
-    sharingScreen: false
+    sharingScreen: false,
+    serverMuted: false,
+    serverDeafened: false
   },
   pinnedCard: undefined,
   channelPermissions: {},
@@ -133,7 +142,9 @@ const initialState: IServerState = {
   activeThreadId: undefined,
   highlightedMessageId: undefined,
   usersLoaded: false,
-  emojisLoaded: false
+  emojisLoaded: false,
+  isInstanceOwner: false,
+  federatableServersAllowed: false
 };
 
 export const serverSlice = createSlice({
@@ -190,6 +201,8 @@ export const serverSlice = createSlice({
         readStates: TReadStateMap;
         mentionStates?: TMentionStateMap;
         lastReadMessageIds?: TLastReadMessageIdMap;
+        isInstanceOwner?: boolean;
+        federatableServersAllowed?: boolean;
       }>
     ) => {
       state.connected = true;
@@ -204,6 +217,9 @@ export const serverSlice = createSlice({
       state.readStatesMap = action.payload.readStates;
       state.mentionStatesMap = action.payload.mentionStates ?? {};
       state.lastReadMessageIdMap = action.payload.lastReadMessageIds ?? {};
+      state.isInstanceOwner = action.payload.isInstanceOwner ?? false;
+      state.federatableServersAllowed =
+        action.payload.federatableServersAllowed ?? false;
       // Clear deferred state from previous server (will be populated by separate fetches)
       state.users = [];
       state.emojis = [];
@@ -462,6 +478,21 @@ export const serverSlice = createSlice({
       state,
       action: PayloadAction<number | undefined>
     ) => {
+      // Leaving a channel counts everything loaded there as seen: the
+      // "New messages" divider on the NEXT visit should mark messages
+      // that arrived after this point, not the connect-time snapshot.
+      const prev = state.selectedChannelId;
+      if (prev != null && prev !== action.payload) {
+        const prevMessages = state.messagesMap[prev];
+        if (prevMessages?.length) {
+          const newestId = prevMessages[prevMessages.length - 1]!.id;
+          const prevRead = state.lastReadMessageIdMap[prev];
+          if (prevRead == null || newestId > prevRead) {
+            state.lastReadMessageIdMap[prev] = newestId;
+          }
+        }
+      }
+
       state.selectedChannelId = action.payload;
       state.activeThreadId = undefined;
 

@@ -18,7 +18,7 @@ import {
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';
 import { SoundType } from '../types';
-import { ownUserIdSelector } from '../users/selectors';
+import { ownUserIdSelector, userByIdSelector } from '../users/selectors';
 import { ownVoiceStateSelector } from './selectors';
 
 export const addUserToVoiceChannel = (
@@ -60,6 +60,19 @@ export const removeUserFromVoiceChannel = (
 
   if (userId !== ownUserId && channelId === currentChannelId) {
     playSound(SoundType.REMOTE_USER_LEFT_VOICE_CHANNEL);
+  }
+
+  // Server-initiated removal of THIS client (moderator disconnect,
+  // orphan sweep): tear down the local session. A voluntary leave never
+  // reaches here with a matching channel — leaveVoice clears Redux
+  // before its mutate, so currentChannelId is already undefined by the
+  // time our own USER_LEAVE_VOICE event arrives.
+  if (userId === ownUserId && channelId === currentChannelId) {
+    setCurrentVoiceChannelId(undefined);
+    setCurrentVoiceServerId(undefined);
+    setPinnedCard(undefined);
+    playSound(SoundType.OWN_USER_LEFT_VOICE_CHANNEL);
+    toast.info('You were disconnected from the voice channel');
   }
 };
 
@@ -108,9 +121,31 @@ export const updateVoiceUserState = (
   channelId: number,
   newState: Partial<TVoiceUserState>
 ): void => {
+  const state = store.getState();
+  const prevVoiceState = state.server.voiceMap[channelId]?.users[userId];
+
   store.dispatch(
     serverSliceActions.updateVoiceUserState({ userId, channelId, newState })
   );
+
+  // The server publishes the user's FULL voice state on every toggle (e.g. a
+  // mute while sharing re-delivers sharingScreen: true), so notify only on
+  // the actual false→true transition. Covers both server voice channels and
+  // DM calls — both live in voiceMap keyed by currentVoiceChannelId.
+  if (
+    newState.sharingScreen === true &&
+    prevVoiceState &&
+    !prevVoiceState.sharingScreen &&
+    userId !== ownUserIdSelector(state) &&
+    channelId === currentVoiceChannelIdSelector(state)
+  ) {
+    playSound(SoundType.REMOTE_USER_STARTED_SCREENSHARE);
+
+    const sharer = userByIdSelector(state, userId);
+    toast.info(
+      `${sharer?.name ?? 'Someone'} started sharing their screen`
+    );
+  }
 };
 
 export const updateOwnVoiceState = (

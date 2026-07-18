@@ -62,9 +62,20 @@ function checkRateLimit(
   return true;
 }
 
+// Optional env overrides. Defaults are the shipped behavior; the knobs
+// exist for operators behind shared NATs (many users, one IP) and for
+// test rigs (the E2E suite logs in per-test and would exhaust the
+// default budget immediately).
+const envInt = (name: string, fallback: number): number => {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const authRateLimit: RateLimitConfig = {
-  windowMs: 15 * 60 * 1000,
-  maxRequests: 10
+  windowMs: envInt('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
+  maxRequests: envInt('AUTH_RATE_LIMIT_MAX', 10)
 };
 
 const federationRateLimit: RateLimitConfig = {
