@@ -64,9 +64,10 @@ const MessageReactions = memo(
     const instanceDomain = useActiveInstanceDomain() ?? undefined;
     const can = useCan();
     const usernames = useUsernames();
-    // Home-scoped avatars are files on the HOME instance — never route
-    // them through the active federated instance's public route.
-    const avatarDomain = homeScope ? undefined : instanceDomain;
+    // Home-scoped files (reactor avatars AND custom-emoji images) live on
+    // the HOME instance — never route them through the active federated
+    // instance's public route, or they 404 to the text fallback.
+    const fileDomain = homeScope ? undefined : instanceDomain;
 
     const handleReactionClick = useCallback(
       async (emoji: string) => {
@@ -105,7 +106,7 @@ const MessageReactions = memo(
 
         return (
           <img
-            src={getFileUrl(file, instanceDomain)}
+            src={getFileUrl(file, fileDomain)}
             alt={`:${emojiName}:`}
             className="w-5 h-5 object-contain"
             onError={(e) => {
@@ -117,7 +118,7 @@ const MessageReactions = memo(
           />
         );
       },
-      [instanceDomain]
+      [fileDomain]
     );
 
     const aggregatedReactions = useMemo((): TAggregatedReaction[] => {
@@ -179,7 +180,7 @@ const MessageReactions = memo(
               >
                 <Avatar className="h-5 w-5 ring-0 shadow-none">
                   <AvatarImage
-                    src={getFileUrl(reactor.avatar, avatarDomain)}
+                    src={getFileUrl(reactor.avatar, fileDomain)}
                   />
                   <AvatarFallback className="bg-background/20 text-[9px] text-background">
                     {getInitialsFromName(reactor.name)}
@@ -196,7 +197,7 @@ const MessageReactions = memo(
           </div>
         );
       },
-      [renderEmoji, avatarDomain]
+      [renderEmoji, fileDomain]
     );
 
     if (!aggregatedReactions.length) return null;
