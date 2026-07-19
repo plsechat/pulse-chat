@@ -23,6 +23,10 @@ interface PulseDesktop {
   updateSetting(key: string, value: unknown): Promise<void>;
   audioDriver: PulseDesktopAudioDriver;
   audioCapture: PulseDesktopAudioCapture;
+  // Added in desktop 0.1.0 — optional so older shells stay type-correct.
+  setBadgeCount?(count: number): Promise<void>;
+  getStartupEnabled?(): Promise<boolean>;
+  setStartupEnabled?(enabled: boolean): Promise<void>;
 }
 
 // Extend the Window interface for global functions
