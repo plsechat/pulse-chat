@@ -755,6 +755,37 @@ button:hover .icon-anim-spin,
   }
 }
 
+/* Desktop shell frameless chrome (Windows). The Electron wrapper hides the
+   native title bar and floats min/max/close over the app; DesktopChrome
+   tags <html> with .titlebar-overlay when that mode is active.
+
+   - The top bar becomes the window drag region; interactive descendants
+     opt back out so they stay clickable.
+   - Right padding keeps top-bar icons clear of the floating controls,
+     sized from the standard Window Controls Overlay env() vars.
+   - A thin full-width strip keeps the window movable on screens without
+     a top bar (connect, loading, narrow viewports). */
+
+.titlebar-overlay body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+}
+
+.titlebar-overlay .app-topbar {
+  -webkit-app-region: drag;
+  padding-right: max(1rem, calc(100vw - env(titlebar-area-width, 100vw)));
+}
+
+.titlebar-overlay .app-topbar :is(button, a, input, [role='button'], [contenteditable='true']) {
+  -webkit-app-region: no-drag;
+}
+
 /* mentions */
 
 .mention {

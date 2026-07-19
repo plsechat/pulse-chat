@@ -27,6 +27,12 @@ interface PulseDesktop {
   setBadgeCount?(count: number): Promise<void>;
   getStartupEnabled?(): Promise<boolean>;
   setStartupEnabled?(enabled: boolean): Promise<void>;
+  // Added in desktop 0.2.0 — frameless window chrome (Windows overlay).
+  getWindowChrome?(): Promise<'overlay' | 'native'>;
+  setTitleBarOverlay?(overlay: {
+    color?: string;
+    symbolColor?: string;
+  }): Promise<void>;
 }
 
 // Extend the Window interface for global functions
