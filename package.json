@@ -7,9 +7,6 @@
     "packages/*"
   ],
   "trustedDependencies": [
-    "electron",
-    "fs-xattr",
-    "macos-alias",
     "mediasoup"
   ],
   "scripts": {

@@ -49,9 +49,11 @@ Pulse is a monorepo managed with Bun workspaces:
 
 - `apps/server/` — backend (Bun, tRPC, Drizzle ORM, PostgreSQL)
 - `apps/client/` — frontend (React, Vite)
-- `apps/desktop/` — desktop app (Electron) with native audio addons
 - `packages/shared/` — shared types and constants
 - `packages/plugin-sdk/` — SDK for building server plugins
+
+The desktop client (Electron wrapper + native audio) lives in a separate
+repository: [plsechat/pulse-desktop](https://github.com/plsechat/pulse-desktop).
 
 ## Workflow
 
