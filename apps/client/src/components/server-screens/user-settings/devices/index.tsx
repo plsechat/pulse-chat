@@ -16,11 +16,12 @@ import { closeServerScreens } from '@/features/server-screens/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
-import { Resolution } from '@/types';
+import { Resolution, type NoiseSuppressionMode } from '@/types';
 import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useAvailableDevices } from './hooks/use-available-devices';
+import { MicMeter } from './mic-meter';
 import ResolutionFpsControl from './resolution-fps-control';
 
 const DEFAULT_NAME = 'default';
@@ -78,15 +79,6 @@ const Devices = memo(() => {
               />
             </Group>
 
-            <Group label="Noise suppression">
-              <Switch
-                checked={!!values.noiseSuppression}
-                onCheckedChange={(checked) =>
-                  onChange('noiseSuppression', checked)
-                }
-              />
-            </Group>
-
             <Group label="Automatic gain control">
               <Switch
                 checked={!!values.autoGainControl}
@@ -95,7 +87,51 @@ const Devices = memo(() => {
                 }
               />
             </Group>
+
+            <Group label="Noise suppression">
+              <Select
+                value={values.noiseSuppressionMode}
+                onValueChange={(value) =>
+                  onChange('noiseSuppressionMode', value as NoiseSuppressionMode)
+                }
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Noise suppression" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="automatic">Automatic</SelectItem>
+                    <SelectItem value="manual">Noise gate</SelectItem>
+                    <SelectItem value="off">Off</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Group>
           </div>
+
+          <Group
+            label={
+              values.noiseSuppressionMode === 'manual'
+                ? 'Input sensitivity'
+                : 'Input level'
+            }
+            description={
+              values.noiseSuppressionMode === 'manual'
+                ? 'The bar lights up green while your mic would transmit.'
+                : values.noiseSuppressionMode === 'automatic'
+                  ? 'Background noise is filtered automatically.'
+                  : undefined
+            }
+          >
+            <MicMeter
+              microphoneId={values.microphoneId}
+              echoCancellation={!!values.echoCancellation}
+              autoGainControl={!!values.autoGainControl}
+              mode={values.noiseSuppressionMode}
+              threshold={values.noiseGateThreshold}
+              onThresholdChange={(db) => onChange('noiseGateThreshold', db)}
+            />
+          </Group>
         </Group>
 
         <Group label="Webcam">

@@ -1,5 +1,5 @@
 import type { TFile } from '@pulse/shared';
-import { asc, eq, sql, sum } from 'drizzle-orm';
+import { and, asc, eq, sql, sum } from 'drizzle-orm';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';
 import { channels, files, messageFiles, messages } from '../schema';
@@ -63,7 +63,12 @@ const getFilesByMessageId = async (messageId: number): Promise<TFile[]> => {
   return rows.map((row) => row.files);
 };
 
-const getFilesByUserId = async (userId: number): Promise<TFile[]> => {
+/** Mod-view listing — strictly the files attached in ONE server's
+ * channels (excludes avatars/banners/DM uploads, which have no channel). */
+const getFilesByUserId = async (
+  userId: number,
+  serverId: number
+): Promise<TFile[]> => {
   const result = await db
     .select({
       file: files,
@@ -73,7 +78,7 @@ const getFilesByUserId = async (userId: number): Promise<TFile[]> => {
     .leftJoin(messageFiles, eq(files.id, messageFiles.fileId))
     .leftJoin(messages, eq(messageFiles.messageId, messages.id))
     .leftJoin(channels, eq(messages.channelId, channels.id))
-    .where(eq(files.userId, userId));
+    .where(and(eq(files.userId, userId), eq(channels.serverId, serverId)));
 
   const results = result.map((r) => {
     const rowCopy: TFile = { ...r.file };

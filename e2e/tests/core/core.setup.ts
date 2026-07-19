@@ -1,7 +1,7 @@
 import { expect, test as setup } from '@playwright/test';
 import { loginUser, registerUser, storageStateFor } from '../../helpers/api';
 import { CORE_OWNER, CORE_USER_B } from '../../helpers/fixtures';
-import { waitForAppReady } from '../../helpers/ui';
+import { channelButton, waitForAppReady } from '../../helpers/ui';
 
 export { CORE_OWNER, CORE_USER_B };
 
@@ -44,9 +44,9 @@ setup('register core users and join the default server', async ({
   const page = await context.newPage();
   await page.goto(BASE);
 
-  const generalText = page
-    .getByRole('button', { name: 'General Text', exact: true })
-    .first();
+  // channelButton, not role+exact-name: an unread badge merges into the
+  // accessible name and breaks the exact match on a lived-in instance.
+  const generalText = channelButton(page, 'General Text');
   const joinButton = page.getByRole('button', { name: /^join$/i }).first();
 
   // Wait for the app to settle into ONE of the two states before

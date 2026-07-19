@@ -35,7 +35,12 @@ const addRoleRoute = protectedProcedure
 
     // Verify the role belongs to the caller's active server
     const [role] = await db
-      .select({ id: roles.id, name: roles.name })
+      .select({
+        id: roles.id,
+        name: roles.name,
+        isPersistent: roles.isPersistent,
+        isDefault: roles.isDefault
+      })
       .from(roles)
       .where(
         and(eq(roles.id, input.roleId), eq(roles.serverId, ctx.activeServerId))
@@ -45,6 +50,17 @@ const addRoleRoute = protectedProcedure
     invariant(role, {
       code: 'NOT_FOUND',
       message: 'Role not found'
+    });
+
+    // The owner role (every server seeds one: persistent + non-default,
+    // all permissions) can never be granted here — ownership moves ONLY
+    // through servers.transferOwner. Gating on the capability flags, not
+    // a role id: OWNER_ROLE_ID === 1 is just the bootstrap server's row,
+    // so an id check alone leaves every other server's owner role
+    // assignable by any MANAGE_USERS holder (full-permission escalation).
+    invariant(!(role.isPersistent && !role.isDefault), {
+      code: 'FORBIDDEN',
+      message: 'The Owner role can only change via ownership transfer'
     });
 
     const existing = await db

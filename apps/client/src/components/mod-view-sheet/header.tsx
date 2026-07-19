@@ -243,7 +243,13 @@ const Header = memo(() => {
 
       <div className="flex flex-wrap gap-1.5 items-center">
         {userRoles.map((role) => (
-          <RoleBadge key={role.id} role={role} onRemoveRole={onRemoveRole} />
+          <RoleBadge
+            key={role.id}
+            role={role}
+            onRemoveRole={
+              role.isPersistent && !role.isDefault ? undefined : onRemoveRole
+            }
+          />
         ))}
         <Button
           variant="outline"

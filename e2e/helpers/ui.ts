@@ -92,12 +92,13 @@ export async function openMessageContextMenu(
 export async function waitForAppReady(page: Page): Promise<void> {
   // The left sidebar's seeded channel list is the "logged in AND a member
   // of the default server" signal — only renders after WS connect + join.
-  // Role-scoped: the bare text also matches top-bar titles.
+  // channelButton, not role+exact-name: an unread badge merges into the
+  // accessible name and breaks the exact match on a lived-in instance.
   // 30s (not 20s): with all projects running in parallel the shared host
   // is loaded, and initial WS connect + first data load can lag.
-  await expect(
-    page.getByRole('button', { name: 'General Text', exact: true }).first()
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(channelButton(page, 'General Text')).toBeVisible({
+    timeout: 30_000
+  });
 }
 
 /**

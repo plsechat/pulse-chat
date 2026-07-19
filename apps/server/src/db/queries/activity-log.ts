@@ -1,12 +1,12 @@
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '..';
 import { activityLog } from '../schema';
 
 /**
- * Audit trail for one user, scoped to a server (mod view). Includes
- * entries stamped with this serverId plus legacy/global rows (serverId
- * null — pre-stamping mod actions, account-level events). Rows stamped
- * for OTHER servers never leak (cross-server scope rule).
+ * Audit trail for one user, STRICTLY scoped to one server (mod view).
+ * Unstamped legacy/global rows are excluded by design — moderating a
+ * server must never surface activity from outside it (cross-server
+ * scope rule).
  */
 const getAuditLogForUser = async (
   userId: number,
@@ -19,7 +19,7 @@ const getAuditLogForUser = async (
     .where(
       and(
         eq(activityLog.userId, userId),
-        or(eq(activityLog.serverId, serverId), isNull(activityLog.serverId))
+        eq(activityLog.serverId, serverId)
       )
     )
     .orderBy(desc(activityLog.createdAt))

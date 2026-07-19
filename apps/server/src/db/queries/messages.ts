@@ -195,11 +195,26 @@ const getMessage = async (
   };
 };
 
-const getMessagesByUserId = async (userId: number): Promise<TMessage[]> =>
+/** Mod-view listing — strictly scoped to one server's channels. */
+const getMessagesByUserId = async (
+  userId: number,
+  serverId: number
+): Promise<TMessage[]> =>
   db
     .select()
     .from(messages)
-    .where(eq(messages.userId, userId))
+    .where(
+      and(
+        eq(messages.userId, userId),
+        inArray(
+          messages.channelId,
+          db
+            .select({ id: channels.id })
+            .from(channels)
+            .where(eq(channels.serverId, serverId))
+        )
+      )
+    )
     .orderBy(desc(messages.createdAt));
 
 const getReaction = async (

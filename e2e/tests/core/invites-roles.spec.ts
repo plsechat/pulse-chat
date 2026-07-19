@@ -177,8 +177,12 @@ test.describe('invites and roles', () => {
         timeout: 15_000
       });
       // Still a non-member: no seeded channel list, no membership row.
+      // Badge-immune absence check — an exact-name match would also
+      // resolve to 0 for a MEMBER whose row carries an unread badge.
       await expect(
-        page.getByRole('button', { name: 'General Text', exact: true })
+        page
+          .getByRole('button')
+          .filter({ has: page.getByText('General Text', { exact: true }) })
       ).toHaveCount(0);
       const joinerId = psql(
         'core',
@@ -197,6 +201,21 @@ test.describe('invites and roles', () => {
 
   test('owner creates a role and a permission toggle persists', async () => {
     const roleName = `e2erole-${Date.now().toString(36)}`;
+
+    // A previous run that died between create and rename leaves a literal
+    // "New Role" behind; on a long-lived stack these accumulate and trip
+    // the strict-mode locator below. Clear them first (CI starts fresh).
+    for (const table of [
+      'user_roles',
+      'role_permissions',
+      'channel_role_permissions'
+    ]) {
+      psql(
+        'core',
+        `DELETE FROM ${table} WHERE role_id IN (SELECT id FROM roles WHERE name = 'New Role')`
+      );
+    }
+    psql('core', `DELETE FROM roles WHERE name = 'New Role'`);
 
     await serverMenu(ownerPage, 'Server Settings');
     await ownerPage.getByRole('tab', { name: 'Roles' }).click();

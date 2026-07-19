@@ -134,8 +134,12 @@ test.describe('moderation', () => {
           { timeout: 15_000 }
         )
         .toBe('0');
+      // Badge-immune absence check — an exact-name match would also
+      // resolve to 0 for a MEMBER whose row carries an unread badge.
       await expect(
-        target.getByRole('button', { name: 'General Text', exact: true })
+        target
+          .getByRole('button')
+          .filter({ has: target.getByText('General Text', { exact: true }) })
       ).toHaveCount(0, { timeout: 20_000 });
 
       // The kick is journaled with its reason.

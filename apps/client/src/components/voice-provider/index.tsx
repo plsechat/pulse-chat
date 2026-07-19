@@ -20,6 +20,7 @@ import { useDevices } from '../devices-provider/hooks/use-devices';
 import type { TDeviceSettings } from '@/types';
 import { FloatingPinnedCard } from './floating-pinned-card';
 import { useLocalStreams } from './hooks/use-local-streams';
+import { MicPipeline } from './mic-pipeline';
 import { useRemoteStreams } from './hooks/use-remote-streams';
 import {
   useTransportStats,
@@ -98,7 +99,6 @@ const VoiceProviderContext = createContext<TVoiceProvider>({
   toggleSound: () => Promise.resolve(),
   toggleWebcam: () => Promise.resolve(),
   toggleScreenShare: () => Promise.resolve(),
-  updateSavedMicTrack: () => {},
   ownVoiceState: {
     micMuted: false,
     soundMuted: false,
@@ -128,6 +128,16 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   );
   const [sharingSystemAudio, setSharingSystemAudio] = useState(false);
   const [realOutputSinkId, setRealOutputSinkId] = useState<string | undefined>(undefined);
+  // Ref mirrors for values read inside callbacks that are defined before
+  // their state producers exist (attachMicStream is called from both the
+  // control hooks and the screen-share paths).
+  const sharingSystemAudioRef = useRef(false);
+  const micMutedRef = useRef(false);
+
+  const setSystemAudioActive = useCallback((active: boolean) => {
+    sharingSystemAudioRef.current = active;
+    setSharingSystemAudio(active);
+  }, []);
   const routerRtpCapabilities = useRef<RtpCapabilities | null>(null);
   // Hold a ref to the loaded Device so screen-share produce can pull
   // the H264 codec entry off it (see screenShare codec selection
@@ -201,35 +211,89 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     resetStats
   } = useTransportStats();
 
-  const startMicStream = useCallback(async () => {
-    try {
-      logVoice('Starting microphone stream');
+  const micPipelineRef = useRef<MicPipeline | null>(null);
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: devices.microphoneId
-            ? { exact: devices.microphoneId }
-            : undefined,
-          autoGainControl: devices.autoGainControl,
-          echoCancellation: devices.echoCancellation,
-          noiseSuppression: devices.noiseSuppression,
-          sampleRate: 48000,
-          channelCount: 2
-        },
-        video: false
+  /**
+   * Acquire the microphone through the pipeline and attach its output to
+   * the audio producer (creating the producer on first use). The single
+   * entry point for every mic transition: initial join, unmute,
+   * device/setting hot-swap, and both system-audio screen-share handoffs.
+   *
+   * While system audio capture is live, browser EC/NS/AGC are forced ON and
+   * the Pulse Audio virtual device is never selected as the mic — otherwise
+   * the aggregate device's speaker output bleeds acoustically back into the
+   * call. The configured mic is preferred, but a stale id NEVER skips the
+   * forced-EC profile: any real mic beats an EC-less track feeding the
+   * speakers back into the call.
+   */
+  const attachMicStream = useCallback(async () => {
+    try {
+      logVoice('Attaching microphone stream');
+
+      if (!micPipelineRef.current) {
+        micPipelineRef.current = new MicPipeline(
+          devices.noiseSuppressionMode,
+          devices.noiseGateThreshold
+        );
+      }
+      const pipeline = micPipelineRef.current;
+      pipeline.setMode(devices.noiseSuppressionMode);
+      pipeline.setThreshold(devices.noiseGateThreshold);
+
+      let deviceId = devices.microphoneId;
+      let forceEcProfile = false;
+
+      if (sharingSystemAudioRef.current) {
+        const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+        const nonVirtualInputs = mediaDevices.filter(
+          (d) => d.kind === 'audioinput' && !d.label.includes('Pulse Audio')
+        );
+        const realMic =
+          nonVirtualInputs.find((d) => d.deviceId === deviceId) ??
+          nonVirtualInputs[0];
+        if (realMic) deviceId = realMic.deviceId;
+        forceEcProfile = true;
+      }
+
+      const stream = await pipeline.acquire({
+        deviceId,
+        echoCancellation: forceEcProfile ? true : devices.echoCancellation,
+        autoGainControl: forceEcProfile ? true : devices.autoGainControl,
+        noiseSuppression: forceEcProfile
+          ? true
+          : devices.noiseSuppressionMode === 'automatic'
       });
 
       logVoice('Microphone stream obtained', { stream });
 
+      pipeline.onRawTrackEnded = () => {
+        // Device unplugged / capture revoked — drop the producer so the
+        // next unmute re-acquires and re-produces.
+        logVoice('Audio track ended, cleaning up microphone');
+        pipeline.release();
+        localAudioProducer.current?.close();
+        localAudioProducer.current = undefined;
+        setLocalAudioStream(undefined);
+      };
+
       setLocalAudioStream(stream);
 
-      const audioTrack = stream.getAudioTracks()[0];
+      const outputTrack = pipeline.getOutputTrack();
+      if (!outputTrack) {
+        throw new Error('Failed to obtain audio track from microphone');
+      }
 
-      if (audioTrack) {
-        logVoice('Obtained audio track', { audioTrack });
-
+      const producer = localAudioProducer.current;
+      if (producer && !producer.closed) {
+        await producer.replaceTrack({ track: outputTrack });
+        logVoice('Microphone track replaced on existing producer');
+      } else {
         localAudioProducer.current = await producerTransport.current?.produce({
-          track: audioTrack,
+          track: outputTrack,
+          // The pipeline owns track lifecycle; mediasoup must not stop
+          // tracks on replaceTrack/close (it would kill the shared noise
+          // gate output node).
+          stopTracks: false,
           appData: { kind: StreamKind.AUDIO }
         });
 
@@ -251,33 +315,39 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
             logVoice('Error closing audio producer', { error });
           }
         });
-
-        audioTrack.onended = () => {
-          logVoice('Audio track ended, cleaning up microphone');
-
-          localAudioStream?.getAudioTracks().forEach((track) => {
-            track.stop();
-          });
-          localAudioProducer.current?.close();
-
-          setLocalAudioStream(undefined);
-        };
-      } else {
-        throw new Error('Failed to obtain audio track from microphone');
       }
     } catch (error) {
-      logVoice('Error starting microphone stream', { error });
+      logVoice('Error attaching microphone stream', { error });
     }
   }, [
     producerTransport,
     setLocalAudioStream,
     localAudioProducer,
-    localAudioStream,
     devices.microphoneId,
     devices.autoGainControl,
     devices.echoCancellation,
-    devices.noiseSuppression
+    devices.noiseSuppressionMode,
+    devices.noiseGateThreshold
   ]);
+
+  /**
+   * Detach the producer track and release the mic (mute). replaceTrack(null)
+   * instead of track.enabled: on macOS, disabling one getUserMedia audio
+   * track can interfere with other concurrent captures (e.g. the Pulse
+   * Audio virtual device during system-audio screen share).
+   */
+  const detachMicStream = useCallback(async () => {
+    const producer = localAudioProducer.current;
+    if (producer && !producer.closed) {
+      try {
+        await producer.replaceTrack({ track: null });
+      } catch (error) {
+        logVoice('Error detaching producer track', { error });
+      }
+    }
+    micPipelineRef.current?.release();
+    setLocalAudioStream(undefined);
+  }, [localAudioProducer, setLocalAudioStream]);
 
   const startWebcamStream = useCallback(async () => {
     try {
@@ -388,40 +458,25 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     window.pulseDesktop?.audioCapture?.stop();
 
     // Restore the microphone to original settings (echo cancellation was
-    // forced ON during system audio capture to prevent acoustic bleed)
-    if (sharingSystemAudio && localAudioProducer.current && !localAudioProducer.current.closed) {
-      try {
-        logVoice('macOS: Restoring mic to original settings');
-        const newMicStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: devices.microphoneId
-              ? { exact: devices.microphoneId }
-              : undefined,
-            autoGainControl: devices.autoGainControl,
-            echoCancellation: devices.echoCancellation,
-            noiseSuppression: devices.noiseSuppression,
-            sampleRate: 48000,
-            channelCount: 2
-          },
-          video: false
-        });
+    // forced ON during system audio capture to prevent acoustic bleed).
+    // Skipped while muted: the mic is released, and re-attaching would
+    // silently unmute the producer.
+    const restoreMic =
+      sharingSystemAudio &&
+      localAudioProducer.current &&
+      !localAudioProducer.current.closed &&
+      !micMutedRef.current;
 
-        const newMicTrack = newMicStream.getAudioTracks()[0];
-        if (newMicTrack) {
-          await localAudioProducer.current.replaceTrack({ track: newMicTrack });
-          localAudioStream?.getAudioTracks().forEach((t) => t.stop());
-          setLocalAudioStream(newMicStream);
-          logVoice('macOS: Mic restored to original settings');
-        }
-      } catch (err) {
-        logVoice('macOS: Failed to restore mic settings', { error: err });
-      }
-    }
-
+    // Clear BEFORE re-attaching so the forced-EC profile is off.
+    setSystemAudioActive(false);
     setLocalScreenShare(undefined);
-    setSharingSystemAudio(false);
     setRealOutputSinkId(undefined);
-  }, [localScreenShareStream, setLocalScreenShare, localScreenShareProducer, localScreenShareAudioProducer, sharingSystemAudio, localAudioProducer, localAudioStream, setLocalAudioStream, devices.microphoneId, devices.autoGainControl, devices.echoCancellation, devices.noiseSuppression]);
+
+    if (restoreMic) {
+      logVoice('Restoring mic to original settings after system-audio share');
+      await attachMicStream();
+    }
+  }, [localScreenShareStream, setLocalScreenShare, localScreenShareProducer, localScreenShareAudioProducer, sharingSystemAudio, localAudioProducer, attachMicStream, setSystemAudioActive]);
 
   const startScreenShareStream = useCallback(async () => {
     try {
@@ -456,7 +511,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
         const isSystemAudio = hasAudio && displaySurface !== 'browser';
 
         logVoice('Screen share surface type', { displaySurface, hasAudio, isSystemAudio });
-        setSharingSystemAudio(isSystemAudio);
+        setSystemAudioActive(isSystemAudio);
 
         // Prefer H264 for screen share. On Apple Silicon (and most
         // recent x86 chips) H264 has dedicated hardware encoding;
@@ -545,7 +600,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
                   audioTrack = audioStream.getAudioTracks()[0];
                   if (audioTrack) {
                     stream.addTrack(audioTrack);
-                    setSharingSystemAudio(true);
+                    setSystemAudioActive(true);
 
                     // Find the real output device by name so we can route voice
                     // chat audio directly to it (bypassing the aggregate device).
@@ -558,46 +613,19 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
                       setRealOutputSinkId(realOutput.deviceId);
                     }
 
-                    // Re-acquire the microphone with echo cancellation + noise
-                    // suppression forced ON. The aggregate device routes system
-                    // audio to the real speakers, and the built-in mic picks it
-                    // up acoustically. Without this, the remote user hears the
-                    // system audio bleeding through the mic stream.
-                    if (localAudioProducer.current && !localAudioProducer.current.closed) {
-                      try {
-                        // Find the real microphone (exclude the Pulse Audio virtual device)
-                        const realMic = mediaDevices.find(
-                          (d) => d.kind === 'audioinput' &&
-                            !d.label.includes('Pulse Audio') &&
-                            (devices.microphoneId ? d.deviceId === devices.microphoneId : true)
-                        );
-
-                        if (realMic) {
-                          logVoice('macOS: Re-acquiring mic with echo cancellation', { deviceId: realMic.deviceId, label: realMic.label });
-                          const newMicStream = await navigator.mediaDevices.getUserMedia({
-                            audio: {
-                              deviceId: { exact: realMic.deviceId },
-                              autoGainControl: true,
-                              echoCancellation: true,
-                              noiseSuppression: true,
-                              sampleRate: 48000,
-                              channelCount: 2
-                            },
-                            video: false
-                          });
-
-                          const newMicTrack = newMicStream.getAudioTracks()[0];
-                          if (newMicTrack) {
-                            await localAudioProducer.current.replaceTrack({ track: newMicTrack });
-                            // Stop old tracks and update stream
-                            localAudioStream?.getAudioTracks().forEach((t) => t.stop());
-                            setLocalAudioStream(newMicStream);
-                            logVoice('macOS: Mic re-acquired with echo cancellation enabled');
-                          }
-                        }
-                      } catch (micErr) {
-                        logVoice('macOS: Failed to re-acquire mic with echo cancellation', { error: micErr });
-                      }
+                    // Re-acquire the microphone with echo cancellation
+                    // forced ON — attachMicStream applies the forced-EC
+                    // profile and real-mic selection while system audio is
+                    // active. Skipped while muted: the mic is released, so
+                    // there is nothing to bleed (unmute re-attaches with
+                    // the forced profile).
+                    if (
+                      localAudioProducer.current &&
+                      !localAudioProducer.current.closed &&
+                      !micMutedRef.current
+                    ) {
+                      logVoice('macOS: Re-acquiring mic with echo cancellation');
+                      await attachMicStream();
                     }
                   }
                 } else {
@@ -679,61 +707,11 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     producerTransport,
     localScreenShareStream,
     localAudioProducer,
-    localAudioStream,
-    setLocalAudioStream,
+    attachMicStream,
+    setSystemAudioActive,
     devices.screenResolution,
     devices.screenFramerate,
-    devices.screenAudioBitrate,
-    devices.microphoneId
-  ]);
-
-  // Hot-swap microphone track on the existing producer when device settings change
-  const reapplyMicSettings = useCallback(async (micMuted: boolean, savedMicTrackUpdater: (track: MediaStreamTrack | null) => void) => {
-    if (!localAudioProducer.current || localAudioProducer.current.closed) return;
-
-    try {
-      logVoice('Reapplying mic settings mid-call');
-
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: devices.microphoneId
-            ? { exact: devices.microphoneId }
-            : undefined,
-          autoGainControl: devices.autoGainControl,
-          echoCancellation: devices.echoCancellation,
-          noiseSuppression: devices.noiseSuppression,
-          sampleRate: 48000,
-          channelCount: 2
-        },
-        video: false
-      });
-
-      const newTrack = newStream.getAudioTracks()[0];
-      if (!newTrack) return;
-
-      // Stop old tracks
-      localAudioStream?.getAudioTracks().forEach((t) => t.stop());
-
-      if (micMuted) {
-        // Mic is muted — update the saved track so unmute uses the new device
-        savedMicTrackUpdater(newTrack);
-      } else {
-        await localAudioProducer.current!.replaceTrack({ track: newTrack });
-      }
-
-      setLocalAudioStream(newStream);
-      logVoice('Mic settings reapplied successfully');
-    } catch (error) {
-      logVoice('Error reapplying mic settings', { error });
-    }
-  }, [
-    localAudioProducer,
-    localAudioStream,
-    setLocalAudioStream,
-    devices.microphoneId,
-    devices.autoGainControl,
-    devices.echoCancellation,
-    devices.noiseSuppression
+    devices.screenAudioBitrate
   ]);
 
   // Hot-swap webcam track on the existing producer when device settings change
@@ -783,6 +761,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     clearRemoteUserStreams();
     clearExternalStreams();
     cleanupTransports();
+    micPipelineRef.current?.destroy();
+    micPipelineRef.current = null;
+    setSystemAudioActive(false);
     deviceRef.current = null;
 
     setConnectionStatus(ConnectionStatus.DISCONNECTED);
@@ -792,7 +773,8 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     clearLocalStreams,
     clearRemoteUserStreams,
     clearExternalStreams,
-    cleanupTransports
+    cleanupTransports,
+    setSystemAudioActive
   ]);
 
   const init = useCallback(
@@ -824,7 +806,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
         await createProducerTransport(device);
         await createConsumerTransport(device);
         await consumeExistingProducers(incomingRouterRtpCapabilities);
-        await startMicStream();
+        await attachMicStream();
 
         startMonitoring(producerTransport.current, consumerTransport.current);
         setConnectionStatus(ConnectionStatus.CONNECTED);
@@ -844,7 +826,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       createProducerTransport,
       createConsumerTransport,
       consumeExistingProducers,
-      startMicStream,
+      attachMicStream,
       startMonitoring,
       producerTransport,
       consumerTransport
@@ -856,17 +838,21 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     toggleSound,
     toggleWebcam,
     toggleScreenShare,
-    updateSavedMicTrack,
     ownVoiceState
   } = useVoiceControls({
-    startMicStream,
-    localAudioStream,
-    localAudioProducer,
+    attachMicStream,
+    detachMicStream,
     startWebcamStream,
     stopWebcamStream,
     startScreenShareStream,
     stopScreenShareStream
   });
+
+  // Mirror mute state for callbacks defined above useVoiceControls
+  // (screen-share restore / forced-EC skip-when-muted).
+  useEffect(() => {
+    micMutedRef.current = ownVoiceState.micMuted;
+  }, [ownVoiceState.micMuted]);
 
   useVoiceEvents({
     consume,
@@ -918,8 +904,11 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     const micChanged =
       prev.microphoneId !== devices.microphoneId ||
       prev.echoCancellation !== devices.echoCancellation ||
-      prev.noiseSuppression !== devices.noiseSuppression ||
+      prev.noiseSuppressionMode !== devices.noiseSuppressionMode ||
       prev.autoGainControl !== devices.autoGainControl;
+
+    const gateThresholdChanged =
+      prev.noiseGateThreshold !== devices.noiseGateThreshold;
 
     const webcamChanged =
       prev.webcamId !== devices.webcamId ||
@@ -927,12 +916,19 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       prev.webcamResolution !== devices.webcamResolution;
 
     if (micChanged) {
-      reapplyMicSettings(ownVoiceState.micMuted, updateSavedMicTrack);
+      // While muted the mic is released; the next unmute acquires with the
+      // new settings on its own.
+      if (!ownVoiceState.micMuted) {
+        attachMicStream();
+      }
+    } else if (gateThresholdChanged) {
+      // Threshold-only change: adjust the live gate, no re-acquire needed.
+      micPipelineRef.current?.setThreshold(devices.noiseGateThreshold);
     }
     if (webcamChanged) {
       reapplyWebcamSettings(ownVoiceState.webcamEnabled);
     }
-  }, [devices, connectionStatus, reapplyMicSettings, reapplyWebcamSettings, ownVoiceState.micMuted, ownVoiceState.webcamEnabled, updateSavedMicTrack]);
+  }, [devices, connectionStatus, attachMicStream, reapplyWebcamSettings, ownVoiceState.micMuted, ownVoiceState.webcamEnabled]);
 
   const contextValue = useMemo<TVoiceProvider>(
     () => ({
@@ -949,7 +945,6 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       toggleSound,
       toggleWebcam,
       toggleScreenShare,
-      updateSavedMicTrack,
       ownVoiceState,
 
       localAudioStream,
@@ -972,7 +967,6 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       toggleSound,
       toggleWebcam,
       toggleScreenShare,
-      updateSavedMicTrack,
       ownVoiceState,
 
       localAudioStream,

@@ -1,4 +1,6 @@
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,7 +10,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
-import { OWNER_ROLE_ID, type TJoinedRole } from '@pulse/shared';
+import { Permission, OWNER_ROLE_ID, type TJoinedRole } from '@pulse/shared';
 import { Info, Star, Trash2 } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -19,6 +21,14 @@ type TUpdateRoleProps = {
   setSelectedRoleId: (id: number | undefined) => void;
   refetch: () => void;
 };
+
+const ALL_PERMISSIONS = Object.values(Permission);
+
+/** Curated palette; the inputs below stay for fully custom colors. */
+const ROLE_COLOR_PRESETS = [
+  '#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db',
+  '#9b59b6', '#e91e8f', '#f43f5e', '#14b8a6', '#64748b', '#a1a1aa'
+];
 
 const UpdateRole = memo(
   ({ selectedRole, setSelectedRoleId, refetch }: TUpdateRoleProps) => {
@@ -147,16 +157,47 @@ const UpdateRole = memo(
 
             <div className="space-y-2">
               <Label htmlFor="role-color">Role Color</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_COLOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    aria-label={`Use color ${preset}`}
+                    onClick={() => onChange('color', preset)}
+                    className={cn(
+                      'h-7 w-7 rounded-full ring-1 ring-inset ring-black/10 transition-transform duration-100 hover:scale-110',
+                      values.color?.toLowerCase() === preset && 'outline outline-2 outline-offset-2 outline-ring'
+                    )}
+                    style={{ backgroundColor: preset }}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
                 <Input className="h-10 w-20" {...r('color', 'color')} />
-                <Input className="flex-1" {...r('color')} />
+                <Input className="flex-1" {...r('color')} placeholder="#hex — or pick a preset above" />
               </div>
             </div>
           </div>
 
+          <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5">
+            <div>
+              <p className="text-sm font-medium">All Permissions</p>
+              <p className="text-xs text-muted-foreground">
+                Toggle every permission at once
+              </p>
+            </div>
+            <Switch
+              checked={values.permissions.length === ALL_PERMISSIONS.length}
+              disabled={selectedRole.isPersistent && !selectedRole.isDefault}
+              onCheckedChange={(checked) =>
+                onChange('permissions', checked ? [...ALL_PERMISSIONS] : [])
+              }
+            />
+          </div>
+
           <PermissionList
             permissions={values.permissions}
-            disabled={OWNER_ROLE_ID === selectedRole.id}
+            disabled={selectedRole.isPersistent && !selectedRole.isDefault}
             setPermissions={(permissions) =>
               onChange('permissions', permissions)
             }

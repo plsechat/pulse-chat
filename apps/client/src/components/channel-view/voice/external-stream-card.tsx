@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { IconButton } from '@/components/ui/icon-button';
+import { useVoice } from '@/features/server/voice/hooks';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
 import { cn } from '@/lib/utils';
 import type { TExternalStream } from '@pulse/shared';
@@ -97,6 +98,21 @@ const ExternalStreamCard = memo(
 
     const { getVolume, setVolume, toggleMute, getExternalVolumeKey } =
       useVolumeControl();
+    const { realOutputSinkId } = useVoice();
+
+    // While THIS client captures system audio (macOS aggregate device),
+    // external-stream playback must bypass the aggregate or it gets
+    // re-captured into the outgoing share — an instant feedback loop.
+    // Mirrors persistent-audio-streams' routing.
+    useEffect(() => {
+      const el = externalAudioRef.current;
+      if (!el || !('setSinkId' in el)) return;
+      (el as unknown as { setSinkId(id: string): Promise<void> })
+        .setSinkId(realOutputSinkId ?? '')
+        .catch(() => {
+          // device may have disconnected — not critical
+        });
+    }, [realOutputSinkId, externalAudioRef]);
 
     const volumeKey = getExternalVolumeKey(stream.pluginId, stream.key);
     const volume = getVolume(volumeKey);
