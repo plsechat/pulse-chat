@@ -46,6 +46,7 @@ const unbanRoute = protectedProcedure
     enqueueActivityLog({
       type: ActivityLogType.USER_UNBANNED,
       userId: input.userId,
+      serverId: ctx.activeServerId,
       details: {
         unbannedBy: ctx.userId
       }

@@ -23,7 +23,7 @@ const ComposerExpandToggle = memo(
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center justify-center w-full h-4 rounded-t text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+        className="mx-auto flex h-4 w-16 items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 opacity-0 group-hover/composer:opacity-100 group-focus-within/composer:opacity-100 focus-visible:opacity-100 transition-[color,background-color,opacity] duration-150 cursor-pointer"
         title={
           expanded
             ? 'Collapse composer (Enter sends)'
@@ -101,7 +101,7 @@ const ComposerResizer = memo(
     return (
       <div
         onMouseDown={onMouseDown}
-        className="h-1 w-full cursor-ns-resize bg-border/40 hover:bg-primary/40 transition-colors"
+        className="h-1 w-full cursor-ns-resize bg-transparent hover:bg-primary/40 transition-colors"
         aria-label="Resize composer"
       />
     );

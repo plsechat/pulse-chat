@@ -70,7 +70,7 @@ const MessageActions = memo(
     // zero rect and Radix snapped the popover to (0,0) for one paint frame
     // before unmount.
     return (
-      <div className="gap-0.5 absolute right-0 -top-6 z-10 flex opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto [&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto items-center rounded-md shadow-md border border-border bg-card/90 backdrop-blur-sm p-0.5 transition-opacity duration-150 h-8 [&_button[data-slot=icon-button]]:rounded [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60">
+      <div className="gap-0.5 absolute right-4 -top-4 z-10 flex opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto [&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto items-center rounded-lg shadow-md border border-border/60 bg-popover/95 backdrop-blur-sm p-0.5 transition-opacity duration-150 h-8 [&_button[data-slot=icon-button]]:rounded-md [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60">
         {canEdit && (
           <IconButton
             size="sm"

@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { EmojiPicker } from '@/components/emoji-picker';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { useCan } from '@/features/server/hooks';
@@ -14,6 +15,7 @@ import {
   type TReactionUser
 } from '@pulse/shared';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
+import { SmilePlus } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 
@@ -169,9 +171,9 @@ const MessageReactions = memo(
 
         return (
           <div className="flex max-w-[220px] flex-col gap-1.5">
-            <div className="flex items-center justify-center gap-1.5 border-b border-background/20 pb-1.5">
+            <div className="flex items-center justify-center gap-1.5 border-b border-border pb-1.5">
               {renderEmoji(reaction.emoji, reaction.file)}
-              <span className="text-xs text-background/80">
+              <span className="text-xs text-muted-foreground">
                 :{reaction.emoji}:
               </span>
             </div>
@@ -184,7 +186,7 @@ const MessageReactions = memo(
                   <AvatarImage
                     src={getFileUrl(reactor.avatar, fileDomain)}
                   />
-                  <AvatarFallback className="bg-background/20 text-[9px] text-background">
+                  <AvatarFallback className="bg-muted text-[9px] text-muted-foreground">
                     {getInitialsFromName(reactor.name)}
                   </AvatarFallback>
                 </Avatar>
@@ -192,7 +194,7 @@ const MessageReactions = memo(
               </div>
             ))}
             {overflow > 0 && (
-              <span className="text-xs text-background/70">
+              <span className="text-xs text-muted-foreground">
                 +{overflow} more
               </span>
             )}
@@ -211,18 +213,20 @@ const MessageReactions = memo(
             <Tooltip
               content={renderReactorList(reaction)}
               key={`reaction-${reaction.emoji}`}
+              className="bg-popover text-popover-foreground border border-border shadow-lg rounded-lg px-3 py-2.5"
+              showArrow={false}
             >
               <button
                 type="button"
                 onClick={() => handleReactionClick(reaction.emoji)}
                 disabled={!onToggle && !can(Permission.REACT_TO_MESSAGES)}
                 className={cn(
-                  'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm transition-all duration-150',
+                  'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-sm transition-colors duration-150',
                   'bg-accent/40 hover:bg-accent/60',
-                  'hover:scale-105 active:scale-95',
                   reaction.isUserReacted &&
-                    'border border-primary bg-primary/10 hover:bg-primary/20',
-                  !reaction.isUserReacted && 'border border-transparent',
+                    'border border-primary/40 bg-primary/15 hover:border-primary/60 hover:bg-primary/20',
+                  !reaction.isUserReacted &&
+                    'border border-transparent hover:border-border/60',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
               >
@@ -234,6 +238,19 @@ const MessageReactions = memo(
             </Tooltip>
           );
         })}
+        {(!!onToggle || can(Permission.REACT_TO_MESSAGES)) && (
+          <EmojiPicker
+            onEmojiSelect={(emoji) => handleReactionClick(emoji.name)}
+          >
+            <button
+              type="button"
+              title="Add Reaction"
+              className="inline-flex items-center rounded-lg border border-transparent bg-accent/40 px-2 py-1 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-accent/60 transition-[opacity,background-color] duration-150"
+            >
+              <SmilePlus className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </EmojiPicker>
+        )}
       </div>
     );
   }

@@ -1,5 +1,6 @@
 import { EmojiPickerPanel } from '@/components/emoji-picker';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
+import { dispatchForwardMessage } from '@/lib/events';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,6 +23,7 @@ import {
   CheckSquare,
   ClipboardCopy,
   Copy,
+  Forward,
   MessageSquare,
   Pencil,
   Pin,
@@ -198,6 +200,12 @@ const MessageContextMenu = memo(
             <Reply className="h-4 w-4" />
             Reply
           </ContextMenuItem>
+          {messageContent && (
+            <ContextMenuItem onClick={() => dispatchForwardMessage(messageContent)}>
+              <Forward className="h-4 w-4" />
+              Forward
+            </ContextMenuItem>
+          )}
 
           {canEdit && editable && (
             <ContextMenuItem onClick={onEdit}>

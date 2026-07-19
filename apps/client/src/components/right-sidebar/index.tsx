@@ -12,6 +12,8 @@ import { UserStatus } from '@pulse/shared';
 import { Globe, Loader2 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
+import { UserContextMenu } from '@/components/context-menus/user';
+import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
 import { UserPopover } from '../user-popover';
 import { UserStatusBadge } from '../user-status';
 
@@ -23,18 +25,22 @@ type TUserProps = {
   customStatus?: string | null;
   _identity?: string;
   e2ee?: boolean;
+  dimmed?: boolean;
 };
 
-const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee }: TUserProps) => {
+const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee, dimmed }: TUserProps) => {
   const displayRole = useUserDisplayRole(userId);
-  const nameColor =
-    displayRole?.color && displayRole.color !== '#ffffff'
-      ? displayRole.color
-      : undefined;
+  const nameColor = useReadableRoleColor(displayRole?.color);
 
   return (
+    <UserContextMenu userId={userId}>
     <UserPopover userId={userId}>
-      <div className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent/40 select-none transition-colors duration-150 cursor-pointer">
+      <div
+        className={cn(
+          'group flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent select-none transition-[background-color,color,opacity] duration-150 cursor-pointer',
+          dimmed && 'opacity-50 hover:opacity-100'
+        )}
+      >
         <div className="relative flex-shrink-0">
           <UserAvatar userId={userId} className="h-8 w-8" showStatusBadge={false} />
           <div className="absolute -bottom-0.5 -right-0.5">
@@ -50,7 +56,7 @@ const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee
               className={cn(
                 'text-sm truncate',
                 banned && 'line-through text-muted-foreground',
-                !banned && !nameColor && 'text-foreground/80'
+                !banned && !nameColor && 'text-foreground/80 group-hover:text-foreground'
               )}
               style={!banned && nameColor ? { color: nameColor } : undefined}
             >
@@ -69,6 +75,7 @@ const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee
         </div>
       </div>
     </UserPopover>
+    </UserContextMenu>
   );
 });
 
@@ -86,7 +93,7 @@ const RoleGroupSection = memo(
     dimmed?: boolean;
     e2ee?: boolean;
   }) => (
-    <div className={cn(dimmed && 'opacity-50')}>
+    <div>
       {/* Old shape was bold uppercase tracking-widest with an em-dash
           before the count — read as a corporate section header. The
           casual rebuild: sentence-case label, count as a soft chip.
@@ -116,6 +123,7 @@ const RoleGroupSection = memo(
             customStatus={user.customStatus}
             _identity={user._identity}
             e2ee={e2ee}
+            dimmed={dimmed}
           />
         ))}
       </div>
@@ -185,7 +193,7 @@ const RightSidebar = memo(
     return (
       <aside
         className={cn(
-          'flex flex-col bg-card h-full transition-all duration-300 ease-out overflow-hidden',
+          'flex flex-col bg-card lg:bg-sidebar/50 h-full transition-all duration-300 ease-out overflow-hidden',
           isOpen ? 'w-60' : 'w-0',
           className
         )}

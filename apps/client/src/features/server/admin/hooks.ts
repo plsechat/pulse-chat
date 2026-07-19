@@ -632,21 +632,34 @@ export const useAdminUserInfo = (userId: number) => {
   const [logins, setLogins] = useState<TLogin[]>([]);
   const [files, setFiles] = useState<TFile[]>([]);
   const [messages, setMessages] = useState<TMessage[]>([]);
+  const [auditLog, setAuditLog] = useState<
+    Awaited<
+      ReturnType<NonNullable<ReturnType<typeof getTRPCClient>>['users']['getInfo']['query']>
+    >['auditLog']
+  >([]);
+  const [joinMethod, setJoinMethod] = useState<
+    Awaited<
+      ReturnType<NonNullable<ReturnType<typeof getTRPCClient>>['users']['getInfo']['query']>
+    >['joinMethod']
+  >(null);
 
   const fetchUser = useCallback(async () => {
     setLoading(true);
 
     const trpc = getTRPCClient();
     if (!trpc) return;
-    const { user, logins, files, messages } = await trpc.users.getInfo.query({
-      userId
-    });
+    const { user, logins, files, messages, auditLog, joinMethod } =
+      await trpc.users.getInfo.query({
+        userId
+      });
 
     setUser(user);
     setLoading(false);
     setLogins(logins);
     setFiles(files);
     setMessages(messages);
+    setAuditLog(auditLog);
+    setJoinMethod(joinMethod);
   }, [userId]);
 
   useEffect(() => {
@@ -659,7 +672,9 @@ export const useAdminUserInfo = (userId: number) => {
     files,
     refetch: fetchUser,
     loading,
-    messages
+    messages,
+    auditLog,
+    joinMethod
   };
 };
 

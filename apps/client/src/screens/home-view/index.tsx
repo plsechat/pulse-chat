@@ -171,7 +171,7 @@ const HomeView = memo(() => {
 
         <aside
           className={cn(
-            'flex w-60 flex-col border-r border-border bg-card h-full',
+            'flex w-60 flex-col bg-transparent h-full',
             'md:relative md:flex fixed inset-0 left-0 z-40 md:z-0 transition-transform duration-300 ease-in-out',
             isMobileMenuOpen
               ? 'translate-x-0'
@@ -192,7 +192,7 @@ const HomeView = memo(() => {
           <div className="hidden md:block h-[5.5rem] shrink-0" />
         </aside>
 
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden bg-background md:mt-2 md:rounded-tl-2xl md:ring-1 md:ring-white/[0.045] md:ring-inset">
           {activeTab === 'friends' ? (
             <FriendsPanel onDmSelect={handleDmSelect} />
           ) : localSelectedDmChannelId ? (

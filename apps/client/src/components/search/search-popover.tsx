@@ -145,7 +145,7 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder="Search messages..."
-        className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
+        className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
       />
       {loading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
     </div>
@@ -165,15 +165,19 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
         </div>
       }
       footer={
-        nextCursor && !loading ? (
-          <div className="p-2 text-center border-t border-border/20">
+        // Stay mounted while a page fetch is in flight — unmounting on
+        // `loading` collapsed the footer and made the list jump on every
+        // "Load more" click. Disable instead.
+        nextCursor ? (
+          <div className="p-2 text-center">
             <Button
               variant="ghost"
               size="sm"
               className="text-xs"
+              disabled={loading}
               onClick={onLoadMore}
             >
-              Load more results
+              {loading ? 'Loading…' : 'Load more results'}
             </Button>
           </div>
         ) : undefined
@@ -194,14 +198,18 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
         </div>
       )}
 
-      {results.map((message) => (
-        <SearchResult
-          key={message.id}
-          message={message}
-          query={query}
-          onJump={onJump}
-        />
-      ))}
+      {results.length > 0 && (
+        <div className="p-1.5 flex flex-col gap-0.5">
+          {results.map((message) => (
+            <SearchResult
+              key={message.id}
+              message={message}
+              query={query}
+              onJump={onJump}
+            />
+          ))}
+        </div>
+      )}
     </PopoverPanelShell>
   );
 });

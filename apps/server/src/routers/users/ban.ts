@@ -76,6 +76,7 @@ const banRoute = protectedProcedure
     enqueueActivityLog({
       type: ActivityLogType.USER_BANNED,
       userId: input.userId,
+      serverId: ctx.activeServerId,
       details: {
         reason: input.reason,
         bannedBy: ctx.userId

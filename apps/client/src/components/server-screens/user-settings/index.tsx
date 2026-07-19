@@ -195,12 +195,7 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
       <div className="flex flex-1 overflow-hidden">
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card md:flex">
-          <div className="flex h-14 items-center gap-4 border-b border-border px-4">
-            <Button variant="ghost" size="icon" onClick={close}>
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <h1 className="text-lg font-semibold">Settings</h1>
-          </div>
+          <h1 className="px-4 pt-5 pb-2 text-lg font-semibold">Settings</h1>
           <nav className="flex-1 overflow-y-auto p-2">
             {visibleNavSections.map((category) => (
               <div key={category.heading} className="mb-4">

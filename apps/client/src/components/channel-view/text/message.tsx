@@ -12,6 +12,8 @@ import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission, type TJoinedMessage } from '@pulse/shared';
+import { timeOnly } from '@/helpers/time-format';
+import { format } from 'date-fns';
 import { Pin } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
@@ -25,9 +27,16 @@ import { ThreadIndicator } from './thread-indicator';
 type TMessageProps = {
   message: TJoinedMessage;
   onReply: () => void;
+  /** Compact appearance-mode: narrower gutter, so a narrower hover pill. */
+  compact?: boolean;
+  /**
+   * First row of a same-author group renders the full header; later rows
+   * get a hover-revealed gutter timestamp instead.
+   */
+  isFirstInGroup?: boolean;
 };
 
-const Message = memo(({ message, onReply }: TMessageProps) => {
+const Message = memo(({ message, onReply, compact = false, isFirstInGroup = true }: TMessageProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [creatingThread, setCreatingThread] = useState(false);
   const isFromOwnUser = useIsOwnUser(message.userId);
@@ -166,13 +175,22 @@ const Message = memo(({ message, onReply }: TMessageProps) => {
       <div
         id={`msg-${message.id}`}
         className={cn(
-          'min-w-0 flex-1 relative group leading-[1.375rem] hover:bg-foreground/[0.02] rounded',
-          isHighlighted && 'animate-msg-highlight rounded',
+          // Inset hover pill spanning the whole row incl. the avatar
+          // gutter: pull left/right past the group's padding, then pad
+          // the content back so text stays on-column.
+          'min-w-0 flex-1 relative group leading-[1.375rem] rounded-lg -mr-10 pr-4 transition-colors duration-100 hover:bg-foreground/[0.035]',
+          compact ? '-ml-[32px] pl-[32px]' : '-ml-[64px] pl-[64px]',
+          isHighlighted && 'animate-msg-highlight',
           selectionMode && 'flex items-start gap-2 cursor-pointer',
           isSelected && 'bg-primary/10'
         )}
         onClick={selectionMode ? onSelectionClick : undefined}
       >
+        {!isFirstInGroup && !compact && (
+          <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity duration-100 select-none">
+            {format(new Date(message.createdAt), timeOnly())}
+          </time>
+        )}
         {selectionMode && (
           <input
             type="checkbox"

@@ -35,9 +35,12 @@ function TooltipTrigger({
 function TooltipContent({
   className,
   sideOffset = 0,
+  showArrow = true,
   children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: React.ComponentProps<typeof TooltipPrimitive.Content> & {
+  showArrow?: boolean;
+}) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
@@ -50,7 +53,9 @@ function TooltipContent({
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+        {showArrow && (
+          <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+        )}
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   );
@@ -61,18 +66,30 @@ type TTooltipProps = {
   content: React.ReactNode;
   sideOffset?: number;
   asChild?: boolean;
+  /** Extra classes merged onto the content panel (e.g. popover skin). */
+  className?: string;
+  /** Hide the arrow for rich/panel-style tooltips. */
+  showArrow?: boolean;
 };
 
 const Tooltip = ({
   children,
   content,
   sideOffset = 4,
-  asChild = true
+  asChild = true,
+  className,
+  showArrow = true
 }: TTooltipProps) => (
   <TooltipProvider>
     <TooltipRoot delayDuration={200}>
       <TooltipTrigger asChild={asChild}>{children}</TooltipTrigger>
-      <TooltipContent sideOffset={sideOffset}>{content}</TooltipContent>
+      <TooltipContent
+        sideOffset={sideOffset}
+        className={className}
+        showArrow={showArrow}
+      >
+        {content}
+      </TooltipContent>
     </TooltipRoot>
   </TooltipProvider>
 );

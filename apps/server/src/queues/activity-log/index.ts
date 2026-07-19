@@ -19,24 +19,40 @@ type TEnqueueActivityLog<T extends ActivityLogType = ActivityLogType> = {
   details?: TActivityLogDetailsMap[T];
   userId?: number;
   ip?: string;
+  /** Scope for per-server audit reads (mod view). Omit for global events. */
+  serverId?: number;
 };
 
 const enqueueActivityLog = <T extends ActivityLogType>({
   type,
   details = {} as TActivityLogDetailsMap[T],
   userId = 1,
-  ip
+  ip,
+  serverId
 }: TEnqueueActivityLog<T>) => {
   const date = Date.now();
 
   activityLogQueue.push(async (callback) => {
     const start = performance.now();
 
+    // ip resolution must never kill the log write — getUserIp reads the
+    // live socket map, which doesn't exist in tests and can race
+    // disconnects in production.
+    let resolvedIp: string | null = ip ?? null;
+    if (!resolvedIp) {
+      try {
+        resolvedIp = getUserIp(userId) || null;
+      } catch {
+        resolvedIp = null;
+      }
+    }
+
     await db.insert(activityLog).values({
       userId,
       type: type,
       details,
-      ip: ip || getUserIp(userId) || null,
+      ip: resolvedIp,
+      serverId: serverId ?? null,
       createdAt: date
     });
 

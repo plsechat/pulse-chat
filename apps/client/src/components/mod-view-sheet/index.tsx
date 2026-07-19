@@ -15,7 +15,7 @@ const ContentWrapper = memo(({ userId }: TContentWrapperProps) => {
   const [currentView, setCurrentView] = useState<ModViewScreen | undefined>(
     undefined
   );
-  const { user, loading, refetch, logins, files, messages } =
+  const { user, loading, refetch, logins, files, messages, auditLog, joinMethod } =
     useAdminUserInfo(userId);
 
   const contextValue = useMemo<TModViewContext>(() => {
@@ -54,9 +54,11 @@ const ContentWrapper = memo(({ userId }: TContentWrapperProps) => {
       links,
       refetch,
       view: currentView,
-      setView: setCurrentView
+      setView: setCurrentView,
+      auditLog,
+      joinMethod
     };
-  }, [userId, refetch, files, user, logins, messages, currentView]);
+  }, [userId, refetch, files, user, logins, messages, currentView, auditLog, joinMethod]);
 
   if (loading || !user) {
     return (

@@ -6,12 +6,15 @@ import {
   Calendar,
   ClipboardList,
   Clock,
+  Fingerprint,
   Gavel,
   Globe,
   IdCard,
-  Network
+  Network,
+  Ticket
 } from 'lucide-react';
 import { memo } from 'react';
+import { useVerifiedIdentity } from '@/lib/e2ee/use-verified-identity';
 import { useModViewContext } from '../context';
 
 type TRowProps = {
@@ -44,8 +47,19 @@ const Row = memo(({ icon, label, value, details }: TRowProps) => {
 });
 
 const Details = memo(() => {
-  const { user, logins } = useModViewContext();
+  const { user, logins, joinMethod } = useModViewContext();
   const lastLogin = logins[0]; // TODO: in the future we might show a list of logins, atm we just show info about the last one
+  const verifiedIdentity = useVerifiedIdentity(user.id);
+  const identityStatus =
+    verifiedIdentity === undefined
+      ? '…'
+      : verifiedIdentity === null
+        ? 'Not verified'
+        : verifiedIdentity.acceptedChangeAt
+          ? 'Recently changed'
+          : verifiedIdentity.verifiedMethod === 'manual'
+            ? 'Verified'
+            : 'Pinned (TOFU)';
 
   return (
     <Card>
@@ -70,6 +84,12 @@ const Details = memo(() => {
           />
 
           <Row
+            icon={<Fingerprint className="h-4 w-4 text-muted-foreground" />}
+            label="E2EE Identity"
+            value={identityStatus}
+          />
+
+          <Row
             icon={<Network className="h-4 w-4 text-muted-foreground" />}
             label="IP Address"
             value={lastLogin?.ip || 'Unknown'}
@@ -86,6 +106,26 @@ const Details = memo(() => {
             label="Joined Server"
             value={formatDistanceToNow(user.createdAt, { addSuffix: true })}
           />
+
+          {joinMethod && (
+            <Row
+              icon={<Ticket className="h-4 w-4 text-muted-foreground" />}
+              label="Join Method"
+              value={joinMethod.inviteCode}
+              details={
+                joinMethod.inviterName
+                  ? `Invited by ${joinMethod.inviterName}`
+                  : undefined
+              }
+            />
+          )}
+          {joinMethod?.inviterName && (
+            <Row
+              icon={<IdCard className="h-4 w-4 text-muted-foreground" />}
+              label="Invited By"
+              value={joinMethod.inviterName}
+            />
+          )}
 
           <Row
             icon={<Clock className="h-4 w-4 text-muted-foreground" />}

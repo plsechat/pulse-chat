@@ -133,15 +133,15 @@ const Appearance = memo(() => {
             <button
               key={option.value}
               onClick={() => setTheme(option.value)}
-              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-colors hover:bg-accent/50 ${
+              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-colors ${
                 theme === option.value
                   ? 'border-primary bg-accent/30'
-                  : 'border-border'
+                  : 'border-transparent bg-muted/40 hover:bg-muted/70'
               }`}
             >
               {theme === option.value && (
-                <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-                  <Check className="h-2.5 w-2.5 text-primary-foreground" />
+                <div className="absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-primary ring-2 ring-background">
+                  <Check className="h-3 w-3 text-primary-foreground" />
                 </div>
               )}
               <div className="h-12 w-full">{option.swatch}</div>
@@ -166,10 +166,10 @@ const Appearance = memo(() => {
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setCompactMode(false)}
-            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors hover:bg-accent/50 ${
+            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
               !settings.compactMode
                 ? 'border-primary bg-accent/30'
-                : 'border-border'
+                : 'border-transparent bg-muted/40 hover:bg-muted/70'
             }`}
           >
             {!settings.compactMode && (
@@ -188,10 +188,10 @@ const Appearance = memo(() => {
           </button>
           <button
             onClick={() => setCompactMode(true)}
-            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors hover:bg-accent/50 ${
+            className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
               settings.compactMode
                 ? 'border-primary bg-accent/30'
-                : 'border-border'
+                : 'border-transparent bg-muted/40 hover:bg-muted/70'
             }`}
           >
             {settings.compactMode && (
@@ -257,10 +257,10 @@ const Appearance = memo(() => {
             <button
               key={option.value}
               onClick={() => setTimeFormat(option.value)}
-              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors hover:bg-accent/50 ${
+              className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
                 settings.timeFormat === option.value
                   ? 'border-primary bg-accent/30'
-                  : 'border-border'
+                  : 'border-transparent bg-muted/40 hover:bg-muted/70'
               }`}
             >
               {settings.timeFormat === option.value && (

@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { X, type LucideIcon } from 'lucide-react';
-import { memo, type ReactNode } from 'react';
+import { memo, useEffect, type ReactNode } from 'react';
 
 /**
  * Shared chrome for the small popover panels that hang off the
@@ -56,14 +56,30 @@ const PopoverPanelShell = memo(
     footer,
     children
   }: TPopoverPanelShellProps) => {
+    // Escape dismisses the panel from ANYWHERE — not only while a
+    // focusable child inside it holds focus. These popovers routinely
+    // lose focus to the composer (Ctrl+K toggle) or to clicked rows,
+    // so a window-level capture listener is the only reliable hook.
+    // Handling it here fixes Search, Pinned, and Threads uniformly.
+    useEffect(() => {
+      const handler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handler, true);
+      return () => window.removeEventListener('keydown', handler, true);
+    }, [onClose]);
+
     return (
       <div
         className={cn(
-          'absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-hidden rounded-lg border border-border bg-popover shadow-lg flex flex-col animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right',
+          'absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-hidden rounded-lg border border-border/60 bg-popover shadow-xl shadow-black/40 flex flex-col animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right',
           className
         )}
       >
-        <div className="flex items-center justify-between gap-2 p-3 border-b border-border/30 bg-popover">
+        <div className="flex items-center justify-between gap-2 p-3 border-b border-border/20 bg-popover">
           {customHeader ? (
             <div className="flex-1 min-w-0">{customHeader}</div>
           ) : (

@@ -85,14 +85,14 @@ const ServerIcon = memo(
     server,
     isActive,
     hasUnread,
-    hasMentions,
+    mentionCount,
     hasVoiceActivity,
     onClick
   }: {
     server: TServerSummary;
     isActive: boolean;
     hasUnread: boolean;
-    hasMentions: boolean;
+    mentionCount: number;
     hasVoiceActivity: boolean;
     onClick: () => void;
   }) => {
@@ -101,16 +101,17 @@ const ServerIcon = memo(
     return (
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
-          isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
+          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
+          isActive ? 'h-10' : hasUnread ? 'h-2.5' : 'h-0 group-hover:h-5'
         )} />
         <button
           onClick={onClick}
           className={cn(
-            'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
+            'flex h-12 w-12 items-center justify-center rounded-[24px] transition-all duration-150 overflow-hidden outline-none',
             isActive
-              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
+              ? 'bg-primary text-primary-foreground rounded-xl'
+              : 'bg-secondary text-muted-foreground hover:bg-primary/20 hover:text-primary hover:rounded-xl',
+            !isActive && hasUnread && 'text-foreground'
           )}
           title={server.name}
         >
@@ -124,16 +125,13 @@ const ServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
-        {isActive && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="h-12 w-12 rounded-xl ring-2 ring-primary/30" />
+        {mentionCount > 0 && !hasVoiceActivity && (
+          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground">
+            {mentionCount > 99 ? '99+' : mentionCount}
           </div>
         )}
-        {hasMentions && !hasVoiceActivity && (
-          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
-        )}
         {hasVoiceActivity && (
-          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 border-2 border-sidebar">
+          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar">
             <Volume2 className="h-3 w-3 text-white" />
           </div>
         )}
@@ -147,7 +145,7 @@ const FederatedServerIcon = memo(
     entry,
     isActive,
     hasUnread,
-    hasMentions,
+    mentionCount,
     hasVoiceActivity,
     connectionStatus,
     onClick
@@ -155,7 +153,7 @@ const FederatedServerIcon = memo(
     entry: TFederatedServerEntry;
     isActive: boolean;
     hasUnread: boolean;
-    hasMentions: boolean;
+    mentionCount: number;
     hasVoiceActivity: boolean;
     connectionStatus?: 'connecting' | 'connected' | 'disconnected';
     onClick: () => void;
@@ -175,17 +173,18 @@ const FederatedServerIcon = memo(
       <div className="relative flex w-full items-center justify-center group">
         <div
           className={cn(
-            'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
-            isActive ? 'h-10' : hasUnread ? 'h-2' : 'h-0 group-hover:h-5'
+            'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
+            isActive ? 'h-10' : hasUnread ? 'h-2.5' : 'h-0 group-hover:h-5'
           )}
         />
         <button
           onClick={onClick}
           className={cn(
-            'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 overflow-hidden outline-none',
+            'relative flex h-12 w-12 items-center justify-center rounded-[24px] transition-all duration-150 overflow-hidden outline-none',
             isActive
-              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
-              : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20',
+              ? 'bg-primary text-primary-foreground rounded-xl'
+              : 'bg-secondary text-muted-foreground hover:bg-primary/20 hover:text-primary hover:rounded-xl',
+            !isActive && hasUnread && 'text-foreground',
             isOffline && 'opacity-50'
           )}
           title={`${entry.server.name} (${entry.instanceDomain})${statusSuffix}`}
@@ -201,21 +200,23 @@ const FederatedServerIcon = memo(
           )}
         </button>
         {hasVoiceActivity ? (
-          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 border-2 border-sidebar">
+          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar">
             <Volume2 className="h-3 w-3 text-white" />
           </div>
-        ) : hasMentions ? (
-          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground" />
+        ) : mentionCount > 0 ? (
+          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground">
+            {mentionCount > 99 ? '99+' : mentionCount}
+          </div>
         ) : (
           /* Federation badge — color indicates connection status */
           <div
             className={cn(
-              'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-sidebar text-[8px] font-bold text-white pointer-events-none',
+              'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-sidebar text-[8px] font-bold text-white pointer-events-none',
               isOffline
                 ? 'bg-destructive'
                 : isReconnecting
-                  ? 'bg-yellow-600'
-                  : 'bg-blue-600'
+                  ? 'bg-amber-500'
+                  : 'bg-sky-500'
             )}
           >
             {instanceInitial}
@@ -477,16 +478,16 @@ const ServerStrip = memo(() => {
         <ContextMenuTrigger asChild>
           <div className="relative flex w-full items-center justify-center group">
             <div className={cn(
-              'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
+              'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
               activeView === 'home' ? 'h-10' : 'h-0 group-hover:h-5'
             )} />
             <button
               onClick={handleHomeClick}
               className={cn(
-                'relative flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
+                'relative flex h-12 w-12 items-center justify-center rounded-[24px] transition-all duration-150 outline-none',
                 activeView === 'home'
-                  ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
-                  : 'bg-secondary text-muted-foreground hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
+                  ? 'bg-primary text-primary-foreground rounded-xl'
+                  : 'bg-secondary text-muted-foreground hover:bg-primary/20 hover:text-primary hover:rounded-xl'
               )}
               title="Home"
             >
@@ -503,7 +504,7 @@ const ServerStrip = memo(() => {
               {totalDmUnreadCount > 0 && (
                 <span
                   title={`${totalDmUnreadCount} unread DM${totalDmUnreadCount === 1 ? '' : 's'}`}
-                  className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground"
+                  className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground"
                 >
                   {totalDmUnreadCount > 99 ? '99+' : totalDmUnreadCount}
                 </span>
@@ -515,7 +516,7 @@ const ServerStrip = memo(() => {
                   // active view it's already painted in primary, and a
                   // primary-on-primary indicator vanishes against it. Amber
                   // contrasts with both the active and inactive home button.
-                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white"
+                  className="absolute -top-1 -right-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-500 border-2 border-sidebar px-1 text-[9px] font-bold text-white"
                 >
                   {pendingCount > 99 ? '99+' : pendingCount}
                 </span>
@@ -539,7 +540,7 @@ const ServerStrip = memo(() => {
         </ContextMenuContent>
       </ContextMenu>
 
-      <div className="mx-2 h-0.5 w-8 bg-border" />
+      <div className="mx-2 h-0.5 w-8 rounded-full bg-muted-foreground/25" />
 
       <DndContext
         sensors={sensors}
@@ -572,9 +573,7 @@ const ServerStrip = memo(() => {
                         hasUnread={
                           (serverUnreadCounts[server.id] ?? 0) > 0
                         }
-                        hasMentions={
-                          (serverMentionCounts[server.id] ?? 0) > 0
-                        }
+                        mentionCount={serverMentionCounts[server.id] ?? 0}
                         hasVoiceActivity={
                           // Match the voice-hosting server by its globally-
                           // unique publicId — the numeric id collides with
@@ -660,7 +659,7 @@ const ServerStrip = memo(() => {
 
       {federatedServers.length > 0 && (
         <>
-          <div className="mx-2 h-0.5 w-8 bg-border" />
+          <div className="mx-2 h-0.5 w-8 rounded-full bg-muted-foreground/25" />
           {federatedServers.map((entry) => (
             <ContextMenu key={`${entry.instanceDomain}:${entry.server.id}`}>
               <ContextMenuTrigger asChild>
@@ -675,8 +674,8 @@ const ServerStrip = memo(() => {
                     hasUnread={
                       (federatedUnreadCounts[`${entry.instanceDomain}:${entry.server.id}`] ?? 0) > 0
                     }
-                    hasMentions={
-                      (federatedMentionCounts[`${entry.instanceDomain}:${entry.server.id}`] ?? 0) > 0
+                    mentionCount={
+                      federatedMentionCounts[`${entry.instanceDomain}:${entry.server.id}`] ?? 0
                     }
                     hasVoiceActivity={
                       currentVoiceServerPublicId !== undefined &&
@@ -709,7 +708,7 @@ const ServerStrip = memo(() => {
 
       <button
         onClick={handleCreateServer}
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20"
+        className="flex h-12 w-12 items-center justify-center rounded-[24px] bg-secondary text-primary transition-all duration-150 hover:bg-primary/20 hover:text-primary hover:rounded-xl"
         title="Create Server"
       >
         <Plus className="h-6 w-6" />
@@ -717,16 +716,16 @@ const ServerStrip = memo(() => {
 
       <div className="relative flex w-full items-center justify-center group">
         <div className={cn(
-          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-200',
+          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
           activeView === 'discover' ? 'h-10' : 'h-0 group-hover:h-5'
         )} />
         <button
           onClick={handleDiscoverClick}
           className={cn(
-            'flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-200 outline-none',
+            'flex h-12 w-12 items-center justify-center rounded-[24px] transition-all duration-150 outline-none',
             activeView === 'discover'
-              ? 'bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/30'
-              : 'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground hover:rounded-xl hover:scale-105 hover:shadow-md hover:shadow-primary/20'
+              ? 'bg-primary text-primary-foreground rounded-xl'
+              : 'bg-secondary text-primary hover:bg-primary/20 hover:text-primary hover:rounded-xl'
           )}
           title="Discover Servers"
         >

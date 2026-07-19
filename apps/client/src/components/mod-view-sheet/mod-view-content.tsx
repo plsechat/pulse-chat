@@ -2,11 +2,13 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { ModViewScreen, useModViewContext } from './context';
+import { ModPermissions } from './mod-permissions';
 import { Details } from './details';
 import { Header } from './header';
 import { ServerActivity } from './server-activity';
 import { Files } from './server-activity/files';
 import { Links } from './server-activity/links';
+import { AuditLog } from './server-activity/audit-log';
 import { Messages } from './server-activity/messages';
 
 type TWrapperProps = {
@@ -41,6 +43,14 @@ type TRoutingProps = {
 };
 
 const Routing = memo(({ view }: TRoutingProps) => {
+  if (view === ModViewScreen.AUDIT_LOG) {
+    return (
+      <Wrapper>
+        <AuditLog />
+      </Wrapper>
+    );
+  }
+
   if (view === ModViewScreen.FILES) {
     return (
       <Wrapper>
@@ -68,6 +78,7 @@ const Routing = memo(({ view }: TRoutingProps) => {
   return (
     <>
       <ServerActivity />
+      <ModPermissions />
       <Details />
     </>
   );

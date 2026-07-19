@@ -52,10 +52,10 @@ const FriendsPanel = memo(({ onDmSelect }: TFriendsPanelProps) => {
               key={t}
               onClick={() => setTab(t)}
               className={cn(
-                'rounded-md px-3 py-1 text-sm transition-colors capitalize',
+                'rounded-md px-3 py-1 text-sm transition-colors duration-100 capitalize',
                 tab === t
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
               )}
             >
               {t === 'add' ? 'Add Friend' : t}

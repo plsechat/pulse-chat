@@ -117,6 +117,11 @@ const serverMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     joinedAt: bigint('joined_at', { mode: 'number' }).notNull(),
+    // Which invite was used to join (mod-view "Join Method"); null for
+    // pre-attribution members, open joins, and the initial owner.
+    inviteId: integer('invite_id').references(() => invites.id, {
+      onDelete: 'set null'
+    }),
     muted: boolean('muted').notNull().default(false),
     notificationLevel: text('notification_level').notNull().default('default'),
     position: integer('position').notNull().default(0),

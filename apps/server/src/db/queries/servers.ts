@@ -7,11 +7,13 @@ import {
   dmChannelMembers,
   files,
   friendships,
+  invites,
   messages,
   roles,
   serverMembers,
   servers,
-  userRoles
+  userRoles,
+  users
 } from '../schema';
 
 const getServerById = async (
@@ -144,7 +146,11 @@ const isServerMember = async (
   return !!row;
 };
 
-const addServerMember = async (serverId: number, userId: number) => {
+const addServerMember = async (
+  serverId: number,
+  userId: number,
+  inviteId?: number
+) => {
   const [row] = await db
     .select({ maxPos: max(serverMembers.position) })
     .from(serverMembers)
@@ -157,6 +163,7 @@ const addServerMember = async (serverId: number, userId: number) => {
     .values({
       serverId,
       userId,
+      inviteId: inviteId ?? null,
       joinedAt: Date.now(),
       position: nextPosition
     })
@@ -498,7 +505,39 @@ const sharesServerWith = async (
   return !!row;
 };
 
+/**
+ * How a member joined: the invite they used (if recorded) and who created
+ * it. Null for pre-attribution members, open joins, and the owner.
+ */
+const getJoinMethod = async (serverId: number, userId: number) => {
+  const [row] = await db
+    .select({
+      inviteCode: invites.code,
+      inviterId: invites.creatorId,
+      inviterName: users.name
+    })
+    .from(serverMembers)
+    .leftJoin(invites, eq(serverMembers.inviteId, invites.id))
+    .leftJoin(users, eq(invites.creatorId, users.id))
+    .where(
+      and(
+        eq(serverMembers.serverId, serverId),
+        eq(serverMembers.userId, userId)
+      )
+    )
+    .limit(1);
+
+  return row?.inviteCode
+    ? {
+        inviteCode: row.inviteCode,
+        inviterId: row.inviterId,
+        inviterName: row.inviterName
+      }
+    : null;
+};
+
 export {
+  getJoinMethod,
   addServerMember,
   getCoMemberIds,
   getDiscoverableServers,

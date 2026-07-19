@@ -68,10 +68,10 @@ const HomeSidebar = memo(
             <button
               onClick={onFriendsClick}
               className={cn(
-                'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-100',
                 activeTab === 'friends'
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
               )}
             >
               <Users className="h-5 w-5" />
@@ -84,7 +84,7 @@ const HomeSidebar = memo(
             </button>
           </div>
 
-          <div className="px-4 py-2">
+          <div className="px-5 py-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-muted-foreground">
                 Direct Messages
@@ -225,10 +225,11 @@ const DmChannelItem = memo(
           <button
             onClick={onSelect}
             className={cn(
-              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-100',
               isSelected
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+              channel.unreadCount > 0 && !isSelected && 'text-foreground'
             )}
           >
             {channel.isGroup ? (
@@ -238,7 +239,7 @@ const DmChannelItem = memo(
                     key={m.id}
                     member={m}
                     className={cn(
-                      'h-6 w-6 absolute border-2 border-background',
+                      'h-6 w-6 absolute border-2 border-card',
                       i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
                     )}
                   />
@@ -251,7 +252,14 @@ const DmChannelItem = memo(
               />
             )}
             <div className="flex min-w-0 flex-1 flex-col items-start">
-              <span className="truncate font-medium">{displayName}</span>
+              <span
+                className={cn(
+                  'truncate font-medium',
+                  channel.unreadCount > 0 && 'font-semibold text-foreground'
+                )}
+              >
+                {displayName}
+              </span>
               {channel.isGroup && (
                 <span className="text-[10px] text-muted-foreground">
                   {channel.members.length} members
