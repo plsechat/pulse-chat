@@ -128,6 +128,22 @@ const DmConversation = memo(
     return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
   }, [dmChannels, dmChannelId]);
 
+  // Intro block shown at the very top of a fully-loaded history —
+  // gives short conversations a proper beginning instead of a cold
+  // start (mirrors Discord's DM intro).
+  const introMembers = useMemo(
+    () => dmMembers.filter((m) => m.id !== ownUserId),
+    [dmMembers, ownUserId]
+  );
+  const introName = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === dmChannelId);
+    if (channel?.isGroup && channel.name) return channel.name;
+    if (channel?.isGroup) {
+      return introMembers.map((m) => m.name).join(', ') || 'Group DM';
+    }
+    return introMembers[0]?.name ?? 'Unknown';
+  }, [dmChannels, dmChannelId, introMembers]);
+
   const isE2ee = useMemo(() => {
     const channel = dmChannels.find((c) => c.id === dmChannelId);
     return channel?.e2ee ?? false;
@@ -433,9 +449,40 @@ const DmConversation = memo(
       <div
         ref={containerRef}
         onScroll={onScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden p-2"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-0 py-2"
       >
-        <div className="space-y-4">
+        <div className="flex min-h-full flex-col justify-end space-y-4">
+          {!hasMore && !loading && introMembers.length > 0 && (
+            <div className="flex flex-col gap-2 px-4 pt-8 pb-4">
+              {introMembers.length > 1 ? (
+                <div className="flex -space-x-4">
+                  {introMembers.slice(0, 3).map((m) => (
+                    <UserAvatar
+                      key={m.id}
+                      userId={m.id}
+                      className="h-20 w-20 border-4 border-background"
+                      showUserPopover={false}
+                      homeScope
+                    />
+                  ))}
+                </div>
+              ) : (
+                <UserAvatar
+                  userId={introMembers[0].id}
+                  className="h-20 w-20"
+                  showUserPopover
+                  homeScope
+                />
+              )}
+              <span className="text-2xl font-bold text-foreground">
+                {introName}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                This is the beginning of your direct message history with{' '}
+                {introName}.
+              </span>
+            </div>
+          )}
           {groupedMessages.map((group, index) => {
             // Day-divider logic mirrors the channel view exactly —
             // see channel-view/text/index.tsx for the same shape.
@@ -471,7 +518,7 @@ const DmConversation = memo(
           horizontal position differed from the channel's by ~8px,
           making it look misaligned with the user-control box below
           the sidebar. */}
-      <div className="flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
+      <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
         {replyingTo && (
           <DmReplyBar
             message={replyingTo}
@@ -518,7 +565,7 @@ const DmConversation = memo(
           // rendered as a bare inline row that didn't match the rest
           // of the chat surface.
           className={cn(
-            'flex gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
+            'flex gap-2 rounded-xl bg-secondary border border-transparent shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
             // Match channel composer: single-line centers icons with
             // the input baseline; multiline anchors them to the TOP
             // so they line up with the first line of typed text and
@@ -572,11 +619,16 @@ const DmConversation = memo(
           <Button
             size="icon"
             variant="ghost"
-            className="h-8 w-8"
+            className={cn(
+              'h-8 w-8 shrink-0 transition-colors',
+              isHtmlEmpty(newMessage) && !files.length
+                ? 'text-muted-foreground'
+                : 'text-primary hover:text-primary/80'
+            )}
             onClick={onSendMessage}
             disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-5 w-5" />
           </Button>
         </div>
       </div>
@@ -953,10 +1005,10 @@ const DmMessagesGroup = memo(
         : format(date, dateTime());
 
     return (
-      <div className="flex min-w-0 gap-1 pl-2 pt-2 pr-2 group/msggroup">
+      <div className="flex min-w-0 gap-4 px-4 pt-2 group/msggroup">
         <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
         <div className="flex min-w-0 flex-col w-full">
-          <div className="flex gap-2 items-baseline pl-1 select-none">
+          <div className="flex gap-2 items-baseline select-none">
             <UserPopover userId={user.id} homeScope>
               <span
                 className={cn(
@@ -968,7 +1020,7 @@ const DmMessagesGroup = memo(
               </span>
             </UserPopover>
             <Tooltip content={format(date, fullDateTime())}>
-              <span className="text-muted-foreground/50 text-xs opacity-60 group-hover/msggroup:opacity-100 transition-opacity">
+              <span className="text-xs text-muted-foreground">
                 {timeStr}
               </span>
             </Tooltip>
@@ -1015,7 +1067,7 @@ const DmReplyBar = memo(
     }, [message.id]);
 
     return (
-      <div className="flex items-center gap-2 rounded-t-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
+      <div className="flex items-center gap-2 rounded-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
         <button
           type="button"
           onClick={scrollToMessage}
@@ -1160,7 +1212,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
     <ContextMenu>
       <ContextMenuTrigger asChild>
     <PopoverAnchor asChild>
-    <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 ml-1 relative hover:bg-secondary/50 rounded-md px-1 py-0.5 group">
+    <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 relative -mx-2 px-2 py-0.5 rounded-md hover:bg-accent/50 transition-colors duration-100 group">
       {message.replyTo && (
         <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToDmMessage} />
       )}

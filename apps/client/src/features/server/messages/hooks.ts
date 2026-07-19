@@ -223,7 +223,7 @@ export const useMessages = (channelId: number) => {
         const currentDate = message.createdAt;
         const timeDifference = Math.abs(currentDate - lastDate) / 1000 / 60;
 
-        if (timeDifference < 1) {
+        if (timeDifference < 7) {
           last.push(message);
           return acc;
         }

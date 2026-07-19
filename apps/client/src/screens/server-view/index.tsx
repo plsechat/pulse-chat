@@ -100,7 +100,10 @@ const ServerView = memo(() => {
           )}
         />
 
-        <div className="flex flex-1 flex-col overflow-hidden bg-background">
+        {/* Floating content pane: chat + members share one rounded surface
+            lifted off the canvas (desktop only; mobile stays full-bleed). */}
+        <div className="flex flex-1 overflow-hidden bg-background md:mt-2 md:rounded-tl-2xl md:ring-1 md:ring-white/[0.045] md:ring-inset">
+        <div className="flex flex-1 flex-col overflow-hidden">
           <MobileHeader
             onToggleLeftDrawer={() => setIsMobileMenuOpen((prev) => !prev)}
             onToggleRightDrawer={() => setIsMobileUsersOpen((prev) => !prev)}
@@ -124,6 +127,7 @@ const ServerView = memo(() => {
           )}
           isOpen={isDesktopRightSidebarOpen || isMobileUsersOpen}
         />
+        </div>
 
         <Protect permission={Permission.MANAGE_USERS}>
           <ModViewSheet />

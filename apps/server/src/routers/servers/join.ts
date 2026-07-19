@@ -86,7 +86,7 @@ const joinServerByInviteRoute = protectedProcedure
     });
 
     // Add member
-    await addServerMember(server.id, ctx.userId);
+    await addServerMember(server.id, ctx.userId, invite.id);
 
     // Assign default role
     const defaultRole = await getDefaultRoleForServer(server.id);

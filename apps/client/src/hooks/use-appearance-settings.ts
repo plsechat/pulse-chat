@@ -16,7 +16,7 @@ export type AppearanceSettings = {
 
 const defaultSettings: AppearanceSettings = {
   compactMode: false,
-  messageSpacing: 'normal',
+  messageSpacing: 'relaxed',
   fontScale: 100,
   zoomLevel: 100,
   timeFormat: '12h',

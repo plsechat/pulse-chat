@@ -155,6 +155,13 @@
       "when": 1783913984000,
       "tag": "0021_profile_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784449180168,
+      "tag": "0022_dark_shocker",
+      "breakpoints": true
     }
   ]
 }

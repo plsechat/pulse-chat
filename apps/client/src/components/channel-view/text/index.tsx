@@ -73,7 +73,7 @@ const ReplyBar = memo(
     );
 
     return (
-      <div className="flex items-center gap-2 rounded-t-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
+      <div className="flex items-center gap-2 rounded-lg text-sm border-l-3 border-l-primary bg-primary/5 overflow-hidden">
         <button
           type="button"
           onClick={scrollToMessage}
@@ -466,7 +466,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
       {selectionMode && <SelectionActionBar />}
 
-      <div className="flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
+      <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
         {replyingTo && (
           <ReplyBar
             message={replyingTo}
@@ -521,7 +521,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           // laggy. Scoping the transition to focus-affordances keeps
           // height instant while the focus glow still fades smoothly.
           className={cn(
-            'flex gap-2 rounded-lg bg-muted border border-border/50 shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
+            'flex gap-2 rounded-xl bg-secondary border border-transparent shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
             // Single-line: vertically center icons relative to the
             // input baseline. Multiline: anchor icons to the TOP so
             // they line up with the first line of typed text and the
@@ -581,11 +581,16 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           <Button
             size="icon"
             variant="ghost"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+            className={cn(
+              'h-8 w-8 shrink-0 transition-colors',
+              isHtmlEmpty(newMessage) || !canSendMessages
+                ? 'text-muted-foreground'
+                : 'text-primary hover:text-primary/80'
+            )}
             onClick={onSendMessage}
             disabled={uploading || isHtmlEmpty(newMessage) || !canSendMessages || slowModeRemaining > 0}
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-5 w-5" />
           </Button>
         </div>
       </div>

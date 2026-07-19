@@ -104,7 +104,7 @@ const DmNonFriendBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
   if (!otherUser || isFriend || isBlocked || accepted) return null;
 
   return (
-    <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
+    <div className="mx-4 mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 flex items-center gap-3 shadow-sm">
       <UserPlus className="h-4 w-4 text-amber-500 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-foreground">

@@ -33,7 +33,7 @@ const highlightMatch = (text: string, query: string) => {
     <>
       {start > 0 && '...'}
       {before}
-      <mark className="bg-yellow-500/30 text-foreground rounded-sm px-0.5">
+      <mark className="bg-primary/25 text-foreground rounded-sm px-0.5">
         {match}
       </mark>
       {after}
@@ -81,7 +81,7 @@ const SearchResult = memo(({ message, query, onJump }: TSearchResultProps) => {
       tabIndex={0}
       onClick={handleJump}
       onKeyDown={handleKeyDown}
-      className="p-3 hover:bg-secondary/30 border-b border-border/20 last:border-b-0 group/result cursor-pointer focus:outline-none focus-visible:bg-secondary/40"
+      className="rounded-md px-2.5 py-2 hover:bg-accent/50 active:bg-accent/70 transition-colors duration-100 group/result cursor-pointer focus:outline-none focus-visible:bg-accent/50"
     >
       <div className="flex items-center gap-1.5 mb-1">
         <Hash className="w-3 h-3 text-muted-foreground" />
@@ -91,7 +91,7 @@ const SearchResult = memo(({ message, query, onJump }: TSearchResultProps) => {
         <Button
           variant="ghost"
           size="sm"
-          className="h-5 px-1.5 text-[10px] opacity-0 group-hover/result:opacity-100 transition-opacity"
+          className="h-5 px-1.5 text-xs opacity-0 group-hover/result:opacity-100 focus-visible:opacity-100 group-focus-within/result:opacity-100 transition-opacity duration-150"
           onClick={handleButtonJump}
         >
           Jump

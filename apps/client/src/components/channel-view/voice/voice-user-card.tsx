@@ -59,6 +59,8 @@ const VoiceUserCard = memo(
               'flex items-center justify-center',
               'w-full h-full',
               'border border-border',
+              // Softens the speaking ring in AND out (class comes and goes)
+              'transition-[box-shadow] duration-150 ease-out',
               isActivelySpeaking
                 ? speakingIntensity === 1
                   ? 'speaking-effect-low'

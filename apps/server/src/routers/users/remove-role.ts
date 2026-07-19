@@ -1,4 +1,4 @@
-import { Permission } from '@pulse/shared';
+import { ActivityLogType, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -6,6 +6,7 @@ import { publishUser } from '../../db/publishers';
 import { roles, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { enqueueActivityLog } from '../../queues/activity-log';
 
 const removeRoleRoute = protectedProcedure
   .input(
@@ -24,7 +25,7 @@ const removeRoleRoute = protectedProcedure
 
     // Verify the role belongs to the caller's active server
     const [role] = await db
-      .select({ id: roles.id })
+      .select({ id: roles.id, name: roles.name })
       .from(roles)
       .where(
         and(eq(roles.id, input.roleId), eq(roles.serverId, ctx.activeServerId))
@@ -63,6 +64,17 @@ const removeRoleRoute = protectedProcedure
 
     ctx.invalidatePermissionCache();
     publishUser(input.userId, 'update');
+
+    enqueueActivityLog({
+      type: ActivityLogType.USER_ROLE_REMOVED,
+      userId: input.userId,
+      serverId: ctx.activeServerId,
+      details: {
+        roleId: input.roleId,
+        roleName: role.name,
+        removedBy: ctx.userId
+      }
+    });
   });
 
 export { removeRoleRoute };

@@ -5,8 +5,25 @@ enum ModViewScreen {
   FILES = 'FILES',
   MESSAGES = 'MESSAGES',
   LINKS = 'LINKS',
-  LOGINS = 'LOGINS'
+  LOGINS = 'LOGINS',
+  AUDIT_LOG = 'AUDIT_LOG'
 }
+
+type TAuditLogEntry = {
+  id: number;
+  userId: number;
+  type: string;
+  details: unknown;
+  ip: string | null;
+  serverId: number | null;
+  createdAt: number;
+};
+
+type TJoinMethod = {
+  inviteCode: string;
+  inviterId: number | null;
+  inviterName: string | null;
+} | null;
 
 type TModViewContext = {
   refetch: () => void;
@@ -18,6 +35,8 @@ type TModViewContext = {
   view: ModViewScreen | undefined;
   setView: (view: ModViewScreen | undefined) => void;
   links: string[];
+  auditLog: TAuditLogEntry[];
+  joinMethod: TJoinMethod;
 };
 
 const ModViewContext = createContext<TModViewContext>({
@@ -29,11 +48,13 @@ const ModViewContext = createContext<TModViewContext>({
   user: {} as TJoinedUser,
   view: undefined,
   setView: () => {},
-  links: []
+  links: [],
+  auditLog: [],
+  joinMethod: null
 });
 
 const useModViewContext = () => useContext(ModViewContext);
 
 // eslint-disable-next-line react-refresh/only-export-components
 export { ModViewContext, ModViewScreen, useModViewContext };
-export type { TModViewContext };
+export type { TAuditLogEntry, TJoinMethod, TModViewContext };

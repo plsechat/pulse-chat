@@ -49,7 +49,8 @@ import {
   UserPlus,
   X
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Slot } from '@radix-ui/react-slot';
 import { toast } from 'sonner';
 import { Protect } from '../protect';
 import { RoleBadge } from '../role-badge';
@@ -84,10 +85,18 @@ type TUserPopoverProps = {
    * numeric id is a different person.
    */
   homeScope?: boolean;
-};
+} & React.HTMLAttributes<HTMLElement>;
 
+/**
+ * forwardRef + slot-prop spread let this compose under other Radix asChild
+ * triggers (UserContextMenu wraps UserPopover on voice tiles and member
+ * rows). Without the forwarding, ContextMenuTrigger's injected handlers
+ * (onContextMenu et al.) landed on this component and were dropped —
+ * right-click silently did nothing anywhere the two were stacked.
+ */
 const UserPopover = memo(
-  ({ userId, children, homeScope = false }: TUserPopoverProps) => {
+  forwardRef<HTMLElement, TUserPopoverProps>(
+    ({ userId, children, homeScope = false, ...slotProps }, ref) => {
   // Both hooks run unconditionally (hooks rule); pick by scope after.
   const ambientUser = useUserById(userId);
   const homeUser = useHomeUserById(userId);
@@ -313,11 +322,22 @@ const UserPopover = memo(
     }
   }, [userId, user, isOwnUser, getScopedClient]);
 
-  if (!user) return <>{children}</>;
+  if (!user)
+    return (
+      <Slot ref={ref} {...slotProps}>
+        {children}
+      </Slot>
+    );
 
   return (
     <Popover onOpenChange={handlePopoverOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverTrigger
+        asChild
+        ref={ref as React.Ref<HTMLButtonElement>}
+        {...slotProps}
+      >
+        {children}
+      </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="start" side="right">
         {/* === Zone 1: Banner + Avatar + Action Buttons === */}
         <div className="relative">
@@ -607,7 +627,8 @@ const UserPopover = memo(
       </PopoverContent>
     </Popover>
   );
-});
+  }
+));
 
 UserPopover.displayName = 'UserPopover';
 

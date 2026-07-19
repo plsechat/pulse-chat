@@ -7,3 +7,13 @@ export const dispatchMentionUser = (userId: number, username: string) => {
     })
   );
 };
+
+export const FORWARD_MESSAGE_EVENT = 'pulse:forward-message';
+
+export const dispatchForwardMessage = (content: string | null) => {
+  window.dispatchEvent(
+    new CustomEvent(FORWARD_MESSAGE_EVENT, {
+      detail: { content }
+    })
+  );
+};

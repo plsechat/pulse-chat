@@ -1,15 +1,12 @@
 {
   "name": "pulse",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "trustedDependencies": [
-    "electron",
-    "fs-xattr",
-    "macos-alias",
     "mediasoup"
   ],
   "scripts": {

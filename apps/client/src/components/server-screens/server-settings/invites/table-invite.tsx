@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import type { TInvite } from '@pulse/shared';
 import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
-import { Copy, MoreVertical, Trash2 } from 'lucide-react';
+import { Copy, Monitor, MoreVertical, Trash2 } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 
@@ -33,6 +33,17 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
 
     navigator.clipboard.writeText(inviteUrl);
     toast.success('Invite code copied to clipboard');
+  }, [invite.code]);
+
+  const handleCopyDesktopLink = useCallback(() => {
+    // pulse:// deep link consumed by the Pulse Desktop app (opens the app,
+    // switches to this server, and applies the invite).
+    const deepLink = `pulse://join?server=${encodeURIComponent(
+      getUrlFromServer()
+    )}&invite=${invite.code}`;
+
+    navigator.clipboard.writeText(deepLink);
+    toast.success('Desktop invite link copied to clipboard');
   }, [invite.code]);
 
   const handleDelete = useCallback(async () => {
@@ -161,6 +172,10 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
             <DropdownMenuItem onClick={handleCopyCode}>
               <Copy className="h-4 w-4" />
               Copy Invite Link
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleCopyDesktopLink}>
+              <Monitor className="h-4 w-4" />
+              Copy Desktop Link
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleDelete}

@@ -27,5 +27,8 @@ export const useTabNotifications = () => {
       : '';
     const unread = total > 0 ? `(${total}) ` : '';
     document.title = `${unread}Pulse${channelName}`;
+
+    // Mirror the unread total onto the desktop dock/taskbar badge.
+    window.pulseDesktop?.setBadgeCount?.(total);
   }, [total, selectedChannel?.name]);
 };

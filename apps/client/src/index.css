@@ -43,7 +43,7 @@
 }
 
 :root {
-  --radius: 0.5rem;
+  --radius: 0.75rem;
   --background: #ffffff;
   --foreground: #0a0a0a;
   --card: #e8e8ea;
@@ -67,7 +67,9 @@
   --chart-3: #ea580c;
   --chart-4: #db2777;
   --chart-5: #dc2626;
-  --sidebar: #f3f3f4;
+  /* One clear step BELOW the channel pane (#e8e8ea) so the rail<channels<chat
+     tonal layering holds in light mode and rail tiles read as raised pills. */
+  --sidebar: #e3e4e6;
   --sidebar-foreground: #0a0a0a;
   --sidebar-primary: #0d9488;
   --sidebar-primary-foreground: #ffffff;
@@ -95,11 +97,12 @@
 }
 
 .onyx {
-  --background: #000000;
+  --background: #08080a;
   --foreground: #e4e4e7;
   --card: #161618;
   --card-foreground: #e4e4e7;
-  --popover: #050505;
+  /* Overlay surface must sit ABOVE card in the tonal stack */
+  --popover: #0e0e10;
   --popover-foreground: #e4e4e7;
   --primary: #2dd4bf;
   --primary-foreground: #042f2e;
@@ -118,7 +121,8 @@
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #0a0a0c;
+  /* Canvas tone — panes (background) float ABOVE this */
+  --sidebar: #000000;
   --sidebar-foreground: #e4e4e7;
   --sidebar-primary: #2dd4bf;
   --sidebar-primary-foreground: #042f2e;
@@ -146,11 +150,12 @@
 }
 
 .dark {
-  --background: #16161a;
+  --background: #1f1f25;
   --foreground: #fafafa;
   --card: #26262c;
   --card-foreground: #fafafa;
-  --popover: #1a1a1e;
+  /* Overlay surface must sit ABOVE card in the tonal stack */
+  --popover: #1f1f24;
   --popover-foreground: #fafafa;
   --primary: #14b8a6;
   --primary-foreground: #ffffff;
@@ -169,11 +174,12 @@
   --chart-3: #fbbf24;
   --chart-4: #f472b6;
   --chart-5: #f87171;
-  --sidebar: #1d1d22;
+  /* Canvas tone — panes (background) float ABOVE this */
+  --sidebar: #0f0f12;
   --sidebar-foreground: #fafafa;
   --sidebar-primary: #14b8a6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #141416;
+  --sidebar-accent: #1c1c21;
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: #1a1a1d;
   --sidebar-ring: #14b8a6;
@@ -593,96 +599,57 @@ body,
   margin: 0 !important;
 }
 
-/* speaking indicators */
-
-/* quiet */
-@keyframes speaking-glow-low {
-  0% {
-    box-shadow:
-      0 0 0 1px rgb(134, 239, 172, 0.4),
-      0 0 10px rgb(134, 239, 172, 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px rgb(134, 239, 172, 0.6),
-      0 0 15px rgb(134, 239, 172, 0.3);
-  }
-  100% {
-    box-shadow:
-      0 0 0 1px rgb(134, 239, 172, 0.4),
-      0 0 10px rgb(134, 239, 172, 0.2);
-  }
-}
-
-/* normal */
-@keyframes speaking-glow-medium {
-  0% {
-    box-shadow:
-      0 0 0 2px rgb(34, 197, 94, 0.6),
-      0 0 20px rgb(34, 197, 94, 0.4),
-      0 0 30px rgb(34, 197, 94, 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 0 4px rgb(34, 197, 94, 0.8),
-      0 0 30px rgb(34, 197, 94, 0.6),
-      0 0 45px rgb(34, 197, 94, 0.3);
-  }
-  100% {
-    box-shadow:
-      0 0 0 2px rgb(34, 197, 94, 0.6),
-      0 0 20px rgb(34, 197, 94, 0.4),
-      0 0 30px rgb(34, 197, 94, 0.2);
-  }
-}
-
-/* loud */
-@keyframes speaking-glow-high {
-  0% {
-    box-shadow:
-      0 0 0 3px rgb(22, 163, 74, 0.8),
-      0 0 25px rgb(22, 163, 74, 0.6),
-      0 0 50px rgb(22, 163, 74, 0.4),
-      0 0 75px rgb(22, 163, 74, 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 0 6px rgb(22, 163, 74, 1),
-      0 0 40px rgb(22, 163, 74, 0.8),
-      0 0 70px rgb(22, 163, 74, 0.6),
-      0 0 100px rgb(22, 163, 74, 0.3);
-  }
-  100% {
-    box-shadow:
-      0 0 0 3px rgb(22, 163, 74, 0.8),
-      0 0 25px rgb(22, 163, 74, 0.6),
-      0 0 50px rgb(22, 163, 74, 0.4),
-      0 0 75px rgb(22, 163, 74, 0.2);
-  }
-}
+/* speaking indicators — a crisp inset ring on the voice tile, stepped by
+   volume. No bloom, no pulsing: the ring appearing IS the signal; anything
+   more competes with the content it's framing. The inset hugs the tile's
+   rounded corners (the card is overflow-hidden). Appear/disappear is
+   softened by a transition on the card itself (voice-user-card). */
 
 .speaking-effect-low {
-  animation: speaking-glow-low 2.5s ease-in-out infinite;
+  box-shadow: inset 0 0 0 2px rgb(34 197 94 / 0.5);
 }
 
 .speaking-effect-medium {
-  animation: speaking-glow-medium 1.2s ease-in-out infinite;
+  box-shadow: inset 0 0 0 2px rgb(34 197 94 / 0.85);
 }
 
 .speaking-effect-high {
-  animation: speaking-glow-high 0.8s ease-in-out infinite;
+  box-shadow: inset 0 0 0 3px rgb(34 197 94);
 }
 
-/* thread highlight — flash background when scrolling to a thread's source message */
+/* jump/thread highlight — the target message pulses (4 quick beats with
+   decaying intensity) so the eye locks onto it, then settles to normal.
+   A single fade reads as "something flashed"; the repeated beat reads as
+   "THIS one". Total runtime stays inside jump.ts's 2.5s highlight window. */
 
 @keyframes msg-highlight {
   0% {
-    background-color: oklch(from var(--primary) l c h / 0.4);
+    background-color: oklch(from var(--primary) l c h / 0.38);
     border-left: 3px solid var(--primary);
   }
-  70% {
-    background-color: oklch(from var(--primary) l c h / 0.15);
-    border-left: 3px solid oklch(from var(--primary) l c h / 0.5);
+  12% {
+    background-color: oklch(from var(--primary) l c h / 0.1);
+    border-left: 3px solid var(--primary);
+  }
+  25% {
+    background-color: oklch(from var(--primary) l c h / 0.34);
+    border-left: 3px solid var(--primary);
+  }
+  37% {
+    background-color: oklch(from var(--primary) l c h / 0.1);
+    border-left: 3px solid var(--primary);
+  }
+  50% {
+    background-color: oklch(from var(--primary) l c h / 0.3);
+    border-left: 3px solid var(--primary);
+  }
+  62% {
+    background-color: oklch(from var(--primary) l c h / 0.08);
+    border-left: 3px solid oklch(from var(--primary) l c h / 0.7);
+  }
+  75% {
+    background-color: oklch(from var(--primary) l c h / 0.26);
+    border-left: 3px solid oklch(from var(--primary) l c h / 0.6);
   }
   100% {
     background-color: transparent;
@@ -691,7 +658,7 @@ body,
 }
 
 .animate-msg-highlight {
-  animation: msg-highlight 2.5s ease-out forwards;
+  animation: msg-highlight 2.4s ease-in-out forwards;
 }
 
 /* Hover animations for the user-control row icons. Each animation
@@ -755,6 +722,37 @@ button:hover .icon-anim-spin,
   }
 }
 
+/* Desktop shell frameless chrome (Windows). The Electron wrapper hides the
+   native title bar and floats min/max/close over the app; DesktopChrome
+   tags <html> with .titlebar-overlay when that mode is active.
+
+   - The top bar becomes the window drag region; interactive descendants
+     opt back out so they stay clickable.
+   - Right padding keeps top-bar icons clear of the floating controls,
+     sized from the standard Window Controls Overlay env() vars.
+   - A thin full-width strip keeps the window movable on screens without
+     a top bar (connect, loading, narrow viewports). */
+
+.titlebar-overlay body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+}
+
+.titlebar-overlay .app-topbar {
+  -webkit-app-region: drag;
+  padding-right: max(1rem, calc(100vw - env(titlebar-area-width, 100vw)));
+}
+
+.titlebar-overlay .app-topbar :is(button, a, input, [role='button'], [contenteditable='true']) {
+  -webkit-app-region: no-drag;
+}
+
 /* mentions */
 
 .mention {
@@ -780,8 +778,8 @@ button:hover .icon-anim-spin,
 /* tiptap editor layout */
 
 .tiptap .ProseMirror {
-  min-height: 40px;
-  padding: 8px 0;
+  min-height: 32px;
+  padding: 5px 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -815,7 +813,6 @@ button:hover .icon-anim-spin,
   right: 0;
   pointer-events: none;
   color: var(--muted-foreground);
-  opacity: 0.5;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

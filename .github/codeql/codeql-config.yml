@@ -6,7 +6,6 @@ paths-ignore:
   # Build scripts, migration scripts, and test helpers — not runtime code
   - apps/server/build/**
   - apps/server/src/scripts/**
-  - apps/desktop/scripts/**
   - '**/__tests__/**'
 
 query-filters:

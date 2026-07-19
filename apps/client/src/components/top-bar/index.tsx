@@ -67,7 +67,7 @@ const TopBar = memo(
     }, []);
 
     return (
-      <div className="hidden md:flex h-12 w-full border-b border-border/60 items-center px-4 transition-all duration-300 ease-in-out gap-3">
+      <div className="app-topbar hidden md:flex h-12 w-full border-b border-border/60 items-center px-4 transition-all duration-300 ease-in-out gap-3">
         {/* Channel info on left */}
         {selectedChannel && (
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -112,7 +112,10 @@ const TopBar = memo(
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowSearch(!showSearch)}
-                  className="h-7 px-2 transition-all duration-200 ease-in-out"
+                  className={cn(
+                    'h-7 px-2 transition-colors duration-150',
+                    showSearch && 'bg-accent text-primary'
+                  )}
                 >
                   <Tooltip content="Search (Ctrl+K)">
                     <div>
@@ -129,7 +132,10 @@ const TopBar = memo(
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowPinned(!showPinned)}
-                  className="h-7 px-2 transition-all duration-200 ease-in-out"
+                  className={cn(
+                    'h-7 px-2 transition-colors duration-150',
+                    showPinned && 'bg-accent text-primary'
+                  )}
                 >
                   <Tooltip content="Pinned Messages">
                     <div>
@@ -149,7 +155,10 @@ const TopBar = memo(
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowThreads(!showThreads)}
-                  className="h-7 px-2 transition-all duration-200 ease-in-out"
+                  className={cn(
+                    'h-7 px-2 transition-colors duration-150',
+                    showThreads && 'bg-accent text-primary'
+                  )}
                 >
                   <Tooltip content="Threads">
                     <div>
@@ -174,7 +183,7 @@ const TopBar = memo(
             onClick={onToggleRightSidebar}
             disabled={!sidebarAvailable}
             className={cn(
-              'h-7 px-2 transition-all duration-200 ease-in-out',
+              'h-7 px-2 transition-colors duration-150',
               !sidebarAvailable && 'opacity-50 cursor-not-allowed'
             )}
           >

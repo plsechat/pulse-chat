@@ -80,6 +80,7 @@ const kickRoute = protectedProcedure
     enqueueActivityLog({
       type: ActivityLogType.USER_KICKED,
       userId: input.userId,
+      serverId: ctx.activeServerId,
       details: {
         reason: input.reason,
         kickedBy: ctx.userId

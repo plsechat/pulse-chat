@@ -67,7 +67,9 @@ const Voice = memo(({ channel, isInVoice, ...props }: TVoiceProps) => {
     <>
       <ItemWrapper {...props} hasUnread={unreadCount > 0} className={cn(props.className, isInVoice && 'text-foreground [&>svg]:text-green-400')}>
         <Volume2 className="h-4 w-4" />
-        <span className={cn('flex-1', isInVoice && 'text-white drop-shadow-[0_0_6px_rgba(74,222,128,0.6)]')}>{channel.name}</span>
+        {/* Connected state: full-contrast semibold — the green icon and
+            live timer already say "connected"; no glow filters on text. */}
+        <span className={cn('flex-1', isInVoice && 'font-semibold text-foreground')}>{channel.name}</span>
         {hasActiveSession && <VoiceTimer channelId={channel.id} />}
         {!hasActiveSession && unreadCount > 0 && (
           <div className={cn(
