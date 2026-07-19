@@ -188,6 +188,7 @@ const Header = memo(() => {
         <Tooltip content="Message">
           <button
             type="button"
+            aria-label="Message"
             onClick={onMessage}
             disabled={user.id === ownUserId}
             className="flex h-10 flex-1 items-center justify-center text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
@@ -198,6 +199,7 @@ const Header = memo(() => {
         <Tooltip content="Verify Identity">
           <button
             type="button"
+            aria-label="Verify Identity"
             onClick={onVerify}
             disabled={user.id === ownUserId}
             className="flex h-10 flex-1 items-center justify-center text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
@@ -208,6 +210,7 @@ const Header = memo(() => {
         <Tooltip content="Kick">
           <button
             type="button"
+            aria-label="Kick"
             onClick={onKick}
             disabled={user.id === ownUserId}
             className="flex h-10 flex-1 items-center justify-center text-muted-foreground transition-colors duration-100 hover:bg-destructive/15 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
@@ -218,6 +221,7 @@ const Header = memo(() => {
         <Tooltip content={user.banned ? 'Unban' : 'Ban'}>
           <button
             type="button"
+            aria-label={user.banned ? 'Unban' : 'Ban'}
             onClick={() => (user.banned ? onUnban() : onBan())}
             disabled={user.id === ownUserId}
             className="flex h-10 flex-1 items-center justify-center text-muted-foreground transition-colors duration-100 hover:bg-destructive/15 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
@@ -228,6 +232,7 @@ const Header = memo(() => {
         <Tooltip content="Copy User ID">
           <button
             type="button"
+            aria-label="Copy User ID"
             onClick={onCopyId}
             className="flex h-10 flex-1 items-center justify-center text-muted-foreground transition-colors duration-100 hover:bg-accent hover:text-foreground"
           >
