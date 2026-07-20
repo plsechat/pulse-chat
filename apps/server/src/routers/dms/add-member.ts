@@ -106,7 +106,7 @@ const addMemberRoute = protectedProcedure
     // sessions were keyed to the original two users); future sends
     // use sender keys via the existing ensureDmGroupSenderKey path
     // on the client. Crypto continuity is intentionally not part of
-    // this v1 — Discord behaves the same way on this conversion.
+    // this v1.
     const wasPromotion = !channel.isGroup;
     if (wasPromotion) {
       await db

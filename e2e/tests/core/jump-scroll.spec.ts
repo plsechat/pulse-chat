@@ -9,7 +9,7 @@ import { authedPage, CORE_OWNER, CORE_USER_B } from '../../helpers/fixtures';
 import { channelButton, selectChannel } from '../../helpers/ui';
 
 /**
- * Discord-style navigation: message-link jump (including to messages far
+ * Message navigation: message-link jump (including to messages far
  * outside the loaded history, via the around-fetch), scroll-position
  * memory across channel switches, and landing on the "New messages"
  * divider when returning to a channel with unreads.

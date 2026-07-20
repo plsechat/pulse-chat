@@ -247,7 +247,7 @@ async function getShadowUsersByInstance(
 // can serve arbitrarily large bytes; we don't blindly accept what
 // they hand us, especially for proxied avatars/banners that go to
 // disk under our PUBLIC_PATH. 10 MB is plenty for any realistic
-// avatar/banner (Discord caps avatars at 8 MB animated, 10 MB total).
+// avatar/banner, animated formats included.
 const MAX_FEDERATED_AVATAR_BYTES = 10 * 1024 * 1024;
 
 async function syncShadowUserAvatar(

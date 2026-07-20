@@ -331,7 +331,7 @@ const UserPopover = memo(
       </Slot>
     );
 
-  // The profile card header is a name-style surface (Discord parity):
+  // The profile card header is a name-style surface:
   // the styled name shows here even when opened from server contexts,
   // while in-chat/member-list names keep role colors authoritative.
   const nameCss = getNameStyleCss(user.nameStyle);

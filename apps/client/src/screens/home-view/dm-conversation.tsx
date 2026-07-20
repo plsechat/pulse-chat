@@ -136,7 +136,7 @@ const DmConversation = memo(
 
   // Intro block shown at the very top of a fully-loaded history —
   // gives short conversations a proper beginning instead of a cold
-  // start (mirrors Discord's DM intro).
+  // start.
   const introMembers = useMemo(
     () => dmMembers.filter((m) => m.id !== ownUserId),
     [dmMembers, ownUserId]
