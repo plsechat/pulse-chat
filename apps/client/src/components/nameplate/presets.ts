@@ -10,9 +10,37 @@ import type { CSSProperties } from 'react';
 type TNameplatePreset = {
   label: string;
   /** CSS background-image (layered gradients allowed). */
-  backgroundImage: string;
-  /** Oversized + drifted by the nameplate-drift animation when set. */
+  backgroundImage?: string;
+  /** Bundled asset (animated GIF) — rendered cover, right-anchored. */
+  imageUrl?: string;
+  /** Oversized + drifted by the nameplate-drift animation when set
+   *  (gradients only — GIFs animate themselves). */
   animated?: boolean;
+};
+
+/** Bundled animated presets — assets live in public/nameplates/. */
+const ANIMATED_PRESET_LABELS: Record<string, string> = {
+  drowned: 'Drowned',
+  sakura: 'Sakura',
+  borealis: 'Borealis',
+  sunsetdrive: 'Sunset Drive',
+  tide: 'Tide',
+  lava: 'Lava',
+  fireflies: 'Fireflies',
+  prism: 'Prism',
+  clouds: 'Daydream',
+  koi: 'Koi Pond',
+  runes: 'Runes',
+  cipher: 'Cipher',
+  storm: 'Storm',
+  starfield: 'Starfield',
+  eclipse: 'Eclipse',
+  abyss: 'Abyss',
+  rainfall: 'City Rain',
+  snowfall: 'Snowfall',
+  neonwave: 'Neon Wave',
+  embers: 'Embers',
+  glitch: 'Glitch'
 };
 
 const NAMEPLATE_PRESETS: Record<string, TNameplatePreset> = {
@@ -67,7 +95,13 @@ const NAMEPLATE_PRESETS: Record<string, TNameplatePreset> = {
     backgroundImage:
       'repeating-linear-gradient(115deg, rgba(34, 211, 238, 0.18) 0px, rgba(34, 211, 238, 0.18) 10px, rgba(59, 130, 246, 0.07) 10px, rgba(59, 130, 246, 0.07) 20px)',
     animated: true
-  }
+  },
+  ...Object.fromEntries(
+    Object.entries(ANIMATED_PRESET_LABELS).map(([slug, label]) => [
+      slug,
+      { label, imageUrl: `/nameplates/${slug}.gif` }
+    ])
+  )
 };
 
 /**
@@ -79,11 +113,20 @@ const NAMEPLATE_PRESETS: Record<string, TNameplatePreset> = {
 const NAMEPLATE_MASK =
   'linear-gradient(to left, black 30%, transparent 95%)';
 
-const presetNameplateStyle = (preset: TNameplatePreset): CSSProperties => ({
-  backgroundImage: preset.backgroundImage,
-  maskImage: NAMEPLATE_MASK,
-  WebkitMaskImage: NAMEPLATE_MASK
-});
+const presetNameplateStyle = (preset: TNameplatePreset): CSSProperties =>
+  preset.imageUrl
+    ? {
+        backgroundImage: `url("${preset.imageUrl}")`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'right center',
+        maskImage: NAMEPLATE_MASK,
+        WebkitMaskImage: NAMEPLATE_MASK
+      }
+    : {
+        backgroundImage: preset.backgroundImage,
+        maskImage: NAMEPLATE_MASK,
+        WebkitMaskImage: NAMEPLATE_MASK
+      };
 
 /** Style for a server-uploaded pack image — right-cover, same left fade. */
 const customNameplateStyle = (url: string): CSSProperties => ({

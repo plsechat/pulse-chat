@@ -61,6 +61,9 @@ export type TVoiceProvider = {
     routerRtpCapabilities: RtpCapabilities,
     channelId: number
   ) => Promise<void>;
+  changeScreenShareSource: () => Promise<MediaStreamTrack>;
+  screenAudioMuted: boolean;
+  toggleScreenShareAudio: () => void;
 } & Pick<
   ReturnType<typeof useLocalStreams>,
   'localAudioStream' | 'localVideoStream' | 'localScreenShareStream'
@@ -95,10 +98,15 @@ const VoiceProviderContext = createContext<TVoiceProvider>({
     externalVideoRef: { current: null }
   }),
   init: () => Promise.resolve(),
+  changeScreenShareSource: () =>
+    Promise.reject(new Error('Not in a voice call')),
+  screenAudioMuted: false,
+  toggleScreenShareAudio: () => {},
   toggleMic: () => Promise.resolve(),
   toggleSound: () => Promise.resolve(),
   toggleWebcam: () => Promise.resolve(),
   toggleScreenShare: () => Promise.resolve(),
+  changeScreenShare: () => Promise.resolve(),
   ownVoiceState: {
     micMuted: false,
     soundMuted: false,
@@ -128,6 +136,10 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   );
   const [sharingSystemAudio, setSharingSystemAudio] = useState(false);
   const [realOutputSinkId, setRealOutputSinkId] = useState<string | undefined>(undefined);
+  // Outgoing screen-share audio mute — pauses the SCREEN_AUDIO producer
+  // (listeners get silence) without touching the mic or the capture.
+  const [screenAudioMuted, setScreenAudioMuted] = useState(false);
+  const screenAudioMutedRef = useRef(false);
   // Ref mirrors for values read inside callbacks that are defined before
   // their state producers exist (attachMicStream is called from both the
   // control hooks and the screen-share paths).
@@ -454,6 +466,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     localScreenShareAudioProducer.current?.close();
     localScreenShareAudioProducer.current = undefined;
 
+    screenAudioMutedRef.current = false;
+    setScreenAudioMuted(false);
+
     // Stop macOS system audio capture if active
     window.pulseDesktop?.audioCapture?.stop();
 
@@ -492,7 +507,12 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
           echoCancellation: false,
           noiseSuppression: true,
           channelCount: 2,
-          sampleRate: 48000
+          sampleRate: 48000,
+          // Chromium 121+: exclude audio the capturing browser itself is
+          // playing (voice chat!) from system-audio loopback — without
+          // this, listeners hear their own voices echoed back through
+          // the sharer's capture. Ignored where unsupported.
+          restrictOwnAudio: true
         },
         // Prevent sharing the app's own tab (major source of audio echo)
         selfBrowserSurface: 'exclude',
@@ -714,6 +734,173 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     devices.screenAudioBitrate
   ]);
 
+  /**
+   * Swap the screen-share source mid-share: fresh getDisplayMedia, then
+   * replaceTrack on the live SCREEN producer — remote consumers keep
+   * playing, no stop/start cycle. Audio follows the new capture, except
+   * during macOS virtual-device system audio which is source-independent
+   * and stays untouched.
+   */
+  const changeScreenShareSource = useCallback(async () => {
+    const videoProducer = localScreenShareProducer.current;
+    if (!videoProducer || videoProducer.closed) {
+      throw new Error('No active screen share to change');
+    }
+
+    logVoice('Changing screen share source');
+
+    // Same constraints as startScreenShareStream. A cancelled picker
+    // rejects here, before any existing state is touched.
+    const newStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        ...getResWidthHeight(devices?.screenResolution),
+        frameRate: devices?.screenFramerate
+      },
+      audio: {
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: true,
+        channelCount: 2,
+        sampleRate: 48000,
+        // Chromium 121+: exclude the capturing browser's own playback
+        // (voice chat) from system-audio loopback. Ignored where
+        // unsupported.
+        restrictOwnAudio: true
+      },
+      // Prevent sharing the app's own tab (major source of audio echo)
+      selfBrowserSurface: 'exclude',
+      preferCurrentTab: false
+    } as DisplayMediaStreamOptions);
+
+    logVoice('New screen share stream obtained', { stream: newStream });
+
+    const newVideoTrack = newStream.getVideoTracks()[0];
+    if (!newVideoTrack) {
+      newStream.getTracks().forEach((track) => track.stop());
+      throw new Error('No video track obtained for screen share');
+    }
+
+    const oldStream = localScreenShareStream;
+
+    // replaceTrack stops the previous track itself (producer was created
+    // with default stopTracks: true).
+    await videoProducer.replaceTrack({ track: newVideoTrack });
+
+    const newAudioTrack = newStream.getAudioTracks()[0];
+
+    if (sharingSystemAudioRef.current) {
+      // System audio capture is source-independent — keep the existing
+      // audio producer and carry its track over to the new stream (so the
+      // eventual stop/cleanup still finds it). The picker's own audio
+      // track is redundant.
+      if (newAudioTrack) {
+        newAudioTrack.stop();
+        newStream.removeTrack(newAudioTrack);
+      }
+      const oldAudioTrack = oldStream?.getAudioTracks()[0];
+      if (oldAudioTrack) {
+        oldStream?.removeTrack(oldAudioTrack);
+        newStream.addTrack(oldAudioTrack);
+      }
+    } else {
+      const audioProducer = localScreenShareAudioProducer.current;
+
+      if (newAudioTrack && audioProducer && !audioProducer.closed) {
+        await audioProducer.replaceTrack({ track: newAudioTrack });
+        logVoice('Screen share audio track replaced');
+      } else if (newAudioTrack) {
+        logVoice('New source has audio, producing screen share audio', {
+          audioTrack: newAudioTrack
+        });
+
+        const audioBitrate = (devices.screenAudioBitrate ?? 128) * 1000;
+
+        localScreenShareAudioProducer.current =
+          await producerTransport.current?.produce({
+            track: newAudioTrack,
+            appData: { kind: StreamKind.SCREEN_AUDIO },
+            encodings: [{ maxBitrate: audioBitrate, dtx: false }],
+            codecOptions: {
+              opusStereo: true,
+              opusDtx: false,
+              opusFec: true,
+              opusMaxPlaybackRate: 48000
+            }
+          });
+
+        localScreenShareAudioProducer.current?.on('@close', async () => {
+          logVoice('Screen share audio producer closed');
+
+          const trpc = getTRPCClient();
+          if (!trpc) return;
+
+          try {
+            await trpc.voice.closeProducer.mutate({
+              kind: StreamKind.SCREEN_AUDIO
+            });
+          } catch (error) {
+            logVoice('Error closing screen share audio producer', { error });
+          }
+        });
+      } else if (audioProducer && !audioProducer.closed) {
+        // New source has no audio — close() fires the '@close' handler
+        // registered at produce time, which notifies voice.closeProducer.
+        logVoice('New source has no audio, closing screen share audio producer');
+        audioProducer.close();
+        localScreenShareAudioProducer.current = undefined;
+      }
+
+      oldStream?.getAudioTracks().forEach((track) => track.stop());
+    }
+
+    oldStream?.getVideoTracks().forEach((track) => track.stop());
+    setLocalScreenShare(newStream);
+
+    // A replaced/re-produced audio producer starts unpaused — carry the
+    // outgoing-mute state across the source swap.
+    if (
+      screenAudioMutedRef.current &&
+      localScreenShareAudioProducer.current &&
+      !localScreenShareAudioProducer.current.closed
+    ) {
+      localScreenShareAudioProducer.current.pause();
+    }
+
+    return newVideoTrack;
+  }, [
+    localScreenShareStream,
+    setLocalScreenShare,
+    localScreenShareProducer,
+    localScreenShareAudioProducer,
+    producerTransport,
+    devices.screenResolution,
+    devices.screenFramerate,
+    devices.screenAudioBitrate
+  ]);
+
+  /**
+   * Mute/unmute the OUTGOING screen-share audio: pauses the SCREEN_AUDIO
+   * producer so listeners get silence. The capture keeps running — this
+   * is a broadcast gate, not a device release, and it is independent of
+   * the mic.
+   */
+  const toggleScreenShareAudio = useCallback(() => {
+    const producer = localScreenShareAudioProducer.current;
+    if (!producer || producer.closed) return;
+
+    if (producer.paused) {
+      producer.resume();
+      screenAudioMutedRef.current = false;
+      setScreenAudioMuted(false);
+      logVoice('Screen share audio unmuted');
+    } else {
+      producer.pause();
+      screenAudioMutedRef.current = true;
+      setScreenAudioMuted(true);
+      logVoice('Screen share audio muted');
+    }
+  }, [localScreenShareAudioProducer]);
+
   // Hot-swap webcam track on the existing producer when device settings change
   const reapplyWebcamSettings = useCallback(async (webcamEnabled: boolean) => {
     if (!webcamEnabled) return;
@@ -806,6 +993,8 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     micPipelineRef.current?.destroy();
     micPipelineRef.current = null;
     setSystemAudioActive(false);
+    screenAudioMutedRef.current = false;
+    setScreenAudioMuted(false);
     deviceRef.current = null;
 
     setConnectionStatus(ConnectionStatus.DISCONNECTED);
@@ -880,6 +1069,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     toggleSound,
     toggleWebcam,
     toggleScreenShare,
+    changeScreenShare,
     ownVoiceState
   } = useVoiceControls({
     attachMicStream,
@@ -887,7 +1077,8 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     startWebcamStream,
     stopWebcamStream,
     startScreenShareStream,
-    stopScreenShareStream
+    stopScreenShareStream,
+    changeScreenShareSource
   });
 
   // Mirror mute state for callbacks defined above useVoiceControls
@@ -990,11 +1181,15 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       audioVideoRefsMap: audioVideoRefsMap.current,
       getOrCreateRefs,
       init,
+      changeScreenShareSource,
+      screenAudioMuted,
+      toggleScreenShareAudio,
 
       toggleMic,
       toggleSound,
       toggleWebcam,
       toggleScreenShare,
+      changeScreenShare,
       ownVoiceState,
 
       localAudioStream,
@@ -1012,11 +1207,15 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       realOutputSinkId,
       getOrCreateRefs,
       init,
+      changeScreenShareSource,
+      screenAudioMuted,
+      toggleScreenShareAudio,
 
       toggleMic,
       toggleSound,
       toggleWebcam,
       toggleScreenShare,
+      changeScreenShare,
       ownVoiceState,
 
       localAudioStream,

@@ -17,6 +17,7 @@ type TUseVoiceControlsParams = {
 
   startScreenShareStream: () => Promise<MediaStreamTrack>;
   stopScreenShareStream: () => void | Promise<void>;
+  changeScreenShareSource: () => Promise<MediaStreamTrack>;
 };
 
 const useVoiceControls = ({
@@ -25,7 +26,8 @@ const useVoiceControls = ({
   startWebcamStream,
   stopWebcamStream,
   startScreenShareStream,
-  stopScreenShareStream
+  stopScreenShareStream,
+  changeScreenShareSource
 }: TUseVoiceControlsParams) => {
   const ownVoiceState = useOwnVoiceState();
   const currentVoiceChannelId = useCurrentVoiceChannelId();
@@ -216,11 +218,52 @@ const useVoiceControls = ({
     stopScreenShareStream
   ]);
 
+  /**
+   * Swap the screen-share source without a stop/start cycle. Cancelling
+   * the OS picker is a silent no-op — the current share keeps running.
+   */
+  const changeScreenShare = useCallback(async () => {
+    if (!ownVoiceState.sharingScreen) return;
+
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+
+    try {
+      const video = await changeScreenShareSource();
+
+      // replaceTrack does not carry onended over — rewire the browser's
+      // native "Stop sharing" on the new track.
+      video.onended = async () => {
+        stopScreenShareStream();
+        updateOwnVoiceState({ sharingScreen: false });
+
+        await trpc.voice.updateState.mutate({
+          sharingScreen: false
+        });
+      };
+    } catch (error) {
+      // A cancelled source picker rejects getDisplayMedia — keep sharing.
+      if (
+        error instanceof DOMException &&
+        (error.name === 'NotAllowedError' || error.name === 'AbortError')
+      ) {
+        return;
+      }
+
+      toast.error(getTrpcError(error, 'Failed to change screen share source'));
+    }
+  }, [
+    ownVoiceState.sharingScreen,
+    changeScreenShareSource,
+    stopScreenShareStream
+  ]);
+
   return {
     toggleMic,
     toggleSound,
     toggleWebcam,
     toggleScreenShare,
+    changeScreenShare,
     ownVoiceState
   };
 };

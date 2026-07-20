@@ -1,4 +1,5 @@
 import { customNameplateStyle } from '@/components/nameplate/presets';
+import { NameplateCropDialog } from './nameplate-crop-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -52,6 +53,7 @@ const Nameplates = memo(() => {
   const openFilePicker = useFilePicker();
 
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [cropSource, setCropSource] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -77,9 +79,29 @@ const Nameplates = memo(() => {
     const files = await openFilePicker('image/*');
     if (!files || files.length === 0) return;
 
-    setPendingFile(files[0]);
     setName(files[0].name.replace(/\.[^/.]+$/, '').slice(0, 32));
+
+    // Animated formats skip the crop step — the canvas crop would
+    // flatten them to a single static frame. They upload as-is and
+    // render right-anchored/cover like everything else.
+    if (files[0].type === 'image/gif') {
+      setPendingFile(files[0]);
+      return;
+    }
+
+    // Crop first — imported art rarely arrives in the strip's wide
+    // aspect; the dialog produces the pendingFile the form uploads.
+    setCropSource(files[0]);
   }, [openFilePicker]);
+
+  const onCropConfirm = useCallback((cropped: File) => {
+    setCropSource(null);
+    setPendingFile(cropped);
+  }, []);
+
+  const onCropCancel = useCallback(() => {
+    setCropSource(null);
+  }, []);
 
   const upload = useCallback(async () => {
     if (!pendingFile || !name.trim()) return;
@@ -222,6 +244,15 @@ const Nameplates = memo(() => {
           )}
         </CardContent>
       </Card>
+
+      {cropSource && (
+        <NameplateCropDialog
+          file={cropSource}
+          open
+          onConfirm={onCropConfirm}
+          onCancel={onCropCancel}
+        />
+      )}
     </div>
   );
 });

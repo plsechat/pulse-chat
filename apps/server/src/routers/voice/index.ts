@@ -18,11 +18,13 @@ import {
   onVoiceUpdateExternalStreamRoute
 } from './events';
 import { getProducersRoute } from './get-producers';
+import { getStreamPreviewRoute } from './get-stream-preview';
 import { joinVoiceRoute } from './join';
 import { leaveVoiceRoute } from './leave';
 import { produceRoute } from './produce';
 import { restartIceRoute } from './restart-ice';
 import { updateVoiceStateRoute } from './update-state';
+import { updateStreamPreviewRoute } from './update-stream-preview';
 
 export const voiceRouter = t.router({
   join: joinVoiceRoute,
@@ -30,6 +32,8 @@ export const voiceRouter = t.router({
   disconnectUser: disconnectUserRoute,
   moderateMember: moderateMemberRoute,
   updateState: updateVoiceStateRoute,
+  updateStreamPreview: updateStreamPreviewRoute,
+  getStreamPreview: getStreamPreviewRoute,
   createProducerTransport: createProducerTransportRoute,
   connectProducerTransport: connectProducerTransportRoute,
   createConsumerTransport: createConsumerTransportRoute,

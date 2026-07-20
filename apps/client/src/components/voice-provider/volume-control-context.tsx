@@ -14,6 +14,7 @@ import {
 
 // volume keys are string-based for persistence
 // user volumes: "user-{userId}"
+// screen share audio volumes: "screen-{userId}"
 // external stream volumes: "external-{pluginId}-{key}"
 type TVolumeKey = string;
 
@@ -25,6 +26,7 @@ type TVolumeControlContext = {
   setVolume: (key: TVolumeKey, volume: number) => void;
   toggleMute: (key: TVolumeKey) => void;
   getUserVolumeKey: (userId: number) => TVolumeKey;
+  getScreenVolumeKey: (userId: number) => TVolumeKey;
   getExternalVolumeKey: (pluginId: string, key: string) => TVolumeKey;
 };
 
@@ -103,6 +105,12 @@ const VolumeControlProvider = memo(
       return `user-${userId}`;
     }, []);
 
+    // Screen-share audio gets its own key so muting/adjusting a stream
+    // never touches the user's voice volume.
+    const getScreenVolumeKey = useCallback((userId: number): TVolumeKey => {
+      return `screen-${userId}`;
+    }, []);
+
     const getExternalVolumeKey = useCallback(
       (pluginId: string, key: string): TVolumeKey => {
         return `external-${pluginId}-${key}`;
@@ -118,6 +126,7 @@ const VolumeControlProvider = memo(
           setVolume,
           toggleMute,
           getUserVolumeKey,
+          getScreenVolumeKey,
           getExternalVolumeKey
         }}
       >

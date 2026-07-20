@@ -19,11 +19,14 @@ export const MAX_MESSAGE_WIRE_LENGTH = 40000;
 export const OWNER_ROLE_ID = 1;
 
 /**
- * Built-in nameplate presets — decorative member-row backgrounds rendered
- * client-side as CSS. The server only validates equipped values
- * ('preset:<slug>' in users.nameplate) against this list.
+ * Built-in nameplate presets — decorative member-row backgrounds. The
+ * first group renders as client-side CSS gradients; the second as
+ * animated GIFs bundled with the client (public/nameplates/<slug>.gif).
+ * The server only validates equipped values ('preset:<slug>' in
+ * users.nameplate) against this list.
  */
 export const NAMEPLATE_PRESET_SLUGS: readonly string[] = [
+  // CSS gradients
   "aurora",
   "ember",
   "ocean",
@@ -34,9 +37,42 @@ export const NAMEPLATE_PRESET_SLUGS: readonly string[] = [
   "steel",
   "midnight",
   "wave",
+  // Animated (bundled GIFs)
+  "drowned",
+  "sakura",
+  "borealis",
+  "sunsetdrive",
+  "tide",
+  "lava",
+  "fireflies",
+  "prism",
+  "clouds",
+  "koi",
+  "runes",
+  "cipher",
+  "storm",
+  "starfield",
+  "eclipse",
+  "abyss",
+  "rainfall",
+  "snowfall",
+  "neonwave",
+  "embers",
+  "glitch",
 ];
 
 export const TYPING_MS = 2000;
+
+/**
+ * Hover stream preview (voice roster). A sharing client publishes a small
+ * JPEG data-URL frame every ~10s; hover cards pull it on demand (no fanout).
+ * The length cap bounds the tRPC payload; the stale window keeps a dead
+ * publisher from serving a frozen frame forever.
+ */
+export const VOICE_STREAM_PREVIEW_MAX_LENGTH = 65_536;
+export const VOICE_STREAM_PREVIEW_STALE_MS = 45_000;
+export const VOICE_STREAM_PREVIEW_INTERVAL_MS = 10_000;
+export const VOICE_STREAM_PREVIEW_PREFIX = "data:image/jpeg;base64,";
 
 export enum DisconnectCode {
   UNEXPECTED = 1006,
