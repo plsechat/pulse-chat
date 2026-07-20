@@ -414,7 +414,9 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
             <ContextMenuSub>
               <ContextMenuSubTrigger>Roles</ContextMenuSubTrigger>
               <ContextMenuSubContent>
-                {roles.map((role) => (
+                {roles
+                  .filter((r) => !(r.isPersistent && !r.isDefault))
+                  .map((role) => (
                   <ContextMenuCheckboxItem
                     key={role.id}
                     checked={userRoleIds.has(role.id)}

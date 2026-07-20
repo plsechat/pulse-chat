@@ -661,6 +661,254 @@ body,
   animation: msg-highlight 2.4s ease-in-out forwards;
 }
 
+/* nameplates — decorative member-row backgrounds. Animated presets get
+   an oversized background that drifts slowly sideways; the motion is
+   deliberately glacial (a mood, not a spinner) and fully disabled under
+   prefers-reduced-motion. */
+
+@keyframes nameplate-drift {
+  from { background-position: 100% 50%; }
+  to { background-position: 60% 50%; }
+}
+
+.nameplate-animated {
+  background-size: 200% 100%;
+  animation: nameplate-drift 16s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nameplate-animated {
+    animation: none;
+  }
+}
+
+/* name styles — styled display names on HOME surfaces. Fonts are
+   self-hosted woff2 under /fonts; font-display: swap keeps names
+   readable while a font loads. Family names are namespaced so a
+   system-installed font of the same name can't shadow the bundled
+   file. */
+
+@font-face {
+  font-family: 'NameStyle Press Start';
+  src: url('/fonts/press-start.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Pacifico';
+  src: url('/fonts/pacifico.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Playfair';
+  src: url('/fonts/playfair.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Baloo';
+  src: url('/fonts/baloo.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle JetBrains Mono';
+  src: url('/fonts/jetbrains-mono.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Oswald';
+  src: url('/fonts/oswald.woff2') format('woff2');
+  font-display: swap;
+}
+
+/* Pixel fonts have a huge apparent size at a given px value — scale
+   press-start down so styled names keep roughly the row height of the
+   surrounding Inter text. */
+.name-font-press-start {
+  font-family: 'NameStyle Press Start', ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.85em;
+}
+
+.name-font-pacifico {
+  font-family: 'NameStyle Pacifico', ui-sans-serif, system-ui, sans-serif;
+}
+
+.name-font-playfair {
+  font-family: 'NameStyle Playfair', ui-serif, serif;
+}
+
+.name-font-baloo {
+  font-family: 'NameStyle Baloo', ui-sans-serif, system-ui, sans-serif;
+}
+
+.name-font-jetbrains-mono {
+  font-family: 'NameStyle JetBrains Mono', ui-monospace, monospace;
+}
+
+.name-font-oswald {
+  font-family: 'NameStyle Oswald', ui-sans-serif, system-ui, sans-serif;
+}
+
+@font-face {
+  font-family: 'NameStyle Medieval';
+  src: url('/fonts/medieval.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Jellybean';
+  src: url('/fonts/jellybean.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Sakura';
+  src: url('/fonts/sakura.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Tempo';
+  src: url('/fonts/tempo.woff2') format('woff2');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'NameStyle Vampyre';
+  src: url('/fonts/vampyre.woff2') format('woff2');
+  font-display: swap;
+}
+
+.name-font-medieval {
+  font-family: 'NameStyle Medieval', ui-serif, serif;
+}
+
+.name-font-jellybean {
+  font-family: 'NameStyle Jellybean', ui-sans-serif, system-ui, sans-serif;
+}
+
+.name-font-sakura {
+  font-family: 'NameStyle Sakura', ui-sans-serif, system-ui, sans-serif;
+}
+
+.name-font-tempo {
+  font-family: 'NameStyle Tempo', ui-sans-serif, system-ui, sans-serif;
+}
+
+.name-font-vampyre {
+  font-family: 'NameStyle Vampyre', ui-serif, serif;
+}
+
+/* ---- Name-style effects ----------------------------------------------
+   Every effect except solid carries motion. All animations fall back to
+   their static base look under prefers-reduced-motion (global media
+   query at the bottom of this stylesheet kills animations). Colors flow
+   in from getNameStyleCss via CSS custom properties. */
+
+/* Gradient: glyphs painted by the inline c1->c2->c1 background, swept
+   horizontally. 200% size + 200% travel tiles the loop seamlessly. */
+.name-effect-gradient {
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-size: 200% 100%;
+  animation: name-gradient-sweep 5s linear infinite;
+}
+
+@keyframes name-gradient-sweep {
+  from { background-position: 0% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Neon: breathing glow with occasional sign-style flicker dips. */
+.name-effect-neon {
+  animation: name-neon-flicker 3.4s infinite;
+}
+
+@keyframes name-neon-flicker {
+  0%, 100% {
+    opacity: 1;
+    text-shadow: 0 0 3px var(--name-neon-1), 0 0 8px var(--name-neon-2),
+      0 0 16px var(--name-neon-3);
+  }
+  38% {
+    opacity: 1;
+    text-shadow: 0 0 4px var(--name-neon-1), 0 0 12px var(--name-neon-2),
+      0 0 24px var(--name-neon-3);
+  }
+  42% {
+    opacity: 0.55;
+    text-shadow: 0 0 2px var(--name-neon-1);
+  }
+  44%, 47% {
+    opacity: 1;
+    text-shadow: 0 0 4px var(--name-neon-1), 0 0 12px var(--name-neon-2),
+      0 0 24px var(--name-neon-3);
+  }
+  46% {
+    opacity: 0.75;
+    text-shadow: 0 0 2px var(--name-neon-1);
+  }
+  70% {
+    opacity: 1;
+    text-shadow: 0 0 3px var(--name-neon-1), 0 0 10px var(--name-neon-2),
+      0 0 20px var(--name-neon-3);
+  }
+}
+
+/* Toon: the two colors chase vertically through the glyphs with white
+   flashes between them — cartoon-energy. Stroke (inline) paints under
+   the fill; paint-order is Chromium 123+/Safari, harmless elsewhere. */
+.name-effect-toon {
+  paint-order: stroke fill;
+  background-image: repeating-linear-gradient(
+    180deg,
+    var(--name-toon-1) 0%,
+    #ffffff 22%,
+    var(--name-toon-2) 45%,
+    #ffffff 72%,
+    var(--name-toon-1) 100%
+  );
+  background-size: 100% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: name-toon-shift 1.4s linear infinite;
+}
+
+@keyframes name-toon-shift {
+  from { background-position: 0 0%; }
+  to { background-position: 0 -300%; }
+}
+
+/* Pop: flat primary -> the text lifts and the duplicate in the
+   secondary color appears behind -> holds -> settles flat. The static
+   base carries the popped look so reduced-motion users still get the
+   two-color effect. */
+.name-effect-pop {
+  display: inline-block;
+  text-shadow: 3px 4px 0 var(--name-pop-2);
+  animation: name-pop-cycle 3.6s ease-in-out infinite;
+}
+
+@keyframes name-pop-cycle {
+  0%, 22% {
+    transform: none;
+    text-shadow: none;
+  }
+  30%, 78% {
+    transform: translate(-1px, -2px);
+    text-shadow: 3px 4px 0 var(--name-pop-2);
+  }
+  88%, 100% {
+    transform: none;
+    text-shadow: none;
+  }
+}
+
 /* Hover animations for the user-control row icons. Each animation
    only runs while the icon's button is hovered, then resets — so
    you get a quick personality cue on hover without the icon ever

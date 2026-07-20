@@ -21,6 +21,7 @@ import { Emojis } from './emojis';
 import { Federation } from './federation';
 import { General } from './general';
 import { Invites } from './invites';
+import { Nameplates } from './nameplates';
 import { Roles } from './roles';
 import { Users } from './users';
 import { Webhooks } from './webhooks';
@@ -79,6 +80,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             >
               Emojis
             </TabsTrigger>
+            <TabsTrigger
+              value="nameplates"
+              disabled={!can(Permission.MANAGE_EMOJIS)}
+            >
+              Nameplates
+            </TabsTrigger>
             <TabsTrigger value="users" disabled={!can(Permission.MANAGE_USERS)}>
               Users
             </TabsTrigger>
@@ -124,6 +131,9 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
           </TabsContent>
           <TabsContent value="emojis" className="space-y-6">
             {can(Permission.MANAGE_EMOJIS) && <Emojis />}
+          </TabsContent>
+          <TabsContent value="nameplates" className="space-y-6">
+            {can(Permission.MANAGE_EMOJIS) && <Nameplates />}
           </TabsContent>
           <TabsContent value="users" className="space-y-6">
             {can(Permission.MANAGE_USERS) && <Users />}

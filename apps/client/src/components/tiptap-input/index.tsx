@@ -232,6 +232,46 @@ const TiptapInput = memo(
           const hasSuggestions =
             suggestionElement && document.body.contains(suggestionElement);
 
+          // Inside a code block, Tab indents (and Shift+Tab outdents)
+          // instead of moving focus out of the composer.
+          if (event.key === 'Tab') {
+            const { $from } = view.state.selection;
+            if ($from.parent.type.name === 'codeBlock') {
+              event.preventDefault();
+              if (event.shiftKey) {
+                // Outdent: strip up to two leading spaces from the
+                // current line (code blocks are a single text node with
+                // \n separators).
+                const blockStart = $from.start();
+                const beforeCursor = view.state.doc.textBetween(
+                  blockStart,
+                  $from.pos,
+                  '\n'
+                );
+                const lineStart =
+                  blockStart + beforeCursor.lastIndexOf('\n') + 1;
+                const lineHead = view.state.doc.textBetween(
+                  lineStart,
+                  Math.min(lineStart + 2, $from.end()),
+                  '\n'
+                );
+                const stripCount = lineHead.startsWith('  ')
+                  ? 2
+                  : lineHead.startsWith(' ')
+                    ? 1
+                    : 0;
+                if (stripCount > 0) {
+                  view.dispatch(
+                    view.state.tr.delete(lineStart, lineStart + stripCount)
+                  );
+                }
+              } else {
+                view.dispatch(view.state.tr.insertText('  '));
+              }
+              return true;
+            }
+          }
+
           if (event.key === 'Enter') {
             const isMultiline = !!multilineModeRef.current;
 

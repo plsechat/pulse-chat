@@ -10,6 +10,7 @@ import {
   useCan,
   useChannelCan,
   useMentionCount,
+  usePreviewMode,
   useTypingUsersByChannelId,
   useUnreadMessagesCount,
   useVoiceUsersByChannelId
@@ -83,7 +84,12 @@ const Voice = memo(({ channel, isInVoice, ...props }: TVoiceProps) => {
       {channel.type === 'VOICE' && (
         <div className="ml-6 space-y-1 mt-1">
           {users.map((user) => (
-            <VoiceUser key={user.id} userId={user.id} user={user} />
+            <VoiceUser
+              key={user.id}
+              userId={user.id}
+              user={user}
+              channelId={channel.id}
+            />
           ))}
           {externalStreams.map((stream) => (
             <ExternalStream
@@ -217,6 +223,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
     currentVoiceChannelPublicId === channel.publicId;
   const channelCan = useChannelCan(channelId);
   const can = useCan();
+  const previewMode = usePreviewMode();
   const { init } = useVoice();
 
   const {
@@ -229,6 +236,12 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
   } = useSortable({ id: channelId });
 
   const onClick = useCallback(async () => {
+    // Previews are read-only — voice joins would be refused server-side
+    if (previewMode && channel?.type === ChannelType.VOICE) {
+      toast.info('Join the server to use voice channels');
+      return;
+    }
+
     setSelectedChannelId(channelId);
 
     if (channel?.type === ChannelType.VOICE && !isInThisVoice) {
@@ -249,7 +262,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
         toast.error('Failed to initialize voice connection');
       }
     }
-  }, [channelId, channel?.type, init, isInThisVoice]);
+  }, [channelId, channel?.type, init, isInThisVoice, previewMode]);
 
   if (!channel) {
     return null;

@@ -162,6 +162,20 @@
       "when": 1784449180168,
       "tag": "0022_dark_shocker",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784489365039,
+      "tag": "0023_legal_joshua_kane",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784513617540,
+      "tag": "0024_sparkling_terrax",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { ServerStrip } from '@/components/server-strip';
+import { StreamPreviewPublisher } from '@/components/stream-preview-publisher';
 import { useActiveView } from '@/features/app/hooks';
 import { VoiceProvider } from '@/components/voice-provider';
 import { PersistentAudioStreams } from '@/components/voice-provider/persistent-audio-streams';
@@ -37,6 +38,7 @@ const MainViewInner = memo(() => {
   return (
     <>
       <PersistentAudioStreams />
+      <StreamPreviewPublisher />
       <IncomingCallModal />
       <ForwardMessageDialog />
       <div className="flex h-dvh bg-sidebar text-foreground">

@@ -1,6 +1,6 @@
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { loginUser, registerUser, storageStateFor } from './api';
-import { authedGoto, waitForAppReady } from './ui';
+import { authedGoto, channelButton, waitForAppReady } from './ui';
 
 export type TSeedUser = {
   email: string;
@@ -66,9 +66,9 @@ export async function registerAndJoin(
   const page = await context.newPage();
   await page.goto(baseURL);
 
-  const generalText = page
-    .getByRole('button', { name: 'General Text', exact: true })
-    .first();
+  // channelButton, not role+exact-name: an unread badge merges into the
+  // accessible name and breaks the exact match on a lived-in instance.
+  const generalText = channelButton(page, 'General Text');
   const joinButton = page.getByRole('button', { name: /^join$/i }).first();
   // Wait for ONE of the two states before branching — isVisible() doesn't
   // wait, so checking too early would false-negative.

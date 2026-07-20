@@ -3,7 +3,7 @@ import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { addMessages, purgeChannelMessages } from './actions';
+import { addMessages, mergeMessageAuthors, purgeChannelMessages } from './actions';
 import { decryptChannelMessages } from './decrypt';
 import { finishJump, JUMP_EVENT, peekPendingJump } from './jump';
 import { messagesByChannelIdSelector } from './selectors';
@@ -38,12 +38,15 @@ export const useMessages = (channelId: number) => {
       setFetching(true);
 
       try {
-        const { messages: rawPage, nextCursor } =
+        const { messages: rawPage, nextCursor, authors } =
           await trpcClient.messages.get.query({
             channelId,
             cursor: cursorToFetch,
             limit: DEFAULT_MESSAGES_LIMIT
           });
+
+        // Preview-only author profiles (no member bootstrap to resolve from)
+        mergeMessageAuthors(authors);
 
         const decryptedPage = await decryptChannelMessages(rawPage);
         const page = [...decryptedPage].reverse();
@@ -100,6 +103,7 @@ export const useMessages = (channelId: number) => {
           aroundId: messageId,
           limit: DEFAULT_MESSAGES_LIMIT
         });
+        mergeMessageAuthors(res.authors);
         const decrypted = await decryptChannelMessages(res.messages);
         purgeChannelMessages(channelId);
         addMessages(channelId, [...decrypted].reverse());
@@ -129,6 +133,7 @@ export const useMessages = (channelId: number) => {
         after: afterCursor,
         limit: DEFAULT_MESSAGES_LIMIT
       });
+      mergeMessageAuthors(res.authors);
       const decrypted = await decryptChannelMessages(res.messages);
       addMessages(channelId, [...decrypted].reverse());
       setAfterCursor(res.afterCursor);
@@ -155,6 +160,7 @@ export const useMessages = (channelId: number) => {
         cursor: null,
         limit: DEFAULT_MESSAGES_LIMIT
       });
+      mergeMessageAuthors(res.authors);
       const decrypted = await decryptChannelMessages(res.messages);
       purgeChannelMessages(channelId);
       addMessages(channelId, [...decrypted].reverse());

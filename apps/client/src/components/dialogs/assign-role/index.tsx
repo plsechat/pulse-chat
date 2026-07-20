@@ -42,7 +42,13 @@ const AssignRoleDialog = memo(
 
     // Filter out roles the user already has
     const availableRoles = useMemo(
-      () => roles.filter((role) => !user.roleIds.includes(role.id)),
+      () =>
+        roles.filter(
+          (role) =>
+            !user.roleIds.includes(role.id) &&
+            // Owner role moves only via ownership transfer
+            !(role.isPersistent && !role.isDefault)
+        ),
       [roles, user.roleIds]
     );
 

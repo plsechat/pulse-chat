@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { getForumUnreadForUser } from '../../db/queries/channels';
 import { getServerUnreadCount } from '../../db/queries/servers';
 import { channelReadStates, channels, messages } from '../../db/schema';
+import { refuseInPreview } from '../../utils/preview-guard';
 import { protectedProcedure } from '../../utils/trpc';
 
 const markAsReadRoute = protectedProcedure
@@ -18,6 +19,8 @@ const markAsReadRoute = protectedProcedure
       input.channelId,
       ChannelPermission.VIEW_CHANNEL
     );
+    // Previewers hold VIEW_CHANNEL but must not create read-state rows
+    await refuseInPreview(ctx, input.channelId);
 
     const { channelId } = input;
 

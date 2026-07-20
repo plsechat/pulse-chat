@@ -3,6 +3,7 @@ import { appSliceReducer } from './app/slice';
 import { dialogSliceReducer } from './dialogs/slice';
 import { dmsSliceReducer } from './dms/slice';
 import { friendsSliceReducer } from './friends/slice';
+import { nameplatesSliceReducer } from './nameplates/slice';
 import { serverScreenSliceReducer } from './server-screens/slice';
 import { serverSliceReducer } from './server/slice';
 
@@ -13,7 +14,8 @@ export const store = configureStore({
     dialog: dialogSliceReducer,
     serverScreen: serverScreenSliceReducer,
     friends: friendsSliceReducer,
-    dms: dmsSliceReducer
+    dms: dmsSliceReducer,
+    nameplates: nameplatesSliceReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

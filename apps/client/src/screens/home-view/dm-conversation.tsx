@@ -36,6 +36,7 @@ import { useDmMessages } from '@/features/dms/use-dm-messages';
 import { useHomeOwnUserId, useHomeUserById } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import { useUploadFiles } from '@/hooks/use-upload-files';
@@ -62,6 +63,11 @@ import { ImageContextMenu } from '@/components/channel-view/text/image-context-m
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import {
+  messageHasCodeBlock,
+  uploadOversizedMessage,
+  type TOversizedUpload
+} from '@/helpers/oversized-message';
 import { ReplyContentPreview } from '@/components/channel-view/text/reply-content-preview';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
@@ -130,7 +136,7 @@ const DmConversation = memo(
 
   // Intro block shown at the very top of a fully-loaded history —
   // gives short conversations a proper beginning instead of a cold
-  // start (mirrors Discord's DM intro).
+  // start.
   const introMembers = useMemo(
     () => dmMembers.filter((m) => m.id !== ownUserId),
     [dmMembers, ownUserId]
@@ -329,18 +335,30 @@ const DmConversation = memo(
 
     // Check plaintext length BEFORE encryption — the server's wire cap
     // is sized for the encrypted envelope, so this is the real budget.
+    // Over-length code blocks are shipped as a message.txt attachment
+    // instead of being rejected.
+    let sendContent = content;
+    let txtUpload: TOversizedUpload | null = null;
     if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-      toast.error(
-        `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
-      );
-      return;
+      if (!messageHasCodeBlock(newMessage, content)) {
+        toast.error(
+          `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+        );
+        return;
+      }
+
+      txtUpload = await uploadOversizedMessage(content, isE2ee);
+      if (!txtUpload) return;
+
+      sendContent = '';
+      toast.info('Message was over the length limit — sent as message.txt');
     }
 
     try {
       // Build fileKeys from encrypted upload key material. Includes
       // the real originalName + extension so the recipient can render
       // them — the server stores only placeholders.
-      const fileKeys = isE2ee && files.length > 0
+      const fileKeyEntries = isE2ee
         ? files.map((f) => {
           const keyInfo = fileKeyMapRef.current.get(f.id);
           return keyInfo
@@ -354,14 +372,30 @@ const DmConversation = memo(
               }
             : null;
         }).filter((k): k is NonNullable<typeof k> => k !== null)
-        : undefined;
+        : [];
+
+      if (isE2ee && txtUpload?.keyInfo) {
+        fileKeyEntries.push({
+          fileId: txtUpload.tempFile.id,
+          key: txtUpload.keyInfo.key,
+          nonce: txtUpload.keyInfo.nonce,
+          mimeType: txtUpload.keyInfo.mimeType,
+          originalName: txtUpload.keyInfo.originalName,
+          extension: txtUpload.keyInfo.extension
+        });
+      }
+
+      const fileIds = [
+        ...files.map((f) => f.id),
+        ...(txtUpload ? [txtUpload.tempFile.id] : [])
+      ];
 
       await sendDmMessage(
         dmChannelId,
-        content,
-        files.length > 0 ? files.map((f) => f.id) : undefined,
+        sendContent,
+        fileIds.length > 0 ? fileIds : undefined,
         replyingTo?.id,
-        fileKeys
+        fileKeyEntries.length > 0 ? fileKeyEntries : undefined
       );
     } catch (error) {
       toast.error(getTrpcError(error, 'Failed to send message'));
@@ -463,6 +497,7 @@ const DmConversation = memo(
                       className="h-20 w-20 border-4 border-background"
                       showUserPopover={false}
                       homeScope
+                      noDecoration
                     />
                   ))}
                 </div>
@@ -1004,6 +1039,10 @@ const DmMessagesGroup = memo(
         ? `Yesterday at ${format(date, timeOnly())}`
         : format(date, dateTime());
 
+    // DMs are a HOME surface — styled names render here (server chat
+    // keeps role colors authoritative instead).
+    const nameCss = getNameStyleCss(user.nameStyle);
+
     return (
       <div className="flex min-w-0 gap-4 px-4 pt-2 group/msggroup">
         <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
@@ -1013,8 +1052,10 @@ const DmMessagesGroup = memo(
               <span
                 className={cn(
                   'cursor-pointer hover:underline',
-                  isOwnUser && 'font-bold'
+                  isOwnUser && 'font-bold',
+                  nameCss?.className
                 )}
+                style={nameCss?.style}
               >
                 {user.name}
               </span>

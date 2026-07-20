@@ -20,7 +20,7 @@ const StarOnlyBold = Bold.extend({
 
 // Underline ships without a markdown shortcut. Add `__text__` so it pairs
 // with Bold's `**text**`, matching what the renderer (token-content-renderer)
-// understands and what users expect from Discord-flavored markdown.
+// understands and what users expect from chat-style markdown.
 const underscoreInputRegex = /(?:^|\s)(__(?!\s+__)((?:[^_]+))__(?!\s+__))$/;
 const underscorePasteRegex = /(?:^|\s)(__(?!\s+__)((?:[^_]+))__(?!\s+__))/g;
 

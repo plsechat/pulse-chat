@@ -1,6 +1,7 @@
 import {
   ServerEvents,
   StreamKind,
+  VOICE_STREAM_PREVIEW_STALE_MS,
   type TChannelState,
   type TExternalStreamsMap,
   type TRemoteProducerIds,
@@ -149,6 +150,13 @@ class VoiceRuntime {
   private consumers: TConsumerMap = {};
 
   private _destroying = false;
+  // Ephemeral screen-share hover thumbnails, pull model: the sharer
+  // pushes a bounded JPEG data-URL periodically; roster hover cards
+  // query it. Never fanned out.
+  private streamPreviews = new Map<
+    number,
+    { dataUrl: string; updatedAt: number }
+  >();
   private externalCounter = 0;
   private externalStreamsInternal: {
     [streamId: number]: TExternalStreamInternal;
@@ -355,6 +363,7 @@ class VoiceRuntime {
 
   public removeUser = (userId: number) => {
     this.state.users = this.state.users.filter((u) => u.userId !== userId);
+    this.streamPreviews.delete(userId);
 
     if (this.state.users.length === 0) {
       this.state.startedAt = undefined;
@@ -400,6 +409,27 @@ class VoiceRuntime {
     if (!user) return;
 
     user.state = { ...user.state, ...newState };
+
+    if (newState.sharingScreen === false) {
+      this.streamPreviews.delete(userId);
+    }
+  };
+
+  public setStreamPreview = (userId: number, dataUrl: string) => {
+    this.streamPreviews.set(userId, { dataUrl, updatedAt: Date.now() });
+  };
+
+  public getStreamPreview = (userId: number): string | null => {
+    const entry = this.streamPreviews.get(userId);
+
+    if (!entry) return null;
+
+    // A crashed/stalled publisher must not serve a frozen frame forever
+    if (Date.now() - entry.updatedAt > VOICE_STREAM_PREVIEW_STALE_MS) {
+      return null;
+    }
+
+    return entry.dataUrl;
   };
 
   /**

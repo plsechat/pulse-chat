@@ -11,3 +11,4 @@ export * from "./logs";
 export * from "./voice";
 export * from "./plugins";
 export * from "./preferences";
+export * from "./name-style";

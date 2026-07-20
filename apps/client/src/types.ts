@@ -33,6 +33,14 @@ export enum Resolution {
   '144p' = '144p'
 }
 
+/**
+ * automatic — the browser's built-in noise suppression.
+ * manual — our WebAudio noise gate; mic transmits only above
+ *          noiseGateThreshold (dBFS).
+ * off — raw mic.
+ */
+export type NoiseSuppressionMode = 'automatic' | 'manual' | 'off';
+
 export type TDeviceSettings = {
   microphoneId: string | undefined;
   playbackId: string | undefined;
@@ -40,7 +48,8 @@ export type TDeviceSettings = {
   webcamResolution: Resolution;
   webcamFramerate: number;
   echoCancellation: boolean;
-  noiseSuppression: boolean;
+  noiseSuppressionMode: NoiseSuppressionMode;
+  noiseGateThreshold: number;
   autoGainControl: boolean;
   shareSystemAudio: boolean;
   screenResolution: Resolution;

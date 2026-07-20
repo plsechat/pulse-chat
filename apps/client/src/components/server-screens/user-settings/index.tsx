@@ -2,7 +2,8 @@ import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { ChevronLeft, Fingerprint, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ChevronLeft, Fingerprint, IdCard, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
@@ -10,10 +11,11 @@ import { Devices } from './devices';
 import { Encryption } from './encryption';
 import { Password } from './password';
 import { Profile } from './profile';
+import { Profiles } from './profiles';
 import { SoundsNotifications } from './sounds-notifications';
 import { VerifyIdentity } from './verify-identity';
 
-type Section = 'profile' | 'password' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices';
+type Section = 'profile' | 'profiles' | 'password' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices';
 
 type NavItem = {
   id: Section;
@@ -31,6 +33,7 @@ const NAV_SECTIONS: NavCategory[] = [
     heading: 'User Settings',
     items: [
       { id: 'profile', label: 'My Account', icon: <User className="h-4 w-4" /> },
+      { id: 'profiles', label: 'Profiles', icon: <IdCard className="h-4 w-4" /> },
       { id: 'password', label: 'Password', icon: <Lock className="h-4 w-4" /> },
       { id: 'encryption', label: 'Encryption', icon: <ShieldCheck className="h-4 w-4" /> },
       { id: 'verify-identity', label: 'Verify Identity', icon: <Fingerprint className="h-4 w-4" /> }
@@ -48,6 +51,7 @@ const NAV_SECTIONS: NavCategory[] = [
 
 const SECTION_TITLES: Record<Section, string> = {
   profile: 'My Account',
+  profiles: 'Profiles',
   password: 'Password',
   encryption: 'Encryption',
   'verify-identity': 'Verify Identity',
@@ -58,6 +62,7 @@ const SECTION_TITLES: Record<Section, string> = {
 
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
   profile: 'Update your personal information and settings.',
+  profiles: 'Customize how your profile looks — avatar, banner and name flair.',
   password: 'Manage your account password.',
   encryption: 'Manage your end-to-end encryption keys.',
   'verify-identity': 'Compare safety numbers with your peers to confirm their encryption keys.',
@@ -68,6 +73,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
 
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   profile: Profile,
+  profiles: Profiles,
   password: Password,
   encryption: Encryption,
   'verify-identity': VerifyIdentity,
@@ -232,7 +238,14 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
 
         {/* Content panel */}
         <main className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-2xl">
+          {/* The Profiles editor is two-pane (controls + live preview)
+              and needs more room than the single-column forms. */}
+          <div
+            className={cn(
+              'mx-auto',
+              activeSection === 'profiles' ? 'max-w-5xl' : 'max-w-2xl'
+            )}
+          >
             <div className="mb-6">
               <h2 className="text-xl font-semibold">
                 {SECTION_TITLES[activeSection]}

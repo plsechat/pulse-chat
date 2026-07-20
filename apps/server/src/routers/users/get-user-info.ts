@@ -35,8 +35,8 @@ const getUserInfoRoute = protectedProcedure
 
     const [logins, files, messages, auditLog, joinMethod] = await Promise.all([
       getLastLogins(user.id, 6),
-      getFilesByUserId(user.id),
-      getMessagesByUserId(user.id),
+      getFilesByUserId(user.id, ctx.activeServerId!),
+      getMessagesByUserId(user.id, ctx.activeServerId!),
       getAuditLogForUser(user.id, ctx.activeServerId!),
       getJoinMethod(ctx.activeServerId!, user.id)
     ]);

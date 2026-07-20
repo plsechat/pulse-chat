@@ -5,6 +5,7 @@ import {
 import { useFederatedServers } from '@/features/app/hooks';
 import { appSliceActions } from '@/features/app/slice';
 import { getHandshakeHash } from '@/features/server/actions';
+import { startServerPreview } from '@/features/server/preview/actions';
 import { store } from '@/features/store';
 import { EmptyState } from '@/components/ui/empty-state';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -26,11 +27,15 @@ const ServerCard = memo(
   ({
     server,
     onJoin,
-    joining
+    onPreview,
+    joining,
+    previewing
   }: {
     server: TDiscoverServer;
     onJoin: (serverId: number) => void;
+    onPreview: (serverId: number) => void;
     joining: boolean;
+    previewing: boolean;
   }) => {
     const firstLetter = server.name.charAt(0).toUpperCase();
 
@@ -74,22 +79,40 @@ const ServerCard = memo(
                 Joined
               </span>
             ) : (
-              <button
-                onClick={() => onJoin(server.id)}
-                disabled={joining}
-                className={cn(
-                  'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-                  joining
-                    ? 'cursor-not-allowed bg-muted text-muted-foreground'
-                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                )}
-              >
-                {joining ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  'Join'
-                )}
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => onPreview(server.id)}
+                  disabled={joining || previewing}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    joining || previewing
+                      ? 'cursor-not-allowed bg-muted text-muted-foreground'
+                      : 'bg-input text-foreground hover:bg-accent'
+                  )}
+                >
+                  {previewing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Preview'
+                  )}
+                </button>
+                <button
+                  onClick={() => onJoin(server.id)}
+                  disabled={joining || previewing}
+                  className={cn(
+                    'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+                    joining || previewing
+                      ? 'cursor-not-allowed bg-muted text-muted-foreground'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  )}
+                >
+                  {joining ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Join'
+                  )}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -186,6 +209,7 @@ const DiscoverView = memo(() => {
   const [servers, setServers] = useState<TDiscoverServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [joiningId, setJoiningId] = useState<number | null>(null);
+  const [previewingId, setPreviewingId] = useState<number | null>(null);
   const federatedServers = useFederatedServers();
 
   // Federated state
@@ -323,6 +347,17 @@ const DiscoverView = memo(() => {
       setJoiningId(null);
     }
   }, [servers]);
+
+  const handlePreview = useCallback(async (serverId: number) => {
+    setPreviewingId(serverId);
+
+    try {
+      // Errors are toasted inside startServerPreview
+      await startServerPreview({ serverId });
+    } finally {
+      setPreviewingId(null);
+    }
+  }, []);
 
   const handleJoinFederated = useCallback(
     async (server: TRemoteServerSummary) => {
@@ -462,7 +497,9 @@ const DiscoverView = memo(() => {
                     key={server.id}
                     server={server}
                     onJoin={handleJoin}
+                    onPreview={handlePreview}
                     joining={joiningId === server.id}
+                    previewing={previewingId === server.id}
                   />
                 ))}
               </div>

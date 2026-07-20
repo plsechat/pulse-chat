@@ -1,4 +1,6 @@
 import { AddDmMembersDialog } from '@/components/dialogs/add-dm-members';
+import { NameplateBackground } from '@/components/nameplate';
+import { AvatarDecoration } from '@/components/user-avatar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
@@ -18,8 +20,13 @@ import {
 import { useDmChannels } from '@/features/dms/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
-import { useHomeOwnUserId, useUserStatus } from '@/features/server/users/hooks';
+import {
+  useHomeOwnUserId,
+  useHomeUserById,
+  useUserStatus
+} from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
@@ -142,6 +149,19 @@ const DmChannelItem = memo(
       [channel.members, ownUserId]
     );
 
+    // Cosmetics for 1:1 rows (group DMs get none). channel.members only
+    // receives presence mirrors on USER_UPDATE — the full profile merge
+    // lands in server.users/friends — so resolve the live user through
+    // the home-scoped stores; the selector's own final fallback is the
+    // (fetch-time) DM member projection itself.
+    const otherMember = channel.isGroup ? undefined : otherMembers[0];
+    const liveOtherMember = useHomeUserById(otherMember?.id ?? -1);
+    const cosmeticsSource = otherMember
+      ? (liveOtherMember ?? otherMember)
+      : undefined;
+    const nameplate = cosmeticsSource?.nameplate;
+    const nameCss = getNameStyleCss(cosmeticsSource?.nameStyle);
+
     const displayName = useMemo(() => {
       if (channel.isGroup && channel.name) return channel.name;
       if (channel.isGroup) {
@@ -225,13 +245,16 @@ const DmChannelItem = memo(
           <button
             onClick={onSelect}
             className={cn(
-              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-100',
+              // relative + overflow-hidden clip the nameplate layer to
+              // the rounded row; content stays `relative` to paint above.
+              'relative overflow-hidden flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-100',
               isSelected
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
               channel.unreadCount > 0 && !isSelected && 'text-foreground'
             )}
           >
+            <NameplateBackground nameplate={nameplate} homeScope />
             {channel.isGroup ? (
               <div className="relative h-8 w-8 flex-shrink-0">
                 {otherMembers.slice(0, 2).map((m, i) => (
@@ -249,14 +272,17 @@ const DmChannelItem = memo(
               <DmMemberAvatarWithStatus
                 member={otherMembers[0]}
                 className="h-8 w-8 flex-shrink-0"
+                decoration={cosmeticsSource?.avatarDecoration}
               />
             )}
-            <div className="flex min-w-0 flex-1 flex-col items-start">
+            <div className="relative flex min-w-0 flex-1 flex-col items-start">
               <span
                 className={cn(
                   'truncate font-medium',
-                  channel.unreadCount > 0 && 'font-semibold text-foreground'
+                  channel.unreadCount > 0 && 'font-semibold text-foreground',
+                  nameCss?.className
                 )}
+                style={nameCss?.style}
               >
                 {displayName}
               </span>
@@ -272,7 +298,7 @@ const DmChannelItem = memo(
               )}
             </div>
             {channel.unreadCount > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
+              <span className="relative flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
                 {channel.unreadCount}
               </span>
             )}
@@ -330,7 +356,15 @@ const DmChannelItem = memo(
 
 /** Avatar with status badge for 1-on-1 DM items in the sidebar. */
 const DmMemberAvatarWithStatus = memo(
-  ({ member, className }: { member: TJoinedPublicUser; className?: string }) => {
+  ({
+    member,
+    className,
+    decoration
+  }: {
+    member: TJoinedPublicUser;
+    className?: string;
+    decoration?: string | null;
+  }) => {
     const status = useUserStatus(member.id);
     return (
       <div className="relative w-fit h-fit flex-shrink-0">
@@ -340,6 +374,7 @@ const DmMemberAvatarWithStatus = memo(
             {getInitialsFromName(member.name)}
           </AvatarFallback>
         </Avatar>
+        <AvatarDecoration decoration={decoration} />
         <UserStatusBadge
           status={status}
           className="absolute bottom-0 right-0"

@@ -8,7 +8,7 @@ import { channels, messages } from '../../db/schema';
 /**
  * Jump-to-message pagination: `aroundId` (window centered on a message)
  * and `after` (forward paging toward the present). Added for the
- * Discord-style message-link jump — the client around-fetches a window
+ * message-link jump — the client around-fetches a window
  * when the target is outside loaded history, then fills forward.
  *
  * Rows are inserted directly with explicit createdAt values: the cursor

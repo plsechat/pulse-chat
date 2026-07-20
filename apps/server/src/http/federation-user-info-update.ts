@@ -33,7 +33,12 @@
  *   - Idempotent: applying the same state twice is a no-op
  */
 
-import { UserStatus } from '@pulse/shared';
+import {
+  AVATAR_DECORATION_SLUGS,
+  NAMEPLATE_PRESET_SLUGS,
+  UserStatus,
+  nameStyleSchema
+} from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
@@ -81,6 +86,13 @@ const federationUserInfoUpdateHandler = async (
     | null
     | undefined;
   const pronounsChange = signedBody.pronouns as string | null | undefined;
+  const nameplateChange = signedBody.nameplate as string | null | undefined;
+  const avatarDecorationChange = signedBody.avatarDecoration as
+    | string
+    | null
+    | undefined;
+  // Shape re-validated below — never trust a peer's word on jsonb.
+  const nameStyleChange = signedBody.nameStyle as unknown;
   const statusChange = signedBody.status as string | undefined;
   const triggerProfileSync = signedBody.triggerProfileSync === true;
 
@@ -97,6 +109,9 @@ const federationUserInfoUpdateHandler = async (
     customStatusChange !== undefined ||
     customStatusEmojiChange !== undefined ||
     pronounsChange !== undefined ||
+    nameplateChange !== undefined ||
+    avatarDecorationChange !== undefined ||
+    nameStyleChange !== undefined ||
     statusChange !== undefined ||
     triggerProfileSync;
   if (!hasAnyChange) {
@@ -152,6 +167,36 @@ const federationUserInfoUpdateHandler = async (
   if (pronounsChange !== undefined) {
     persistedSet.pronouns =
       pronounsChange === null ? null : String(pronounsChange).slice(0, 40);
+  }
+  if (nameplateChange !== undefined) {
+    // Only preset slugs cross instances — a 'custom:<id>' references the
+    // sender's local nameplates table and would collide with ours, so
+    // anything that isn't a known preset applies as cleared.
+    persistedSet.nameplate =
+      typeof nameplateChange === 'string' &&
+      nameplateChange.startsWith('preset:') &&
+      NAMEPLATE_PRESET_SLUGS.includes(nameplateChange.slice('preset:'.length))
+        ? nameplateChange
+        : null;
+  }
+  if (avatarDecorationChange !== undefined) {
+    // Decoration presets are client-bundled assets, portable across
+    // instances — anything that isn't a known preset applies as cleared.
+    persistedSet.avatarDecoration =
+      typeof avatarDecorationChange === 'string' &&
+      avatarDecorationChange.startsWith('preset:') &&
+      AVATAR_DECORATION_SLUGS.includes(
+        avatarDecorationChange.slice('preset:'.length)
+      )
+        ? avatarDecorationChange
+        : null;
+  }
+  if (nameStyleChange !== undefined) {
+    // Full server-side shape re-validation (fonts/effects/hex colors) —
+    // a malicious peer must not be able to store arbitrary jsonb; any
+    // invalid value applies as cleared.
+    const parsed = nameStyleSchema.safeParse(nameStyleChange);
+    persistedSet.nameStyle = parsed.success ? parsed.data : null;
   }
 
   if (Object.keys(persistedSet).length > 0) {

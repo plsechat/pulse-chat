@@ -87,11 +87,13 @@ const RemoteScreenShareAudio = memo(
     const audioCtxRef = useRef<AudioContext | null>(null);
     const gainRef = useRef<GainNode | null>(null);
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-    const { getVolume, getUserVolumeKey } = useVolumeControl();
+    const { getVolume, getScreenVolumeKey } = useVolumeControl();
     const ownVoiceState = useOwnVoiceState();
     const { realOutputSinkId } = useVoice();
 
-    const volumeKey = getUserVolumeKey(userId);
+    // Screen-specific key — stream audio volume is independent of the
+    // user's voice volume.
+    const volumeKey = getScreenVolumeKey(userId);
     const volume = getVolume(volumeKey);
 
     // Create AudioContext and connect the stream

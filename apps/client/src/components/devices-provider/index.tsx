@@ -3,6 +3,7 @@ import {
   LocalStorageKey,
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
+import { DEFAULT_NOISE_GATE_THRESHOLD_DB } from '@/components/voice-provider/mic-pipeline';
 import { Resolution, type TDeviceSettings } from '@/types';
 import {
   createContext,
@@ -21,7 +22,8 @@ const DEFAULT_DEVICE_SETTINGS: TDeviceSettings = {
   webcamResolution: Resolution['720p'],
   webcamFramerate: 30,
   echoCancellation: false,
-  noiseSuppression: false,
+  noiseSuppressionMode: 'automatic',
+  noiseGateThreshold: DEFAULT_NOISE_GATE_THRESHOLD_DB,
   autoGainControl: true,
   shareSystemAudio: false,
   screenResolution: Resolution['720p'],
@@ -68,7 +70,20 @@ const DevicesProvider = memo(({ children }: TDevicesProviderProps) => {
     );
 
     if (savedSettings) {
-      setDevices(savedSettings);
+      // Migrate the pre-noise-gate shape: `noiseSuppression: boolean`
+      // becomes `noiseSuppressionMode`, preserving the user's choice.
+      const legacy = savedSettings as Partial<TDeviceSettings> & {
+        noiseSuppression?: boolean;
+      };
+      setDevices({
+        ...DEFAULT_DEVICE_SETTINGS,
+        ...savedSettings,
+        noiseSuppressionMode:
+          legacy.noiseSuppressionMode ??
+          (legacy.noiseSuppression ? 'automatic' : 'off'),
+        noiseGateThreshold:
+          legacy.noiseGateThreshold ?? DEFAULT_NOISE_GATE_THRESHOLD_DB
+      });
     }
 
     setLoading(false);

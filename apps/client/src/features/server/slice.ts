@@ -21,7 +21,11 @@ import type {
   TVoiceMap,
   TVoiceUserState
 } from '@pulse/shared';
-import type { TDisconnectInfo, TMessagesMap } from './types';
+import type {
+  TDisconnectInfo,
+  TMessagesMap,
+  TServerPreviewMeta
+} from './types';
 
 /**
  * ID-keying convention (federation ID-collision fix):
@@ -98,6 +102,11 @@ export interface IServerState {
   // owners mark their servers federatable.
   isInstanceOwner: boolean;
   federatableServersAllowed: boolean;
+  // Read-only preview session (servers.preview): true while the slice
+  // holds a non-member snapshot of a server. Cleared by any real join
+  // (setInitialData) or by leaving the preview.
+  previewMode: boolean;
+  previewMeta: TServerPreviewMeta | undefined;
 }
 
 const initialState: IServerState = {
@@ -144,7 +153,9 @@ const initialState: IServerState = {
   usersLoaded: false,
   emojisLoaded: false,
   isInstanceOwner: false,
-  federatableServersAllowed: false
+  federatableServersAllowed: false,
+  previewMode: false,
+  previewMeta: undefined
 };
 
 export const serverSlice = createSlice({
@@ -220,6 +231,9 @@ export const serverSlice = createSlice({
       state.isInstanceOwner = action.payload.isInstanceOwner ?? false;
       state.federatableServersAllowed =
         action.payload.federatableServersAllowed ?? false;
+      // Any real join ends a preview session
+      state.previewMode = false;
+      state.previewMeta = undefined;
       // Clear deferred state from previous server (will be populated by separate fetches)
       state.users = [];
       state.emojis = [];
@@ -253,6 +267,16 @@ export const serverSlice = createSlice({
 
       // Preserve currentVoiceChannelId so voice persists across server navigation
       // Voice is only disconnected when the user explicitly leaves
+    },
+    // Dispatched AFTER setInitialData populated the slice with the
+    // preview snapshot (see features/server/preview/actions.ts).
+    setPreviewMeta: (state, action: PayloadAction<TServerPreviewMeta>) => {
+      state.previewMode = true;
+      state.previewMeta = action.payload;
+    },
+    clearPreview: (state) => {
+      state.previewMode = false;
+      state.previewMeta = undefined;
     },
     addMessages: (
       state,

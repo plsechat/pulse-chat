@@ -13,6 +13,7 @@ import {
   fetchFriendRequests,
   fetchFriends
 } from '@/features/friends/actions';
+import { fetchNameplates } from '@/features/nameplates/actions';
 import { logDebug } from '@/helpers/browser-logger';
 import { getHostFromServer } from '@/helpers/get-file-url';
 import { applyServerPreferences } from '@/lib/preferences-apply';
@@ -115,6 +116,8 @@ export const fetchDeferredServerData = (
     if (isStale()) return;
     store.dispatch(serverSliceActions.setDeferredVoiceState(voiceState));
   }).catch((err) => console.error('Failed to fetch voice state:', err));
+
+  fetchNameplates(trpc, expectedServerId);
 };
 
 export const joinServer = async (

@@ -1,6 +1,7 @@
 import { ChannelPermission, ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
+import { refuseInPreview } from '../../utils/preview-guard';
 import { protectedProcedure } from '../../utils/trpc';
 
 const signalTypingRoute = protectedProcedure
@@ -12,6 +13,9 @@ const signalTypingRoute = protectedProcedure
       .required()
   )
   .mutation(async ({ input, ctx }) => {
+    // Previewers are invisible to members — no typing fan-out
+    await refuseInPreview(ctx, input.channelId);
+
     const affectedUserIds = await getAffectedUserIdsForChannel(
       input.channelId,
       { permission: ChannelPermission.VIEW_CHANNEL }

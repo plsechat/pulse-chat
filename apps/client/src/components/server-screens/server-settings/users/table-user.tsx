@@ -7,13 +7,22 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserAvatar } from '@/components/user-avatar';
 import { setModViewOpen } from '@/features/app/actions';
+import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
+import {
+  requestConfirmation,
+  requestTextInput
+} from '@/features/dialogs/actions';
+import { useOwnUserId } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { getTRPCClient } from '@/lib/trpc';
+import { toast } from 'sonner';
 import { useUserRoles } from '@/features/server/hooks';
 import { useUserStatus } from '@/features/server/users/hooks';
 import { cn } from '@/lib/utils';
 import { UserStatus, type TJoinedUser } from '@pulse/shared';
 import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
-import { MoreVertical, UserCog } from 'lucide-react';
+import { Crown, MoreVertical, UserCog } from 'lucide-react';
 import { memo, useCallback } from 'react';
 
 type TTableUserProps = {
@@ -21,6 +30,49 @@ type TTableUserProps = {
 };
 
 const TableUser = memo(({ user }: TTableUserProps) => {
+  const ownUserId = useOwnUserId();
+  const activeServerId = useActiveServerId();
+  const joinedServers = useJoinedServers();
+  // Ownership transfer is strictly the CURRENT owner's action — compare
+  // the server's ownerId, not a role id (capability, not label).
+  const isSelfOwner =
+    joinedServers.find((srv) => srv.id === activeServerId)?.ownerId ===
+    ownUserId;
+
+  const onTransferOwnership = async () => {
+    if (activeServerId === undefined) return;
+
+    const confirmed = await requestConfirmation({
+      title: 'Transfer Server Ownership',
+      message: `You are about to make ${user.name} the owner of this server. You will permanently lose owner status, the Owner role, and the ability to reverse this — only ${user.name} could transfer it back.`,
+      confirmLabel: 'Continue'
+    });
+    if (!confirmed) return;
+
+    const typed = await requestTextInput({
+      title: 'Confirm Transfer',
+      message: `Type "${user.name}" to confirm handing over ownership.`,
+      confirmLabel: 'Transfer Ownership'
+    });
+    if (typed === null || typed === undefined) return;
+    if (typed.trim() !== user.name) {
+      toast.error('Name did not match — ownership was not transferred');
+      return;
+    }
+
+    try {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      await trpc.servers.transferOwner.mutate({
+        serverId: activeServerId,
+        newOwnerId: user.id
+      });
+      toast.success(`${user.name} is now the server owner`);
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to transfer ownership'));
+    }
+  };
+
   const roles = useUserRoles(user.id);
   const status = useUserStatus(user.id);
 
@@ -102,6 +154,15 @@ const TableUser = memo(({ user }: TTableUserProps) => {
               <UserCog className="h-4 w-4" />
               Moderate User
             </DropdownMenuItem>
+            {isSelfOwner && user.id !== ownUserId && !user.banned && (
+              <DropdownMenuItem
+                onClick={onTransferOwnership}
+                className="text-destructive focus:text-destructive"
+              >
+                <Crown className="h-4 w-4" />
+                Transfer Ownership
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

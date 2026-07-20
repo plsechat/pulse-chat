@@ -4,7 +4,7 @@ import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
-import { useCan } from '@/features/server/hooks';
+import { useCan, usePreviewMode } from '@/features/server/hooks';
 import { useIsOwnUser } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -48,11 +48,14 @@ const Message = memo(({ message, onReply, compact = false, isFirstInGroup = true
   );
   const isHighlighted = highlightedId === message.id;
   const isSelected = selectedIds.has(message.id);
+  const previewMode = usePreviewMode();
 
-  const canEdit = isFromOwnUser;
+  // In preview everything is read-only — even a message the previewer
+  // authored before leaving the server can't be edited/deleted.
+  const canEdit = isFromOwnUser && !previewMode;
   const canDelete = useMemo(
-    () => can(Permission.MANAGE_MESSAGES) || isFromOwnUser,
-    [can, isFromOwnUser]
+    () => !previewMode && (can(Permission.MANAGE_MESSAGES) || isFromOwnUser),
+    [can, isFromOwnUser, previewMode]
   );
   const canPin = useMemo(() => can(Permission.PIN_MESSAGES), [can]);
   const canReact = useMemo(() => can(Permission.REACT_TO_MESSAGES), [can]);
@@ -215,23 +218,27 @@ const Message = memo(({ message, onReply, compact = false, isFirstInGroup = true
             {message.threadId && (
               <ThreadIndicator threadId={message.threadId} />
             )}
-            <MessageActions
-              pinned={message.pinned ?? false}
-              editable={message.editable ?? false}
-              hasThread={hideCreateThread}
-              canEdit={canEdit}
-              canDelete={canDelete}
-              canPin={canPin}
-              canReact={canReact}
-              canCreateThread={canCreateThreadPerm}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onReply={onReply}
-              onTogglePin={onTogglePin}
-              onCreateThread={onCreateThread}
-              onEmojiReact={onEmojiReact}
-              creatingThread={creatingThread}
-            />
+            {/* Every hover action mutates (or feeds the composer) — none
+                apply to a read-only preview */}
+            {!previewMode && (
+              <MessageActions
+                pinned={message.pinned ?? false}
+                editable={message.editable ?? false}
+                hasThread={hideCreateThread}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                canPin={canPin}
+                canReact={canReact}
+                canCreateThread={canCreateThreadPerm}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onReply={onReply}
+                onTogglePin={onTogglePin}
+                onCreateThread={onCreateThread}
+                onEmojiReact={onEmojiReact}
+                creatingThread={creatingThread}
+              />
+            )}
           </>
         ) : (
           <MessageEditInline

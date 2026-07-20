@@ -5,6 +5,7 @@ import {
   useHomeUserById
 } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { cn } from '@/lib/utils';
 import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
 import { format } from 'date-fns';
@@ -84,12 +85,14 @@ const DmProfilePanel = memo(
 );
 
 const ProfileBody = memo(({ user }: { user: TJoinedPublicUser }) => {
-  // Read status from Redux rather than the channel-member snapshot.
-  // channel.members is fetched once when DM channels load, so its
-  // user.status field never reflects USER_UPDATE pubsub events. Resolve
-  // in HOME id-space (this is a DM surface) — the ambient roster is the
-  // remote one while a federated server is active.
-  const status = useHomeUserById(user.id)?.status ?? UserStatus.OFFLINE;
+  // Read status (and cosmetics) from Redux rather than the channel-member
+  // snapshot. channel.members is fetched once when DM channels load, so
+  // its fields never reflect USER_UPDATE pubsub events. Resolve in HOME
+  // id-space (this is a DM surface) — the ambient roster is the remote
+  // one while a federated server is active.
+  const liveUser = useHomeUserById(user.id);
+  const status = liveUser?.status ?? UserStatus.OFFLINE;
+  const nameCss = getNameStyleCss((liveUser ?? user).nameStyle);
   const memberSince = useMemo(() => {
     if (!user.createdAt) return null;
     return format(new Date(user.createdAt), 'MMM d, yyyy');
@@ -116,7 +119,13 @@ const ProfileBody = memo(({ user }: { user: TJoinedPublicUser }) => {
           />
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <h3 className="text-base font-semibold text-foreground truncate">
+          <h3
+            className={cn(
+              'text-base font-semibold text-foreground truncate',
+              nameCss?.className
+            )}
+            style={nameCss?.style}
+          >
             {getDisplayName(user)}
           </h3>
           {user._identity && (
@@ -188,6 +197,10 @@ const GroupBody = memo(
 );
 
 const MemberRow = memo(({ user }: { user: TJoinedPublicUser }) => {
+  // Same live-resolution note as ProfileBody — the member projection is
+  // fetch-time data and never sees USER_UPDATE merges.
+  const liveUser = useHomeUserById(user.id);
+  const nameCss = getNameStyleCss((liveUser ?? user).nameStyle);
   return (
     <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-accent/40 transition-colors">
       <UserAvatar
@@ -197,7 +210,13 @@ const MemberRow = memo(({ user }: { user: TJoinedPublicUser }) => {
         showUserPopover
         homeScope
       />
-      <span className="text-sm text-foreground truncate flex-1">
+      <span
+        className={cn(
+          'text-sm text-foreground truncate flex-1',
+          nameCss?.className
+        )}
+        style={nameCss?.style}
+      >
         {getDisplayName(user)}
       </span>
       {user._identity && (

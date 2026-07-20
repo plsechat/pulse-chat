@@ -54,7 +54,7 @@ const SearchResult = memo(({ message, query, onJump }: TSearchResultProps) => {
     onJump(message.channelId, message.id);
   }, [message.channelId, message.id, onJump]);
 
-  // Clicking anywhere on the result jumps (Discord-style); the Jump button
+  // Clicking anywhere on the result jumps; the Jump button
   // is a visible affordance for the same action. stopPropagation keeps the
   // button from also triggering the row handler (a harmless double-jump).
   const handleButtonJump = useCallback(

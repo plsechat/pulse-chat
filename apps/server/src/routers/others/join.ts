@@ -141,6 +141,9 @@ const joinServerRoute = t.procedure
     });
 
     ctx.activeServerId = targetServer.id;
+    // Joining a real server ends any read-only preview session — the
+    // preview VIEW_CHANNEL carve-out must not outlive it.
+    ctx.previewServerId = undefined;
 
     const [
       allCategories,

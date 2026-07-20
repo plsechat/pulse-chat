@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -6,7 +6,7 @@ import {
   isServerMember,
   isServerOwner
 } from '../../db/queries/servers';
-import { servers } from '../../db/schema';
+import { roles, servers, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -47,6 +47,41 @@ const transferOwnerRoute = protectedProcedure
         updatedAt: Date.now()
       })
       .where(eq(servers.id, input.serverId));
+
+    // Move the all-permissions Owner ROLE with the ownership — otherwise
+    // the previous owner keeps full permissions and the new owner has
+    // none. Identified by capability flags (persistent + non-default),
+    // the same test the add/remove-role guards use.
+    const [ownerRole] = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(
+        and(
+          eq(roles.serverId, input.serverId),
+          eq(roles.isPersistent, true),
+          eq(roles.isDefault, false)
+        )
+      )
+      .limit(1);
+
+    if (ownerRole) {
+      await db
+        .delete(userRoles)
+        .where(
+          and(
+            eq(userRoles.roleId, ownerRole.id),
+            eq(userRoles.userId, ctx.userId)
+          )
+        );
+      await db
+        .insert(userRoles)
+        .values({
+          userId: input.newOwnerId,
+          roleId: ownerRole.id,
+          createdAt: Date.now()
+        })
+        .onConflictDoNothing();
+    }
 
     ctx.invalidatePermissionCache();
   });

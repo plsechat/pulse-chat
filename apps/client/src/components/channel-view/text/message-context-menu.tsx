@@ -13,7 +13,7 @@ import {
   PopoverAnchor,
   PopoverContent
 } from '@/components/ui/popover';
-import { useCan } from '@/features/server/hooks';
+import { useCan, usePreviewMode } from '@/features/server/hooks';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -66,6 +66,7 @@ const MessageContextMenu = memo(
     hasThread
   }: TMessageContextMenuProps) => {
     const can = useCan();
+    const previewMode = usePreviewMode();
     const { selectionMode, enterSelectionMode } = useSelection();
     const [creatingThread, setCreatingThread] = useState(false);
     const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
@@ -196,11 +197,15 @@ const MessageContextMenu = memo(
               if (reactionPickerOpen) e.preventDefault();
             }}
           >
-          <ContextMenuItem onClick={onReply}>
-            <Reply className="h-4 w-4" />
-            Reply
-          </ContextMenuItem>
-          {messageContent && (
+          {/* Read-only preview keeps only the copy items below — the
+              permission-gated ones are already hidden (no roles) */}
+          {!previewMode && (
+            <ContextMenuItem onClick={onReply}>
+              <Reply className="h-4 w-4" />
+              Reply
+            </ContextMenuItem>
+          )}
+          {!previewMode && messageContent && (
             <ContextMenuItem onClick={() => dispatchForwardMessage(messageContent)}>
               <Forward className="h-4 w-4" />
               Forward

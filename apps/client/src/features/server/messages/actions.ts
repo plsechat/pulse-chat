@@ -1,7 +1,11 @@
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
-import { TYPING_MS, type TJoinedMessage } from '@pulse/shared';
+import {
+  TYPING_MS,
+  type TJoinedMessage,
+  type TJoinedPublicUser
+} from '@pulse/shared';
 import { activeThreadIdSelector, selectedChannelIdSelector } from '../channels/selectors';
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';
@@ -12,6 +16,20 @@ const typingTimeouts: { [key: string]: NodeJS.Timeout } = {};
 
 const getTypingKey = (channelId: number, userId: number) =>
   `${channelId}-${userId}`;
+
+/**
+ * Merge the `authors` array a preview messages.get response carries into
+ * the users map — previewers get no member bootstrap, so this is the only
+ * way names/avatars resolve. addUser dedupes by id; no-op for the normal
+ * member path (authors undefined).
+ */
+export const mergeMessageAuthors = (authors?: TJoinedPublicUser[]) => {
+  if (!authors?.length) return;
+
+  for (const author of authors) {
+    store.dispatch(serverSliceActions.addUser(author));
+  }
+};
 
 export const addMessages = (
   channelId: number,

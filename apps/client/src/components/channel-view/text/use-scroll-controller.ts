@@ -215,8 +215,8 @@ const useScrollController = ({
         // loaded), so a saved scrollTop near the old bottom would land in
         // the middle of the new content. atBottom stays correct regardless.
         if (saved?.atBottom || saved === undefined) {
-          // Discord behavior: if messages arrived since the last visit,
-          // land on the "New messages" divider instead of the bottom.
+          // If messages arrived since the last visit, land on the
+          // "New messages" divider instead of the bottom.
           const divider = document.getElementById('new-messages-divider');
           if (divider) {
             divider.scrollIntoView({ block: 'center' });

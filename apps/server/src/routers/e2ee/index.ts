@@ -18,6 +18,7 @@ import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getCoMemberIds } from '../../db/queries/servers';
 import { logger } from '../../logger';
 import { invariant } from '../../utils/invariant';
+import { refuseInPreview } from '../../utils/preview-guard';
 import { pubsub } from '../../utils/pubsub';
 import { relayFederatedChannelSenderKeyNotifications } from '../../utils/federation-channel-sender-key-dispatch';
 import { relayFederatedIdentityRotation } from '../../utils/federation-dm-group-dispatch';
@@ -377,6 +378,8 @@ const distributeSenderKeyRoute = protectedProcedure
       input.channelId,
       ChannelPermission.VIEW_CHANNEL
     );
+    // Previewers hold VIEW_CHANNEL but must not write sender-key rows
+    await refuseInPreview(ctx, input.channelId);
 
     await db.insert(e2eeSenderKeys).values({
       channelId: input.channelId,
@@ -431,6 +434,8 @@ const distributeSenderKeysBatchRoute = protectedProcedure
       input.channelId,
       ChannelPermission.VIEW_CHANNEL
     );
+    // Previewers hold VIEW_CHANNEL but must not write sender-key rows
+    await refuseInPreview(ctx, input.channelId);
 
     // Resolve each distribution target to a local user id (real for
     // non-federated, shadow for federated). Collect federated targets
