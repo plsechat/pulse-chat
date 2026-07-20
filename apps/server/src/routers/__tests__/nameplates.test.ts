@@ -176,4 +176,19 @@ describe('nameplates', () => {
     const remaining = await owner.nameplates.getAll();
     expect(remaining.find((n) => n.id === plate.id)).toBeUndefined();
   });
+
+  test('a pack file is NOT considered orphaned (public serving + cleanup cron)', async () => {
+    // The /public file route refuses orphaned files and the cleanup cron
+    // deletes them — both walk the same reference checklist, which must
+    // know about the nameplates table or pack art 404s in the picker and
+    // eventually gets deleted off disk.
+    const { isFileOrphaned, getOrphanedFileIds } = await import(
+      '../../db/queries/files'
+    );
+    const { caller, mockedToken } = await initTest(1);
+
+    const plate = await addTestNameplate(caller, mockedToken, 'orphan_check');
+    expect(await isFileOrphaned(plate.file.id)).toBe(false);
+    expect(await getOrphanedFileIds()).not.toContain(plate.file.id);
+  });
 });
