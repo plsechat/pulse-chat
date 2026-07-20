@@ -10,17 +10,17 @@ import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
 const DECORATION_LABELS: Record<string, string> = {
-  mists: 'Mists',
-  flames: 'Flames',
-  halo: 'Halo',
+  mists: 'Lurker',
+  flames: 'Ablaze',
+  halo: 'Angel',
   orbit: 'Orbit',
-  thorns: 'Thorns',
-  frost: 'Frost',
-  petals: 'Petals',
-  neonring: 'Neon Ring',
-  stardust: 'Stardust',
-  glitchring: 'Glitch Ring',
-  koifish: 'Koi Fish',
+  thorns: 'Briar Rose',
+  frost: 'Frostbite',
+  petals: 'Sakura',
+  neonring: 'Neon Vibes',
+  stardust: 'Moonlit',
+  glitchring: 'Corrupted',
+  koifish: 'Koi Pond',
   crown: 'Crown'
 };
 
