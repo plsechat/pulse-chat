@@ -3,10 +3,12 @@ import {
   NAMEPLATE_PRESETS,
   presetNameplateStyle
 } from '@/components/nameplate/presets';
+import { UserAvatar } from '@/components/user-avatar';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { useNameplatePacks } from '@/features/nameplates/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -17,7 +19,9 @@ import { memo, useCallback, useState, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 
 type TNameplateTileProps = {
+  user: TJoinedPublicUser;
   name: string;
+  nameCss: ReturnType<typeof getNameStyleCss>;
   label: string;
   style?: CSSProperties;
   animated?: boolean;
@@ -27,9 +31,10 @@ type TNameplateTileProps = {
 };
 
 /** Mini row preview — the picker shows each plate exactly as the member
- *  list will render it, with the user's own name mocked on top. */
+ *  list will render it: the user's avatar (with their equipped
+ *  decoration), their styled name, the plate art behind. */
 const NameplateTile = memo(
-  ({ name, label, style, animated, selected, disabled, onClick }: TNameplateTileProps) => (
+  ({ user, name, nameCss, label, style, animated, selected, disabled, onClick }: TNameplateTileProps) => (
     <button
       type="button"
       title={label}
@@ -50,8 +55,21 @@ const NameplateTile = memo(
           style={style}
         />
       )}
-      <span className="relative flex h-full items-center px-2.5 text-xs font-medium text-foreground/90 truncate">
-        {name}
+      <span className="relative flex h-full items-center gap-2 px-2.5">
+        <UserAvatar
+          userId={user.id}
+          className="h-7 w-7"
+          showStatusBadge={false}
+        />
+        <span
+          className={cn(
+            'text-xs font-medium text-foreground/90 truncate',
+            nameCss?.className
+          )}
+          style={nameCss?.style}
+        >
+          {name}
+        </span>
       </span>
       {selected && (
         <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-primary drop-shadow-sm" />
@@ -71,6 +89,7 @@ const NameplatePicker = memo(({ user }: TNameplatePickerProps) => {
 
   const equipped = user.nameplate ?? null;
   const name = getDisplayName(user);
+  const nameCss = getNameStyleCss(user.nameStyle);
 
   // The selected ring follows user.nameplate, which arrives back via the
   // USER_UPDATE fanout the mutation triggers — no local mirror to drift.
@@ -92,7 +111,9 @@ const NameplatePicker = memo(({ user }: TNameplatePickerProps) => {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <NameplateTile
+          user={user}
           name={name}
+          nameCss={nameCss}
           label="None"
           selected={equipped === null}
           disabled={saving}
@@ -104,7 +125,9 @@ const NameplatePicker = memo(({ user }: TNameplatePickerProps) => {
           return (
             <NameplateTile
               key={slug}
+              user={user}
               name={name}
+              nameCss={nameCss}
               label={preset.label}
               style={presetNameplateStyle(preset)}
               animated={preset.animated}
@@ -129,7 +152,9 @@ const NameplatePicker = memo(({ user }: TNameplatePickerProps) => {
             {packs.map((pack) => (
               <NameplateTile
                 key={pack.id}
+                user={user}
                 name={name}
+                nameCss={nameCss}
                 label={pack.name}
                 style={customNameplateStyle(getFileUrl(pack.file))}
                 selected={equipped === `custom:${pack.id}`}

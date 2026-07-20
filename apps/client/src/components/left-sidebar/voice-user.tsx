@@ -8,6 +8,8 @@ import { useVoice } from '@/features/server/voice/hooks';
 import type { TVoiceUser } from '@/features/server/types';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { getNameStyleCss } from '@/helpers/name-style';
+import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { StreamKind, VOICE_STREAM_PREVIEW_INTERVAL_MS } from '@pulse/shared';
 import {
@@ -176,6 +178,7 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
 
   const { isSpeaking } = useAudioLevel(audioStream);
   const isActivelySpeaking = !user.state.micMuted && isSpeaking;
+  const nameCss = getNameStyleCss(user.nameStyle);
 
   const handleVolumeChange = useCallback(
     (values: number[]) => {
@@ -204,9 +207,16 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
       />
 
       <span
-        className="flex-1 truncate text-xs transition-colors duration-150"
+        className={cn(
+          'flex-1 truncate text-xs transition-colors duration-150',
+          // The speaking flash is a state indicator — it suppresses the
+          // cosmetic style while active.
+          !isActivelySpeaking && nameCss?.className
+        )}
         style={
-          isActivelySpeaking ? { color: 'rgb(34, 197, 94)' } : undefined
+          isActivelySpeaking
+            ? { color: 'rgb(34, 197, 94)' }
+            : nameCss?.style
         }
       >
         {getDisplayName(user)}

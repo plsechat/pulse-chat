@@ -331,9 +331,9 @@ const UserPopover = memo(
       </Slot>
     );
 
-  // The profile card header is a name-style surface:
-  // the styled name shows here even when opened from server contexts,
-  // while in-chat/member-list names keep role colors authoritative.
+  // The profile card header is a name-style surface, like every other
+  // primary name label (chat, member list, voice roster) — the style
+  // wins over role color wherever the user appears.
   const nameCss = getNameStyleCss(user.nameStyle);
 
   return (

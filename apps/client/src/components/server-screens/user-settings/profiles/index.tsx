@@ -27,10 +27,11 @@ const Profiles = memo(() => {
     bio: ownPublicUser?.bio ?? '',
     pronouns: ownPublicUser?.pronouns ?? ''
   });
-  // undefined = no pending name-style draft — preview follows the store.
-  const [draftNameStyle, setDraftNameStyle] = useState<TNameStyle | undefined>(
-    undefined
-  );
+  // undefined = no pending name-style draft — preview follows the
+  // store; null = the style is marked for clearing on save.
+  const [draftNameStyle, setDraftNameStyle] = useState<
+    TNameStyle | null | undefined
+  >(undefined);
 
   const onUpdateUser = useCallback(async () => {
     const trpc = getHomeTRPCClient();
@@ -40,11 +41,17 @@ const Profiles = memo(() => {
       // users.update always writes the full profile row — the display
       // name stays owned by My Account, so resend it unchanged.
       await trpc.users.update.mutate({ name: ownPublicUser.name, ...values });
+      // One Save persists everything: a drafted (or reset) name style
+      // rides the same click instead of needing its own Apply button.
+      if (draftNameStyle !== undefined) {
+        await trpc.users.setNameStyle.mutate({ style: draftNameStyle });
+        setDraftNameStyle(undefined);
+      }
       toast.success('Profile updated');
     } catch (error) {
       setTrpcErrors(error);
     }
-  }, [values, ownPublicUser, setTrpcErrors]);
+  }, [values, ownPublicUser, draftNameStyle, setTrpcErrors]);
 
   if (!ownPublicUser) return null;
 
@@ -87,12 +94,14 @@ const Profiles = memo(() => {
           label="Nameplate"
           description="A decorative background shown behind your name in member lists."
         >
-          <NameplatePicker user={ownPublicUser} />
+          {/* previewUser (not ownPublicUser): the tiles mock real member
+              rows, so they should carry the drafted name style too. */}
+          <NameplatePicker user={previewUser} />
         </Group>
 
         <Group
           label="Display Name Style"
-          description="Styles your name on home surfaces — DMs and friends. Server chat keeps role colors."
+          description="Styles your name everywhere it appears — chat, member lists, and DMs. A style takes precedence over role colors. Saved with the form below."
         >
           <NameStyleEditor
             user={ownPublicUser}

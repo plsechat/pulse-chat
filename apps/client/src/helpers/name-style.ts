@@ -19,9 +19,12 @@ const darken = (hex: string, amount: number) => {
 };
 
 /**
- * CSS for a styled display name (users.nameStyle — HOME surfaces only,
- * server chat/member lists keep role colors authoritative). Spread the
- * result onto the name element:
+ * CSS for a styled display name (users.nameStyle). Renders everywhere a
+ * display name is the primary label — server chat, member list, voice
+ * roster, user tab, and all home surfaces — and WINS over role color;
+ * role color is the fallback for members with no style. Micro-surfaces
+ * (reaction rosters, typing indicators) stay generic. Spread the result
+ * onto the name element:
  *
  *   const nameCss = getNameStyleCss(user.nameStyle);
  *   <span className={cn('...', nameCss?.className)} style={nameCss?.style}>

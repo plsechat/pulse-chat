@@ -5,6 +5,7 @@ import { useForumThreadCreator } from '@/components/channel-view/forum/forum-thr
 import { useUserDisplayRole } from '@/features/server/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
 import { cn } from '@/lib/utils';
 import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
@@ -47,6 +48,9 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   const nameColor = useReadableRoleColor(
     !isWebhook ? displayRole?.color : undefined
   );
+  // Styled name wins over role color; webhook aliases stay unstyled
+  // (the alias is the webhook's persona, not the user's).
+  const nameCss = !isWebhook ? getNameStyleCss(user?.nameStyle) : null;
 
   if (!user) return null;
 
@@ -76,8 +80,14 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
             <UserContextMenu userId={user.id}>
               <UserPopover userId={user.id}>
                 <span
-                  className="font-medium hover:underline cursor-pointer text-sm"
-                  style={nameColor ? { color: nameColor } : undefined}
+                  className={cn(
+                    'font-medium hover:underline cursor-pointer text-sm',
+                    nameCss?.className
+                  )}
+                  style={
+                    nameCss?.style ??
+                    (nameColor ? { color: nameColor } : undefined)
+                  }
                 >
                   {displayName}
                 </span>
@@ -128,8 +138,14 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
           <UserContextMenu userId={user.id}>
             <UserPopover userId={user.id}>
               <span
-                className="font-medium hover:underline cursor-pointer"
-                style={nameColor ? { color: nameColor } : undefined}
+                className={cn(
+                  'font-medium hover:underline cursor-pointer',
+                  nameCss?.className
+                )}
+                style={
+                  nameCss?.style ??
+                  (nameColor ? { color: nameColor } : undefined)
+                }
               >
                 {displayName}
               </span>

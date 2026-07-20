@@ -26,6 +26,7 @@ import { useChannelCan } from '@/features/server/hooks';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { ChannelPermission, UserStatus } from '@pulse/shared';
@@ -148,6 +149,7 @@ const UserControl = memo(() => {
   if (!ownPublicUser) return null;
 
   const currentStatus = ownPublicUser.status || UserStatus.OFFLINE;
+  const ownNameCss = getNameStyleCss(ownPublicUser.nameStyle);
 
   return (
     <div className="relative flex items-center justify-between h-14 px-2 bg-muted/50 overflow-hidden">
@@ -177,7 +179,13 @@ const UserControl = memo(() => {
           </div>
         </UserPopover>
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-sm font-medium text-foreground truncate">
+          <span
+            className={cn(
+              'text-sm font-medium text-foreground truncate',
+              ownNameCss?.className
+            )}
+            style={ownNameCss?.style}
+          >
             {getDisplayName(ownPublicUser)}
           </span>
           <DropdownMenu>

@@ -82,18 +82,23 @@ const ProfilePreviewCard = memo(({ user }: TProfilePreviewCardProps) => {
             <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Nameplate
             </p>
-            {/* Mock member-list row — plain name on purpose: nameplates
-                show in member lists, where role colors (not name styles)
-                stay authoritative. */}
+            {/* Mock member-list row — avatar (with decoration) + styled
+                name, exactly as the member list renders it. */}
             <div className="relative h-10 overflow-hidden rounded-md border border-border/60 bg-muted/40">
               <NameplateBackground nameplate={user.nameplate} />
               <div className="relative flex h-full items-center gap-2 px-2.5">
                 <UserAvatar
                   userId={user.id}
-                  className="h-6 w-6"
+                  className="h-7 w-7"
                   showStatusBadge={false}
                 />
-                <span className="truncate text-sm font-medium text-foreground/90">
+                <span
+                  className={cn(
+                    'truncate text-sm font-medium text-foreground/90',
+                    nameCss?.className
+                  )}
+                  style={nameCss?.style}
+                >
                   {user.name}
                 </span>
               </div>

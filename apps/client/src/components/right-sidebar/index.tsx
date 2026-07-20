@@ -6,9 +6,10 @@ import { useUserDisplayRole } from '@/features/server/hooks';
 import type { IRootState } from '@/features/store';
 import { usersGroupedByRoleSelector } from '@/features/server/users/selectors';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser, TNameStyle } from '@pulse/shared';
 import { UserStatus } from '@pulse/shared';
 import { Globe, Loader2 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
@@ -25,14 +26,18 @@ type TUserProps = {
   status?: UserStatus;
   customStatus?: string | null;
   nameplate?: string | null;
+  nameStyle?: TNameStyle | null;
   _identity?: string;
   e2ee?: boolean;
   dimmed?: boolean;
 };
 
-const User = memo(({ userId, name, banned, status, customStatus, nameplate, _identity, e2ee, dimmed }: TUserProps) => {
+const User = memo(({ userId, name, banned, status, customStatus, nameplate, nameStyle, _identity, e2ee, dimmed }: TUserProps) => {
   const displayRole = useUserDisplayRole(userId);
   const nameColor = useReadableRoleColor(displayRole?.color);
+  // Styled name wins over role color; banned rows stay struck-through
+  // and unstyled.
+  const nameCss = !banned ? getNameStyleCss(nameStyle) : null;
 
   return (
     <UserContextMenu userId={userId}>
@@ -61,9 +66,13 @@ const User = memo(({ userId, name, banned, status, customStatus, nameplate, _ide
               className={cn(
                 'text-sm truncate',
                 banned && 'line-through text-muted-foreground',
-                !banned && !nameColor && 'text-foreground/80 group-hover:text-foreground'
+                !banned && !nameColor && !nameCss && 'text-foreground/80 group-hover:text-foreground',
+                nameCss?.className
               )}
-              style={!banned && nameColor ? { color: nameColor } : undefined}
+              style={
+                nameCss?.style ??
+                (!banned && nameColor ? { color: nameColor } : undefined)
+              }
             >
               {name}
             </span>
@@ -127,6 +136,7 @@ const RoleGroupSection = memo(
             status={user.status}
             customStatus={user.customStatus}
             nameplate={user.nameplate}
+            nameStyle={user.nameStyle}
             _identity={user._identity}
             e2ee={e2ee}
             dimmed={dimmed}

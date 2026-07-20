@@ -1,13 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
-import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import type { TJoinedPublicUser, TNameStyle } from '@pulse/shared';
 import { NAME_STYLE_EFFECTS, NAME_STYLE_FONTS } from '@pulse/shared';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
 
 type TFontSlug = NonNullable<TNameStyle['font']>;
 type TEffect = TNameStyle['effect'];
@@ -76,14 +73,16 @@ type TNameStyleEditorProps = {
   user: TJoinedPublicUser;
   /**
    * Fired with the pending (unsaved) style whenever an axis changes, so
-   * the live preview can overlay it. `undefined` hands the preview back
-   * to the equipped `user.nameStyle` (untouched / just applied).
+   * the live preview can overlay it and the page's Save Changes can
+   * persist it. `undefined` = untouched (preview follows the equipped
+   * style); `null` = pending clear-on-save.
    */
-  onDraftChange: (style: TNameStyle | undefined) => void;
+  onDraftChange: (style: TNameStyle | null | undefined) => void;
 };
 
-/** Draft-then-apply editor for users.nameStyle — a single mutation on
- *  Apply covers all four axes (font / effect / color / color2). */
+/** Draft-only editor for users.nameStyle — nothing here mutates. The
+ *  drafted style flows up via onDraftChange and is persisted by the
+ *  page-level Save Changes alongside the rest of the profile form. */
 const NameStyleEditor = memo(({ user, onDraftChange }: TNameStyleEditorProps) => {
   const equipped = user.nameStyle ?? null;
 
@@ -92,7 +91,7 @@ const NameStyleEditor = memo(({ user, onDraftChange }: TNameStyleEditorProps) =>
   const [color, setColor] = useState(equipped?.color ?? '#3498db');
   const [color2, setColor2] = useState(equipped?.color2 ?? '#9b59b6');
   const [touched, setTouched] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [cleared, setCleared] = useState(false);
 
   const usesColor2 = effect === 'gradient' || effect === 'pop';
 
@@ -112,43 +111,23 @@ const NameStyleEditor = memo(({ user, onDraftChange }: TNameStyleEditorProps) =>
     if (touched) onDraftChange(draft);
   }, [touched, draft, onDraftChange]);
 
-  const onApply = useCallback(async () => {
-    const trpc = getHomeTRPCClient();
-    if (!trpc) return;
-
-    setSaving(true);
-    try {
-      await trpc.users.setNameStyle.mutate({ style: draft });
-      // Equipped now matches the draft — hand the preview back to the
-      // live user object (refreshed via the USER_UPDATE fanout).
-      setTouched(false);
-      onDraftChange(undefined);
-      toast.success('Name style applied');
-    } catch (err) {
-      toast.error(getTrpcError(err, 'Failed to apply name style'));
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, onDraftChange]);
-
-  const onClear = useCallback(async () => {
-    const trpc = getHomeTRPCClient();
-    if (!trpc) return;
-
-    setSaving(true);
-    try {
-      await trpc.users.setNameStyle.mutate({ style: null });
-      setTouched(false);
-      onDraftChange(undefined);
-      toast.success('Name style cleared');
-    } catch (err) {
-      toast.error(getTrpcError(err, 'Failed to clear name style'));
-    } finally {
-      setSaving(false);
-    }
+  // Back to an unstyled name: reset the axes and mark the style for
+  // clearing on save (null draft).
+  const onReset = useCallback(() => {
+    setFont(undefined);
+    setEffect('solid');
+    setColor('#3498db');
+    setColor2('#9b59b6');
+    setTouched(false);
+    setCleared(true);
+    onDraftChange(null);
   }, [onDraftChange]);
 
-  const sampleCss = getNameStyleCss(draft);
+  // Sample mirrors the pending state: the draft once touched, the
+  // equipped style untouched, nothing after a reset.
+  const sampleCss = getNameStyleCss(
+    touched ? draft : cleared ? null : equipped
+  );
   const name = getDisplayName(user);
 
   return (
@@ -275,26 +254,20 @@ const NameStyleEditor = memo(({ user, onDraftChange }: TNameStyleEditorProps) =>
         </div>
       )}
 
-      <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-2.5">
         <span
-          className={cn('text-lg font-semibold', sampleCss?.className)}
+          className={cn('text-lg font-semibold truncate', sampleCss?.className)}
           style={sampleCss?.style}
         >
           {name}
         </span>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={onApply} disabled={saving}>
-          Apply
-        </Button>
         <Button
           size="sm"
           variant="outline"
-          onClick={onClear}
-          disabled={saving || (!equipped && !touched)}
+          onClick={onReset}
+          disabled={!equipped && !touched}
         >
-          Clear
+          Reset to default
         </Button>
       </div>
     </div>
