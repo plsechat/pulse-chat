@@ -145,6 +145,8 @@ type TPublicUser = Pick<
   | "bio"
   | "pronouns"
   | "nameplate"
+  | "avatarDecoration"
+  | "nameStyle"
   | "customStatus"
   | "customStatusEmoji"
   | "avatar"

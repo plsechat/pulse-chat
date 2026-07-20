@@ -1,9 +1,14 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { AvatarDecoration } from '@/components/user-avatar';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { useCan } from '@/features/server/hooks';
-import { useOwnUserId, useUsernames } from '@/features/server/users/hooks';
+import {
+  useOwnUserId,
+  useUsernames,
+  useUsers
+} from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -33,6 +38,8 @@ type TReactor = {
   id: number;
   name: string;
   avatar: TReactionUser['avatar'];
+  /** Equipped avatar decoration, resolved from the live roster. */
+  decoration: string | null;
 };
 
 type TMessageReactionsProps = {
@@ -66,6 +73,14 @@ const MessageReactions = memo(
     const instanceDomain = useActiveInstanceDomain() ?? undefined;
     const can = useCan();
     const usernames = useUsernames();
+    const users = useUsers();
+    // Live roster lookup for avatar/decoration freshness. Skipped when a
+    // federated server is active on a home-scoped surface — the roster
+    // then holds the REMOTE id-space and would resolve the wrong people.
+    const liveUserById = useMemo(() => {
+      if (homeScope && instanceDomain) return new Map<number, (typeof users)[number]>();
+      return new Map(users.map((u) => [u.id, u]));
+    }, [users, homeScope, instanceDomain]);
     // Home-scoped files (reactor avatars AND custom-emoji images) live on
     // the HOME instance — never route them through the active federated
     // instance's public route, or they 404 to the text fallback.
@@ -144,13 +159,18 @@ const MessageReactions = memo(
         // Prefer the server-sent identity (correct in DMs, for federated
         // shadow users, and for members who have left); fall back to the
         // ambient roster, then to a placeholder.
+        const live = liveUserById.get(reaction.userId);
         aggregated.reactors.push({
           id: reaction.userId,
           name:
             reaction.user?.name ??
             usernames[reaction.userId] ??
             'Unknown user',
-          avatar: reaction.user?.avatar ?? null
+          // Prefer the LIVE avatar (server-sent copies go stale the
+          // moment someone changes theirs), fall back to the denormalized
+          // reaction identity for DMs/federated/departed reactors.
+          avatar: live?.avatar ?? reaction.user?.avatar ?? null,
+          decoration: live?.avatarDecoration ?? null
         });
 
         if (ownUserId && reaction.userId === ownUserId) {
@@ -162,7 +182,7 @@ const MessageReactions = memo(
       return Array.from(reactionMap.values()).sort(
         (a, b) => a.createdAt - b.createdAt
       );
-    }, [reactions, ownUserId, usernames]);
+    }, [reactions, ownUserId, usernames, liveUserById]);
 
     const renderReactorList = useCallback(
       (reaction: TAggregatedReaction): React.ReactNode => {
@@ -182,14 +202,20 @@ const MessageReactions = memo(
                 key={`${reactor.id}-${i}`}
                 className="flex items-center gap-2"
               >
-                <Avatar className="h-5 w-5 ring-0 shadow-none">
-                  <AvatarImage
-                    src={getFileUrl(reactor.avatar, fileDomain)}
-                  />
-                  <AvatarFallback className="bg-muted text-[9px] text-muted-foreground">
-                    {getInitialsFromName(reactor.name)}
-                  </AvatarFallback>
-                </Avatar>
+                {/* Sized past the >=28px decoration gate so equipped
+                    decorations render (and animate) here; the name stays
+                    deliberately unstyled. */}
+                <div className="relative h-7 w-7 shrink-0">
+                  <Avatar className="h-7 w-7 ring-0 shadow-none">
+                    <AvatarImage
+                      src={getFileUrl(reactor.avatar, fileDomain)}
+                    />
+                    <AvatarFallback className="bg-muted text-[9px] text-muted-foreground">
+                      {getInitialsFromName(reactor.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <AvatarDecoration decoration={reactor.decoration} />
+                </div>
                 <span className="truncate text-xs">{reactor.name}</span>
               </div>
             ))}

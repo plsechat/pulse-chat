@@ -13,6 +13,7 @@
  * Fire-and-forget per peer; one failure doesn't block siblings.
  */
 
+import type { TNameStyle } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { users } from '../db/schema';
@@ -28,6 +29,12 @@ type UserInfoChanges = {
   // Only 'preset:<slug>' values (or null) — 'custom:<id>' references the
   // sender's local nameplates table and is sent as null instead.
   nameplate?: string | null;
+  // 'preset:<slug>' or null — decoration presets are client-bundled
+  // assets, so they cross instances as-is.
+  avatarDecoration?: string | null;
+  // Fonts/effects are client-bundled too; the receiver re-validates the
+  // shape against nameStyleSchema.
+  nameStyle?: TNameStyle | null;
   customStatus?: string | null;
   customStatusEmoji?: string | null;
   status?: string; // UserStatus value

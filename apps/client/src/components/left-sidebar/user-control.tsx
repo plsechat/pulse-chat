@@ -43,6 +43,7 @@ import { Button } from '../ui/button';
 import { UserAvatar } from '../user-avatar';
 import { getStatusLabel, UserStatusBadge } from '../user-status';
 import { UserPopover } from '../user-popover';
+import { NameplateBackground } from '../nameplate';
 
 const statusOptions = [
   UserStatus.ONLINE,
@@ -149,8 +150,18 @@ const UserControl = memo(() => {
   const currentStatus = ownPublicUser.status || UserStatus.OFFLINE;
 
   return (
-    <div className="flex items-center justify-between h-14 px-2 bg-muted/50">
-      <div className="flex items-center space-x-2 min-w-0 flex-1">
+    <div className="relative flex items-center justify-between h-14 px-2 bg-muted/50 overflow-hidden">
+      {/* Own equipped nameplate as the tab's backdrop, dimmed so the
+          avatar/name/controls stay readable on top of the art. */}
+      <NameplateBackground
+        nameplate={ownPublicUser.nameplate}
+        className="opacity-60 dark:opacity-70"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-l from-black/25 to-transparent"
+      />
+      <div className="relative flex items-center space-x-2 min-w-0 flex-1">
         <UserPopover userId={ownPublicUser.id}>
           <div className="cursor-pointer">
             <div className="relative">
@@ -276,7 +287,7 @@ const UserControl = memo(() => {
         </DialogContent>
       </Dialog>
 
-      <div className="flex items-center gap-0.5">
+      <div className="relative flex items-center gap-0.5">
         {/* Mic button + device dropdown */}
         <div className="flex items-center">
           <Button

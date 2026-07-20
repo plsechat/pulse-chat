@@ -1,5 +1,6 @@
 import { AddDmMembersDialog } from '@/components/dialogs/add-dm-members';
 import { NameplateBackground } from '@/components/nameplate';
+import { AvatarDecoration } from '@/components/user-avatar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
@@ -25,6 +26,7 @@ import {
   useUserStatus
 } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
@@ -147,16 +149,18 @@ const DmChannelItem = memo(
       [channel.members, ownUserId]
     );
 
-    // Nameplate for 1:1 rows (group DMs get none). channel.members only
+    // Cosmetics for 1:1 rows (group DMs get none). channel.members only
     // receives presence mirrors on USER_UPDATE — the full profile merge
     // lands in server.users/friends — so resolve the live user through
     // the home-scoped stores; the selector's own final fallback is the
     // (fetch-time) DM member projection itself.
     const otherMember = channel.isGroup ? undefined : otherMembers[0];
     const liveOtherMember = useHomeUserById(otherMember?.id ?? -1);
-    const nameplate = otherMember
-      ? (liveOtherMember ?? otherMember).nameplate
+    const cosmeticsSource = otherMember
+      ? (liveOtherMember ?? otherMember)
       : undefined;
+    const nameplate = cosmeticsSource?.nameplate;
+    const nameCss = getNameStyleCss(cosmeticsSource?.nameStyle);
 
     const displayName = useMemo(() => {
       if (channel.isGroup && channel.name) return channel.name;
@@ -268,14 +272,17 @@ const DmChannelItem = memo(
               <DmMemberAvatarWithStatus
                 member={otherMembers[0]}
                 className="h-8 w-8 flex-shrink-0"
+                decoration={cosmeticsSource?.avatarDecoration}
               />
             )}
             <div className="relative flex min-w-0 flex-1 flex-col items-start">
               <span
                 className={cn(
                   'truncate font-medium',
-                  channel.unreadCount > 0 && 'font-semibold text-foreground'
+                  channel.unreadCount > 0 && 'font-semibold text-foreground',
+                  nameCss?.className
                 )}
+                style={nameCss?.style}
               >
                 {displayName}
               </span>
@@ -349,7 +356,15 @@ const DmChannelItem = memo(
 
 /** Avatar with status badge for 1-on-1 DM items in the sidebar. */
 const DmMemberAvatarWithStatus = memo(
-  ({ member, className }: { member: TJoinedPublicUser; className?: string }) => {
+  ({
+    member,
+    className,
+    decoration
+  }: {
+    member: TJoinedPublicUser;
+    className?: string;
+    decoration?: string | null;
+  }) => {
     const status = useUserStatus(member.id);
     return (
       <div className="relative w-fit h-fit flex-shrink-0">
@@ -359,6 +374,7 @@ const DmMemberAvatarWithStatus = memo(
             {getInitialsFromName(member.name)}
           </AvatarFallback>
         </Avatar>
+        <AvatarDecoration decoration={decoration} />
         <UserStatusBadge
           status={status}
           className="absolute bottom-0 right-0"

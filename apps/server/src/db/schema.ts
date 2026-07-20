@@ -1,6 +1,7 @@
 import {
   type TActivityLogDetailsMap,
   type TMessageMetadata,
+  type TNameStyle,
   type TUserPreferences
 } from '@pulse/shared';
 import {
@@ -245,6 +246,14 @@ const users = pgTable(
     // NAMEPLATE_PRESET_SLUGS) or 'custom:<id>' (admin-uploaded pack in
     // the nameplates table).
     nameplate: text('nameplate'),
+    // Animated frame drawn around the avatar. 'preset:<slug>' only,
+    // validated against AVATAR_DECORATION_SLUGS — the assets are bundled
+    // client-side (public/decorations/<slug>.png).
+    avatarDecoration: text('avatar_decoration'),
+    // Styled display name for HOME surfaces (font/effect/colors). Shape
+    // is validated against nameStyleSchema on equip and on federation
+    // receive; see TNameStyle.
+    nameStyle: jsonb('name_style').$type<TNameStyle>(),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),

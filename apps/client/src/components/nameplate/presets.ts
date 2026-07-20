@@ -40,7 +40,23 @@ const ANIMATED_PRESET_LABELS: Record<string, string> = {
   snowfall: 'Snowfall',
   neonwave: 'Neon Wave',
   embers: 'Embers',
-  glitch: 'Glitch'
+  glitch: 'Glitch',
+  racer: 'Night Racer',
+  motorbike: 'Moto',
+  archery: 'Bullseye',
+  gridiron: 'Gridiron',
+  arcade: 'Arcade',
+  controller: 'Player One',
+  anime: 'Manga Burst',
+  katana: 'Ronin',
+  haunted: 'Haunted',
+  jackolantern: "Jack-o'-Lantern",
+  sunny: 'Sunny Day',
+  rainbowpop: 'Rainbow',
+  kawaii: 'Kawaii',
+  dice: 'High Roller',
+  equalizer: 'Equalizer',
+  hoops: 'Buzzer Beater'
 };
 
 const NAMEPLATE_PRESETS: Record<string, TNameplatePreset> = {

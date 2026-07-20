@@ -36,6 +36,7 @@ import { useDmMessages } from '@/features/dms/use-dm-messages';
 import { useHomeOwnUserId, useHomeUserById } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import { useUploadFiles } from '@/hooks/use-upload-files';
@@ -496,6 +497,7 @@ const DmConversation = memo(
                       className="h-20 w-20 border-4 border-background"
                       showUserPopover={false}
                       homeScope
+                      noDecoration
                     />
                   ))}
                 </div>
@@ -1037,6 +1039,10 @@ const DmMessagesGroup = memo(
         ? `Yesterday at ${format(date, timeOnly())}`
         : format(date, dateTime());
 
+    // DMs are a HOME surface — styled names render here (server chat
+    // keeps role colors authoritative instead).
+    const nameCss = getNameStyleCss(user.nameStyle);
+
     return (
       <div className="flex min-w-0 gap-4 px-4 pt-2 group/msggroup">
         <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
@@ -1046,8 +1052,10 @@ const DmMessagesGroup = memo(
               <span
                 className={cn(
                   'cursor-pointer hover:underline',
-                  isOwnUser && 'font-bold'
+                  isOwnUser && 'font-bold',
+                  nameCss?.className
                 )}
+                style={nameCss?.style}
               >
                 {user.name}
               </span>

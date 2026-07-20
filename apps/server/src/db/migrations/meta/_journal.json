@@ -169,6 +169,13 @@
       "when": 1784489365039,
       "tag": "0023_legal_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784513617540,
+      "tag": "0024_sparkling_terrax",
+      "breakpoints": true
     }
   ]
 }

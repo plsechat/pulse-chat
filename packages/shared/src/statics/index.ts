@@ -59,7 +59,74 @@ export const NAMEPLATE_PRESET_SLUGS: readonly string[] = [
   "neonwave",
   "embers",
   "glitch",
+  "racer",
+  "motorbike",
+  "archery",
+  "gridiron",
+  "arcade",
+  "controller",
+  "anime",
+  "katana",
+  "haunted",
+  "jackolantern",
+  "sunny",
+  "rainbowpop",
+  "kawaii",
+  "dice",
+  "equalizer",
+  "hoops",
 ];
+
+/**
+ * Built-in avatar decoration presets — animated frames drawn around the
+ * avatar circle, bundled with the client as APNG at
+ * public/decorations/<slug>.png (canvas 288, avatar radius 120, so the
+ * art extends ~20% beyond the avatar on each side). The server only
+ * validates equipped values ('preset:<slug>' in users.avatarDecoration)
+ * against this list.
+ */
+export const AVATAR_DECORATION_SLUGS: readonly string[] = [
+  "mists",
+  "flames",
+  "halo",
+  "orbit",
+  "thorns",
+  "frost",
+  "petals",
+  "neonring",
+  "stardust",
+  "glitchring",
+  "koifish",
+  "crown",
+];
+
+/**
+ * Styled display-name options (HOME surfaces only — server chat and the
+ * member list keep role colors authoritative). Fonts are bundled with
+ * the client at public/fonts/<slug>.woff2; effects map to CSS in the
+ * client's name-style helper.
+ */
+export const NAME_STYLE_FONTS = [
+  "press-start",
+  "pacifico",
+  "playfair",
+  "baloo",
+  "jetbrains-mono",
+  "oswald",
+  "medieval",
+  "jellybean",
+  "sakura",
+  "tempo",
+  "vampyre",
+] as const;
+
+export const NAME_STYLE_EFFECTS = [
+  "solid",
+  "gradient",
+  "neon",
+  "toon",
+  "pop",
+] as const;
 
 export const TYPING_MS = 2000;
 

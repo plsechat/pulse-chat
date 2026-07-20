@@ -29,8 +29,10 @@ import {
   useUserById
 } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 import { Permission, UserStatus } from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
@@ -329,6 +331,11 @@ const UserPopover = memo(
       </Slot>
     );
 
+  // The profile card header is a name-style surface (Discord parity):
+  // the styled name shows here even when opened from server contexts,
+  // while in-chat/member-list names keep role colors authoritative.
+  const nameCss = getNameStyleCss(user.nameStyle);
+
   return (
     <Popover onOpenChange={handlePopoverOpen}>
       <PopoverTrigger
@@ -468,7 +475,13 @@ const UserPopover = memo(
 
         {/* === Zone 2: Identity === */}
         <div className="px-4 pt-12 pb-2">
-          <h3 className="text-lg font-bold text-foreground truncate">
+          <h3
+            className={cn(
+              'text-lg font-bold text-foreground truncate',
+              nameCss?.className
+            )}
+            style={nameCss?.style}
+          >
             {user.nickname || user.name}
           </h3>
           {user.nickname && (

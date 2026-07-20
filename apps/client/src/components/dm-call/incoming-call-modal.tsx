@@ -166,6 +166,7 @@ const IncomingCallContent = memo(
                   className="h-16 w-16 ring-4 ring-popover"
                   showStatusBadge={false}
                   showUserPopover={false}
+                  noDecoration
                 />
               ))}
             </div>

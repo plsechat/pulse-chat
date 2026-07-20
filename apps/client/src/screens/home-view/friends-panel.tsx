@@ -16,6 +16,7 @@ import {
 } from '@/features/friends/hooks';
 import { useHomeOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
+import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
 import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
@@ -201,51 +202,61 @@ const FriendRow = memo(
     user: TJoinedPublicUser;
     onMessage: () => void;
     onRemove: () => void;
-  }) => (
-    <div className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-muted/50 group">
-      <div className="flex items-center gap-3">
-        <UserAvatar
-          userId={user.id}
-          className="h-9 w-9"
-          showUserPopover
-          homeScope
-        />
-        <div className="flex flex-col">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-medium">{user.name}</span>
-            {user._identity && user._identity.includes('@') && (
-              <Globe className="h-3 w-3 text-blue-500 shrink-0" />
-            )}
+  }) => {
+    // Friends is a HOME surface — styled names render here. The friends
+    // store receives full USER_UPDATE merges, so `user` is live.
+    const nameCss = getNameStyleCss(user.nameStyle);
+    return (
+      <div className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-muted/50 group">
+        <div className="flex items-center gap-3">
+          <UserAvatar
+            userId={user.id}
+            className="h-9 w-9"
+            showUserPopover
+            homeScope
+          />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn('text-sm font-medium', nameCss?.className)}
+                style={nameCss?.style}
+              >
+                {user.name}
+              </span>
+              {user._identity && user._identity.includes('@') && (
+                <Globe className="h-3 w-3 text-blue-500 shrink-0" />
+              )}
+            </div>
+            <span className="text-xs capitalize text-muted-foreground">
+              {user._identity && user._identity.includes('@')
+                ? user._identity.split('@').slice(1).join('@')
+                : user.status}
+            </span>
           </div>
-          <span className="text-xs capitalize text-muted-foreground">
-            {user._identity && user._identity.includes('@')
-              ? user._identity.split('@').slice(1).join('@')
-              : user.status}
-          </span>
+        </div>
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onMessage}
+            title="Message"
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive hover:text-destructive"
+            onClick={onRemove}
+            title="Remove Friend"
+          >
+            <UserMinus className="h-4 w-4" />
+          </Button>
         </div>
       </div>
-      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onMessage}
-          title="Message"
-        >
-          <MessageSquare className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-destructive hover:text-destructive"
-          onClick={onRemove}
-          title="Remove Friend"
-        >
-          <UserMinus className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
-  )
+    );
+  }
 );
 
 const PendingRequests = memo(() => {
