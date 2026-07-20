@@ -15,7 +15,7 @@ import { useActiveServerId } from '@/features/app/hooks';
 import { openDialog, requestConfirmation } from '@/features/dialogs/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
 import { disconnectFromServer } from '@/features/server/actions';
-import { useIsOwnUserOwner, useServerName } from '@/features/server/hooks';
+import { useIsOwnUserOwner, usePreviewMode, useServerName } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
@@ -37,6 +37,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   const serverName = useServerName();
   const isOwner = useIsOwnUserOwner();
   const activeServerId = useActiveServerId();
+  const previewMode = usePreviewMode();
 
   const handleDeleteServer = useCallback(async () => {
     if (!activeServerId) return;
@@ -153,7 +154,8 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
                 <LogOut className="h-4 w-4 mr-2" />
                 Log Out
               </DropdownMenuItem>
-              {!isOwner && (
+              {/* Previewers aren't members — nothing to leave */}
+              {!isOwner && !previewMode && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

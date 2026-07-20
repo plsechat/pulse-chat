@@ -1,4 +1,5 @@
 import {
+  type TFile,
   type TJoinedMessage,
   type TJoinedPublicUser,
   type TVoiceUserState
@@ -43,4 +44,18 @@ export type TDisconnectInfo = {
 
 export type TVoiceUser = TJoinedPublicUser & {
   state: TVoiceUserState;
+};
+
+/**
+ * What the read-only preview banner/join prompt needs (servers.preview).
+ * `inviteCode` set = preview came from an invite link and joining goes
+ * through servers.join; null = Discover path (servers.joinDiscover).
+ */
+export type TServerPreviewMeta = {
+  serverDbId: number;
+  serverName: string;
+  logo: TFile | null;
+  memberCount: number;
+  hasPassword: boolean;
+  inviteCode: string | null;
 };

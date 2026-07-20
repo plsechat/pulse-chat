@@ -2,7 +2,6 @@ import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { Button } from '@/components/ui/button';
 import { Group } from '@/components/ui/group';
 import { LoadingCard } from '@/components/ui/loading-card';
-import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import {
   Select,
   SelectContent,
@@ -12,11 +11,13 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { closeServerScreens } from '@/features/server-screens/actions';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { useForm } from '@/hooks/use-form';
-import { Resolution, type NoiseSuppressionMode } from '@/types';
+import {
+  Resolution,
+  type NoiseSuppressionMode,
+  type TDeviceSettings
+} from '@/types';
 import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -34,12 +35,17 @@ const Devices = memo(() => {
     loading: availableDevicesLoading
   } = useAvailableDevices();
   const { devices, saveDevices, loading: devicesLoading } = useDevices();
-  const { values, onChange } = useForm(devices);
 
-  const saveDeviceSettings = useCallback(() => {
-    saveDevices(values);
-    toast.success('Device settings saved');
-  }, [saveDevices, values]);
+  // Settings apply the moment they change — persisted immediately and,
+  // mid-call, picked up live by the voice provider's device-diff effect.
+  // No Save/Cancel gate.
+  const values = devices;
+  const onChange = useCallback(
+    <K extends keyof TDeviceSettings>(key: K, value: TDeviceSettings[K]) => {
+      saveDevices({ ...devices, [key]: value });
+    },
+    [devices, saveDevices]
+  );
 
   if (availableDevicesLoading || devicesLoading) {
     return <LoadingCard className="h-[600px]" />;
@@ -166,7 +172,7 @@ const Devices = memo(() => {
           />
         </Group>
 
-        <Group label="Screen Sharing" description={currentVoiceChannelId ? 'Screen sharing settings take effect on your next share.' : undefined}>
+        <Group label="Screen Sharing" description={currentVoiceChannelId ? 'Changes apply live to an active share.' : undefined}>
           <ResolutionFpsControl
             framerate={values.screenFramerate}
             resolution={values.screenResolution}
@@ -203,11 +209,6 @@ const Devices = memo(() => {
         </Group>
         {/* macOS Audio Driver — only shown in Electron on macOS */}
         <MacOSAudioDriverSection />
-
-        <SettingsFormFooter
-          onCancel={closeServerScreens}
-          onSave={saveDeviceSettings}
-        />
     </div>
   );
 });

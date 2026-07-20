@@ -661,6 +661,27 @@ body,
   animation: msg-highlight 2.4s ease-in-out forwards;
 }
 
+/* nameplates — decorative member-row backgrounds. Animated presets get
+   an oversized background that drifts slowly sideways; the motion is
+   deliberately glacial (a mood, not a spinner) and fully disabled under
+   prefers-reduced-motion. */
+
+@keyframes nameplate-drift {
+  from { background-position: 100% 50%; }
+  to { background-position: 60% 50%; }
+}
+
+.nameplate-animated {
+  background-size: 200% 100%;
+  animation: nameplate-drift 16s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nameplate-animated {
+    animation: none;
+  }
+}
+
 /* Hover animations for the user-control row icons. Each animation
    only runs while the icon's button is hovered, then resets — so
    you get a quick personality cue on hover without the icon ever

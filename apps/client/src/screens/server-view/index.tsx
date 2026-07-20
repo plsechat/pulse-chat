@@ -6,6 +6,7 @@ import { RightSidebar } from '@/components/right-sidebar';
 import { TopBar } from '@/components/top-bar';
 import { PinBanner } from '@/components/top-bar/pin-banner';
 import { useSelectedChannelId } from '@/features/server/channels/hooks';
+import { usePreviewMode } from '@/features/server/hooks';
 import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { syncPreference } from '@/lib/preferences-sync';
@@ -15,6 +16,7 @@ import { Permission } from '@pulse/shared';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { ContentWrapper } from './content-wrapper';
 import { PreventBrowser } from './prevent-browser';
+import { PreviewBanner } from './preview-banner';
 
 const ServerView = memo(() => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -24,6 +26,7 @@ const ServerView = memo(() => {
   );
   const selectedChannelId = useSelectedChannelId();
   const isMobile = useIsMobile();
+  const previewMode = usePreviewMode();
 
   // Auto-close mobile drawers when channel changes
   useEffect(() => {
@@ -61,8 +64,11 @@ const ServerView = memo(() => {
       return;
     }
 
+    // No member sidebar to reveal while previewing
+    if (previewMode) return;
+
     setIsMobileUsersOpen(true);
-  }, [isMobileMenuOpen, isMobileUsersOpen]);
+  }, [isMobileMenuOpen, isMobileUsersOpen, previewMode]);
 
   const swipeHandlers = useSwipeGestures({
     onSwipeRight: handleSwipeRight,
@@ -74,6 +80,7 @@ const ServerView = memo(() => {
       className="flex flex-1 min-h-0 flex-col"
       {...swipeHandlers}
     >
+      {previewMode && <PreviewBanner />}
       <div className="flex flex-1 overflow-hidden relative">
         <PreventBrowser />
 
@@ -106,7 +113,10 @@ const ServerView = memo(() => {
         <div className="flex flex-1 flex-col overflow-hidden">
           <MobileHeader
             onToggleLeftDrawer={() => setIsMobileMenuOpen((prev) => !prev)}
-            onToggleRightDrawer={() => setIsMobileUsersOpen((prev) => !prev)}
+            onToggleRightDrawer={() => {
+              if (previewMode) return;
+              setIsMobileUsersOpen((prev) => !prev);
+            }}
           />
           <TopBar
             onToggleRightSidebar={handleDesktopRightSidebarToggle}
@@ -116,17 +126,21 @@ const ServerView = memo(() => {
           <ContentWrapper />
         </div>
 
-        <RightSidebar
-          className={cn(
-            'fixed top-0 bottom-0 right-0 h-full z-40 transition-all duration-500 ease-in-out',
-            'lg:relative lg:z-0',
-            // Mobile behavior (< lg)
-            isMobileUsersOpen
-              ? 'translate-x-0 lg:translate-x-0'
-              : 'translate-x-full lg:translate-x-0'
-          )}
-          isOpen={isDesktopRightSidebarOpen || isMobileUsersOpen}
-        />
+        {/* Previews carry no member roster — drop the sidebar at the
+            layout level rather than teaching it about preview state. */}
+        {!previewMode && (
+          <RightSidebar
+            className={cn(
+              'fixed top-0 bottom-0 right-0 h-full z-40 transition-all duration-500 ease-in-out',
+              'lg:relative lg:z-0',
+              // Mobile behavior (< lg)
+              isMobileUsersOpen
+                ? 'translate-x-0 lg:translate-x-0'
+                : 'translate-x-full lg:translate-x-0'
+            )}
+            isOpen={isDesktopRightSidebarOpen || isMobileUsersOpen}
+          />
+        )}
         </div>
 
         <Protect permission={Permission.MANAGE_USERS}>

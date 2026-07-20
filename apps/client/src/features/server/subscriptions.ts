@@ -27,7 +27,12 @@ const subscribeToServer = () => {
       'onSettingsUpdate',
       trpc.others.onServerSettingsUpdate,
       (settings) => {
-        setPublicServerSettings(settings);
+        // Settings events only arrive for servers the user is a MEMBER of
+        // (publishFor member ids) — while previewing, the slice holds a
+        // DIFFERENT server's snapshot and must not be overwritten by them.
+        if (!store.getState().server.previewMode) {
+          setPublicServerSettings(settings);
+        }
 
         // Live-sync the server rail (name/logo used to stay stale until a
         // full refresh). Matched by publicId — home and federated entries.

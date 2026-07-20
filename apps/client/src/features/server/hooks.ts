@@ -64,6 +64,13 @@ export const useIsInstanceOwner = () =>
 export const useFederatableServersAllowed = () =>
   useSelector((state: IRootState) => state.server.federatableServersAllowed);
 
+/** True while the slice holds a read-only servers.preview snapshot. */
+export const usePreviewMode = () =>
+  useSelector((state: IRootState) => state.server.previewMode);
+
+export const usePreviewMeta = () =>
+  useSelector((state: IRootState) => state.server.previewMeta);
+
 export const usePublicServerSettings = () =>
   useSelector(publicServerSettingsSelector);
 

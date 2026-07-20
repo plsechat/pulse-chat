@@ -11,6 +11,7 @@ import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { AvatarManager } from './avatar-manager';
 import { BannerManager } from './banner-manager';
+import { NameplatePicker } from './nameplate-picker';
 
 const Profile = memo(() => {
   const ownPublicUser = useOwnPublicUser();
@@ -56,6 +57,13 @@ const Profile = memo(() => {
         </Group>
 
         <BannerManager user={ownPublicUser} />
+
+        <Group
+          label="Nameplate"
+          description="A decorative background shown behind your name in member lists."
+        >
+          <NameplatePicker user={ownPublicUser} />
+        </Group>
 
         <SettingsFormFooter
           onCancel={closeServerScreens}

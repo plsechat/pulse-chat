@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { federationInstances, users } from '../../db/schema';
 import { config } from '../../config';
+import { refuseInPreview } from '../../utils/preview-guard';
 import { protectedProcedure } from '../../utils/trpc';
 
 /**
@@ -25,6 +26,9 @@ import { protectedProcedure } from '../../utils/trpc';
 const getVisibleUserDescriptorsRoute = protectedProcedure
   .input(z.object({ channelId: z.number() }))
   .query(async ({ input, ctx }) => {
+    // Read-only, but it enumerates the member list — preview scope is
+    // "public channels + messages", not the roster.
+    await refuseInPreview(ctx, input.channelId);
     await ctx.needsChannelPermission(
       input.channelId,
       ChannelPermission.VIEW_CHANNEL

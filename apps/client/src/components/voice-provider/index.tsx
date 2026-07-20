@@ -752,6 +752,48 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     devices.webcamResolution
   ]);
 
+  // Live re-apply screen-share quality on an ACTIVE share. Resolution and
+  // framerate go through applyConstraints on the captured track (downscales
+  // in the browser, no re-pick); audio bitrate through the sender's
+  // encoding parameters.
+  const reapplyScreenShareSettings = useCallback(async () => {
+    const videoTrack = localScreenShareStream?.getVideoTracks()[0];
+    if (videoTrack && videoTrack.readyState === 'live') {
+      try {
+        await videoTrack.applyConstraints({
+          ...getResWidthHeight(devices.screenResolution),
+          frameRate: devices.screenFramerate
+        });
+        logVoice('Screen share constraints re-applied live');
+      } catch (error) {
+        logVoice('Error re-applying screen share constraints', { error });
+      }
+    }
+
+    const audioSender = localScreenShareAudioProducer.current?.closed
+      ? undefined
+      : localScreenShareAudioProducer.current?.rtpSender;
+    if (audioSender) {
+      try {
+        const params = audioSender.getParameters();
+        if (params.encodings?.length) {
+          params.encodings[0].maxBitrate =
+            (devices.screenAudioBitrate ?? 128) * 1000;
+          await audioSender.setParameters(params);
+          logVoice('Screen share audio bitrate re-applied live');
+        }
+      } catch (error) {
+        logVoice('Error re-applying screen share audio bitrate', { error });
+      }
+    }
+  }, [
+    localScreenShareStream,
+    localScreenShareAudioProducer,
+    devices.screenResolution,
+    devices.screenFramerate,
+    devices.screenAudioBitrate
+  ]);
+
   const cleanup = useCallback(() => {
     logVoice('Running voice provider cleanup');
 
@@ -915,6 +957,11 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       prev.webcamFramerate !== devices.webcamFramerate ||
       prev.webcamResolution !== devices.webcamResolution;
 
+    const screenChanged =
+      prev.screenResolution !== devices.screenResolution ||
+      prev.screenFramerate !== devices.screenFramerate ||
+      prev.screenAudioBitrate !== devices.screenAudioBitrate;
+
     if (micChanged) {
       // While muted the mic is released; the next unmute acquires with the
       // new settings on its own.
@@ -928,7 +975,10 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     if (webcamChanged) {
       reapplyWebcamSettings(ownVoiceState.webcamEnabled);
     }
-  }, [devices, connectionStatus, attachMicStream, reapplyWebcamSettings, ownVoiceState.micMuted, ownVoiceState.webcamEnabled]);
+    if (screenChanged && ownVoiceState.sharingScreen) {
+      reapplyScreenShareSettings();
+    }
+  }, [devices, connectionStatus, attachMicStream, reapplyWebcamSettings, reapplyScreenShareSettings, ownVoiceState.micMuted, ownVoiceState.webcamEnabled, ownVoiceState.sharingScreen]);
 
   const contextValue = useMemo<TVoiceProvider>(
     () => ({

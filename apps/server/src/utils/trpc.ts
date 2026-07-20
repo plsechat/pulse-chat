@@ -29,6 +29,7 @@ export type Context = {
   userId: number;
   accessToken: string;
   activeServerId: number | undefined;
+  previewServerId: number | undefined;
   currentVoiceChannelId: number | undefined;
   currentDmVoiceChannelId: number | undefined;
   hasPermission: (

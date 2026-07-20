@@ -240,6 +240,11 @@ const users = pgTable(
     customStatusExpiresAt: bigint('custom_status_expires_at', {
       mode: 'number'
     }),
+    // Decorative background for the user's row in member/DM lists.
+    // 'preset:<slug>' (client-rendered CSS, slug validated against
+    // NAMEPLATE_PRESET_SLUGS) or 'custom:<id>' (admin-uploaded pack in
+    // the nameplates table).
+    nameplate: text('nameplate'),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
@@ -420,6 +425,27 @@ const emojis = pgTable(
     index('emojis_file_idx').on(t.fileId),
     uniqueIndex('emojis_name_idx').on(t.name),
     index('emojis_server_idx').on(t.serverId)
+  ]
+);
+
+// Admin-uploaded nameplate image packs (the 'custom:<id>' source for
+// users.nameplate), managed like custom emojis.
+const nameplates = pgTable(
+  'nameplates',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    fileId: integer('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('nameplates_server_idx').on(t.serverId),
+    index('nameplates_file_idx').on(t.fileId)
   ]
 );
 
@@ -1201,6 +1227,7 @@ export {
   messageFiles,
   messageReactions,
   messages,
+  nameplates,
   pluginData,
   rolePermissions,
   roles,

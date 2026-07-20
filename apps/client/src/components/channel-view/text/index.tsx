@@ -1,7 +1,8 @@
 import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
-import { useCan, useChannelCan } from '@/features/server/hooks';
+import { useCan, useChannelCan, usePreviewMeta, usePreviewMode } from '@/features/server/hooks';
+import { joinPreviewedServer } from '@/features/server/preview/actions';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { useChannelById, useLastReadMessageId, useSelectedChannel } from '@/features/server/channels/hooks';
 import { useMessages } from '@/features/server/messages/hooks';
@@ -37,6 +38,11 @@ import {
   MIN_COMPOSER_HEIGHT
 } from './composer-expand';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import {
+  messageHasCodeBlock,
+  uploadOversizedMessage,
+  type TOversizedUpload
+} from '@/helpers/oversized-message';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
 import { cn } from '@/lib/utils';
@@ -145,6 +151,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   });
   const can = useCan();
   const channelCan = useChannelCan(channelId);
+  const previewMode = usePreviewMode();
+  const previewMeta = usePreviewMeta();
   const { selectionMode, setMessageIds } = useSelection();
   const canSendMessages = useMemo(() => {
     return (
@@ -252,12 +260,29 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
       // Check plaintext length BEFORE encryption — the server's wire cap
       // is sized for the encrypted envelope, so this is the real budget.
+      // Over-length code blocks are shipped as a message.txt attachment
+      // instead of being rejected.
+      let sendContent = content;
+      let txtUpload: TOversizedUpload | null = null;
       if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-        toast.error(
-          `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
-        );
-        return;
+        if (!messageHasCodeBlock(newMessage, content)) {
+          toast.error(
+            `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+          );
+          return;
+        }
+
+        txtUpload = await uploadOversizedMessage(content, isE2ee);
+        if (!txtUpload) return;
+
+        sendContent = '';
+        toast.info('Message was over the length limit — sent as message.txt');
       }
+
+      const fileIds = [
+        ...files.map((f) => f.id),
+        ...(txtUpload ? [txtUpload.tempFile.id] : [])
+      ];
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
@@ -266,8 +291,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         // Build fileKeys from encrypted upload key material. Includes
         // the real originalName + extension so the recipient can render
         // them — the server stores only placeholders.
-        const fileKeys = files.length > 0
-          ? files.map((f) => {
+        const fileKeyEntries = files
+          .map((f) => {
             const keyInfo = fileKeyMapRef.current.get(f.id);
             return keyInfo
               ? {
@@ -279,27 +304,40 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
                   extension: keyInfo.extension
                 }
               : null;
-          }).filter((k): k is NonNullable<typeof k> => k !== null)
-          : undefined;
+          })
+          .filter((k): k is NonNullable<typeof k> => k !== null);
+
+        if (txtUpload?.keyInfo) {
+          fileKeyEntries.push({
+            fileId: txtUpload.tempFile.id,
+            key: txtUpload.keyInfo.key,
+            nonce: txtUpload.keyInfo.nonce,
+            mimeType: txtUpload.keyInfo.mimeType,
+            originalName: txtUpload.keyInfo.originalName,
+            extension: txtUpload.keyInfo.extension
+          });
+        }
+
+        const fileKeys = fileKeyEntries.length > 0 ? fileKeyEntries : undefined;
 
         const encryptedContent = await encryptChannelMessage(
           channelId,
           ownUserId,
-          { content, fileKeys }
+          { content: sendContent, fileKeys }
         );
 
         await trpc.messages.send.mutate({
           content: encryptedContent,
           e2ee: true,
           channelId,
-          files: files.map((f) => f.id),
+          files: fileIds,
           replyToId: replyingTo?.id
         });
       } else {
         await trpc.messages.send.mutate({
-          content,
+          content: sendContent,
           channelId,
-          files: files.map((f) => f.id),
+          files: fileIds,
           replyToId: replyingTo?.id
         });
       }
@@ -466,6 +504,17 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
       {selectionMode && <SelectionActionBar />}
 
+      {previewMode ? (
+        // Read-only preview: the composer is replaced by a join prompt
+        <div className="mx-4 mb-3 md:mb-6 flex items-center justify-between gap-3 rounded-xl border border-border bg-secondary px-4 py-2.5">
+          <span className="truncate text-sm text-muted-foreground">
+            Join {previewMeta?.serverName ?? 'this server'} to send messages
+          </span>
+          <Button size="sm" onClick={() => void joinPreviewedServer()}>
+            Join
+          </Button>
+        </div>
+      ) : (
       <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
         {replyingTo && (
           <ReplyBar
@@ -594,6 +643,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           </Button>
         </div>
       </div>
+      )}
     </>
   );
 });

@@ -25,6 +25,9 @@ type UserInfoChanges = {
   bio?: string | null;
   bannerColor?: string | null;
   pronouns?: string | null;
+  // Only 'preset:<slug>' values (or null) — 'custom:<id>' references the
+  // sender's local nameplates table and is sent as null instead.
+  nameplate?: string | null;
   customStatus?: string | null;
   customStatusEmoji?: string | null;
   status?: string; // UserStatus value

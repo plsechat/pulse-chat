@@ -1,4 +1,5 @@
 import { VerifiedMemberDot } from '@/components/e2ee-status-badge';
+import { NameplateBackground } from '@/components/nameplate';
 import { UserAvatar } from '@/components/user-avatar';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useUserDisplayRole } from '@/features/server/hooks';
@@ -23,12 +24,13 @@ type TUserProps = {
   banned: boolean;
   status?: UserStatus;
   customStatus?: string | null;
+  nameplate?: string | null;
   _identity?: string;
   e2ee?: boolean;
   dimmed?: boolean;
 };
 
-const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee, dimmed }: TUserProps) => {
+const User = memo(({ userId, name, banned, status, customStatus, nameplate, _identity, e2ee, dimmed }: TUserProps) => {
   const displayRole = useUserDisplayRole(userId);
   const nameColor = useReadableRoleColor(displayRole?.color);
 
@@ -37,10 +39,13 @@ const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee
     <UserPopover userId={userId}>
       <div
         className={cn(
-          'group flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent select-none transition-[background-color,color,opacity] duration-150 cursor-pointer',
+          // relative + overflow-hidden clip the nameplate layer to the
+          // rounded row; content stays `relative` so it paints above it.
+          'group relative overflow-hidden flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent select-none transition-[background-color,color,opacity] duration-150 cursor-pointer',
           dimmed && 'opacity-50 hover:opacity-100'
         )}
       >
+        <NameplateBackground nameplate={nameplate} />
         <div className="relative flex-shrink-0">
           <UserAvatar userId={userId} className="h-8 w-8" showStatusBadge={false} />
           <div className="absolute -bottom-0.5 -right-0.5">
@@ -50,7 +55,7 @@ const User = memo(({ userId, name, banned, status, customStatus, _identity, e2ee
             />
           </div>
         </div>
-        <div className="flex flex-col min-w-0">
+        <div className="relative flex flex-col min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <span
               className={cn(
@@ -121,6 +126,7 @@ const RoleGroupSection = memo(
             banned={user.banned}
             status={user.status}
             customStatus={user.customStatus}
+            nameplate={user.nameplate}
             _identity={user._identity}
             e2ee={e2ee}
             dimmed={dimmed}

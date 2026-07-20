@@ -62,6 +62,11 @@ import { ImageContextMenu } from '@/components/channel-view/text/image-context-m
 import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
 import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import {
+  messageHasCodeBlock,
+  uploadOversizedMessage,
+  type TOversizedUpload
+} from '@/helpers/oversized-message';
 import { ReplyContentPreview } from '@/components/channel-view/text/reply-content-preview';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
@@ -329,18 +334,30 @@ const DmConversation = memo(
 
     // Check plaintext length BEFORE encryption — the server's wire cap
     // is sized for the encrypted envelope, so this is the real budget.
+    // Over-length code blocks are shipped as a message.txt attachment
+    // instead of being rejected.
+    let sendContent = content;
+    let txtUpload: TOversizedUpload | null = null;
     if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-      toast.error(
-        `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
-      );
-      return;
+      if (!messageHasCodeBlock(newMessage, content)) {
+        toast.error(
+          `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+        );
+        return;
+      }
+
+      txtUpload = await uploadOversizedMessage(content, isE2ee);
+      if (!txtUpload) return;
+
+      sendContent = '';
+      toast.info('Message was over the length limit — sent as message.txt');
     }
 
     try {
       // Build fileKeys from encrypted upload key material. Includes
       // the real originalName + extension so the recipient can render
       // them — the server stores only placeholders.
-      const fileKeys = isE2ee && files.length > 0
+      const fileKeyEntries = isE2ee
         ? files.map((f) => {
           const keyInfo = fileKeyMapRef.current.get(f.id);
           return keyInfo
@@ -354,14 +371,30 @@ const DmConversation = memo(
               }
             : null;
         }).filter((k): k is NonNullable<typeof k> => k !== null)
-        : undefined;
+        : [];
+
+      if (isE2ee && txtUpload?.keyInfo) {
+        fileKeyEntries.push({
+          fileId: txtUpload.tempFile.id,
+          key: txtUpload.keyInfo.key,
+          nonce: txtUpload.keyInfo.nonce,
+          mimeType: txtUpload.keyInfo.mimeType,
+          originalName: txtUpload.keyInfo.originalName,
+          extension: txtUpload.keyInfo.extension
+        });
+      }
+
+      const fileIds = [
+        ...files.map((f) => f.id),
+        ...(txtUpload ? [txtUpload.tempFile.id] : [])
+      ];
 
       await sendDmMessage(
         dmChannelId,
-        content,
-        files.length > 0 ? files.map((f) => f.id) : undefined,
+        sendContent,
+        fileIds.length > 0 ? fileIds : undefined,
         replyingTo?.id,
-        fileKeys
+        fileKeyEntries.length > 0 ? fileKeyEntries : undefined
       );
     } catch (error) {
       toast.error(getTrpcError(error, 'Failed to send message'));

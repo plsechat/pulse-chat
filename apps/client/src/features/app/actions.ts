@@ -17,7 +17,8 @@ import { getHomeTRPCClient } from '@/lib/trpc';
 import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
-import { connect, fetchDeferredServerData, getHandshakeHash, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
+import { connect, fetchDeferredServerData, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
+import { startServerPreview } from '../server/preview/actions';
 import { serverSliceActions } from '../server/slice';
 import { store } from '../store';
 import { appSliceActions } from './slice';
@@ -163,23 +164,17 @@ const handleInviteFromUrl = async () => {
   if (!inviteCode) return;
 
   try {
-    const server = await joinServerByInvite(inviteCode);
-
-    if (server) {
-      const hash = getHandshakeHash();
-
-      if (hash) {
-        await switchServer(server.id, hash);
-      }
-    }
-
-    // Clean the invite code from the URL
-    const url = new URL(window.location.href);
-    url.searchParams.delete('invite');
-    window.history.replaceState({}, '', url.toString());
+    // Land in a read-only preview instead of instant-joining — the
+    // preview banner's Join button consumes the invite (servers.join).
+    await startServerPreview({ inviteCode });
   } catch (error) {
-    console.error('Failed to join server from invite URL:', error);
+    console.error('Failed to preview server from invite URL:', error);
   }
+
+  // Clean the invite code from the URL
+  const url = new URL(window.location.href);
+  url.searchParams.delete('invite');
+  window.history.replaceState({}, '', url.toString());
 };
 
 /**

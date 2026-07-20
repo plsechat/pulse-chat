@@ -178,6 +178,12 @@ const createContext = async ({
 
   const _activeServer = { id: undefined as number | undefined };
 
+  // Read-only preview session (servers.preview): grants exactly
+  // VIEW_CHANNEL on the previewed server's public channels. Cleared when
+  // the connection joins a real server (others.joinServer) or via
+  // servers.leavePreview.
+  const _previewServer = { id: undefined as number | undefined };
+
   const hasPermission = async (
     targetPermission: Permission | Permission[],
     serverId?: number
@@ -251,6 +257,27 @@ const createContext = async ({
         targetPermission
       );
       return false;
+    }
+
+    // Preview sessions get exactly VIEW_CHANNEL on the previewed server's
+    // public channels and nothing else — never fall through to the normal
+    // path, which grants every channel permission on non-private channels
+    // to any authenticated user.
+    if (
+      _previewServer.id !== undefined &&
+      channelRecord.serverId === _previewServer.id
+    ) {
+      const granted =
+        targetPermission === ChannelPermission.VIEW_CHANNEL &&
+        !channelRecord.private;
+      logger.debug(
+        '[chan-perm] %s reason=preview channelId=%d previewServerId=%d target=%o',
+        granted ? 'granted' : 'denied',
+        channelId,
+        _previewServer.id,
+        targetPermission
+      );
+      return granted;
     }
 
     // Ensure the channel belongs to the caller's active server
@@ -443,6 +470,8 @@ const createContext = async ({
     handshakeHash: '',
     get activeServerId() { return _activeServer.id; },
     set activeServerId(id: number | undefined) { _activeServer.id = id; },
+    get previewServerId() { return _previewServer.id; },
+    set previewServerId(id: number | undefined) { _previewServer.id = id; },
     currentVoiceChannelId: undefined,
     currentDmVoiceChannelId: undefined,
     hasPermission,

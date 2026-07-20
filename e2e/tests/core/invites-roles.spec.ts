@@ -110,7 +110,8 @@ test.describe('invites and roles', () => {
     ).toBe('');
 
     // A brand-new user (registered, NOT a member) opens the invite link and
-    // is dropped straight into the server — no confirmation screen.
+    // lands in a read-only PREVIEW of the server with a join banner —
+    // membership only happens when they choose to join.
     const joiner = runUser('invite-join');
     await registerUser(BASE, joiner);
     const { context, page } = await openWithSession(
@@ -119,9 +120,29 @@ test.describe('invites and roles', () => {
       `${BASE}/?invite=${code}`
     );
     try {
-      await waitForAppReady(page); // seeded channel list = joined
+      await expect(page.getByText(/You(')?re previewing/i)).toBeVisible({
+        timeout: 20_000
+      });
       // ?invite= is stripped once consumed.
       await expect(page).not.toHaveURL(/invite=/);
+
+      // Not a member yet — previewing is not joining.
+      const previewJoinerId = psql(
+        'core',
+        `SELECT id FROM users WHERE name = '${joiner.displayName}'`
+      );
+      expect(
+        psql(
+          'core',
+          `SELECT count(*) FROM server_members WHERE user_id = ${previewJoinerId}`
+        )
+      ).toBe('0');
+
+      await page
+        .getByRole('button', { name: /Join Server/i })
+        .first()
+        .click();
+      await waitForAppReady(page); // seeded channel list = joined
 
       const joinerId = psql(
         'core',
@@ -172,10 +193,12 @@ test.describe('invites and roles', () => {
       `${BASE}/?invite=${code}`
     );
     try {
-      // The authenticated ?invite= path surfaces only the generic toast.
-      await expect(toast(page, 'Failed to join server')).toBeVisible({
+      // The ?invite= path now opens a preview; an expired invite is
+      // refused by the preview route with its specific error.
+      await expect(toast(page, 'This invite has expired')).toBeVisible({
         timeout: 15_000
       });
+      await expect(page.getByText(/You(')?re previewing/i)).toHaveCount(0);
       // Still a non-member: no seeded channel list, no membership row.
       // Badge-immune absence check — an exact-name match would also
       // resolve to 0 for a MEMBER whose row carries an unread badge.

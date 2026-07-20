@@ -18,6 +18,24 @@ export const MAX_MESSAGE_WIRE_LENGTH = 40000;
 
 export const OWNER_ROLE_ID = 1;
 
+/**
+ * Built-in nameplate presets — decorative member-row backgrounds rendered
+ * client-side as CSS. The server only validates equipped values
+ * ('preset:<slug>' in users.nameplate) against this list.
+ */
+export const NAMEPLATE_PRESET_SLUGS: readonly string[] = [
+  "aurora",
+  "ember",
+  "ocean",
+  "synthwave",
+  "forest",
+  "rose",
+  "gold",
+  "steel",
+  "midnight",
+  "wave",
+];
+
 export const TYPING_MS = 2000;
 
 export enum DisconnectCode {

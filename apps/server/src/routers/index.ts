@@ -8,6 +8,7 @@ import { filesRouter } from './files';
 import { friendsRouter } from './friends';
 import { invitesRouter } from './invites';
 import { messagesRouter } from './messages';
+import { nameplatesRouter } from './nameplates';
 import { notesRouter } from './notes';
 import { notificationsRouter } from './notifications';
 import { othersRouter } from './others';
@@ -30,6 +31,7 @@ const appRouter = t.router({
   channels: channelsRouter,
   files: filesRouter,
   emojis: emojisRouter,
+  nameplates: nameplatesRouter,
   roles: rolesRouter,
   invites: invitesRouter,
   voice: voiceRouter,

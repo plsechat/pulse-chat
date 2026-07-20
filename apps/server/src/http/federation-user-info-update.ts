@@ -33,7 +33,7 @@
  *   - Idempotent: applying the same state twice is a no-op
  */
 
-import { UserStatus } from '@pulse/shared';
+import { NAMEPLATE_PRESET_SLUGS, UserStatus } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
@@ -81,6 +81,7 @@ const federationUserInfoUpdateHandler = async (
     | null
     | undefined;
   const pronounsChange = signedBody.pronouns as string | null | undefined;
+  const nameplateChange = signedBody.nameplate as string | null | undefined;
   const statusChange = signedBody.status as string | undefined;
   const triggerProfileSync = signedBody.triggerProfileSync === true;
 
@@ -97,6 +98,7 @@ const federationUserInfoUpdateHandler = async (
     customStatusChange !== undefined ||
     customStatusEmojiChange !== undefined ||
     pronounsChange !== undefined ||
+    nameplateChange !== undefined ||
     statusChange !== undefined ||
     triggerProfileSync;
   if (!hasAnyChange) {
@@ -152,6 +154,17 @@ const federationUserInfoUpdateHandler = async (
   if (pronounsChange !== undefined) {
     persistedSet.pronouns =
       pronounsChange === null ? null : String(pronounsChange).slice(0, 40);
+  }
+  if (nameplateChange !== undefined) {
+    // Only preset slugs cross instances — a 'custom:<id>' references the
+    // sender's local nameplates table and would collide with ours, so
+    // anything that isn't a known preset applies as cleared.
+    persistedSet.nameplate =
+      typeof nameplateChange === 'string' &&
+      nameplateChange.startsWith('preset:') &&
+      NAMEPLATE_PRESET_SLUGS.includes(nameplateChange.slice('preset:'.length))
+        ? nameplateChange
+        : null;
   }
 
   if (Object.keys(persistedSet).length > 0) {

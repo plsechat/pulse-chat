@@ -40,6 +40,7 @@ import {
   userOneTimePreKeys,
   userPreferences,
   e2eeSenderKeys,
+  nameplates,
 } from "../../../apps/server/src/db/schema";
 import type { UserStatus } from "./types";
 import type { Permission } from "./statics";
@@ -121,6 +122,8 @@ export type TUserOneTimePreKey = InferSelectModel<typeof userOneTimePreKeys>;
 export type TUserPreference = InferSelectModel<typeof userPreferences>;
 export type TIUserPreference = InferInsertModel<typeof userPreferences>;
 export type TE2eeSenderKey = InferSelectModel<typeof e2eeSenderKeys>;
+export type TNameplate = InferSelectModel<typeof nameplates>;
+export type TINameplate = InferInsertModel<typeof nameplates>;
 
 export type TStorageSettings = Pick<
   TSettings,
@@ -141,6 +144,7 @@ type TPublicUser = Pick<
   | "bannerColor"
   | "bio"
   | "pronouns"
+  | "nameplate"
   | "customStatus"
   | "customStatusEmoji"
   | "avatar"
@@ -201,6 +205,13 @@ export type TJoinedMessage = TMessage & {
 export type TJoinedEmoji = TEmoji & {
   file: TFile;
   user?: TPublicUser;
+};
+
+// Member-facing view of a nameplate pack — enough for the client to
+// render the image (files are served by name) without leaking the
+// full files row.
+export type TJoinedNameplate = Pick<TNameplate, "id" | "name"> & {
+  file: TFileRef;
 };
 
 export type TJoinedUser = TUser & {

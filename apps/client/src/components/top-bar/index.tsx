@@ -4,6 +4,7 @@ import {
   useIsCurrentVoiceChannelSelected,
   useSelectedChannel
 } from '@/features/server/channels/hooks';
+import { usePreviewMode } from '@/features/server/hooks';
 import { useDismissOnOutsideClick } from '@/hooks/use-dismiss-on-outside-click';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ const TopBar = memo(
     const isCurrentVoiceChannelSelected = useIsCurrentVoiceChannelSelected();
     const currentVoiceChannelId = useCurrentVoiceChannelId();
     const selectedChannel = useSelectedChannel();
+    const previewMode = usePreviewMode();
     // The members sidebar uses lg:relative — below 1024px it slides
     // off the right edge regardless of the user's preference. The
     // toggle button stays in the top bar though, so without this flag
@@ -173,40 +175,46 @@ const TopBar = memo(
                   />
                 )}
               </div>
-              <NotificationDropdown channelId={selectedChannel.id} />
+              {/* Notification prefs are member-scoped — meaningless in preview */}
+              {!previewMode && (
+                <NotificationDropdown channelId={selectedChannel.id} />
+              )}
             </>
           )}
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggleRightSidebar}
-            disabled={!sidebarAvailable}
-            className={cn(
-              'h-7 px-2 transition-colors duration-150',
-              !sidebarAvailable && 'opacity-50 cursor-not-allowed'
-            )}
-          >
-            {!sidebarAvailable ? (
-              <Tooltip content="Members panel (unavailable — make the window wider)">
-                <div>
-                  <PanelRight className="w-4 h-4" />
-                </div>
-              </Tooltip>
-            ) : isOpen ? (
-              <Tooltip content="Close Members Sidebar">
-                <div>
-                  <PanelRightClose className="w-4 h-4" />
-                </div>
-              </Tooltip>
-            ) : (
-              <Tooltip content="Open Members Sidebar">
-                <div>
-                  <PanelRight className="w-4 h-4" />
-                </div>
-              </Tooltip>
-            )}
-          </Button>
+          {/* Previews render no member sidebar to toggle */}
+          {!previewMode && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggleRightSidebar}
+              disabled={!sidebarAvailable}
+              className={cn(
+                'h-7 px-2 transition-colors duration-150',
+                !sidebarAvailable && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              {!sidebarAvailable ? (
+                <Tooltip content="Members panel (unavailable — make the window wider)">
+                  <div>
+                    <PanelRight className="w-4 h-4" />
+                  </div>
+                </Tooltip>
+              ) : isOpen ? (
+                <Tooltip content="Close Members Sidebar">
+                  <div>
+                    <PanelRightClose className="w-4 h-4" />
+                  </div>
+                </Tooltip>
+              ) : (
+                <Tooltip content="Open Members Sidebar">
+                  <div>
+                    <PanelRight className="w-4 h-4" />
+                  </div>
+                </Tooltip>
+              )}
+            </Button>
+          )}
         </div>
       </div>
     );

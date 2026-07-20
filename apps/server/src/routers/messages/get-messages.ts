@@ -5,6 +5,7 @@ import {
   ServerEvents,
   type TFile,
   type TJoinedMessage,
+  type TJoinedPublicUser,
   type TMessage,
   type TMessageReplyPreview
 } from '@pulse/shared';
@@ -17,6 +18,7 @@ import {
 } from '../../db/queries/channels';
 import { getReactionsForMessageIds } from '../../db/queries/messages';
 import { getServerUnreadCount } from '../../db/queries/servers';
+import { getPublicUsersByIds } from '../../db/queries/users';
 import {
   channelReadStates,
   channels,
@@ -55,7 +57,8 @@ const getMessagesRoute = protectedProcedure
     const [channel] = await db
       .select({
         private: channels.private,
-        fileAccessToken: channels.fileAccessToken
+        fileAccessToken: channels.fileAccessToken,
+        serverId: channels.serverId
       })
       .from(channels)
       .where(eq(channels.id, channelId))
@@ -65,6 +68,12 @@ const getMessagesRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Channel not found'
     });
+
+    // Read-only preview session (servers.preview) fetching from the
+    // previewed server: serve messages, but never touch read state.
+    const isPreview =
+      ctx.previewServerId !== undefined &&
+      channel.serverId === ctx.previewServerId;
 
     let rows: TMessage[];
     let nextCursor: number | null = null;
@@ -184,7 +193,12 @@ const getMessagesRoute = protectedProcedure
     }
 
     if (rows.length === 0) {
-      return { messages: [], nextCursor, afterCursor };
+      return {
+        messages: [],
+        nextCursor,
+        afterCursor,
+        authors: isPreview ? ([] as TJoinedPublicUser[]) : undefined
+      };
     }
 
     const messageIds = rows.map((m) => m.id);
@@ -282,6 +296,18 @@ const getMessagesRoute = protectedProcedure
       replyTo: msg.replyToId ? (replyToMap[msg.replyToId] ?? null) : null
     }));
 
+    // Previewers have no member bootstrap, so their client can't resolve
+    // message authors from a users map — attach the authors' public
+    // profiles (reply-preview authors included). Members never get this.
+    let authors: TJoinedPublicUser[] | undefined;
+    if (isPreview) {
+      const authorIds = new Set(rows.map((m) => m.userId));
+      for (const reply of Object.values(replyToMap)) {
+        authorIds.add(reply.userId);
+      }
+      authors = [...(await getPublicUsersByIds([...authorIds])).values()];
+    }
+
     // Mark read on the INITIAL load only — NOT when paging history
     // (cursor/around/after). The old code force-marked read to the
     // absolute latest on EVERY fetch, so paging up through history erased
@@ -291,9 +317,11 @@ const getMessagesRoute = protectedProcedure
     // to the newest message in THIS batch, not a re-query of the absolute
     // latest. The client-side divider survives because it reads the
     // connect-time snapshot, which this in-session update doesn't touch.
+    // Previewers additionally skip it on EVERY fetch — a preview must
+    // never create or advance read-state rows.
     const isInitialLoad =
       cursor == null && input.aroundId == null && input.after == null;
-    const latestMessage = isInitialLoad ? rows[0] : undefined;
+    const latestMessage = isInitialLoad && !isPreview ? rows[0] : undefined;
 
     if (latestMessage) {
       await db
@@ -376,7 +404,7 @@ const getMessagesRoute = protectedProcedure
       }
     }
 
-    return { messages: messagesWithFiles, nextCursor, afterCursor };
+    return { messages: messagesWithFiles, nextCursor, afterCursor, authors };
   });
 
 export { getMessagesRoute };
