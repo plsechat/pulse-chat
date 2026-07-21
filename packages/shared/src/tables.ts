@@ -154,6 +154,7 @@ type TPublicUser = Pick<
   | "banner"
   | "bannerId"
   | "banned"
+  | "deletedAt"
   | "createdAt"
 > & {
   status?: UserStatus;

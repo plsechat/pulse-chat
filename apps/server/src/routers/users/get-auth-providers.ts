@@ -19,9 +19,9 @@ const getAuthProvidersRoute = protectedProcedure.query(async ({ ctx }) => {
 
   // OIDC users live outside the auth backend (their session is minted by
   // PULSE itself), so the backend can't resolve them. Their only linked
-  // identity is the OIDC provider.
+  // identity is the OIDC provider, and their email isn't stored here.
   if (user.supabaseId.startsWith('oidc:')) {
-    return { providers: ['oidc'] };
+    return { providers: ['oidc'], email: null };
   }
 
   const { data, error } = await authBackend.getUserById(user.supabaseId);
@@ -35,7 +35,9 @@ const getAuthProvidersRoute = protectedProcedure.query(async ({ ctx }) => {
     .map((i) => i.provider)
     .filter((p): p is string => typeof p === 'string');
 
-  return { providers };
+  // Surfaced read-only on the My Account screen — the email existed
+  // nowhere in the UI before.
+  return { providers, email: data.user.email ?? null };
 });
 
 export { getAuthProvidersRoute };

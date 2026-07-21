@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { joinServerByInvite, loadFederatedServers, switchServer } from '@/features/app/actions';
+import { startServerPreview } from '@/features/server/preview/actions';
 import { connect, getHandshakeHash } from '@/features/server/actions';
 import { initE2EE } from '@/lib/e2ee';
 import { useInfo } from '@/features/server/hooks';
@@ -165,16 +166,16 @@ const Connect = memo(() => {
       initE2EE().catch((err) => console.error('E2EE initialization failed:', err));
       await loadFederatedServers();
 
-      // If there's an invite code, join that server and switch to it
+      // Invite code: PREVIEW the invited server instead of auto-joining
+      // — a fresh registrant should see what they're joining and click
+      // the banner's Join, same as the logged-in invite flow. (The
+      // register route validated the invite; the code is not consumed
+      // until the actual join.)
       if (inviteCode) {
         try {
-          const server = await joinServerByInvite(inviteCode);
-          const hash = getHandshakeHash();
-          if (server && hash) {
-            await switchServer(server.id, hash);
-          }
+          await startServerPreview({ inviteCode });
         } catch {
-          // Invite join failed — user is still connected to default server
+          // Preview failed — user is still connected to default server
         }
       }
     } catch (error) {

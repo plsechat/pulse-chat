@@ -18,9 +18,11 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let attemptCount = 0;
 let isReconnecting = false;
 
-/** Whether the disconnect code is non-recoverable (user was banned). */
+/** Whether the disconnect code is non-recoverable (banned, or the
+ *  account no longer exists). */
 const isNonRecoverable = (code: number) =>
-  code === DisconnectCode.BANNED;
+  code === DisconnectCode.BANNED ||
+  code === DisconnectCode.ACCOUNT_DELETED;
 
 /** Exponential backoff with jitter: base * 2^attempt + random jitter, capped. */
 const getDelay = (attempt: number) => {

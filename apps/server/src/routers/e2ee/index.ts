@@ -144,11 +144,15 @@ const registerKeysRoute = protectedProcedure
 
       // Phase D / D3 — propagate to federated DM peers. Active-DM-
       // channels-only scope; channel rotation propagation is out of
-      // scope for Phase D (federation v3 territory).
+      // scope for Phase D (federation v3 territory). Fire-and-forget
+      // MUST catch: the relay's DB preamble is unguarded and a
+      // straggler racing shutdown would reject unhandled.
       void relayFederatedIdentityRotation({
         rotatingUserId: ctx.userId,
         newIdentityPublicKey: input.identityPublicKey
-      });
+      }).catch((err) =>
+        logger.error('[rotateIdentity] federated rotation relay failed: %o', err)
+      );
     }
   });
 

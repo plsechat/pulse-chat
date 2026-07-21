@@ -123,13 +123,18 @@ const distributeSenderKeysRoute = protectedProcedure
         );
       } else {
         for (const d of federatedDists) {
+          // Fire-and-forget MUST catch: the relay's own fetch is guarded
+          // internally, but its DB preamble is not — a straggler racing
+          // shutdown/teardown would otherwise reject unhandled.
           void relayFederatedSkdm({
             federationGroupId,
             senderKeyId: input.senderKeyId,
             fromUserId: ctx.userId,
             toUserId: d.toUserId,
             distributionMessage: d.distributionMessage
-          });
+          }).catch((err) =>
+            logger.error('[distributeDmSenderKeys] skdm relay failed: %o', err)
+          );
         }
       }
     }

@@ -33,7 +33,11 @@ import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import { Permission, UserStatus } from '@pulse/shared';
+import {
+  MAX_MESSAGE_CONTENT_LENGTH,
+  Permission,
+  UserStatus
+} from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   Ban,
@@ -259,6 +263,17 @@ const UserPopover = memo(
 
   const handleSendPopoverMessage = useCallback(async () => {
     if (isHtmlEmpty(popoverMessage)) return;
+    // Same plaintext budget the full composers enforce — without it an
+    // oversized paste would be rejected server-side AFTER the DM
+    // channel was created. The quick box doesn't do the codeblock→txt
+    // conversion; the full conversation view exists for that.
+    const content = tiptapHtmlToTokens(popoverMessage);
+    if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+      toast.error(
+        `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Send it from the conversation view instead.`
+      );
+      return;
+    }
     try {
       const localId = await resolveLocalUserId();
       const channel = await getOrCreateDmChannel(localId);
@@ -267,7 +282,7 @@ const UserPopover = memo(
         // server stores. The main DM composer does the same — without
         // it, popover-sent messages would land in the DB as raw HTML
         // (e.g. "<p>asdf</p>") and render with the literal tags.
-        await sendDmMessage(channel.id, tiptapHtmlToTokens(popoverMessage));
+        await sendDmMessage(channel.id, content);
         setPopoverMessage('');
         // Land on the DM that was just opened, not just the home view.
         await navigateToDm(channel.id);

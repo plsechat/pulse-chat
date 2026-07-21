@@ -257,6 +257,11 @@ const users = pgTable(
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
+    // Set when the account is self-deleted: the row stays as an
+    // anonymized tombstone (messages keep their author) but the name/
+    // profile are scrubbed, auth is severed, and clients render
+    // "Deleted User". Never unset.
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
     bannerColor: text('banner_color'),
     lastLoginAt: bigint('last_login_at', { mode: 'number' })
       .notNull()

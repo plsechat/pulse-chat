@@ -15,6 +15,9 @@ export type SoundNotificationSettings = {
   voiceSoundsEnabled: boolean;
   actionSoundsEnabled: boolean;
   desktopNotificationsEnabled: boolean;
+  /** Per-event selected sound variant id (see SOUND_VARIANTS in
+   *  sounds/actions.ts). Missing key = that event's default variant. */
+  soundVariants: Partial<Record<string, string>>;
 };
 
 // ---------------------------------------------------------------------------
@@ -83,7 +86,8 @@ const defaultSettings: SoundNotificationSettings = {
   messageSoundsEnabled: true,
   voiceSoundsEnabled: true,
   actionSoundsEnabled: true,
-  desktopNotificationsEnabled: false
+  desktopNotificationsEnabled: false,
+  soundVariants: {}
 };
 
 const store = createPreferenceStore<SoundNotificationSettings>({
@@ -106,6 +110,11 @@ export const isCategoryEnabledForSound = (type: SoundType): boolean => {
 
 export const getMasterVolumeMultiplier = (): number =>
   store.getSettings().masterVolume / 100;
+
+/** Selected variant id for an event, or undefined for its default. */
+export const getSelectedSoundVariant = (
+  type: SoundType
+): string | undefined => store.getSettings().soundVariants?.[type];
 
 // ---------------------------------------------------------------------------
 // React hook
@@ -136,6 +145,16 @@ export const useSoundNotificationSettings = () => {
       store.updateSettings({ desktopNotificationsEnabled: value }),
     []
   );
+  const setSoundVariant = useCallback(
+    (type: SoundType, variantId: string) =>
+      store.updateSettings({
+        soundVariants: {
+          ...store.getSettings().soundVariants,
+          [type]: variantId
+        }
+      }),
+    []
+  );
 
   return {
     settings,
@@ -143,6 +162,7 @@ export const useSoundNotificationSettings = () => {
     setMessageSoundsEnabled,
     setVoiceSoundsEnabled,
     setActionSoundsEnabled,
-    setDesktopNotificationsEnabled
+    setDesktopNotificationsEnabled,
+    setSoundVariant
   };
 };

@@ -68,7 +68,7 @@ async function openModView(page: Page): Promise<void> {
     .first()
     .click();
   await page.getByRole('menuitem', { name: 'Server Settings' }).click();
-  await page.getByRole('tab', { name: 'Users' }).click();
+  await page.getByRole('button', { name: 'Users', exact: true }).click();
   // The users table accumulates rows across runs — filter to the one
   // target so its kebab button is the only one on screen.
   await page
@@ -230,34 +230,23 @@ test.describe('moderation', () => {
   });
 
   /**
-   * Voice server-mute / server-deafen / disconnect could not be e2e-driven,
-   * and the investigation surfaced a real product blocker worth fixing
-   * before this test can exist:
+   * The two product blockers this fixme originally documented are FIXED:
+   *  - Grid tile (voice-user-card.tsx): the ContextMenu now has its own
+   *    DOM node (display:contents wrapper) instead of asChild-merging
+   *    onto the Popover's node, so right-click opens the moderation menu.
+   *  - Sidebar row (voice-user.tsx): same wrapper + contextmenu
+   *    stopPropagation, so the USER menu opens instead of the channel's.
+   *  - ownVoiceState split-brain: updateVoiceUserState now mirrors
+   *    serverMuted/serverDeafened into ownVoiceState for the own user,
+   *    so the mic-button guard and moderator toasts work.
    *
-   *  - The moderation actions live ONLY in the voice user context menu.
-   *    On the voice GRID TILE (voice-user-card.tsx) that menu is a Radix
-   *    <ContextMenu> wrapping a <UserPopover> (Popover) on the SAME node
-   *    via asChild. The Popover's props win the merge, so right-click never
-   *    opens the ContextMenu — no Mention/Server Mute items appear. Probed
-   *    with real mouse right-click, mouse.down/up, and a dispatched
-   *    contextmenu event; none open the menu.
-   *  - On the sidebar participant row (voice-user.tsx) the row is nested
-   *    inside the channel's own ContextMenuTrigger, so right-click opens the
-   *    CHANNEL menu (Edit / Delete / Purge Messages) instead of the user's.
-   *
-   * So there is no reachable UI path to server-mute a voice participant.
-   * That also blocks the separate ownVoiceState split-brain bug documented
-   * in the exploration (the target's own serverMuted flag is never synced
-   * from the moderation broadcast, so the "muted by a moderator" refusal
-   * toast can't fire) — both belong to one "voice moderation is broken"
-   * fix the user should scope deliberately.
-   *
-   * The reliable half (join voice, mutual tile visibility) is already
-   * covered by voice.spec.ts; the disconnect toast rides the normal onLeave
-   * event and would be assertable once the menu opens.
+   * What still blocks the e2e: driving two REAL voice-channel joins
+   * (mediasoup produce/consume) from Playwright — the harness has no
+   * voice-join fixture yet. That's the Tier 3 "voice lifecycle" roadmap
+   * item; this test should be written alongside it.
    */
   test.fixme(
-    'voice server-mute: enforced roster icon, target refusal toast, disconnect (menu unreachable — see comment)',
+    'voice server-mute: enforced roster icon, target refusal toast, disconnect (needs Tier-3 voice-join harness)',
     () => {}
   );
 });

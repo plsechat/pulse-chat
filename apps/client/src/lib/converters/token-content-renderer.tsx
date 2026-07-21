@@ -198,15 +198,43 @@ function tokenize(text: string): Token[] {
 
     // Code block: ```lang ... ```
     if (line.startsWith('```')) {
-      const lang = line.slice(3).trim();
-      const codeLines: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith('```')) {
-        codeLines.push(lines[i]);
+      const inner = line.slice(3);
+
+      // Single-line fence (```code```): the composer never produces it,
+      // but federated peers / API clients can — the multi-line path
+      // below would misread it as an opener + garbage lang and render
+      // an EMPTY block (invisible message).
+      if (inner.endsWith('```') && inner.length > 3) {
+        tokens.push({
+          type: 'code_block',
+          lang: '',
+          code: inner.slice(0, -3)
+        });
         i++;
+        if (i < lines.length) tokens.push({ type: 'newline' });
+        continue;
       }
-      // Skip closing ```
-      if (i < lines.length) i++;
+
+      const lang = inner.trim();
+      const codeLines: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && !lines[j].startsWith('```')) {
+        codeLines.push(lines[j]);
+        j++;
+      }
+      const closed = j < lines.length;
+
+      // Unclosed opener with nothing after it — show the raw line as
+      // text instead of an invisible empty block.
+      if (!closed && codeLines.length === 0) {
+        tokens.push(...tokenizeInline(line));
+        i++;
+        if (i < lines.length) tokens.push({ type: 'newline' });
+        continue;
+      }
+
+      // Skip closing ``` when present
+      i = closed ? j + 1 : j;
       tokens.push({ type: 'code_block', lang, code: codeLines.join('\n') });
       // Add newline after code block unless it's the last thing
       if (i < lines.length) tokens.push({ type: 'newline' });

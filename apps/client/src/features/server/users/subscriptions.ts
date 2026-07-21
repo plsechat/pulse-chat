@@ -71,16 +71,11 @@ const subscribeToUsers = () => {
     subscribe('onUserUpdate', trpc.users.onUpdate, (user) => {
       updateUser(user.id, user);
       updateFriend(user.id, user);
-      // Only mirror presence when the event actually carries a status —
-      // profile-only USER_UPDATEs omit the field and must not wipe it.
-      if (user.status !== undefined) {
-        store.dispatch(
-          dmsSliceActions.updateMemberPresence({
-            userId: user.id,
-            status: user.status
-          })
-        );
-      }
+      // Mirror the FULL profile onto cached DM member projections —
+      // for a partner who is neither friend nor co-member this is
+      // their only live representation (cosmetics went stale before).
+      // The reducer preserves presence when status is omitted.
+      store.dispatch(dmsSliceActions.updateMemberProfile(user));
     }),
     subscribe(
       'onUserDelete',

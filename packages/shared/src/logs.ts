@@ -12,6 +12,7 @@ export enum ActivityLogType {
   USER_BANNED = "USER_BANNED",
   USER_UNBANNED = "USER_UNBANNED",
   USER_UPDATED_PASSWORD = "USER_UPDATED_PASSWORD",
+  USER_DELETED_ACCOUNT = "USER_DELETED_ACCOUNT",
   USER_ROLE_ASSIGNED = "USER_ROLE_ASSIGNED",
   USER_ROLE_REMOVED = "USER_ROLE_REMOVED",
   USER_NICKNAME_SET = "USER_NICKNAME_SET",
@@ -86,6 +87,7 @@ export type TActivityLogDetailsMap = {
   };
   [ActivityLogType.USER_LEFT]: {};
   [ActivityLogType.USER_UPDATED_PASSWORD]: {};
+  [ActivityLogType.USER_DELETED_ACCOUNT]: {};
   // -------------------- ROLES --------------------
   [ActivityLogType.CREATED_ROLE]: {
     roleId: number;

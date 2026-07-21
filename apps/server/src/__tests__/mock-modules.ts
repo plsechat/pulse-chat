@@ -253,6 +253,17 @@ const mockAuthBackend = {
       data: { user: null },
       error: { message: 'User not found', reason: 'user_not_found' }
     };
+  },
+
+  deleteUserById: async (id: string) => {
+    for (const [email, entry] of authStore.entries()) {
+      if (entry.supabaseId === id) {
+        authStore.delete(email);
+        break;
+      }
+    }
+    // Idempotent like the real backends — missing id is not an error.
+    return { error: null };
   }
 };
 

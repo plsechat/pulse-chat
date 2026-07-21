@@ -303,6 +303,14 @@ const localAuthBackend: AuthBackend = {
       return { data: { user: null }, error: err('User not found', 'user_not_found') };
     }
     return { data: { user: rowToUser(updated) }, error: null };
+  },
+
+  async deleteUserById(id): Promise<{ error: AuthError | null }> {
+    // Deleting the row severs login instantly: getUser resolves the
+    // token's sub against this table on every request, so live HS256
+    // tokens die with the row. Idempotent by design.
+    await db.delete(localAuthUsers).where(eq(localAuthUsers.id, id));
+    return { error: null };
   }
 };
 

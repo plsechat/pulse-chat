@@ -241,7 +241,7 @@ test.describe('invites and roles', () => {
     psql('core', `DELETE FROM roles WHERE name = 'New Role'`);
 
     await serverMenu(ownerPage, 'Server Settings');
-    await ownerPage.getByRole('tab', { name: 'Roles' }).click();
+    await ownerPage.getByRole('button', { name: 'Roles', exact: true }).click();
 
     // The Plus in the Roles card header creates a role immediately ("New
     // Role"). Scope to the card header — a bare plus-icon filter also
@@ -290,8 +290,12 @@ test.describe('invites and roles', () => {
 
     // Clean up the role so reruns don't accumulate "New Role" leftovers.
     // The trash lives in the Edit Role card header (icon-only, no name).
+    // Scope to <main>: the settings SIDEBAR's Delete Server button also
+    // carries a trash icon and sits earlier in the DOM.
     await ownerPage
+      .locator('main')
       .locator('button:has(svg.lucide-trash-2)')
+      .filter({ visible: true })
       .first()
       .click();
     await ownerPage.getByRole('button', { name: 'Delete', exact: true }).click();

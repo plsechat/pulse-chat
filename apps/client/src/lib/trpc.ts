@@ -18,7 +18,8 @@ let intentionalClose = false;
 
 /** Whether a disconnect code means the user cannot reconnect. */
 const isNonRecoverable = (code: number) =>
-  code === DisconnectCode.BANNED;
+  code === DisconnectCode.BANNED ||
+  code === DisconnectCode.ACCOUNT_DELETED;
 
 const initializeTRPC = (host: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';

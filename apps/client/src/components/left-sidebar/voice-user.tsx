@@ -268,6 +268,15 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
         />
       )}
       <UserContextMenu userId={user.id}>
+        {/* Real DOM node for the ContextMenu trigger: asChild onto the
+            Popover component put the contextmenu handlers on a
+            non-DOM child, so right-click fell through to the CHANNEL
+            row's menu. display:contents keeps layout; stopPropagation
+            keeps the channel menu from also claiming the click. */}
+        <div
+          className="contents"
+          onContextMenu={(e) => e.stopPropagation()}
+        >
         {isOwnUser ? (
           row
         ) : (
@@ -311,6 +320,7 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
             </PopoverContent>
           </Popover>
         )}
+        </div>
       </UserContextMenu>
     </>
   );

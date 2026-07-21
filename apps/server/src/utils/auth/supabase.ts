@@ -190,6 +190,15 @@ const supabaseAuthBackend: AuthBackend = {
       },
       error: null
     };
+  },
+
+  async deleteUserById(id): Promise<{ error: AuthError | null }> {
+    const { error } = await (await getClient()).auth.admin.deleteUser(id);
+    // "not found" counts as success — deletion is idempotent.
+    if (error && !/not.?found/i.test(error.message)) {
+      return { error: mapError(error.message) };
+    }
+    return { error: null };
   }
 };
 

@@ -1,6 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import { registerUser, storageStateFor } from '../../helpers/api';
-import { disableAnimations, waitForAppReady } from '../../helpers/ui';
+import {
+  channelButton,
+  disableAnimations,
+  waitForAppReady
+} from '../../helpers/ui';
 
 /**
  * Full federation loop between two instances, mirroring the manual smoke
@@ -187,13 +191,12 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // the colliding numeric id) because the content key didn't change and
     // getTRPCClient fell back to the home client.
     //
+    // channelButton (text filter), not role+exact-name: an unread badge
+    // merges into the accessible name and breaks the exact match.
     // force: the federated channel rows carry aria-disabled (a dnd
     // reorder-permission marker, NOT a clickability gate) which Playwright
     // otherwise waits on forever.
-    await pageA
-      .getByRole('button', { name: 'General Text', exact: true })
-      .first()
-      .click({ force: true });
+    await channelButton(pageA, 'General Text').click({ force: true });
 
     const composerA = pageA.locator(
       '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
@@ -239,10 +242,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // Home General Text has no federation messages.
     await homeServer.click();
     await waitForAppReady(pageA);
-    await pageA
-      .getByRole('button', { name: 'General Text', exact: true })
-      .first()
-      .click();
+    await channelButton(pageA, 'General Text').click();
     await expect(
       pageA.getByText(SMOKE_MSG, { exact: true })
     ).toHaveCount(0);
@@ -356,8 +356,12 @@ test.describe.serial('federation: peer, join, message, DM', () => {
       .first()
       .click();
     await expect(
+      // Badge-immune variant of channelButton that keeps the disabled
+      // filter — aria-disabled marks the remote (non-reorderable) row,
+      // distinguishing it from the identically-named home channel.
       pageA
-        .getByRole('button', { name: 'General Text', exact: true, disabled: true })
+        .getByRole('button', { disabled: true })
+        .filter({ has: pageA.getByText('General Text', { exact: true }) })
         .first()
     ).toBeVisible({ timeout: 15_000 });
     await pageA

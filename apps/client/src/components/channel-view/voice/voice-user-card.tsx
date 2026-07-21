@@ -52,6 +52,11 @@ const VoiceUserCard = memo(
 
     return (
       <UserContextMenu userId={userId}>
+        {/* display:contents keeps layout intact while giving the
+            ContextMenu its OWN DOM node — asChild-merging it onto the
+            same node as the Popover trigger let the popover's props win
+            and right-click never opened the moderation menu. */}
+        <div className="contents">
         <UserPopover userId={userId}>
           <div
             className={cn(
@@ -132,6 +137,7 @@ const VoiceUserCard = memo(
             </div>
           </div>
         </UserPopover>
+        </div>
       </UserContextMenu>
     );
   }

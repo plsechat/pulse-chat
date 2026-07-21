@@ -128,6 +128,39 @@ export const updateVoiceUserState = (
     serverSliceActions.updateVoiceUserState({ userId, channelId, newState })
   );
 
+  // Moderation flags on OUR OWN state must mirror into ownVoiceState —
+  // voiceMap only feeds rosters/tiles, while the mic/deafen guards (and
+  // their "muted by a moderator" refusals) read ownVoiceState. Without
+  // the mirror the target never learns it was server-muted and the mic
+  // button runs split-brain against the SFU.
+  if (userId === ownUserIdSelector(state)) {
+    const mirror: Partial<TVoiceUserState> = {};
+    if (newState.serverMuted !== undefined) {
+      mirror.serverMuted = newState.serverMuted;
+    }
+    if (newState.serverDeafened !== undefined) {
+      mirror.serverDeafened = newState.serverDeafened;
+    }
+    if (Object.keys(mirror).length > 0) {
+      store.dispatch(serverSliceActions.updateOwnVoiceState(mirror));
+      // Full-state republishes re-deliver the flags on every toggle —
+      // toast only on actual transitions.
+      if (mirror.serverMuted && !prevVoiceState?.serverMuted) {
+        toast.warning('You have been muted by a moderator');
+      } else if (mirror.serverMuted === false && prevVoiceState?.serverMuted) {
+        toast.info('You have been unmuted by a moderator');
+      }
+      if (mirror.serverDeafened && !prevVoiceState?.serverDeafened) {
+        toast.warning('You have been deafened by a moderator');
+      } else if (
+        mirror.serverDeafened === false &&
+        prevVoiceState?.serverDeafened
+      ) {
+        toast.info('You have been undeafened by a moderator');
+      }
+    }
+  }
+
   // The server publishes the user's FULL voice state on every toggle (e.g. a
   // mute while sharing re-delivers sharingScreen: true), so notify only on
   // the actual false→true transition. Covers both server voice channels and

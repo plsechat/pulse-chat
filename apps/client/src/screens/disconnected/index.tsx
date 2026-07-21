@@ -33,6 +33,16 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
       };
     }
 
+    if (code === DisconnectCode.ACCOUNT_DELETED) {
+      return {
+        icon: <AlertCircle className="h-12 w-12 text-red-500" />,
+        iconBg: 'bg-red-500/10',
+        title: 'Account deleted',
+        message: 'This account has been permanently deleted.',
+        canReconnect: false
+      };
+    }
+
     return {
       icon: <WifiOff className="h-12 w-12 text-muted-foreground" />,
       iconBg: 'bg-muted',
