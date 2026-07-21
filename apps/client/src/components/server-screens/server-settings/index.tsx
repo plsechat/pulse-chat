@@ -21,13 +21,16 @@ import { Permission } from '@pulse/shared';
 import {
   Bot,
   ChevronLeft,
+  DoorOpen,
   Globe,
   IdCard,
+  Server,
   Settings2,
   Shield,
   Smile,
   Ticket,
   Trash2,
+  UserCog,
   Users as UsersIcon,
   Webhook
 } from 'lucide-react';
@@ -36,6 +39,9 @@ import type { TServerScreenBaseProps } from '../screens';
 import { AutoMod } from './automod';
 import { Emojis } from './emojis';
 import { Federation } from './federation';
+import { InstanceRegistration } from './instance-registration';
+import { InstanceServers } from './instance-servers';
+import { InstanceUsers } from './instance-users';
 import { General } from './general';
 import { Invites } from './invites';
 import { Nameplates } from './nameplates';
@@ -52,7 +58,10 @@ type Section =
   | 'nameplates'
   | 'webhooks'
   | 'automod'
-  | 'federation';
+  | 'federation'
+  | 'instance-users'
+  | 'instance-servers'
+  | 'instance-registration';
 
 type NavItem = {
   id: Section;
@@ -71,7 +80,10 @@ const SECTION_TITLES: Record<Section, string> = {
   nameplates: 'Nameplates',
   webhooks: 'Webhooks',
   automod: 'Auto-Mod',
-  federation: 'Federation'
+  federation: 'Federation',
+  'instance-users': 'All Accounts',
+  'instance-servers': 'All Servers',
+  'instance-registration': 'Registration'
 };
 
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
@@ -83,7 +95,12 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   nameplates: 'Upload nameplate art members can equip.',
   webhooks: 'Post messages from external services.',
   automod: 'Automatic moderation rules.',
-  federation: 'Peer this instance with others.'
+  federation: 'Peer this instance with others.',
+  'instance-users':
+    'Every account on this instance — ban, unban, or delete any of them.',
+  'instance-servers':
+    'Every server on this instance, its owner, and what it contains.',
+  'instance-registration': 'Who can create accounts on this instance.'
 };
 
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
@@ -95,7 +112,10 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   nameplates: Nameplates,
   webhooks: Webhooks,
   automod: AutoMod,
-  federation: Federation
+  federation: Federation,
+  'instance-users': InstanceUsers,
+  'instance-servers': InstanceServers,
+  'instance-registration': InstanceRegistration
 };
 
 type TServerSettingsProps = TServerScreenBaseProps;
@@ -182,13 +202,31 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
         ]
       },
       {
+        // The instance-administration area: everything in this group is
+        // the instance owner's alone (the operator who owns the first
+        // server), never a mere MANAGE_SETTINGS holder, and only on the
+        // home instance (not while viewing a federated server).
         heading: 'Instance',
         items: [
           {
-            // Instance-level federation — enabling federation and
-            // peering with other instances — belongs to the instance
-            // owner (the operator who owns the first server) alone,
-            // never a mere MANAGE_SETTINGS holder.
+            id: 'instance-users',
+            label: 'All Accounts',
+            icon: <UserCog className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-servers',
+            label: 'All Servers',
+            icon: <Server className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-registration',
+            label: 'Registration',
+            icon: <DoorOpen className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
             id: 'federation',
             label: 'Federation',
             icon: <Globe className="h-4 w-4" />,
