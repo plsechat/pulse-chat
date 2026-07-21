@@ -188,6 +188,13 @@ Pulse can authenticate against any standards-compliant OpenID Connect provider �
 
 Pulse doesn't terminate TLS. Put a reverse proxy in front — Caddy, Nginx, or Traefik all work. The [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md#set-up-https) has example configs for Caddy and Nginx.
 
+## Architecture
+
+Subsystem deep-dives for contributors live in [docs/](docs/):
+[federation wire protocol](docs/federation.md) ·
+[E2EE sender keys](docs/e2ee-sender-keys.md) ·
+[voice lifecycle](docs/voice.md)
+
 ## Built with
 
 [Bun](https://bun.sh) · [React](https://react.dev) · [tRPC](https://trpc.io) · [Drizzle ORM](https://orm.drizzle.team) · [Mediasoup](https://mediasoup.org) · [Tailwind CSS](https://tailwindcss.com) · [Signal Protocol](https://signal.org/docs/) · optional [Supabase](https://supabase.com)
