@@ -30,7 +30,19 @@ import { invariant } from '../utils/invariant';
 import { mediaSoupWorker } from '../utils/mediasoup';
 import { pubsub } from '../utils/pubsub';
 
-const voiceRuntimes = new Map<number, VoiceRuntime>();
+/**
+ * Server voice channels and DM calls draw ids from independent serial
+ * sequences (channels.id vs dmChannels.id), so a bare numeric key
+ * collides: a DM call could overwrite — or resolve to — a live server
+ * channel's runtime. Keys are therefore kind-qualified ("channel:5" /
+ * "dm:5") and every by-id lookup states which keyspace it means.
+ */
+type TVoiceKind = 'channel' | 'dm';
+
+const runtimeKey = (channelId: number, kind: TVoiceKind): string =>
+  `${kind}:${channelId}`;
+
+const voiceRuntimes = new Map<string, VoiceRuntime>();
 
 const defaultRouterOptions: RouterOptions<AppData> = {
   mediaCodecs: [
@@ -139,6 +151,9 @@ const logExternalStreamFanoutFailure = (err: unknown) => {
 class VoiceRuntime {
   public readonly id: number;
   public readonly isDmVoice: boolean;
+  public readonly kind: TVoiceKind;
+  /** Kind-qualified registry key — also the socket voice-session stamp. */
+  public readonly key: string;
   private state: TChannelState = { users: [], externalStreams: {} };
   private router?: Router<AppData>;
   private consumerTransports: TTransportMap = {};
@@ -166,11 +181,16 @@ class VoiceRuntime {
   constructor(channelId: number, isDmVoice = false) {
     this.id = channelId;
     this.isDmVoice = isDmVoice;
-    voiceRuntimes.set(channelId, this);
+    this.kind = isDmVoice ? 'dm' : 'channel';
+    this.key = runtimeKey(channelId, this.kind);
+    voiceRuntimes.set(this.key, this);
   }
 
-  public static findById = (channelId: number): VoiceRuntime | undefined => {
-    return voiceRuntimes.get(channelId);
+  public static findById = (
+    channelId: number,
+    kind: TVoiceKind = 'channel'
+  ): VoiceRuntime | undefined => {
+    return voiceRuntimes.get(runtimeKey(channelId, kind));
   };
 
   /**
@@ -179,15 +199,35 @@ class VoiceRuntime {
    * across voice/dms/server/channel routes with a single call.
    */
   public static requireById = (
-    channelId: number | undefined
+    channelId: number | undefined,
+    kind: TVoiceKind = 'channel'
   ): VoiceRuntime => {
     const runtime =
-      channelId !== undefined ? voiceRuntimes.get(channelId) : undefined;
+      channelId !== undefined
+        ? voiceRuntimes.get(runtimeKey(channelId, kind))
+        : undefined;
     invariant(runtime, {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Voice runtime not found for this channel'
     });
     return runtime;
+  };
+
+  /**
+   * For the shared WebRTC plumbing (transports/produce/consume/state)
+   * that serves BOTH server voice and DM calls: derives the keyspace
+   * from the per-connection context. dms/voice-join sets
+   * currentDmVoiceChannelId and both leave routes clear it, so its
+   * presence IS the "this socket's session is a DM call" bit.
+   */
+  public static requireByCtx = (ctx: {
+    currentVoiceChannelId: number | undefined;
+    currentDmVoiceChannelId: number | undefined;
+  }): VoiceRuntime => {
+    return VoiceRuntime.requireById(
+      ctx.currentVoiceChannelId,
+      ctx.currentDmVoiceChannelId !== undefined ? 'dm' : 'channel'
+    );
   };
 
   public static getAll = (): VoiceRuntime[] => {
@@ -209,8 +249,13 @@ class VoiceRuntime {
   public static getVoiceMap = (channelIds?: Set<number>): TVoiceMap => {
     const map: TVoiceMap = {};
 
-    voiceRuntimes.forEach((runtime, channelId) => {
-      if (channelIds && !channelIds.has(channelId)) return;
+    voiceRuntimes.forEach((runtime) => {
+      // Server-channel scope only: these maps are keyed by numeric
+      // channel id, and DM call state travels via dms/get-active-calls.
+      // Without this a DM call whose id collides with a requested
+      // channel would leak its participants into the server roster.
+      if (runtime.isDmVoice) return;
+      if (channelIds && !channelIds.has(runtime.id)) return;
 
       const channelState = runtime.getState();
 
@@ -226,7 +271,7 @@ class VoiceRuntime {
         entry.users[user.userId] = user.state;
       });
 
-      map[channelId] = entry;
+      map[runtime.id] = entry;
     });
 
     return map;
@@ -237,10 +282,11 @@ class VoiceRuntime {
   ): TExternalStreamsMap => {
     const map: TExternalStreamsMap = {};
 
-    voiceRuntimes.forEach((runtime, channelId) => {
-      if (channelIds && !channelIds.has(channelId)) return;
+    voiceRuntimes.forEach((runtime) => {
+      if (runtime.isDmVoice) return;
+      if (channelIds && !channelIds.has(runtime.id)) return;
 
-      map[channelId] = runtime.getState().externalStreams;
+      map[runtime.id] = runtime.getState().externalStreams;
     });
 
     return map;
@@ -321,7 +367,7 @@ class VoiceRuntime {
       });
     });
 
-    voiceRuntimes.delete(this.id);
+    voiceRuntimes.delete(this.key);
 
     eventBus.emit('voice:runtime_closed', {
       channelId: this.id

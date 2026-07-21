@@ -141,7 +141,7 @@ const produceRoute = protectedProcedure
       }
     }
 
-    const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
+    const runtime = VoiceRuntime.requireByCtx(ctx);
 
     const producerTransport = runtime.getProducerTransport(ctx.user.id);
 

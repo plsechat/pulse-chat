@@ -39,7 +39,7 @@ const deleteChannelRoute = protectedProcedure
     }
 
     // Destroy any active voice runtime for this DM channel
-    const voiceRuntime = VoiceRuntime.findById(input.dmChannelId);
+    const voiceRuntime = VoiceRuntime.findById(input.dmChannelId, 'dm');
     if (voiceRuntime) {
       await voiceRuntime.destroy();
     }

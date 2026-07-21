@@ -1,4 +1,4 @@
-// The ws WebSocket augmentation (userId/token/voiceChannelId) lives in an
+// The ws WebSocket augmentation (userId/token/voiceKey) lives in an
 // ambient file the server tsconfig sweeps in, but programs that reach this
 // file from outside apps/server (packages/shared, plugin-sdk check-types)
 // don't — import it (type-only, erased at runtime) so the augmentation
@@ -401,19 +401,19 @@ const createContext = async ({
   };
 
   // Stamp voice-session ownership on the socket (see declarations.d.ts).
-  // Setting a channel clears the stamp on the user's OTHER sockets so a
+  // Setting a key clears the stamp on the user's OTHER sockets so a
   // zombie connection's delayed close can't tear down the session a
   // fresh connection just (re)joined.
-  const setWsVoiceChannelId = (channelId?: number) => {
+  const setWsVoiceKey = (key?: string) => {
     const ws = wsMapByToken.get(accessToken);
     if (!ws) return;
 
     if (ws.userId === undefined) ws.userId = decodedUser.id;
-    ws.voiceChannelId = channelId;
+    ws.voiceKey = key;
 
-    if (channelId !== undefined) {
+    if (key !== undefined) {
       for (const other of wsMapByUserId.get(ws.userId) ?? []) {
-        if (other !== ws) other.voiceChannelId = undefined;
+        if (other !== ws) other.voiceKey = undefined;
       }
     }
   };
@@ -488,7 +488,7 @@ const createContext = async ({
     getStatusById,
     setUserStatus,
     setWsUserId,
-    setWsVoiceChannelId,
+    setWsVoiceKey,
     getUserWs,
     getConnectionInfo,
     throwValidationError,
@@ -562,10 +562,10 @@ const createWsServer = async (server: http.Server) => {
         // must not leak the runtime entry). The ownership stamp keeps an
         // overlapping reconnect that already re-joined from being evicted
         // by the old socket's delayed close.
-        if (ws.userId !== undefined && ws.voiceChannelId !== undefined) {
+        if (ws.userId !== undefined && ws.voiceKey !== undefined) {
           try {
             const runtime = VoiceRuntime.findRuntimeByUserId(ws.userId);
-            if (runtime && runtime.id === ws.voiceChannelId) {
+            if (runtime && runtime.key === ws.voiceKey) {
               await removeUserFromVoice(ws.userId);
             }
           } catch (err) {
@@ -621,7 +621,7 @@ const createWsServer = async (server: http.Server) => {
         if (!user) return;
 
         // Safety net for sessions without an ownership stamp (e.g. a
-        // socket that lost voiceChannelId): the account's last connection
+        // socket that lost voiceKey): the account's last connection
         // is gone, so any remaining runtime entry is unreachable.
         try {
           await removeUserFromVoice(user.id);

@@ -13,9 +13,9 @@ const getActiveCallsRoute = protectedProcedure.query(async ({ ctx }) => {
   const activeCalls: TActiveDmCall[] = [];
 
   for (const channel of channels) {
-    const runtime = VoiceRuntime.findById(channel.id);
+    const runtime = VoiceRuntime.findById(channel.id, 'dm');
 
-    if (runtime && runtime.isDmVoice) {
+    if (runtime) {
       const state = runtime.getState();
 
       if (state.users.length > 0) {

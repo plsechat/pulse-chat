@@ -49,7 +49,7 @@ const dmVoiceJoinRoute = protectedProcedure
     }
 
     // Get or create a voice runtime for this DM channel
-    let runtime = VoiceRuntime.findById(input.dmChannelId);
+    let runtime = VoiceRuntime.findById(input.dmChannelId, 'dm');
     const isNewCall = !runtime;
 
     if (!runtime) {
@@ -66,7 +66,7 @@ const dmVoiceJoinRoute = protectedProcedure
 
     ctx.currentDmVoiceChannelId = input.dmChannelId;
     ctx.currentVoiceChannelId = input.dmChannelId;
-    ctx.setWsVoiceChannelId(input.dmChannelId);
+    ctx.setWsVoiceKey(runtime.key);
 
     const state = runtime.getUserState(ctx.user.id);
 

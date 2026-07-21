@@ -6,12 +6,14 @@ declare module 'ws' {
     token: string;
     federationToken?: string;
     /**
-     * Voice channel (or DM channel) whose runtime session THIS socket
-     * owns — stamped on voice join, cleared on leave. The close handler
-     * tears down voice for the owning socket only, so a second tab or an
-     * overlapping reconnect can't strand (or evict) a live session.
+     * VoiceRuntime.key ("channel:5" / "dm:5") of the runtime session
+     * THIS socket owns — stamped on voice join, cleared on leave. The
+     * close handler tears down voice for the owning socket only, so a
+     * second tab or an overlapping reconnect can't strand (or evict) a
+     * live session. Kind-qualified because server channels and DM
+     * channels draw ids from independent sequences.
      */
-    voiceChannelId?: number;
+    voiceKey?: string;
   }
 }
 
