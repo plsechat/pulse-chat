@@ -105,7 +105,19 @@ Common types:
 
 We care about confidence more than ceremony. Add tests when they provide real value.
 
-Tests run in GitHub Actions CI only (they require a PostgreSQL service container). You cannot run them locally.
+Tests need a PostgreSQL database. CI provides one automatically; locally, run a throwaway one — **never point `DATABASE_URL` at a real database**, the test setup truncates every table:
+
+```bash
+docker run -d --name pulse-test-pg -p 5433:5432 \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres \
+  postgres:16-alpine
+
+cd apps/server
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/postgres \
+  bun test src/routers/__tests__/users.test.ts
+```
+
+Note that `bun test` does not type-check — run `bun run check-types` and `bun run lint` from the repo root before pushing.
 
 ### Backend changes
 

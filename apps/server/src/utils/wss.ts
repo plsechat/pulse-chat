@@ -1,3 +1,9 @@
+// The ws WebSocket augmentation (userId/token/voiceChannelId) lives in an
+// ambient file the server tsconfig sweeps in, but programs that reach this
+// file from outside apps/server (packages/shared, plugin-sdk check-types)
+// don't — import it (type-only, erased at runtime) so the augmentation
+// travels with the import graph.
+import type {} from '../declarations';
 import {
   ActivityLogType,
   ChannelPermission,

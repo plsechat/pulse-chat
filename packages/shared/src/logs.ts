@@ -46,7 +46,7 @@ export enum ActivityLogType {
 }
 
 export type TActivityLogDetailsMap = {
-  [ActivityLogType.SERVER_STARTED]: {};
+  [ActivityLogType.SERVER_STARTED]: Record<string, never>;
   [ActivityLogType.EDIT_SERVER_SETTINGS]: {
     values: Partial<{
       [K in keyof TSettings]: any;
@@ -85,9 +85,9 @@ export type TActivityLogDetailsMap = {
   [ActivityLogType.USER_JOINED]: {
     inviteCode: string | undefined;
   };
-  [ActivityLogType.USER_LEFT]: {};
-  [ActivityLogType.USER_UPDATED_PASSWORD]: {};
-  [ActivityLogType.USER_DELETED_ACCOUNT]: {};
+  [ActivityLogType.USER_LEFT]: Record<string, never>;
+  [ActivityLogType.USER_UPDATED_PASSWORD]: Record<string, never>;
+  [ActivityLogType.USER_DELETED_ACCOUNT]: Record<string, never>;
   // -------------------- ROLES --------------------
   [ActivityLogType.CREATED_ROLE]: {
     roleId: number;

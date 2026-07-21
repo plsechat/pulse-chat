@@ -66,7 +66,8 @@ async function openFederationSettings(page: Page): Promise<void> {
   // Server Settings lives in the server-name header dropdown
   await page.getByText('Pulse Server', { exact: true }).first().click();
   await page.getByText('Server Settings', { exact: true }).click();
-  await page.getByRole('tab', { name: 'Federation' }).click();
+  // Sidebar nav items are buttons, not tabs (Server Settings sidebar layout).
+  await page.getByRole('button', { name: 'Federation', exact: true }).click();
 }
 
 /**
@@ -147,7 +148,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // Per-server switch under Server Settings → General (distinct from the
     // instance-level Federation enable). Without it, B's server never
     // appears in A's remote discovery.
-    await pageB.getByRole('tab', { name: 'General' }).click();
+    await pageB.getByRole('button', { name: 'General', exact: true }).click();
 
     // Anchor on the "Federatable" label, walk to the nearest ancestor row
     // that owns a switch, and toggle it.

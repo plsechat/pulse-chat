@@ -361,7 +361,6 @@ const createHttpServer = async (port: number = config.server.port) => {
 
     server.on('close', () => {
       logger.debug('HTTP server closed');
-      process.exit(0);
     });
 
     server.listen(port);

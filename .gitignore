@@ -5,7 +5,6 @@
 /DockerCenas
 /experiments
 .env
-bun.lock
 apps/desktop/dist/
 apps/desktop/out/
 apps/desktop/node_modules
