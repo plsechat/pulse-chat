@@ -7,17 +7,15 @@ import { getFederationInstanceById } from '../../db/queries/federation';
 import { federationInstances } from '../../db/schema';
 import { invalidateCorsCache } from '../../http/cors';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
-import { assertInstanceOwner } from './guard';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 
-const removeInstanceRoute = protectedProcedure
+const removeInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
       instanceId: z.number()
     })
   )
-  .mutation(async ({ ctx, input }) => {
-    await assertInstanceOwner(ctx.userId);
+  .mutation(async ({ input }) => {
 
     // Look up domain before deleting so we can include it in the event
     const instance = await getFederationInstanceById(input.instanceId);

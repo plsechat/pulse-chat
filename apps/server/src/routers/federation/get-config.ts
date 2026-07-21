@@ -1,10 +1,7 @@
 import { getFederationConfig } from '../../utils/federation';
-import { protectedProcedure } from '../../utils/trpc';
-import { assertInstanceOwner } from './guard';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 
-const getConfigRoute = protectedProcedure.query(async ({ ctx }) => {
-  await assertInstanceOwner(ctx.userId);
-
+const getConfigRoute = instanceOwnerProcedure.query(async () => {
   return getFederationConfig();
 });
 

@@ -242,6 +242,24 @@ describe('voice.moderateMember (server mute / deafen)', () => {
       await VoiceRuntime.findById(foreignChannel.id)?.destroy();
     }
   });
+
+  test('refused on a connection with no active server (serverProcedure gate)', async () => {
+    const { caller, ctx } = await initTest();
+    const target = await insertMemberUser();
+    const channel = await insertVoiceChannel();
+    stageUserInVoice(channel.id, target.id);
+
+    try {
+      // A connection that never joined a server (e.g. home/DM-only)
+      // must be refused by the builder before any permission logic.
+      ctx.activeServerId = undefined;
+      await expect(
+        caller.voice.moderateMember({ userId: target.id, serverMuted: true })
+      ).rejects.toThrow('No active server');
+    } finally {
+      await VoiceRuntime.findById(channel.id)?.destroy();
+    }
+  });
 });
 
 describe('voice.leave runtime fallback', () => {

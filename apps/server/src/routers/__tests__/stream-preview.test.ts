@@ -150,14 +150,16 @@ describe('voice.getStreamPreview', () => {
     runtime.setStreamPreview(1, validPreview);
 
     try {
-      // Caller's active server is 1 — the foreign channel is out of scope
+      // Caller's active server is 1 — the foreign channel is out of
+      // scope. channelProcedure reports it identically to a nonexistent
+      // channel (no cross-server existence oracle).
       const { caller } = await initTest(2);
       await expect(
         caller.voice.getStreamPreview({
           channelId: foreignChannel.id,
           userId: 1
         })
-      ).rejects.toThrow('Insufficient channel permissions');
+      ).rejects.toThrow('Channel not found');
     } finally {
       await VoiceRuntime.findById(foreignChannel.id)?.destroy();
     }
@@ -179,12 +181,15 @@ describe('voice.getStreamPreview', () => {
       const { caller: previewer } = await initTest(2);
       await previewer.servers.preview({ serverId: target.id });
 
+      // channelProcedure scopes to ACTIVE membership, so a preview
+      // session is refused as out-of-scope (same shape as nonexistent)
+      // before any preview-specific carve-out could apply.
       await expect(
         previewer.voice.getStreamPreview({
           channelId: voiceChannel.id,
           userId: 1
         })
-      ).rejects.toThrow('read-only');
+      ).rejects.toThrow('Channel not found');
     } finally {
       await VoiceRuntime.findById(voiceChannel.id)?.destroy();
     }

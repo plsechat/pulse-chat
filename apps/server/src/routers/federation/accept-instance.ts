@@ -4,23 +4,21 @@ import z from 'zod';
 import { db } from '../../db';
 import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 import { signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
 import { getFederationProtocol } from '../../utils/validate-url';
 import { pubsub } from '../../utils/pubsub';
 import { invalidateCorsCache } from '../../http/cors';
 import { logger } from '../../logger';
-import { assertInstanceOwner } from './guard';
 
-const acceptInstanceRoute = protectedProcedure
+const acceptInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
       instanceId: z.number()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await assertInstanceOwner(ctx.userId);
 
     const [instance] = await db
       .select()

@@ -1,13 +1,11 @@
 import { listFederationInstances } from '../../db/queries/federation';
-import { protectedProcedure } from '../../utils/trpc';
-import { assertInstanceOwner } from './guard';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 
-const listInstancesRoute = protectedProcedure.query(async ({ ctx }) => {
+const listInstancesRoute = instanceOwnerProcedure.query(async () => {
   // Federation peer membership is operator-sensitive: revealing which
   // peers we federate with (and their pending/blocked state) is the
   // kind of metadata an attacker uses to map federation topology.
   // Only the instance owner may read it.
-  await assertInstanceOwner(ctx.userId);
 
   const instances = await listFederationInstances();
 
