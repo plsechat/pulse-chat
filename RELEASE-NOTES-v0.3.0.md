@@ -17,6 +17,7 @@ A new owner-only admin area under Server Settings → Instance (home instance on
 - **All Accounts.** Every account on the instance, searchable, with instance-wide ban / unban and operator-forced deletion.
 - **All Servers.** A directory of every server, its owner, and what it contains — with operator delete (the bootstrap server is protected, since instance ownership anchors on it).
 - **Registration controls.** Toggle open registration and see the enabled sign-in methods.
+- **Screen Sharing.** Set an instance-wide ceiling on screen-share resolution and framerate.
 - **Review Queue.** The reports surface (see below).
 - **Health.** Server and Bun versions, uptime, live WebSocket/voice occupancy, federation peers, and database/content/storage totals — plus **time-series graphs** for CPU (system and process), memory, network throughput, event-loop lag, and connections, sampled in-process every 15 seconds.
 - **Activity Log.** The instance-wide audit trail with an event-type filter.
@@ -37,6 +38,11 @@ A new owner-only admin area under Server Settings → Instance (home instance on
 ### Message forwarding
 
 - Forward any message to channels or DMs. The forwarded copy is a **verbatim, non-editable** 1:1 of the original, and its **"Forwarded from" attribution is set by the server** from the source message — it can't be edited or faked. Works across channels, DMs, and federation (E2EE destinations excluded).
+
+### Screen-share quality controls
+
+- The instance operator sets a **global maximum resolution and framerate** for screen sharing (Server Settings → Instance → Screen Sharing). Members can pick any quality **at or below** the cap — the Stream Quality menu now spans the full ladder up to it, instead of just 720p/1080p — and the client clamps its capture to the ceiling.
+- The screen-share hover controls (change source, fullscreen, stop) are **larger**, with proper touch targets.
 
 ### Sound & settings
 
@@ -60,11 +66,12 @@ A new owner-only admin area under Server Settings → Instance (home instance on
 - The "(edited)" tag stays small on emoji-only messages.
 - The non-friend DM banner respects a friend request already in flight — it stops nagging you to re-send, and when the other person requested *you*, Accept now accepts their request.
 - Voice rooms for a DM and a server channel that happen to share a numeric id no longer collide.
+- Opening **Voice Settings** from the microphone menu now lands on the Voice & Video tab instead of My Account.
 - Fix round: a CI race fixed at the source, an E2EE edit path, stale DM display cosmetics, single-line code fences, fullscreen portal rendering, and preview-first register-with-invite.
 
 ## Under the hood
 
-- New tables/columns via idempotent migrations: `reports` (0026), `users.deleted_at` (0025), `messages`/`dm_messages` `forwarded_from_*` (0027). Schema changes apply automatically on boot.
+- New tables/columns via idempotent migrations: `reports` (0026), `users.deleted_at` (0025), `messages`/`dm_messages` `forwarded_from_*` (0027), `settings` screen-share caps (0028). Schema changes apply automatically on boot.
 - **Chat UI unified.** The channel and DM message stacks now share one implementation under `chat-primitives` — message body, inline editor, scroll controller, reactions, typing indicator, and more — so chat fixes land once instead of twice.
 - New `VIEW_REPORTS` permission; an in-process metrics sampler and log ring back the Health and Logs panels.
 - Architecture deep-dives added under `docs/` (federation protocol, E2EE sender keys, voice).
