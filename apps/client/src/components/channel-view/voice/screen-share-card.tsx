@@ -81,6 +81,11 @@ type TQuickBarProps = {
   children?: React.ReactNode;
 };
 
+// Enlarged, padded, hover-highlighted hit target for the QuickBar. The
+// bare-glyph default (size-4, no padding) was too small to click on a
+// video overlay — this gives a ~40px circular target with a hover ring.
+const QUICK_BTN = 'rounded-full p-2 hover:bg-white/15';
+
 /**
  * Bottom-center hover pill hosting the tile's quick actions. Mirrors
  * CardControls' propagation stops so the buttons never feed the
@@ -92,7 +97,7 @@ const QuickBar = memo(({ children }: TQuickBarProps) => {
       className={cn(
         'absolute bottom-2 left-1/2 -translate-x-1/2 z-20',
         'opacity-0 group-hover:opacity-100 transition-opacity',
-        'flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm px-2.5 py-1.5',
+        'flex items-center gap-1 rounded-full bg-black/60 backdrop-blur-sm px-1.5 py-1',
         'pointer-events-auto cursor-default'
       )}
       onMouseDown={(e) => e.stopPropagation()}
@@ -317,12 +322,11 @@ const ScreenShareCard = memo(
                           ? 'Unmute Stream Audio'
                           : 'Mute Stream Audio'
                       }
-                      className={
-                        screenAudioMuted
-                          ? 'text-red-400 hover:text-red-300'
-                          : ''
-                      }
-                      size="sm"
+                      className={cn(
+                        QUICK_BTN,
+                        screenAudioMuted && 'text-red-400 hover:text-red-300'
+                      )}
+                      size="lg"
                     />
                   )}
                   <IconButton
@@ -331,7 +335,8 @@ const ScreenShareCard = memo(
                     onClick={changeScreenShare}
                     title="Change Source"
                     aria-label="Change Source"
-                    size="sm"
+                    className={QUICK_BTN}
+                    size="lg"
                   />
                   <IconButton
                     variant="ghost"
@@ -339,7 +344,8 @@ const ScreenShareCard = memo(
                     onClick={toggleFullscreen}
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    size="sm"
+                    className={QUICK_BTN}
+                    size="lg"
                   />
                   <IconButton
                     variant="ghost"
@@ -347,8 +353,8 @@ const ScreenShareCard = memo(
                     onClick={toggleScreenShare}
                     title="Stop Streaming"
                     aria-label="Stop Streaming"
-                    className="text-red-400 hover:text-red-300"
-                    size="sm"
+                    className={cn(QUICK_BTN, 'text-red-400 hover:text-red-300')}
+                    size="lg"
                   />
                 </>
               ) : (
@@ -359,6 +365,8 @@ const ScreenShareCard = memo(
                       label="Stream Volume"
                       muteLabel="Mute Stream Audio"
                       unmuteLabel="Unmute Stream Audio"
+                      size="lg"
+                      className={QUICK_BTN}
                     />
                   )}
                   <IconButton
@@ -367,7 +375,8 @@ const ScreenShareCard = memo(
                     onClick={toggleFullscreen}
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    size="sm"
+                    className={QUICK_BTN}
+                    size="lg"
                   />
                 </>
               )}

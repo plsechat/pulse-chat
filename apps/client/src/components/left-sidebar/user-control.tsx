@@ -143,7 +143,9 @@ const UserControl = memo(() => {
   );
 
   const openVoiceSettings = useCallback(() => {
-    openServerScreen(ServerScreen.USER_SETTINGS);
+    // Land on the Voice & Video section (id 'devices'), not the default
+    // My Account tab — this menu item is a shortcut into voice settings.
+    openServerScreen(ServerScreen.USER_SETTINGS, { initialSection: 'devices' });
   }, []);
 
   if (!ownPublicUser) return null;
