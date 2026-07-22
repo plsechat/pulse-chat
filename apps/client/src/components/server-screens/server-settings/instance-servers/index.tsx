@@ -1,7 +1,11 @@
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { requestConfirmation } from '@/features/dialogs/actions';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 type TAdminServerRow = {
   id: number;
@@ -62,6 +66,32 @@ const InstanceServers = () => {
   useEffect(() => {
     fetchServers();
   }, [fetchServers]);
+
+  // The lowest id is the bootstrap server — instance administration
+  // anchors on it and the server refuses to delete it, so don't offer.
+  const bootstrapId = rows.length
+    ? Math.min(...rows.map((r) => r.id))
+    : null;
+
+  const removeServer = async (server: TAdminServerRow) => {
+    const confirmed = await requestConfirmation({
+      title: `Delete "${server.name}"?`,
+      message: `Every channel, message, role, and membership in it is removed for its ${server.memberCount} member${server.memberCount === 1 ? '' : 's'}. This cannot be undone. Server ID: ${server.publicId.slice(0, 12)}.`,
+      confirmLabel: 'Delete server',
+      cancelLabel: 'Cancel'
+    });
+    if (!confirmed) return;
+
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+    try {
+      await trpc.admin.deleteServer.mutate({ serverId: server.id });
+      toast.success(`Deleted "${server.name}"`);
+      await fetchServers();
+    } catch (error) {
+      toast.error(getTrpcError(error, 'Could not delete the server'));
+    }
+  };
 
   const toggle = async (serverId: number) => {
     if (openId === serverId) {
@@ -154,9 +184,22 @@ const InstanceServers = () => {
                       </div>
                     )}
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {server.publicId} · registration{' '}
-                    {server.allowNewUsers ? 'open' : 'closed'}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {server.publicId} · registration{' '}
+                      {server.allowNewUsers ? 'open' : 'closed'}
+                    </span>
+                    {server.id !== bootstrapId && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="ml-auto"
+                        onClick={() => removeServer(server)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete server
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}

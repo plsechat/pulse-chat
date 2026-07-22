@@ -16,6 +16,7 @@ export enum ActivityLogType {
   USER_REPORTED = "USER_REPORTED",
   REPORT_RESOLVED = "REPORT_RESOLVED",
   REPORT_ESCALATED = "REPORT_ESCALATED",
+  SERVER_DELETED = "SERVER_DELETED",
   USER_ROLE_ASSIGNED = "USER_ROLE_ASSIGNED",
   USER_ROLE_REMOVED = "USER_ROLE_REMOVED",
   USER_NICKNAME_SET = "USER_NICKNAME_SET",
@@ -106,6 +107,12 @@ export type TActivityLogDetailsMap = {
     reportId: number;
     reason: string;
     escalatedBy: number | null;
+  };
+  [ActivityLogType.SERVER_DELETED]: {
+    serverId: number;
+    serverName: string;
+    serverPublicId: string;
+    deletedBy: number;
   };
   // -------------------- ROLES --------------------
   [ActivityLogType.CREATED_ROLE]: {

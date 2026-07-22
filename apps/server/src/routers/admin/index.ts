@@ -1,5 +1,6 @@
 import { t } from '../../utils/trpc';
 import { banUserRoute } from './ban-user';
+import { deleteServerAdminRoute } from './delete-server';
 import { deleteUserRoute } from './delete-user';
 import { getActivityLogRoute } from './get-activity-log';
 import { getHealthRoute } from './get-health';
@@ -27,6 +28,7 @@ const adminRouter = t.router({
   banUser: banUserRoute,
   unbanUser: unbanUserRoute,
   deleteUser: deleteUserRoute,
+  deleteServer: deleteServerAdminRoute,
   getRegistration: getRegistrationRoute,
   setRegistration: setRegistrationRoute,
   listReports: listReportsRoute,

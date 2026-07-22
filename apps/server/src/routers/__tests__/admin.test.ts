@@ -78,6 +78,58 @@ describe('admin router', () => {
     await expect(caller.admin.getMetrics({})).rejects.toThrow(
       'Only the instance owner'
     );
+    await expect(caller.admin.deleteServer({ serverId: 1 })).rejects.toThrow(
+      'Only the instance owner'
+    );
+  });
+
+  test('deleteServer removes a server but never the bootstrap server', async () => {
+    const { caller } = await initTest();
+
+    const suffix = randomUUIDv7();
+    const [doomed] = await db
+      .insert(servers)
+      .values({
+        name: `Doomed-${suffix.slice(0, 8)}`,
+        publicId: `doomed-${suffix}`,
+        ownerId: 2,
+        allowNewUsers: true,
+        storageUploadEnabled: true,
+        storageQuota: STORAGE_QUOTA,
+        storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+        storageSpaceQuotaByUser: STORAGE_MIN_QUOTA_PER_USER,
+        storageOverflowAction: STORAGE_OVERFLOW_ACTION,
+        enablePlugins: false,
+        createdAt: Date.now()
+      })
+      .returning();
+    await db.insert(serverMembers).values({
+      userId: 2,
+      serverId: doomed!.id,
+      nickname: null,
+      joinedAt: Date.now()
+    });
+
+    await caller.admin.deleteServer({ serverId: doomed!.id });
+
+    const [gone] = await db
+      .select({ id: servers.id })
+      .from(servers)
+      .where(eq(servers.id, doomed!.id));
+    expect(gone).toBeUndefined();
+    const [membership] = await db
+      .select()
+      .from(serverMembers)
+      .where(eq(serverMembers.serverId, doomed!.id));
+    expect(membership).toBeUndefined();
+
+    // The bootstrap server anchors instance administration.
+    await expect(caller.admin.deleteServer({ serverId: 1 })).rejects.toThrow(
+      'cannot be deleted'
+    );
+    await expect(
+      caller.admin.deleteServer({ serverId: doomed!.id })
+    ).rejects.toThrow('Server not found');
   });
 
   test('getMetrics serves the sampler ring', async () => {
