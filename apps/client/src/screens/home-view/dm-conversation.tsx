@@ -12,6 +12,7 @@ import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
+import { TypingIndicator } from '@/components/chat-primitives/typing-indicator';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
@@ -24,7 +25,6 @@ import {
 import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
-import { TypingDots } from '@/components/typing-dots';
 import Spinner from '@/components/ui/spinner';
 import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
@@ -72,8 +72,8 @@ import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
 import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { serializer } from '@/components/chat-primitives/serializer';
 import parse from 'html-react-parser';
-import { dateTime, fullDateTime, longDateTime, timeOnly } from '@/helpers/time-format';
-import { format, isToday, isYesterday } from 'date-fns';
+import { fullDateTime, groupTimestamp, longDateTime } from '@/helpers/time-format';
+import { format } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
@@ -666,46 +666,14 @@ const DmConversation = memo(
 
 const DmUsersTyping = memo(({ dmChannelId }: { dmChannelId: number }) => {
   const typingUserIds = useDmTypingUsers(dmChannelId);
-
-  if (typingUserIds.length === 0) {
-    return <div className="h-6" />;
-  }
-
-  return (
-    <div className="flex h-6 items-center gap-2 px-4 text-xs text-muted-foreground">
-      <TypingDots />
-      <DmTypingNames userIds={typingUserIds} />
-    </div>
+  // Only the first two are ever named; resolve just those (home-space).
+  const user0 = useHomeUserById(typingUserIds[0] ?? 0);
+  const user1 = useHomeUserById(typingUserIds[1] ?? 0);
+  const names = [user0?.name, user1?.name].filter(
+    (n): n is string => !!n
   );
-});
 
-const DmTypingNames = memo(({ userIds }: { userIds: number[] }) => {
-  const user0 = useHomeUserById(userIds[0]);
-  const user1 = useHomeUserById(userIds[1] ?? 0);
-
-  if (userIds.length === 1) {
-    return (
-      <span>
-        <strong>{user0?.name ?? 'Someone'}</strong> is typing...
-      </span>
-    );
-  }
-
-  if (userIds.length === 2) {
-    return (
-      <span>
-        <strong>{user0?.name ?? 'Someone'}</strong> and{' '}
-        <strong>{user1?.name ?? 'someone'}</strong> are typing...
-      </span>
-    );
-  }
-
-  return (
-    <span>
-      <strong>{user0?.name ?? 'Someone'}</strong> and {userIds.length - 1}{' '}
-      others are typing...
-    </span>
-  );
+  return <TypingIndicator names={names} total={typingUserIds.length} />;
 });
 
 const DmHeader = memo(({
@@ -1022,11 +990,7 @@ const DmMessagesGroup = memo(
 
     if (!user) return null;
 
-    const timeStr = isToday(date)
-      ? `Today at ${format(date, timeOnly())}`
-      : isYesterday(date)
-        ? `Yesterday at ${format(date, timeOnly())}`
-        : format(date, dateTime());
+    const timeStr = groupTimestamp(date);
 
     // DMs are a HOME surface — styled names render here (server chat
     // keeps role colors authoritative instead).

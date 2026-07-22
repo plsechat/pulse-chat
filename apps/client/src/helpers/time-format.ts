@@ -1,3 +1,4 @@
+import { format, isToday, isYesterday } from 'date-fns';
 import { getTimeFormat } from '@/hooks/use-appearance-settings';
 
 const is24h = () => getTimeFormat() === '24h';
@@ -16,3 +17,15 @@ export const fullDateTime = () => (is24h() ? 'PPP HH:mm' : 'PPpp');
 
 /** Date + time (tables): "January 15, 2025 3:45 PM" / "January 15, 2025 15:45" */
 export const datePlusTime = () => (is24h() ? 'PPP HH:mm' : 'PPP p');
+
+/**
+ * Message-group header timestamp: "Today at 3:45 PM" / "Yesterday at
+ * …" / "01/15/2025 3:45 PM". Shared verbatim by the channel and DM
+ * group headers.
+ */
+export const groupTimestamp = (date: Date): string =>
+  isToday(date)
+    ? `Today at ${format(date, timeOnly())}`
+    : isYesterday(date)
+      ? `Yesterday at ${format(date, timeOnly())}`
+      : format(date, dateTime());
