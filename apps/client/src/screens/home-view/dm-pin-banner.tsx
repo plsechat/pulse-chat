@@ -1,7 +1,7 @@
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
 import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
 import { decryptDmMessages } from '@/features/dms/actions';
-import { useUserById } from '@/features/server/users/hooks';
+import { useHomeUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
@@ -53,7 +53,9 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
     });
   }, [dmChannelId, fetchLatest]);
 
-  const author = useUserById(latest?.userId ?? -1);
+  // DM authors are HOME-space ids — ambient lookup reads the wrong
+  // roster while a federated server is active.
+  const author = useHomeUserById(latest?.userId ?? -1);
 
   // DM messages can be either tiptap-style HTML (legacy) or token JSON.
   // Mirror DmPinnedMessageItem's approach: parse + serializer for

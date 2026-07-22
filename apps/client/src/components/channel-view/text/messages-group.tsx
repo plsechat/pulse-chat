@@ -15,7 +15,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { memo } from 'react';
 import { Tooltip } from '../../ui/tooltip';
 import { Message } from './message';
-import { MessageErrorBoundary } from './message-error-boundary';
+import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 
 type TMessagesGroupProps = {
   group: TJoinedMessage[];

@@ -30,13 +30,13 @@ import { NewMessagesDivider } from '@/components/chat-primitives/new-messages-di
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import { ReplyContentPreview } from './reply-content-preview';
-import { FormattingHints } from './formatting-hints';
+import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
+import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
 import {
   ComposerExpandToggle,
   ComposerResizer,
   MIN_COMPOSER_HEIGHT
-} from './composer-expand';
+} from '@/components/chat-primitives/composer-expand';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import {
   messageHasCodeBlock,
@@ -46,7 +46,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
 import { cn } from '@/lib/utils';
-import { FileCard } from './file-card';
+import { FileCard } from '@/components/chat-primitives/file-card';
 import { MessagesGroup } from './messages-group';
 import { SystemMessage } from './system-message';
 import { TextSkeleton } from './text-skeleton';

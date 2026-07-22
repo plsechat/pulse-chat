@@ -1,12 +1,12 @@
 import { E2EEStatusBadge } from '@/components/e2ee-status-badge';
 import { ReportDialog } from '@/components/report-dialog';
-import { FileCard } from '@/components/channel-view/text/file-card';
-import { FormattingHints } from '@/components/channel-view/text/formatting-hints';
+import { FileCard } from '@/components/chat-primitives/file-card';
+import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
 import {
   ComposerExpandToggle,
   ComposerResizer,
   MIN_COMPOSER_HEIGHT
-} from '@/components/channel-view/text/composer-expand';
+} from '@/components/chat-primitives/composer-expand';
 import { DateDivider } from '@/components/chat-primitives/date-divider';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
@@ -18,7 +18,7 @@ import {
   PopoverAnchor,
   PopoverContent
 } from '@/components/ui/popover';
-import { MessageReactions } from '@/components/channel-view/text/message-reactions';
+import { MessageReactions } from '@/components/chat-primitives/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
@@ -59,18 +59,18 @@ import {
   TYPING_MS,
   videoExtensions
 } from '@pulse/shared';
-import { AudioPlayer } from '@/components/channel-view/text/overrides/audio-player';
-import { ImageOverride } from '@/components/channel-view/text/overrides/image';
-import { ImageContextMenu } from '@/components/channel-view/text/image-context-menu';
-import { LinkPreview } from '@/components/channel-view/text/overrides/link-preview';
-import { VideoPlayer } from '@/components/channel-view/text/overrides/video-player';
+import { AudioPlayer } from '@/components/chat-primitives/overrides/audio-player';
+import { ImageOverride } from '@/components/chat-primitives/overrides/image';
+import { ImageContextMenu } from '@/components/chat-primitives/image-context-menu';
+import { LinkPreview } from '@/components/chat-primitives/overrides/link-preview';
+import { VideoPlayer } from '@/components/chat-primitives/overrides/video-player';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import {
   messageHasCodeBlock,
   uploadOversizedMessage,
   type TOversizedUpload
 } from '@/helpers/oversized-message';
-import { ReplyContentPreview } from '@/components/channel-view/text/reply-content-preview';
+import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';

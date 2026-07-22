@@ -1,11 +1,11 @@
 import { imageExtensions, parseDomCommand } from '@pulse/shared';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { Element, Text, type DOMNode } from 'html-react-parser';
-import { CodeBlockOverride } from '../overrides/code-block';
+import { CodeBlockOverride } from '@/components/chat-primitives/overrides/code-block';
 import { CommandOverride } from '../overrides/command';
 import { ChannelMention, MentionOverride } from '../overrides/mention';
-import { TwitterOverride } from '../overrides/twitter';
-import { YoutubeOverride } from '../overrides/youtube';
+import { TwitterOverride } from '@/components/chat-primitives/overrides/twitter';
+import { YoutubeOverride } from '@/components/chat-primitives/overrides/youtube';
 import type { TFoundMedia } from './types';
 
 // Build a lookup map for fast emoji name → unicode resolution

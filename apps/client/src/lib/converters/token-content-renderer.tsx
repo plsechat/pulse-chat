@@ -19,15 +19,15 @@
 import { imageExtensions } from '@pulse/shared';
 import type { ReactNode } from 'react';
 import { Fragment, memo, useMemo } from 'react';
-import { CodeBlockOverride } from '@/components/channel-view/text/overrides/code-block';
+import { CodeBlockOverride } from '@/components/chat-primitives/overrides/code-block';
 import {
   ChannelMention,
   ForumPostLink,
   MentionOverride,
   MessageLink
 } from '@/components/channel-view/text/overrides/mention';
-import { TwitterOverride } from '@/components/channel-view/text/overrides/twitter';
-import { YoutubeOverride } from '@/components/channel-view/text/overrides/youtube';
+import { TwitterOverride } from '@/components/chat-primitives/overrides/twitter';
+import { YoutubeOverride } from '@/components/chat-primitives/overrides/youtube';
 import { CustomEmoji } from './custom-emoji';
 import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 
