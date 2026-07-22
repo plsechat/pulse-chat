@@ -173,7 +173,14 @@ const ChatMessageBody = memo(({
 
     let isEmojiOnly = false;
     if (message.files.length === 0) {
-      const textOnly = sanitized.replace(/<[^>]*>/g, '').trim();
+      // Plain text via the DOM, not a tag-stripping regex: `sanitized` is
+      // already DOMPurify output, and reading textContent decodes entities
+      // correctly and sidesteps CodeQL's incomplete-sanitization query (a
+      // `<[^>]*>` strip can leave a stray `<script` on malformed input).
+      const textOnly = (
+        new DOMParser().parseFromString(sanitized, 'text/html').body
+          .textContent ?? ''
+      ).trim();
       const emojiRegex = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu;
       const emojiMatches = textOnly.match(emojiRegex);
       const strippedOfEmoji = textOnly
