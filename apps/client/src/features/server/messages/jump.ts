@@ -1,6 +1,7 @@
 import { setActiveView } from '@/features/app/actions';
 import { store } from '@/features/store';
 import { toast } from 'sonner';
+import { emitAppEvent } from '@/lib/events';
 import {
   setHighlightedMessageId,
   setSelectedChannelId
@@ -18,7 +19,6 @@ import {
  * needed; `finishJump` then scrolls + flashes once the row exists.
  */
 
-const JUMP_EVENT = 'pulse:jump-to-message';
 
 type TPendingJump = { channelId: number; messageId: number };
 
@@ -98,7 +98,5 @@ export const jumpToMessage = (channelId: number, messageId: number): void => {
     finishJump(channelId, messageId);
     return;
   }
-  window.dispatchEvent(new CustomEvent(JUMP_EVENT));
+  emitAppEvent('jump-to-message');
 };
-
-export { JUMP_EVENT };

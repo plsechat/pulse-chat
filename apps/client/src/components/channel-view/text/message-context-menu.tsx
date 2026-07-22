@@ -209,7 +209,7 @@ const MessageContextMenu = memo(
             </ContextMenuItem>
           )}
           {!previewMode && messageContent && (
-            <ContextMenuItem onClick={() => dispatchForwardMessage(messageContent)}>
+            <ContextMenuItem onClick={() => dispatchForwardMessage(messageContent, 'channel', messageId)}>
               <Forward className="h-4 w-4" />
               Forward
             </ContextMenuItem>

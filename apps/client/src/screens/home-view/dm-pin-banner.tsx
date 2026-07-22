@@ -7,6 +7,7 @@ import { getHomeTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
 import parse from 'html-react-parser';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { onAppEvent } from '@/lib/events';
 
 /**
  * DM equivalent of the channel `PinBanner`. Owns the DM data flow
@@ -45,15 +46,11 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
   }, [fetchLatest]);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.dmChannelId === dmChannelId) {
+    return onAppEvent('dm-pinned-messages-changed', (payload) => {
+      if (payload.dmChannelId === dmChannelId) {
         fetchLatest();
       }
-    };
-    window.addEventListener('dm-pinned-messages-changed', handler);
-    return () =>
-      window.removeEventListener('dm-pinned-messages-changed', handler);
+    });
   }, [dmChannelId, fetchLatest]);
 
   const author = useUserById(latest?.userId ?? -1);

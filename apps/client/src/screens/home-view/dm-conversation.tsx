@@ -10,6 +10,7 @@ import {
 import { DateDivider } from '@/components/chat-primitives/date-divider';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
+import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import { EmojiPickerPanel } from '@/components/emoji-picker';
 import {
@@ -86,7 +87,7 @@ import { dateTime, fullDateTime, longDateTime, timeOnly } from '@/helpers/time-f
 import { format, isToday, isYesterday } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Copy, Flag, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Copy, Flag, Forward, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -105,6 +106,7 @@ import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
 import { useVoice } from '@/features/server/voice/hooks';
 import { SystemMessage } from '@/components/channel-view/text/system-message';
 import { DmSearchPopover } from './dm-search-popover';
+import { dispatchForwardMessage, onAppEvent } from '@/lib/events';
 
 type TDmConversationProps = {
   dmChannelId: number;
@@ -928,14 +930,11 @@ const DmPinnedMessagesPanel = memo(
 
     // Refetch when DM message updates arrive (pin/unpin)
     useEffect(() => {
-      const handler = (e: Event) => {
-        const detail = (e as CustomEvent).detail;
-        if (detail?.dmChannelId === dmChannelId) {
+      return onAppEvent('dm-pinned-messages-changed', (payload) => {
+        if (payload.dmChannelId === dmChannelId) {
           fetchPinned();
         }
-      };
-      window.addEventListener('dm-pinned-messages-changed', handler);
-      return () => window.removeEventListener('dm-pinned-messages-changed', handler);
+      });
     }, [dmChannelId, fetchPinned]);
 
     const onUnpin = useCallback(async (dmMessageId: number) => {
@@ -1147,6 +1146,9 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   const [reportOpen, setReportOpen] = useState(false);
   const ownUserId = useHomeOwnUserId();
   const isOwnMessage = message.userId === ownUserId;
+  // Forwarded messages are verbatim copies — never editable, even by
+  // the forwarder who authored the copy.
+  const canEditMessage = isOwnMessage && !message.forwardedFromUserId;
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirmation({
@@ -1256,6 +1258,10 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
       <ContextMenuTrigger asChild>
     <PopoverAnchor asChild>
     <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 relative -mx-2 px-2 py-0.5 rounded-md hover:bg-accent/50 transition-colors duration-100 group">
+      <ForwardedFromHeader
+        forwardedFromUserId={message.forwardedFromUserId}
+        forwardedFromName={message.forwardedFromName}
+      />
       {message.replyTo && (
         <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToDmMessage} />
       )}
@@ -1273,7 +1279,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           <MessageActions
             pinned={message.pinned ?? false}
             editable
-            canEdit={isOwnMessage}
+            canEdit={canEditMessage}
             canDelete={isOwnMessage}
             canPin
             canReact
@@ -1307,7 +1313,7 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           <Reply className="h-4 w-4" />
           Reply
         </ContextMenuItem>
-        {isOwnMessage && (
+        {canEditMessage && (
           <ContextMenuItem onClick={() => setIsEditing(true)}>
             <Pencil className="h-4 w-4" />
             Edit Message
@@ -1326,6 +1332,16 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           <Copy className="h-4 w-4" />
           Copy Text
         </ContextMenuItem>
+        {message.content && (
+          <ContextMenuItem
+            onClick={() =>
+              dispatchForwardMessage(message.content, 'dm', message.id)
+            }
+          >
+            <Forward className="h-4 w-4" />
+            Forward
+          </ContextMenuItem>
+        )}
         {!isOwnMessage && (
           <ContextMenuItem onClick={() => setReportOpen(true)}>
             <Flag className="h-4 w-4" />

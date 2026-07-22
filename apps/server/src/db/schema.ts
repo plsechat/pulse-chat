@@ -366,6 +366,18 @@ const messages = pgTable(
     type: text('type').notNull().default('user'),
     mentionedUserIds: jsonb('mentioned_user_ids').$type<number[]>(),
     mentionsAll: boolean('mentions_all').default(false),
+    /**
+     * Immutable forward attribution, SERVER-derived from the source
+     * message at send time (never client-claimed) and never touched by
+     * the edit route. The name is a snapshot so attribution survives
+     * the author's deletion (FK goes null) and federated shadow-user
+     * renames.
+     */
+    forwardedFromUserId: integer('forwarded_from_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' }
+    ),
+    forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -790,6 +802,12 @@ const dmMessages = pgTable(
     }),
     edited: boolean('edited').notNull().default(false),
     type: text('type').notNull().default('user'),
+    /** Same immutable forward attribution as messages (see there). */
+    forwardedFromUserId: integer('forwarded_from_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' }
+    ),
+    forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },

@@ -14,6 +14,7 @@ import { fileManager } from '../../utils/file-manager';
 import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { resolveForwardSource } from '../../utils/forward-source';
 
 const sendMessageRoute = protectedProcedure
   .input(
@@ -25,7 +26,18 @@ const sendMessageRoute = protectedProcedure
         .optional(),
       e2ee: z.boolean().optional(),
       files: z.array(z.string()).optional(),
-      replyToId: z.number().optional()
+      replyToId: z.number().optional(),
+      /**
+       * Forward attribution by SOURCE REFERENCE — the server loads the
+       * source, verifies visibility, and derives the author itself.
+       * There is deliberately no way to claim an author directly.
+       */
+      forwardedFrom: z
+        .object({
+          sourceKind: z.enum(['channel', 'dm']),
+          sourceId: z.number().int().positive()
+        })
+        .optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -86,6 +98,10 @@ const sendMessageRoute = protectedProcedure
       message: 'Non-E2EE messages must include content or files'
     });
 
+    const forwarded = input.forwardedFrom
+      ? await resolveForwardSource(input.forwardedFrom, ctx)
+      : null;
+
     const [message] = await db
       .insert(dmMessages)
       .values({
@@ -94,6 +110,8 @@ const sendMessageRoute = protectedProcedure
         content: input.content ?? null,
         e2ee: isE2ee,
         replyToId: input.replyToId,
+        forwardedFromUserId: forwarded?.forwardedFromUserId,
+        forwardedFromName: forwarded?.forwardedFromName,
         createdAt: Date.now()
       })
       .returning();
@@ -171,7 +189,14 @@ const sendMessageRoute = protectedProcedure
                 e2ee: isE2ee,
                 // Phase D / D2: only set for federated group DMs.
                 // Receiver looks up the mirror channel by this id.
-                ...(federationGroupId ? { federationGroupId } : {})
+                ...(federationGroupId ? { federationGroupId } : {}),
+                // Forward attribution: NAME SNAPSHOT ONLY. Local user
+                // ids are meaningless on the peer (id-collision rule),
+                // and the peer can't re-verify the source anyway — the
+                // name is peer-asserted, same trust level as content.
+                ...(forwarded
+                  ? { forwardedFromName: forwarded.forwardedFromName }
+                  : {})
               }).catch((err) =>
                 logger.error('[sendDmMessage] federation relay failed: %o', err)
               );

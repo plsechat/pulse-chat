@@ -9,6 +9,7 @@ import {
   addUserToVoiceChannel,
   removeUserFromVoiceChannel
 } from '../server/voice/actions';
+import { emitAppEvent } from '@/lib/events';
 import {
   addDmMessages,
   addDmTypingUser,
@@ -39,11 +40,9 @@ const subscribeToDms = () => {
       const decrypted = await decryptDmMessageInPlace(message);
       updateDmMessage(decrypted);
       // Notify pinned messages panel so it can refetch
-      window.dispatchEvent(
-        new CustomEvent('dm-pinned-messages-changed', {
-          detail: { dmChannelId: decrypted.dmChannelId }
-        })
-      );
+      emitAppEvent('dm-pinned-messages-changed', {
+        dmChannelId: decrypted.dmChannelId
+      });
     }),
     subscribe(
       'onDmMessageDelete',

@@ -843,6 +843,13 @@ const federationDmRelayHandler = async (
     typeof signedBody.federationGroupId === 'string'
       ? signedBody.federationGroupId
       : null;
+  // Forward attribution from the peer — a display-name snapshot only
+  // (never a user id; see the id-collision convention). Peer-asserted,
+  // so bound it like every other peer-supplied string.
+  const forwardedFromName =
+    typeof signedBody.forwardedFromName === 'string'
+      ? signedBody.forwardedFromName.slice(0, 100)
+      : null;
 
   if (!fromDomain || !fromUsername || !content || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
@@ -984,6 +991,7 @@ const federationDmRelayHandler = async (
       userId: shadowUser.id,
       content,
       e2ee: isE2ee,
+      forwardedFromName,
       createdAt: Date.now()
     })
     .returning();

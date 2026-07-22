@@ -4,7 +4,7 @@ import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { channels, userRoles } from '../../db/schema';
+import { channels, messages, userRoles } from '../../db/schema';
 
 // Exact-count tests need a TEXT channel with no seeded messages: channel 1
 // carries a seed message, and channel 2 is the seeded VOICE channel, which
@@ -807,5 +807,60 @@ describe('messages router', () => {
     expect(editedMessage!.updatedAt).toBeGreaterThan(
       originalUpdatedAt ?? editedMessage!.createdAt
     );
+  });
+
+  describe('forward attribution', () => {
+    test('server derives forwarded-from from the source; the copy is not editable', async () => {
+      const { caller: author } = await initTest(2);
+      const { caller: forwarder } = await initTest(1);
+      const tdb = getTestDb();
+
+      // User 2 authors the source message.
+      await author.messages.send({
+        channelId: 1,
+        content: `source ${randomUUIDv7()}`
+      });
+      const [source] = await tdb
+        .select()
+        .from(messages)
+        .where(eq(messages.userId, 2))
+        .orderBy(messages.id);
+
+      // User 1 forwards it — attribution is derived server-side, NOT
+      // taken from the client.
+      await forwarder.messages.send({
+        channelId: 1,
+        content: 'forwarded copy',
+        forwardedFrom: { sourceKind: 'channel', sourceId: source!.id }
+      });
+      const [fwd] = await tdb
+        .select()
+        .from(messages)
+        .where(eq(messages.content, 'forwarded copy'));
+      expect(fwd!.forwardedFromUserId).toBe(2);
+      expect(typeof fwd!.forwardedFromName).toBe('string');
+      expect(fwd!.userId).toBe(1); // the forwarder authored the copy
+
+      // A forward is a verbatim 1:1 copy — even its own author cannot
+      // edit it, so attribution can never sit over altered content.
+      expect(fwd!.editable).toBe(false);
+      await expect(
+        forwarder.messages.edit({
+          messageId: fwd!.id,
+          content: 'tampered'
+        })
+      ).rejects.toThrow('not editable');
+    });
+
+    test('an out-of-scope source reads as not found', async () => {
+      const { caller: forwarder } = await initTest(1);
+      await expect(
+        forwarder.messages.send({
+          channelId: 1,
+          content: 'x',
+          forwardedFrom: { sourceKind: 'channel', sourceId: 999999 }
+        })
+      ).rejects.toThrow('Source message not found');
+    });
   });
 });

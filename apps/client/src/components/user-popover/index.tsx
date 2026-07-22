@@ -75,6 +75,7 @@ import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { UserAvatar } from '../user-avatar';
 import { UserStatusBadge } from '../user-status';
+import { onAppEvent } from '@/lib/events';
 
 type TNote = {
   id: number;
@@ -187,14 +188,11 @@ const UserPopover = memo(
 
   // Refetch notes when they change in another tab
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.targetUserId === userId && notesLoaded) {
+    return onAppEvent('notes-changed', ({ targetUserId }) => {
+      if (targetUserId === userId && notesLoaded) {
         fetchNotes();
       }
-    };
-    window.addEventListener('notes-changed', handler);
-    return () => window.removeEventListener('notes-changed', handler);
+    });
   }, [userId, notesLoaded, fetchNotes]);
 
   const handlePopoverOpen = useCallback(

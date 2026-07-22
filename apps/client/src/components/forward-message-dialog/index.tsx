@@ -16,7 +16,7 @@ import { getDisplayName } from '@/helpers/get-display-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import { FORWARD_MESSAGE_EVENT } from '@/lib/events';
+import { onAppEvent } from '@/lib/events';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Check, Hash, Loader2, Search } from 'lucide-react';
@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 
 /**
  * Forward a message to DMs and/or channels — opened from the message
- * context menu via FORWARD_MESSAGE_EVENT (module-event pattern, same as
+ * context menu via the forward-message app event (module-event pattern, same as
  * mention-user: the context menu unmounts when it closes, so it can't own
  * the dialog itself).
  *
@@ -50,6 +50,10 @@ const escapeHtml = (s: string) =>
 
 const ForwardMessageDialog = memo(() => {
   const [content, setContent] = useState<string | null>(null);
+  const [source, setSource] = useState<{
+    sourceKind: 'channel' | 'dm';
+    sourceId: number;
+  } | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [note, setNote] = useState('');
@@ -62,17 +66,15 @@ const ForwardMessageDialog = memo(() => {
   const activeInstanceDomain = useActiveInstanceDomain();
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ content: string | null }>).detail;
-      if (!detail?.content) return;
-      setContent(detail.content);
+    return onAppEvent('forward-message', ({ content, sourceKind, sourceId }) => {
+      if (!content) return;
+      setContent(content);
+      setSource({ sourceKind, sourceId });
       setQuery('');
       setNote('');
       setSelected(new Set());
       setOpen(true);
-    };
-    window.addEventListener(FORWARD_MESSAGE_EVENT, handler);
-    return () => window.removeEventListener(FORWARD_MESSAGE_EVENT, handler);
+    });
   }, []);
 
   const excludedE2ee = useMemo(
@@ -126,6 +128,11 @@ const ForwardMessageDialog = memo(() => {
   const handleSend = useCallback(async () => {
     if (!content || selected.size === 0) return;
     setSending(true);
+    // Attribution is STRUCTURAL: we pass a reference to the source
+    // message and the server verifies it and derives the author —
+    // content goes out untouched, and the resulting header can't be
+    // edited or faked.
+    const forwardedFrom = source ?? undefined;
     const noteTokens = note.trim()
       ? tiptapHtmlToTokens(`<p>${escapeHtml(note.trim())}</p>`)
       : null;
@@ -138,7 +145,7 @@ const ForwardMessageDialog = memo(() => {
       try {
         if (kind === 'dm') {
           if (noteTokens) await sendDmMessage(id, noteTokens);
-          await sendDmMessage(id, content);
+          await sendDmMessage(id, content, undefined, undefined, undefined, forwardedFrom);
         } else {
           const trpc = getTRPCClient();
           if (!trpc) throw new Error('Not connected');
@@ -148,7 +155,11 @@ const ForwardMessageDialog = memo(() => {
               channelId: id
             });
           }
-          await trpc.messages.send.mutate({ content, channelId: id });
+          await trpc.messages.send.mutate({
+            content,
+            channelId: id,
+            forwardedFrom
+          });
         }
         ok++;
       } catch (err) {
@@ -167,7 +178,7 @@ const ForwardMessageDialog = memo(() => {
       );
     }
     if (failed === 0) setOpen(false);
-  }, [content, selected, note, targets]);
+  }, [content, source, selected, note, targets]);
 
   const preview = useMemo(
     () => (content ? stripToPlainText(content).slice(0, 140) : ''),

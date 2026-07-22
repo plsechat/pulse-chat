@@ -7,6 +7,7 @@ import { Archive, MessageSquare } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import type { IRootState } from '@/features/store';
+import { onAppEvent } from '@/lib/events';
 
 type TThreadListPopoverProps = {
   channelId: number;
@@ -70,9 +71,7 @@ const ThreadListPopover = memo(
 
     // Refetch on custom threads-changed event (from thread subscriptions)
     useEffect(() => {
-      const handler = () => { fetchThreads(); };
-      window.addEventListener('threads-changed', handler);
-      return () => window.removeEventListener('threads-changed', handler);
+      return onAppEvent('threads-changed', () => fetchThreads());
     }, [fetchThreads]);
 
     const threads = serverThreads.length > 0 ? serverThreads : localThreads.map((t) => ({

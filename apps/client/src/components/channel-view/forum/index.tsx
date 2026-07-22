@@ -17,6 +17,7 @@ import { EditPostTagsDialog } from './edit-post-tags-dialog';
 import { ForumPostCard } from './forum-post-card';
 import { ForumPostContextMenu, ForumPostMenu } from './forum-post-context-menu';
 import { ManageTagsDialog } from './manage-tags-dialog';
+import { onAppEvent } from '@/lib/events';
 
 type TForumChannelProps = {
   channelId: number;
@@ -94,8 +95,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
     const handler = () => {
       fetchData();
     };
-    window.addEventListener('threads-changed', handler);
-    return () => window.removeEventListener('threads-changed', handler);
+    return onAppEvent('threads-changed', handler);
   }, [fetchData]);
 
   // Sync live reaction data from Redux for the active thread
