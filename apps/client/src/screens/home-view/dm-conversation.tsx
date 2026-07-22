@@ -11,6 +11,8 @@ import { DateDivider } from '@/components/chat-primitives/date-divider';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
+import { ChatMessageBody } from '@/components/chat-primitives/message-body';
+import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import { EmojiPickerPanel } from '@/components/emoji-picker';
 import {
@@ -18,7 +20,6 @@ import {
   PopoverAnchor,
   PopoverContent
 } from '@/components/ui/popover';
-import { MessageReactions } from '@/components/chat-primitives/message-reactions';
 import { GifPicker } from '@/components/gif-picker';
 import { TiptapInput } from '@/components/tiptap-input';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
@@ -40,7 +41,6 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import { useUploadFiles } from '@/hooks/use-upload-files';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import {
@@ -51,19 +51,8 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
-import type { TFile, TJoinedDmMessage } from '@pulse/shared';
-import {
-  audioExtensions,
-  imageExtensions,
-  MAX_MESSAGE_CONTENT_LENGTH,
-  TYPING_MS,
-  videoExtensions
-} from '@pulse/shared';
-import { AudioPlayer } from '@/components/chat-primitives/overrides/audio-player';
-import { ImageOverride } from '@/components/chat-primitives/overrides/image';
-import { ImageContextMenu } from '@/components/chat-primitives/image-context-menu';
-import { LinkPreview } from '@/components/chat-primitives/overrides/link-preview';
-import { VideoPlayer } from '@/components/chat-primitives/overrides/video-player';
+import type { TJoinedDmMessage } from '@pulse/shared';
+import { MAX_MESSAGE_CONTENT_LENGTH, TYPING_MS } from '@pulse/shared';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import {
   messageHasCodeBlock,
@@ -81,13 +70,12 @@ import {
 import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
 import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { serializer } from '@/components/channel-view/text/renderer/serializer';
-import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
 import parse from 'html-react-parser';
 import { dateTime, fullDateTime, longDateTime, timeOnly } from '@/helpers/time-format';
 import { format, isToday, isYesterday } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Copy, Flag, Forward, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -1068,7 +1056,11 @@ const DmMessagesGroup = memo(
           </div>
           <div className="flex min-w-0 flex-col">
             {group.map((message) => (
-              <DmMessage key={message.id} message={message} onReply={() => onReply(message)} />
+              // Same per-row isolation as the channel stack: one broken
+              // message must not take down the whole conversation.
+              <MessageErrorBoundary key={message.id} messageId={message.id}>
+                <DmMessage message={message} onReply={() => onReply(message)} />
+              </MessageErrorBoundary>
             ))}
           </div>
         </div>
@@ -1267,15 +1259,11 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
       )}
       {!isEditing ? (
         <>
-          <DmMessageContent message={message} />
-          {message.reactions && message.reactions.length > 0 && (
-            <MessageReactions
-              messageId={message.id}
-              reactions={message.reactions}
-              onToggle={handleToggleReaction}
-              homeScope
-            />
-          )}
+          <ChatMessageBody
+            message={message}
+            homeScope
+            onToggleReaction={handleToggleReaction}
+          />
           <MessageActions
             pinned={message.pinned ?? false}
             editable
@@ -1387,203 +1375,6 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 });
 
 /** Renders a single DM media file, decrypting if E2EE. */
-const DmMediaFile = memo(({
-  file, fileIndex, messageId, isE2ee
-}: {
-  file: TFile;
-  fileIndex: number;
-  messageId: number;
-  isE2ee: boolean;
-}) => {
-  const { url, loading } = useDecryptedFileUrl(file, messageId, isE2ee, fileIndex);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center bg-muted rounded h-48 w-64 animate-pulse">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (imageExtensions.includes(file.extension)) {
-    return (
-      <ImageContextMenu src={url} filename={file.originalName}>
-        <ImageOverride src={url} />
-      </ImageContextMenu>
-    );
-  }
-  if (videoExtensions.includes(file.extension)) {
-    return <VideoPlayer src={url} name={file.originalName} />;
-  }
-  if (audioExtensions.includes(file.extension)) {
-    return <AudioPlayer src={url} name={file.originalName} />;
-  }
-  return null;
-});
-
-/** Renders a non-media DM file link, decrypting if E2EE. */
-const DmNonMediaFile = memo(({
-  file, fileIndex, messageId, isE2ee
-}: {
-  file: TFile;
-  fileIndex: number;
-  messageId: number;
-  isE2ee: boolean;
-}) => {
-  const { url, loading } = useDecryptedFileUrl(file, messageId, isE2ee, fileIndex);
-
-  return (
-    <a
-      key={file.id}
-      href={loading ? undefined : url}
-      target="_blank"
-      rel="noopener noreferrer"
-      // Decrypted E2EE attachments are blob: URLs — without a download
-      // name the save dialog offers a random UUID instead of the filename.
-      download={url?.startsWith('blob:') ? file.originalName : undefined}
-      className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
-    >
-      <span className="truncate">{file.originalName}</span>
-      <span className="text-xs text-muted-foreground">
-        ({filesize(file.size)})
-      </span>
-    </a>
-  );
-});
-
-const DmMessageContent = memo(
-  ({ message }: { message: TJoinedDmMessage }) => {
-    const content = message.content ?? '';
-    const legacy = isLegacyHtml(content);
-    const [tokenMedia, setTokenMedia] = useState<TFoundMedia[]>([]);
-
-    const { foundMedia: htmlMedia, messageHtml } = useMemo(() => {
-      if (!legacy) return { foundMedia: [] as TFoundMedia[], messageHtml: null };
-      const foundMedia: TFoundMedia[] = [];
-      const messageHtml = parse(content, {
-        replace: (domNode) =>
-          serializer(domNode, (found) => foundMedia.push(found))
-      });
-      return { messageHtml, foundMedia };
-    }, [content, legacy]);
-
-    const foundMedia = legacy ? htmlMedia : tokenMedia;
-
-    const handleTokenMedia = useCallback((media: TFoundMedia) => {
-      setTokenMedia((prev) => {
-        if (prev.some((m) => m.url === media.url)) return prev;
-        return [...prev, media];
-      });
-    }, []);
-
-    // Categorize files into media vs non-media, preserving original index
-    const { mediaFiles, nonMediaFiles } = useMemo(() => {
-      const mediaFiles: { file: TFile; index: number }[] = [];
-      const nonMediaFiles: { file: TFile; index: number }[] = [];
-
-      message.files.forEach((file, index) => {
-        if (
-          imageExtensions.includes(file.extension) ||
-          videoExtensions.includes(file.extension) ||
-          audioExtensions.includes(file.extension)
-        ) {
-          mediaFiles.push({ file, index });
-        } else {
-          nonMediaFiles.push({ file, index });
-        }
-      });
-
-      return { mediaFiles, nonMediaFiles };
-    }, [message.files]);
-
-    const isDecryptionFailure =
-      message.e2ee &&
-      (message.content === '[Unable to decrypt]' ||
-        message.content === '[Encrypted message]');
-
-    return (
-      <div className="flex flex-col gap-1">
-        {isDecryptionFailure ? (
-          <div className="flex items-center gap-1.5 text-sm text-destructive/80 italic">
-            <Lock className="h-3 w-3" />
-            <span>Unable to decrypt this message</span>
-          </div>
-        ) : content ? (
-          <div className="flex items-start gap-1.5">
-            {message.e2ee && (
-              <Tooltip content="End-to-end encrypted">
-                <Lock className="h-3 w-3 text-emerald-500 shrink-0 mt-[0.3rem] cursor-default" />
-              </Tooltip>
-            )}
-            <div className="max-w-full break-words msg-content min-w-0">
-              {legacy ? messageHtml : (
-                <TokenContentRenderer content={content} fileCount={message.files.length} onFoundMedia={handleTokenMedia} />
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {message.updatedAt && (
-          <span className="text-[10px] text-muted-foreground">(edited)</span>
-        )}
-
-        {/* Inline media from message HTML */}
-        {foundMedia.map((media, index) => {
-          if (media.type === 'image') {
-            return (
-              <ImageContextMenu src={media.url} key={`inline-${index}`}>
-                <ImageOverride src={media.url} />
-              </ImageContextMenu>
-            );
-          }
-          if (media.type === 'video') {
-            return <VideoPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
-          }
-          if (media.type === 'audio') {
-            return <AudioPlayer src={media.url} name={media.name} key={`inline-${index}`} />;
-          }
-          return null;
-        })}
-
-        {/* Media file attachments — each handles E2EE decryption */}
-        {mediaFiles.map(({ file, index }) => (
-          <DmMediaFile
-            key={file.id}
-            file={file}
-            fileIndex={index}
-            messageId={message.id}
-            isE2ee={message.e2ee}
-          />
-        ))}
-
-        {message.metadata && message.metadata.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            {message.metadata
-              .filter((meta) => meta.mediaType !== 'webhook')
-              .map((meta, index) => (
-                <LinkPreview key={`preview-${index}`} metadata={meta} />
-              ))}
-          </div>
-        )}
-
-        {nonMediaFiles.length > 0 && (
-          <div className="flex gap-1 flex-wrap">
-            {nonMediaFiles.map(({ file, index }) => (
-              <DmNonMediaFile
-                key={file.id}
-                file={file}
-                fileIndex={index}
-                messageId={message.id}
-                isE2ee={message.e2ee}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-);
-
 const DmMessageEdit = memo(
   ({
     message,
