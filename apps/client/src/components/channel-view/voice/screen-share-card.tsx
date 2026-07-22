@@ -83,8 +83,8 @@ type TQuickBarProps = {
 
 // Enlarged, padded, hover-highlighted hit target for the QuickBar. The
 // bare-glyph default (size-4, no padding) was too small to click on a
-// video overlay — this gives a ~40px circular target with a hover ring.
-const QUICK_BTN = 'rounded-full p-2 hover:bg-white/15';
+// video overlay — this gives a ~48px circular target with a hover ring.
+const QUICK_BTN = 'rounded-full p-2.5 hover:bg-white/15';
 
 /**
  * Bottom-center hover pill hosting the tile's quick actions. Mirrors
@@ -326,7 +326,7 @@ const ScreenShareCard = memo(
                         QUICK_BTN,
                         screenAudioMuted && 'text-red-400 hover:text-red-300'
                       )}
-                      size="lg"
+                      size="xl"
                     />
                   )}
                   <IconButton
@@ -336,7 +336,7 @@ const ScreenShareCard = memo(
                     title="Change Source"
                     aria-label="Change Source"
                     className={QUICK_BTN}
-                    size="lg"
+                    size="xl"
                   />
                   <IconButton
                     variant="ghost"
@@ -345,7 +345,7 @@ const ScreenShareCard = memo(
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     className={QUICK_BTN}
-                    size="lg"
+                    size="xl"
                   />
                   <IconButton
                     variant="ghost"
@@ -354,7 +354,7 @@ const ScreenShareCard = memo(
                     title="Stop Streaming"
                     aria-label="Stop Streaming"
                     className={cn(QUICK_BTN, 'text-red-400 hover:text-red-300')}
-                    size="lg"
+                    size="xl"
                   />
                 </>
               ) : (
@@ -365,7 +365,7 @@ const ScreenShareCard = memo(
                       label="Stream Volume"
                       muteLabel="Mute Stream Audio"
                       unmuteLabel="Unmute Stream Audio"
-                      size="lg"
+                      size="xl"
                       className={QUICK_BTN}
                     />
                   )}
@@ -376,7 +376,7 @@ const ScreenShareCard = memo(
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     className={QUICK_BTN}
-                    size="lg"
+                    size="xl"
                   />
                 </>
               )}
