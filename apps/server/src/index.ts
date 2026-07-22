@@ -16,6 +16,7 @@ import { loadDb } from './db';
 import { warmFileHmacSecret } from './db/queries/server';
 import { pluginManager } from './plugins';
 import { loadBannedUsersCache } from './utils/banned-cache';
+import { startMetricsSampler } from './utils/metrics';
 import { enqueueActivityLog } from './queues/activity-log';
 import { initVoiceRuntimes } from './runtimes';
 import { createServers } from './utils/create-servers';
@@ -85,6 +86,10 @@ try {
   console.error('[pulse] FATAL: Cron job initialization failed:', e);
   process.exit(1);
 }
+
+// Health-graph sampler — auxiliary observability, deliberately outside
+// the fail-fast boot chain (a broken sampler must never stop the app).
+startMetricsSampler();
 
 const host = IS_PRODUCTION ? SERVER_PRIVATE_IP : 'localhost';
 const url = `http://${host}:${config.server.port}/`;

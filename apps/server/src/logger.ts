@@ -134,11 +134,41 @@ const baseTransports = [
   errorFileTransport
 ];
 
+/**
+ * Bounded in-memory tail of recent log lines, for the admin Logs panel
+ * (same capped-ring precedent as per-plugin logs). Sits in the default
+ * format chain after splat() so messages are substituted; ANSI is
+ * stripped because colorize() has already wrapped `level` (and chalk
+ * colors travel inside some messages). Raw log FILES never leave the
+ * box — this surfaces only what the console already shows.
+ */
+const RECENT_LOGS_MAX = 1000;
+type TRecentLog = { ts: number; level: string; message: string };
+const recentLogs: TRecentLog[] = [];
+const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, '');
+const ringTap = format((info) => {
+  recentLogs.push({
+    ts: Date.now(),
+    level: stripAnsi(String(info.level)),
+    message: stripAnsi(String(info.message))
+  });
+  if (recentLogs.length > RECENT_LOGS_MAX) recentLogs.shift();
+  return info;
+});
+
+const getRecentLogs = (): readonly TRecentLog[] => recentLogs;
+
 const logger = createLogger({
   level: currentLevel,
   // Default format applies to console + app.log + error.log. Plain
   // human-readable; the JSON format is set per-transport on debugFile.
-  format: combine(colorize(), splat(), errors({ stack: true }), consoleFormat),
+  format: combine(
+    colorize(),
+    splat(),
+    errors({ stack: true }),
+    ringTap(),
+    consoleFormat
+  ),
   transports: baseTransports
 }) as WinstonLogger;
 
@@ -215,4 +245,5 @@ logger.timeEnd = (key: string, message?: string, ...meta: unknown[]) => {
   delete startTimes[key];
 };
 
-export { logger };
+export { getRecentLogs, logger };
+export type { TRecentLog };

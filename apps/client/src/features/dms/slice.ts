@@ -2,6 +2,7 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   TJoinedDmChannel,
   TJoinedDmMessage,
+  TJoinedPublicUser,
   TVoiceUserState,
   UserStatus
 } from '@pulse/shared';
@@ -83,6 +84,35 @@ export const dmsSlice = createSlice({
         );
         if (member) {
           member.status = action.payload.status;
+        }
+      }
+    },
+    // Full-profile mirror for USER_UPDATE: without it, cosmetics
+    // (nameplate/decoration/name style), avatar, and name changes on a
+    // DM partner who is neither a friend nor a co-member stay stale
+    // until a full refetch — the cached projection is that partner's
+    // ONLY live representation. Matched by publicId when both sides
+    // carry one (numeric ids collide across federated instances).
+    updateMemberProfile: (
+      state,
+      action: PayloadAction<TJoinedPublicUser>
+    ) => {
+      const patch = action.payload;
+      for (const channel of state.channels) {
+        const idx = channel.members.findIndex((m) =>
+          patch.publicId && m.publicId
+            ? m.publicId === patch.publicId
+            : m.id === patch.id
+        );
+        if (idx !== -1) {
+          const prev = channel.members[idx];
+          channel.members[idx] = {
+            ...prev,
+            ...patch,
+            // Profile-only USER_UPDATEs omit status — never wipe
+            // presence with undefined.
+            status: patch.status ?? prev.status
+          };
         }
       }
     },

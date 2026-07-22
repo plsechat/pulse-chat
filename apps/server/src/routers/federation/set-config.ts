@@ -14,10 +14,9 @@ import {
   getLocalKeys
 } from '../../utils/federation';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
-import { assertInstanceOwner } from './guard';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 
-const setConfigRoute = protectedProcedure
+const setConfigRoute = instanceOwnerProcedure
   .input(
     z.object({
       enabled: z.boolean(),
@@ -27,9 +26,8 @@ const setConfigRoute = protectedProcedure
       allowUserFederatableServers: z.boolean().optional()
     })
   )
-  .mutation(async ({ ctx, input }) => {
+  .mutation(async ({ input }) => {
     try {
-      await assertInstanceOwner(ctx.userId);
 
       // Mutate config in memory
       config.federation.enabled = input.enabled;

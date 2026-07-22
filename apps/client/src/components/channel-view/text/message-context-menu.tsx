@@ -1,4 +1,5 @@
 import { EmojiPickerPanel } from '@/components/emoji-picker';
+import { ReportDialog } from '@/components/report-dialog';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { dispatchForwardMessage } from '@/lib/events';
 import {
@@ -23,6 +24,7 @@ import {
   CheckSquare,
   ClipboardCopy,
   Copy,
+  Flag,
   Forward,
   MessageSquare,
   Pencil,
@@ -70,6 +72,7 @@ const MessageContextMenu = memo(
     const { selectionMode, enterSelectionMode } = useSelection();
     const [creatingThread, setCreatingThread] = useState(false);
     const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+    const [reportOpen, setReportOpen] = useState(false);
 
     const onDeleteClick = useCallback(async () => {
       const choice = await requestConfirmation({
@@ -206,7 +209,7 @@ const MessageContextMenu = memo(
             </ContextMenuItem>
           )}
           {!previewMode && messageContent && (
-            <ContextMenuItem onClick={() => dispatchForwardMessage(messageContent)}>
+            <ContextMenuItem onClick={() => dispatchForwardMessage(messageContent, 'channel', messageId)}>
               <Forward className="h-4 w-4" />
               Forward
             </ContextMenuItem>
@@ -252,6 +255,13 @@ const MessageContextMenu = memo(
             Copy Message Link
           </ContextMenuItem>
 
+          {!canEdit && !previewMode && (
+            <ContextMenuItem onClick={() => setReportOpen(true)}>
+              <Flag className="h-4 w-4" />
+              Report Message
+            </ContextMenuItem>
+          )}
+
           {!selectionMode && can(Permission.MANAGE_MESSAGES) && (
             <>
               <ContextMenuSeparator />
@@ -292,6 +302,14 @@ const MessageContextMenu = memo(
         >
           <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
         </PopoverContent>
+
+        <ReportDialog
+          open={reportOpen}
+          onOpenChange={setReportOpen}
+          kind="message"
+          targetId={messageId}
+          content={messageContent}
+        />
       </Popover>
     );
   }

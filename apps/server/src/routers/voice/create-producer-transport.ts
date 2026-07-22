@@ -14,7 +14,7 @@ const createProducerTransportRoute = protectedProcedure.mutation(
       message: 'User is not in a voice channel'
     });
 
-    const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
+    const runtime = VoiceRuntime.requireByCtx(ctx);
 
     const params = await runtime.createProducerTransport(ctx.user.id);
 

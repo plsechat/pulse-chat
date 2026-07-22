@@ -1,6 +1,5 @@
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { Button } from '@/components/ui/button';
-import { Group } from '@/components/ui/group';
 import { LoadingCard } from '@/components/ui/loading-card';
 import {
   Select,
@@ -21,11 +20,67 @@ import {
 import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import {
+  SettingRow,
+  SettingRowStack,
+  SettingsSection
+} from '../settings-primitives';
 import { useAvailableDevices } from './hooks/use-available-devices';
 import { MicMeter } from './mic-meter';
-import ResolutionFpsControl from './resolution-fps-control';
 
 const DEFAULT_NAME = 'default';
+
+const RESOLUTIONS = ['144p', '240p', '360p', '720p', '1080p', '1440p', '2160p'];
+const FRAMERATES = [10, 15, 24, 30, 60, 120];
+
+/** Resolution + framerate pair, sized for a row's right rail. */
+const QualityPair = memo(
+  ({
+    resolution,
+    framerate,
+    onResolutionChange,
+    onFramerateChange
+  }: {
+    resolution: string;
+    framerate: number;
+    onResolutionChange: (value: string) => void;
+    onFramerateChange: (value: number) => void;
+  }) => (
+    <>
+      <Select value={resolution} onValueChange={onResolutionChange}>
+        <SelectTrigger size="sm" className="w-24">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {RESOLUTIONS.map((r) => (
+              <SelectItem key={r} value={r}>
+                {r}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      <Select
+        value={framerate.toString()}
+        onValueChange={(value) => onFramerateChange(+value)}
+      >
+        <SelectTrigger size="sm" className="w-24">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {FRAMERATES.map((f) => (
+              <SelectItem key={f} value={f.toString()}>
+                {f} fps
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </>
+  )
+);
 
 const Devices = memo(() => {
   const currentVoiceChannelId = useCurrentVoiceChannelId();
@@ -52,13 +107,17 @@ const Devices = memo(() => {
   }
 
   return (
-    <div className="space-y-4">
-        <Group label="Microphone">
+    <div className="space-y-8">
+      <SettingsSection
+        title="Microphone"
+        description="Input device and voice processing. Changes apply live to an active call."
+      >
+        <SettingRowStack label="Device">
           <Select
             onValueChange={(value) => onChange('microphoneId', value)}
             value={values.microphoneId}
           >
-            <SelectTrigger className="w-[500px]">
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="Select the input device" />
             </SelectTrigger>
             <SelectContent>
@@ -74,79 +133,84 @@ const Devices = memo(() => {
               </SelectGroup>
             </SelectContent>
           </Select>
+        </SettingRowStack>
 
-          <div className="flex gap-8">
-            <Group label="Echo cancellation">
-              <Switch
-                checked={!!values.echoCancellation}
-                onCheckedChange={(checked) =>
-                  onChange('echoCancellation', checked)
-                }
-              />
-            </Group>
+        <SettingRow
+          label="Echo cancellation"
+          description="Keeps your speakers out of your mic."
+        >
+          <Switch
+            checked={!!values.echoCancellation}
+            onCheckedChange={(checked) => onChange('echoCancellation', checked)}
+          />
+        </SettingRow>
 
-            <Group label="Automatic gain control">
-              <Switch
-                checked={!!values.autoGainControl}
-                onCheckedChange={(checked) =>
-                  onChange('autoGainControl', checked)
-                }
-              />
-            </Group>
+        <SettingRow
+          label="Automatic gain control"
+          description="Evens out how loud you are."
+        >
+          <Switch
+            checked={!!values.autoGainControl}
+            onCheckedChange={(checked) => onChange('autoGainControl', checked)}
+          />
+        </SettingRow>
 
-            <Group label="Noise suppression">
-              <Select
-                value={values.noiseSuppressionMode}
-                onValueChange={(value) =>
-                  onChange('noiseSuppressionMode', value as NoiseSuppressionMode)
-                }
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Noise suppression" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="automatic">Automatic</SelectItem>
-                    <SelectItem value="manual">Noise gate</SelectItem>
-                    <SelectItem value="off">Off</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Group>
-          </div>
-
-          <Group
-            label={
-              values.noiseSuppressionMode === 'manual'
-                ? 'Input sensitivity'
-                : 'Input level'
-            }
-            description={
-              values.noiseSuppressionMode === 'manual'
-                ? 'The bar lights up green while your mic would transmit.'
-                : values.noiseSuppressionMode === 'automatic'
-                  ? 'Background noise is filtered automatically.'
-                  : undefined
+        <SettingRow
+          label="Noise suppression"
+          description="Automatic filtering, a manual gate, or nothing."
+        >
+          <Select
+            value={values.noiseSuppressionMode}
+            onValueChange={(value) =>
+              onChange('noiseSuppressionMode', value as NoiseSuppressionMode)
             }
           >
-            <MicMeter
-              microphoneId={values.microphoneId}
-              echoCancellation={!!values.echoCancellation}
-              autoGainControl={!!values.autoGainControl}
-              mode={values.noiseSuppressionMode}
-              threshold={values.noiseGateThreshold}
-              onThresholdChange={(db) => onChange('noiseGateThreshold', db)}
-            />
-          </Group>
-        </Group>
+            <SelectTrigger size="sm" className="w-36">
+              <SelectValue placeholder="Noise suppression" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="automatic">Automatic</SelectItem>
+                <SelectItem value="manual">Noise gate</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </SettingRow>
 
-        <Group label="Webcam">
+        <SettingRowStack
+          label={
+            values.noiseSuppressionMode === 'manual'
+              ? 'Input sensitivity'
+              : 'Input level'
+          }
+          description={
+            values.noiseSuppressionMode === 'manual'
+              ? 'The bar lights up green while your mic would transmit.'
+              : values.noiseSuppressionMode === 'automatic'
+                ? 'Background noise is filtered automatically.'
+                : undefined
+          }
+        >
+          <MicMeter
+            microphoneId={values.microphoneId}
+            echoCancellation={!!values.echoCancellation}
+            autoGainControl={!!values.autoGainControl}
+            mode={values.noiseSuppressionMode}
+            threshold={values.noiseGateThreshold}
+            onThresholdChange={(db) => onChange('noiseGateThreshold', db)}
+          />
+        </SettingRowStack>
+      </SettingsSection>
+
+      <SettingsSection title="Camera">
+        <SettingRowStack label="Device">
           <Select
             onValueChange={(value) => onChange('webcamId', value)}
             value={values.webcamId}
           >
-            <SelectTrigger className="w-[500px]">
-              <SelectValue placeholder="Select the input device" />
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select the camera" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -161,54 +225,71 @@ const Devices = memo(() => {
               </SelectGroup>
             </SelectContent>
           </Select>
+        </SettingRowStack>
 
-          <ResolutionFpsControl
-            framerate={values.webcamFramerate}
+        <SettingRow
+          label="Quality"
+          description="Resolution and framerate for your camera."
+        >
+          <QualityPair
             resolution={values.webcamResolution}
-            onFramerateChange={(value) => onChange('webcamFramerate', value)}
+            framerate={values.webcamFramerate}
             onResolutionChange={(value) =>
               onChange('webcamResolution', value as Resolution)
             }
+            onFramerateChange={(value) => onChange('webcamFramerate', value)}
           />
-        </Group>
+        </SettingRow>
+      </SettingsSection>
 
-        <Group label="Screen Sharing" description={currentVoiceChannelId ? 'Changes apply live to an active share.' : undefined}>
-          <ResolutionFpsControl
-            framerate={values.screenFramerate}
+      <SettingsSection
+        title="Screen sharing"
+        description={
+          currentVoiceChannelId
+            ? 'Changes apply live to an active share.'
+            : undefined
+        }
+      >
+        <SettingRow
+          label="Quality"
+          description="Resolution and framerate for your stream."
+        >
+          <QualityPair
             resolution={values.screenResolution}
-            onFramerateChange={(value) => onChange('screenFramerate', value)}
+            framerate={values.screenFramerate}
             onResolutionChange={(value) =>
               onChange('screenResolution', value as Resolution)
             }
+            onFramerateChange={(value) => onChange('screenFramerate', value)}
           />
+        </SettingRow>
 
-          <div className="flex items-center gap-2">
-            <Group label="Audio Bitrate">
-              <Select
-                value={(values.screenAudioBitrate ?? 128).toString()}
-                onValueChange={(value) =>
-                  onChange('screenAudioBitrate', +value)
-                }
-              >
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Audio bitrate" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="64">64 kbps</SelectItem>
-                    <SelectItem value="96">96 kbps</SelectItem>
-                    <SelectItem value="128">128 kbps</SelectItem>
-                    <SelectItem value="192">192 kbps</SelectItem>
-                    <SelectItem value="256">256 kbps</SelectItem>
-                    <SelectItem value="320">320 kbps</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Group>
-          </div>
-        </Group>
-        {/* macOS Audio Driver — only shown in Electron on macOS */}
-        <MacOSAudioDriverSection />
+        <SettingRow
+          label="Audio bitrate"
+          description="Quality of the audio in your stream."
+        >
+          <Select
+            value={(values.screenAudioBitrate ?? 128).toString()}
+            onValueChange={(value) => onChange('screenAudioBitrate', +value)}
+          >
+            <SelectTrigger size="sm" className="w-28">
+              <SelectValue placeholder="Audio bitrate" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {[64, 96, 128, 192, 256, 320].map((kbps) => (
+                  <SelectItem key={kbps} value={kbps.toString()}>
+                    {kbps} kbps
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+      </SettingsSection>
+
+      {/* macOS Audio Driver — only shown in Electron on macOS */}
+      <MacOSAudioDriverSection />
     </div>
   );
 });
@@ -274,38 +355,38 @@ const MacOSAudioDriverSection = memo(() => {
   };
 
   return (
-    <Group label="System Audio Capture (macOS)">
-      <p className="text-sm text-muted-foreground">
-        Share system audio during screen sharing. Requires a virtual audio driver
-        installed to <code>/Library/Audio/Plug-Ins/HAL/</code>.
-      </p>
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          {driverStatus.active ? (
-            <>
-              <CheckCircle className="h-4 w-4 text-green-500" />
-              <span className="text-sm text-green-500">Driver installed and active</span>
-            </>
-          ) : driverStatus.fileInstalled ? (
-            <>
-              <Loader2 className="h-4 w-4 text-yellow-500 animate-spin" />
-              <span className="text-sm text-yellow-500">Driver installed but not active (restart coreaudiod)</span>
-            </>
-          ) : (
-            <>
-              <XCircle className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Driver not installed</span>
-            </>
-          )}
-        </div>
-      </div>
-      <div className="flex gap-2">
+    <SettingsSection
+      title="System audio capture"
+      description="Share system audio during screen sharing — needs a virtual audio driver installed on this Mac."
+    >
+      <SettingRow
+        label="Driver status"
+        description={
+          driverStatus.active
+            ? undefined
+            : driverStatus.fileInstalled
+              ? 'Restart coreaudiod to activate.'
+              : 'Installs to /Library/Audio/Plug-Ins/HAL/.'
+        }
+      >
+        {driverStatus.active ? (
+          <span className="flex items-center gap-2 text-sm text-green-500">
+            <CheckCircle className="h-4 w-4" /> Installed and active
+          </span>
+        ) : driverStatus.fileInstalled ? (
+          <span className="flex items-center gap-2 text-sm text-yellow-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Installed, not active
+          </span>
+        ) : (
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <XCircle className="h-4 w-4" /> Not installed
+          </span>
+        )}
+      </SettingRow>
+
+      <SettingRow label="Manage driver">
         {!driverStatus.active && (
-          <Button
-            size="sm"
-            onClick={handleInstall}
-            disabled={loading}
-          >
+          <Button size="sm" onClick={handleInstall} disabled={loading}>
             {loading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -329,8 +410,8 @@ const MacOSAudioDriverSection = memo(() => {
             Uninstall Driver
           </Button>
         )}
-      </div>
-    </Group>
+      </SettingRow>
+    </SettingsSection>
   );
 });
 

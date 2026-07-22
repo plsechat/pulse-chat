@@ -57,7 +57,7 @@ const updateVoiceStateRoute = protectedProcedure
       }
     }
 
-    const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
+    const runtime = VoiceRuntime.requireByCtx(ctx);
 
     // A moderator server-mute/deafen overrides the user's own controls:
     // they cannot lift it themselves. Drop any attempt to unmute/undeafen

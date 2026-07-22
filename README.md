@@ -22,7 +22,7 @@
 ---
 
 > [!NOTE]
-> Pulse Chat is in alpha (v0.2.5). Expect bugs and breaking changes between updates.
+> Pulse Chat is in alpha (v0.3.0). Expect bugs and breaking changes between updates.
 
 > [!WARNING]
 > **The federation wire format changed in v0.2.0.** Signed requests embed the request body's SHA-256 in a `sha256` JWT claim, plus `iss`/`aud`/`jti` claims for replay and cross-instance protection. A v0.2.x server **cannot** federate with a pre-v0.2 peer — both sides must be on v0.2 or newer.
@@ -187,6 +187,13 @@ Pulse can authenticate against any standards-compliant OpenID Connect provider �
 ## HTTPS
 
 Pulse doesn't terminate TLS. Put a reverse proxy in front — Caddy, Nginx, or Traefik all work. The [Self-Hosted Guide](README-SELFHOSTED-SUPABASE.md#set-up-https) has example configs for Caddy and Nginx.
+
+## Architecture
+
+Subsystem deep-dives for contributors live in [docs/](docs/):
+[federation wire protocol](docs/federation.md) ·
+[E2EE sender keys](docs/e2ee-sender-keys.md) ·
+[voice lifecycle](docs/voice.md)
 
 ## Built with
 

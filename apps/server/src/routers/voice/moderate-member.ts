@@ -7,7 +7,7 @@ import { channels } from '../../db/schema';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
 /**
  * Moderator server-mute / server-deafen of a member in a voice channel of
@@ -15,7 +15,7 @@ import { protectedProcedure } from '../../utils/trpc';
  * DM calls are excluded. serverMuted additionally pauses the target's
  * audio producer at the SFU so the mute is enforced, not advisory.
  */
-const moderateMemberRoute = protectedProcedure
+const moderateMemberRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
       userId: z.number(),
@@ -24,8 +24,6 @@ const moderateMemberRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_USERS);
-
     invariant(
       input.serverMuted !== undefined || input.serverDeafened !== undefined,
       { code: 'BAD_REQUEST', message: 'No moderation change specified' }

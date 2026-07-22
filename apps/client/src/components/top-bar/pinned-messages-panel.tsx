@@ -14,6 +14,7 @@ import { format } from 'date-fns';
 import { Pin, PinOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { onAppEvent } from '@/lib/events';
 
 type TPinnedMessagesPanelProps = {
   channelId: number;
@@ -108,16 +109,11 @@ const PinnedMessagesPanel = memo(
 
     // Re-fetch when pin/unpin events arrive for this channel
     useEffect(() => {
-      const handler = (e: Event) => {
-        const detail = (e as CustomEvent).detail;
-        if (detail?.channelId === channelId) {
+      return onAppEvent('pinned-messages-changed', (payload) => {
+        if (payload.channelId === channelId) {
           fetchPinned();
         }
-      };
-
-      window.addEventListener('pinned-messages-changed', handler);
-      return () =>
-        window.removeEventListener('pinned-messages-changed', handler);
+      });
     }, [channelId, fetchPinned]);
 
     const onUnpin = useCallback(

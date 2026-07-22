@@ -96,7 +96,8 @@ class ConnectionManager {
         // retrying just flickers the status badge forever.
         if (
           cause?.code === DisconnectCode.FEDERATION_REJECTED ||
-          cause?.code === DisconnectCode.BANNED
+          cause?.code === DisconnectCode.BANNED ||
+          cause?.code === DisconnectCode.ACCOUNT_DELETED
         ) {
           console.warn(
             '[ConnectionManager] Permanent close from',

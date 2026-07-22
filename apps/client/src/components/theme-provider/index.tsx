@@ -5,6 +5,7 @@ import {
 } from '@/helpers/storage';
 import { syncPreference } from '@/lib/preferences-sync';
 import { createContext, useContext, useEffect, useState } from 'react';
+import { onAppEvent } from '@/lib/events';
 
 type Theme = 'dark' | 'light' | 'onyx' | 'midnight' | 'sunset' | 'rose' | 'forest' | 'dracula' | 'nord' | 'sand' | 'system';
 
@@ -59,8 +60,7 @@ function ThemeProvider({
       const stored = getLocalStorageItem(storageKey) as Theme;
       if (stored) setTheme(stored);
     };
-    window.addEventListener('pulse-preferences-loaded', handler);
-    return () => window.removeEventListener('pulse-preferences-loaded', handler);
+    return onAppEvent('preferences-loaded', handler);
   }, [storageKey]);
 
   const value = {

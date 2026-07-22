@@ -35,6 +35,14 @@ const editMessageRoute = protectedProcedure
       message: 'You can only edit your own messages'
     });
 
+    // A forwarded message is a verbatim copy of another author's
+    // message; it can never be edited (same rule as channel forwards,
+    // which use the `editable` flag they don't have here).
+    invariant(!msg.forwardedFromUserId, {
+      code: 'FORBIDDEN',
+      message: 'Forwarded messages cannot be edited'
+    });
+
     const updateSet: Record<string, unknown> = {
       edited: true,
       updatedAt: Date.now()

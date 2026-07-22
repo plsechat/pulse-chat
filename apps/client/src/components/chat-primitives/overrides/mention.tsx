@@ -7,7 +7,11 @@ import {
 import { useChannelById } from '@/features/server/channels/hooks';
 import { jumpToMessage } from '@/features/server/messages/jump';
 import { useRoleById } from '@/features/server/roles/hooks';
-import { useUserById } from '@/features/server/users/hooks';
+import {
+  useHomeUserById,
+  useUserById
+} from '@/features/server/users/hooks';
+import { useChatScope } from '@/components/chat-primitives/chat-scope';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { LayoutList, MessageSquare } from 'lucide-react';
 import { memo, useCallback } from 'react';
@@ -19,12 +23,17 @@ type TMentionOverrideProps = {
 };
 
 const UserMention = memo(({ id, name }: { id: number; name: string }) => {
-  const user = useUserById(id);
+  // In a DM the id is HOME-space; resolving it against the ambient
+  // roster shows a different person when a federated server is active.
+  const { homeScope } = useChatScope();
+  const ambientUser = useUserById(id);
+  const homeUser = useHomeUserById(id);
+  const user = homeScope ? homeUser : ambientUser;
   const displayName = user ? getDisplayName(user) : name;
   const isFederated = user?._identity?.includes('@');
 
   return (
-    <UserPopover userId={id}>
+    <UserPopover userId={id} homeScope={homeScope}>
       <span className={isFederated ? 'mention mention-federated' : 'mention'}>
         @{displayName}{isFederated && <span className="mention-fed-icon" aria-label="Federated user">🌐</span>}
       </span>

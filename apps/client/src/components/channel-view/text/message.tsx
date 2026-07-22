@@ -1,4 +1,5 @@
 import { MessageActions } from '@/components/chat-primitives/message-actions';
+import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { requestConfirmation } from '@/features/dialogs/actions';
@@ -209,6 +210,10 @@ const Message = memo(({ message, onReply, compact = false, isFirstInGroup = true
             <span>Pinned</span>
           </div>
         )}
+        <ForwardedFromHeader
+          forwardedFromUserId={message.forwardedFromUserId}
+          forwardedFromName={message.forwardedFromName}
+        />
         {message.replyTo && (
           <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToMessage} />
         )}

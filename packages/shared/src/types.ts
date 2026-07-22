@@ -146,6 +146,11 @@ export type TServerInfo = Pick<
   supabaseUrl: string;
   supabaseAnonKey: string;
   giphyApiKey?: string;
+  /** Instance-global screen-share ceiling. The client offers every quality
+   * rung at or below these and clamps its capture to them. Absent = no cap
+   * advertised (older servers); the client falls back to its own defaults. */
+  maxScreenResolution?: string;
+  maxScreenFramerate?: number;
 };
 
 export type TArtifact = {

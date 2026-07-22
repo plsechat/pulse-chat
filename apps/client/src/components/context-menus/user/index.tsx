@@ -119,7 +119,7 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
       if (channel) {
         // Land on the new DM, not just the home view in general.
         // navigateToDm bridges through HomeView's local state via the
-        // dm-navigate CustomEvent — Redux alone doesn't re-render.
+        // dm-navigate app event — Redux alone doesn't re-render.
         await navigateToDm(channel.id);
       }
     } catch (err) {

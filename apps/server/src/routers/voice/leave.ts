@@ -13,7 +13,10 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
   // the user's stale session may still be in a runtime and they must be
   // able to remove themselves from it.
   const runtime = ctx.currentVoiceChannelId
-    ? VoiceRuntime.findById(ctx.currentVoiceChannelId)
+    ? VoiceRuntime.findById(
+        ctx.currentVoiceChannelId,
+        ctx.currentDmVoiceChannelId !== undefined ? 'dm' : 'channel'
+      )
     : VoiceRuntime.findRuntimeByUserId(ctx.user.id);
 
   invariant(runtime && runtime.getUser(ctx.user.id), {
@@ -27,7 +30,7 @@ const leaveVoiceRoute = protectedProcedure.mutation(async ({ ctx }) => {
 
   ctx.currentVoiceChannelId = undefined;
   ctx.currentDmVoiceChannelId = undefined;
-  ctx.setWsVoiceChannelId(undefined);
+  ctx.setWsVoiceKey(undefined);
 
   logger.info('%s left voice channel %d', ctx.user.name, channelId);
 });

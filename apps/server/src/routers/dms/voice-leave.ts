@@ -9,7 +9,7 @@ const dmVoiceLeaveRoute = protectedProcedure.mutation(async ({ ctx }) => {
   // no channel — after a refresh the new connection never joined, but
   // the user's stale session may still occupy the call.
   let runtime = ctx.currentDmVoiceChannelId
-    ? VoiceRuntime.findById(ctx.currentDmVoiceChannelId)
+    ? VoiceRuntime.findById(ctx.currentDmVoiceChannelId, 'dm')
     : undefined;
 
   if (!runtime) {
@@ -28,7 +28,7 @@ const dmVoiceLeaveRoute = protectedProcedure.mutation(async ({ ctx }) => {
 
   ctx.currentDmVoiceChannelId = undefined;
   ctx.currentVoiceChannelId = undefined;
-  ctx.setWsVoiceChannelId(undefined);
+  ctx.setWsVoiceKey(undefined);
 
   logger.info('%s left DM voice call %d', ctx.user.name, dmChannelId);
 });

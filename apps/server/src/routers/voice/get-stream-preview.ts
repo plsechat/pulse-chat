@@ -1,26 +1,20 @@
 import { ChannelPermission } from '@pulse/shared';
 import { z } from 'zod';
 import { VoiceRuntime } from '../../runtimes/voice';
-import { refuseInPreview } from '../../utils/preview-guard';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const getStreamPreviewRoute = protectedProcedure
+// channelProcedure scopes to the caller's ACTIVE server, which also
+// excludes read-only preview sessions structurally (they hold
+// VIEW_CHANNEL on the previewed server but no active membership) — a
+// previewer can't watch live screen shares.
+const getStreamPreviewRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL)
   .input(
     z.object({
-      channelId: z.number().int().positive(),
       userId: z.number().int().positive()
     })
   )
   .query(async ({ input, ctx }) => {
-    // Previewers hold VIEW_CHANNEL on public channels — carve them out
-    // explicitly so a read-only session can't watch live screen shares.
-    await refuseInPreview(ctx, input.channelId);
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
-    const runtime = VoiceRuntime.findById(input.channelId);
+    const runtime = VoiceRuntime.findById(ctx.channel.id);
 
     return { preview: runtime?.getStreamPreview(input.userId) ?? null };
   });

@@ -69,6 +69,7 @@ import {
   retryFailedDmDecrypts
 } from './decrypt-retry';
 import type { E2EEPlaintext, PreKeyBundle } from './types';
+import { emitAppEvent } from '../events';
 
 export { UntrustedIdentityError } from './identity-change-dispatch';
 
@@ -178,7 +179,7 @@ export async function initE2EE(): Promise<void> {
         console.error(
           '[E2EE] Identity mismatch — this device holds keys that were replaced on another device. Halting key uploads.'
         );
-        window.dispatchEvent(new CustomEvent('e2ee-identity-mismatch'));
+        emitAppEvent('e2ee-identity-mismatch');
         return;
       }
     }
@@ -306,8 +307,8 @@ let pendingSetup: Promise<void> | null = null;
 
 /**
  * Gate that ensures E2EE keys exist before proceeding.
- * If keys exist, resolves immediately. If not, dispatches an
- * `e2ee-setup-needed` CustomEvent with resolve/reject callbacks
+ * If keys exist, resolves immediately. If not, emits an
+ * `e2ee-setup-needed` app event with resolve/reject callbacks
  * so the UI can show the setup modal. Returns a Promise that
  * resolves when the user completes setup or rejects on cancel.
  * Singleton: only one modal opens even if multiple operations trigger.
@@ -318,11 +319,7 @@ export async function ensureE2EEKeys(): Promise<void> {
   if (pendingSetup) return pendingSetup;
 
   pendingSetup = new Promise<void>((resolve, reject) => {
-    window.dispatchEvent(
-      new CustomEvent('e2ee-setup-needed', {
-        detail: { resolve, reject }
-      })
-    );
+    emitAppEvent('e2ee-setup-needed', { resolve, reject });
   }).finally(() => {
     pendingSetup = null;
   });

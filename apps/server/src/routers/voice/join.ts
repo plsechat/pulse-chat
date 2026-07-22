@@ -78,7 +78,11 @@ const joinVoiceRoute = protectedProcedure
     const state = runtime.getUserState(ctx.user.id);
 
     ctx.currentVoiceChannelId = channel.id;
-    ctx.setWsVoiceChannelId(channel.id);
+    // A stale DM-call marker here would make the shared voice routes
+    // resolve this session in the 'dm' keyspace — joining a server
+    // channel definitively ends any DM-call association.
+    ctx.currentDmVoiceChannelId = undefined;
+    ctx.setWsVoiceKey(runtime.key);
     const startedAt = runtime.getState().startedAt!;
     const memberIds = await getServerMemberIds(channel.serverId);
     ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN_VOICE, {

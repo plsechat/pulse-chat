@@ -4,6 +4,7 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import { syncPreference } from '@/lib/preferences-sync';
+import { onAppEvent } from './events';
 
 /**
  * Module-level cache store for a JSON-shaped user preference. Two
@@ -11,13 +12,13 @@ import { syncPreference } from '@/lib/preferences-sync';
  * had ~100 identical lines of state-machine boilerplate each:
  * lazy-load on first read, in-memory cache, listener set,
  * write-through to localStorage, push-to-server via `syncPreference`,
- * re-read on `pulse-preferences-loaded`. This factory consolidates
+ * re-read on `preferences-loaded`. This factory consolidates
  * that boilerplate; each preference becomes a config-only call.
  *
  * Returns a `getSettings` / `subscribe` pair shaped for
  * `useSyncExternalStore`, plus a typed `updateSettings(partial)` for
  * the hook's setters and `reset()` (used internally on the
- * `pulse-preferences-loaded` event).
+ * `preferences-loaded` app event).
  */
 type CreatePreferenceStoreOpts<T> = {
   storageKey: LocalStorageKey;
@@ -78,17 +79,15 @@ const createPreferenceStore = <T>({
 
   // Re-read from localStorage when server preferences are applied.
   // Server-side preference sync writes the canonical state to
-  // localStorage and dispatches `pulse-preferences-loaded`; we drop
+  // localStorage and emits `preferences-loaded`; we drop
   // our in-memory cache so the next getSettings() picks up the new
   // values, then fire the side-effect and notify subscribers.
-  if (typeof window !== 'undefined') {
-    window.addEventListener('pulse-preferences-loaded', () => {
-      currentSettings = null;
-      const fresh = getSettings();
-      onChange?.(fresh);
-      notify();
-    });
-  }
+  onAppEvent('preferences-loaded', () => {
+    currentSettings = null;
+    const fresh = getSettings();
+    onChange?.(fresh);
+    notify();
+  });
 
   return { getSettings, subscribe, updateSettings };
 };

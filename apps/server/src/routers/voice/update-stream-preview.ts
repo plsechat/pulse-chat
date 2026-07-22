@@ -24,7 +24,7 @@ const updateStreamPreviewRoute = protectedProcedure
       message: 'User is not in a voice channel'
     });
 
-    const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
+    const runtime = VoiceRuntime.requireByCtx(ctx);
 
     invariant(runtime.getUserState(ctx.user.id).sharingScreen, {
       code: 'BAD_REQUEST',

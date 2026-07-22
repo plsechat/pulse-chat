@@ -133,8 +133,10 @@ export interface PluginContext {
   };
 }
 
-export interface UnloadPluginContext
-  extends Pick<PluginContext, "log" | "debug" | "error"> {}
+export type UnloadPluginContext = Pick<
+  PluginContext,
+  "log" | "debug" | "error"
+>;
 
 // re-export mediasoup types for plugin usage
 export type {

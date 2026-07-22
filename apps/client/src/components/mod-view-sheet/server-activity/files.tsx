@@ -1,4 +1,4 @@
-import { FileCard } from '@/components/channel-view/text/file-card';
+import { FileCard } from '@/components/chat-primitives/file-card';
 import { PaginatedList } from '@/components/paginated-list';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getFileUrl } from '@/helpers/get-file-url';

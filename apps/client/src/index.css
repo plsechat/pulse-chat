@@ -575,11 +575,12 @@ body,
   }
 }
 
-/* Emoji-only messages: larger emoji display */
+/* Emoji-only messages: larger emoji display. The edited tag lives
+   inside .msg-content, so it must be excluded or it scales up too. */
 .msg-content.emoji-only {
   line-height: 2.5rem;
 
-  span {
+  span:not(.edited-tag) {
     font-size: 2.25rem;
     line-height: 2.5rem;
   }
@@ -734,22 +735,32 @@ body,
 
 .name-font-pacifico {
   font-family: 'NameStyle Pacifico', ui-sans-serif, system-ui, sans-serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.9em;
 }
 
 .name-font-playfair {
   font-family: 'NameStyle Playfair', ui-serif, serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.95em;
 }
 
 .name-font-baloo {
   font-family: 'NameStyle Baloo', ui-sans-serif, system-ui, sans-serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.88em;
 }
 
 .name-font-jetbrains-mono {
   font-family: 'NameStyle JetBrains Mono', ui-monospace, monospace;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.9em;
 }
 
 .name-font-oswald {
   font-family: 'NameStyle Oswald', ui-sans-serif, system-ui, sans-serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.95em;
 }
 
 @font-face {
@@ -784,22 +795,32 @@ body,
 
 .name-font-medieval {
   font-family: 'NameStyle Medieval', ui-serif, serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.95em;
 }
 
 .name-font-jellybean {
   font-family: 'NameStyle Jellybean', ui-sans-serif, system-ui, sans-serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.86em;
 }
 
 .name-font-sakura {
   font-family: 'NameStyle Sakura', ui-sans-serif, system-ui, sans-serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.88em;
 }
 
 .name-font-tempo {
   font-family: 'NameStyle Tempo', ui-sans-serif, system-ui, sans-serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.92em;
 }
 
 .name-font-vampyre {
   font-family: 'NameStyle Vampyre', ui-serif, serif;
+  /* normalized so styled names keep the default font's footprint */
+  font-size: 0.9em;
 }
 
 /* ---- Name-style effects ----------------------------------------------

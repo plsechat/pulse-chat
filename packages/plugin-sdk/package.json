@@ -5,12 +5,17 @@
   "private": true,
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "lint": "eslint ./src --ext ts --report-unused-disable-directives"
+  },
   "devDependencies": {
     "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-unused-imports": "^4.1.4",
     "mediasoup": "3.19.17",
-    "@pulse/shared": "workspace:*"
-  },
-  "peerDependencies": {
+    "@pulse/shared": "workspace:*",
     "typescript": "^5"
   }
 }

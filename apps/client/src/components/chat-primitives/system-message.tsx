@@ -1,4 +1,8 @@
-import { useUserById } from '@/features/server/users/hooks';
+import {
+  useHomeUserById,
+  useUserById
+} from '@/features/server/users/hooks';
+import { useChatScope } from '@/components/chat-primitives/chat-scope';
 import { Tooltip } from '@/components/ui/tooltip';
 import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
@@ -14,7 +18,13 @@ type SystemMessageProps = {
 };
 
 const SystemMessage = memo(({ message }: SystemMessageProps) => {
-  const user = useUserById(message.userId);
+  // Identity-reset banners appear in DMs (home-space userId); resolve
+  // against the home roster when scoped so the name is right under a
+  // federated server.
+  const { homeScope } = useChatScope();
+  const ambientUser = useUserById(message.userId);
+  const homeUser = useHomeUserById(message.userId);
+  const user = homeScope ? homeUser : ambientUser;
   const date = new Date(message.createdAt);
 
   if (message.content === 'identity_reset') {

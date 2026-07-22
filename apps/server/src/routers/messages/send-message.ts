@@ -26,6 +26,7 @@ import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
 import { protectedProcedure } from '../../utils/trpc';
+import { resolveForwardSource } from '../../utils/forward-source';
 
 const sendMessageRoute = protectedProcedure
   .input(
@@ -37,7 +38,18 @@ const sendMessageRoute = protectedProcedure
       e2ee: z.boolean().optional(),
       channelId: z.number(),
       files: z.array(z.string()).optional(),
-      replyToId: z.number().optional()
+      replyToId: z.number().optional(),
+      /**
+       * Forward attribution by SOURCE REFERENCE — the server loads the
+       * source, verifies visibility, and derives the author itself.
+       * There is deliberately no way to claim an author directly.
+       */
+      forwardedFrom: z
+        .object({
+          sourceKind: z.enum(['channel', 'dm']),
+          sourceId: z.number().int().positive()
+        })
+        .optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -256,6 +268,15 @@ const sendMessageRoute = protectedProcedure
       mentionsAll = parsed.mentionsAll;
     }
 
+    const forwarded = input.forwardedFrom
+      ? await resolveForwardSource(input.forwardedFrom, ctx)
+      : null;
+    // A forward is a verbatim copy of someone else's message; letting
+    // the forwarder edit it would let them put words under another
+    // author's attribution. Lock it (the edit route enforces
+    // `editable`).
+    if (forwarded) editable = false;
+
     const [message] = await db
       .insert(messages)
       .values({
@@ -267,6 +288,8 @@ const sendMessageRoute = protectedProcedure
         replyToId: input.replyToId,
         mentionedUserIds,
         mentionsAll,
+        forwardedFromUserId: forwarded?.forwardedFromUserId,
+        forwardedFromName: forwarded?.forwardedFromName,
         createdAt: Date.now()
       })
       .returning();

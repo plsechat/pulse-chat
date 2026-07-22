@@ -10,13 +10,17 @@ import {
   type TVolumeKey
 } from '@/components/voice-provider/volume-control-context';
 import { Volume2, VolumeX } from 'lucide-react';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, type ComponentProps } from 'react';
 
 type TVolumeButtonProps = {
   volumeKey: TVolumeKey;
   label?: string;
   muteLabel?: string;
   unmuteLabel?: string;
+  // Trigger sizing/styling override — lets the screen-share QuickBar
+  // enlarge its trigger without changing the default used elsewhere.
+  size?: ComponentProps<typeof IconButton>['size'];
+  className?: string;
 };
 
 const VolumeButton = memo(
@@ -24,7 +28,9 @@ const VolumeButton = memo(
     volumeKey,
     label = 'Volume',
     muteLabel = 'Mute',
-    unmuteLabel = 'Unmute'
+    unmuteLabel = 'Unmute',
+    size = 'sm',
+    className
   }: TVolumeButtonProps) => {
     const { getVolume, setVolume, toggleMute } = useVolumeControl();
     const volume = getVolume(volumeKey);
@@ -49,7 +55,8 @@ const VolumeButton = memo(
             icon={isMuted ? VolumeX : Volume2}
             title={label}
             aria-label={label}
-            size="sm"
+            size={size}
+            className={className}
           />
         </PopoverTrigger>
         <PopoverContent

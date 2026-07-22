@@ -19,6 +19,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { DmConversation } from './dm-conversation';
 import { HomeSidebar } from './home-sidebar';
 import { FriendsPanel } from './friends-panel';
+import { onAppEvent } from '@/lib/events';
 
 export type THomeTab = 'friends' | 'dm';
 
@@ -77,17 +78,13 @@ const HomeView = memo(() => {
   // External "open this DM" requests — currently emitted by the
   // IncomingCallModal when the user accepts a call. HomeView owns
   // the local state that picks the DM, so localStorage alone won't
-  // re-render; this CustomEvent is the bridge.
+  // re-render; this app event is the bridge.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ dmChannelId: number }>).detail;
-      if (typeof detail?.dmChannelId !== 'number') return;
-      setLocalSelectedDmChannelId(detail.dmChannelId);
-      setSelectedDmChannelId(detail.dmChannelId);
+    return onAppEvent('dm-navigate', ({ dmChannelId }) => {
+      setLocalSelectedDmChannelId(dmChannelId);
+      setSelectedDmChannelId(dmChannelId);
       setActiveTab('dm');
-    };
-    window.addEventListener('dm-navigate', handler);
-    return () => window.removeEventListener('dm-navigate', handler);
+    });
   }, []);
 
   // When the active DM disappears from the channel list (self-delete,

@@ -6,7 +6,7 @@ import z from 'zod';
 import { db } from '../../db';
 import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 import { getLocalKeys, signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
 import { pubsub } from '../../utils/pubsub';
@@ -15,16 +15,14 @@ import {
   validateFederationUrl
 } from '../../utils/validate-url';
 import { logger } from '../../logger';
-import { assertInstanceOwner } from './guard';
 
-const addInstanceRoute = protectedProcedure
+const addInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
       remoteUrl: z.string().url()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await assertInstanceOwner(ctx.userId);
 
     if (!config.federation.enabled) {
       ctx.throwValidationError('federation', 'Federation is not enabled');

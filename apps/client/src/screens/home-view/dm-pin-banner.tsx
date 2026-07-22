@@ -1,12 +1,13 @@
-import { serializer } from '@/components/channel-view/text/renderer/serializer';
+import { serializer } from '@/components/chat-primitives/serializer';
 import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
 import { decryptDmMessages } from '@/features/dms/actions';
-import { useUserById } from '@/features/server/users/hooks';
+import { useHomeUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
 import parse from 'html-react-parser';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { onAppEvent } from '@/lib/events';
 
 /**
  * DM equivalent of the channel `PinBanner`. Owns the DM data flow
@@ -45,18 +46,16 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
   }, [fetchLatest]);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.dmChannelId === dmChannelId) {
+    return onAppEvent('dm-pinned-messages-changed', (payload) => {
+      if (payload.dmChannelId === dmChannelId) {
         fetchLatest();
       }
-    };
-    window.addEventListener('dm-pinned-messages-changed', handler);
-    return () =>
-      window.removeEventListener('dm-pinned-messages-changed', handler);
+    });
   }, [dmChannelId, fetchLatest]);
 
-  const author = useUserById(latest?.userId ?? -1);
+  // DM authors are HOME-space ids — ambient lookup reads the wrong
+  // roster while a federated server is active.
+  const author = useHomeUserById(latest?.userId ?? -1);
 
   // DM messages can be either tiptap-style HTML (legacy) or token JSON.
   // Mirror DmPinnedMessageItem's approach: parse + serializer for

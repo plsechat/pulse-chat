@@ -528,7 +528,13 @@ async function syncShadowUserProfile(
       logger.debug('[shadowProfile] no-op userId=%d (no changed fields)', shadowUserId);
     }
   } catch (err) {
-    logger.error('[syncShadowUserProfile] failed for user %d: %o', shadowUserId, err);
+    // Sanitize the error text — a federated-sync failure can carry
+    // remote-controlled strings into the log sink (CodeQL js/log-injection).
+    logger.error(
+      '[syncShadowUserProfile] failed for user %d: %s',
+      shadowUserId,
+      (err instanceof Error ? err.message : String(err)).replace(/[\r\n]/g, '')
+    );
   }
 }
 

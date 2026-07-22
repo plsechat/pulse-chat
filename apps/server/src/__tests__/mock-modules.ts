@@ -47,17 +47,28 @@ mock.module('../config', () => ({
 }));
 
 // ── Mock logger (avoids importing config + creating log files) ──
+// Mirrors the real module's in-memory ring (getRecentLogs) so the
+// admin Logs route stays testable: info/warn/error/debug push a line
+// with the same {ts, level, message} shape the real ringTap records.
+const recentLogs: { ts: number; level: string; message: string }[] = [];
+const logToRing =
+  (level: string) =>
+  (message?: unknown): void => {
+    recentLogs.push({ ts: Date.now(), level, message: String(message ?? '') });
+    if (recentLogs.length > 1000) recentLogs.shift();
+  };
 mock.module('../logger', () => ({
   logger: {
-    info: noop,
-    warn: noop,
-    error: noop,
-    debug: noop,
+    info: logToRing('info'),
+    warn: logToRing('warn'),
+    error: logToRing('error'),
+    debug: logToRing('debug'),
     trace: noop,
     fatal: noop,
     time: noop,
     timeEnd: noop
   },
+  getRecentLogs: () => recentLogs,
   setDebugVerbose: noop
 }));
 
@@ -253,6 +264,17 @@ const mockAuthBackend = {
       data: { user: null },
       error: { message: 'User not found', reason: 'user_not_found' }
     };
+  },
+
+  deleteUserById: async (id: string) => {
+    for (const [email, entry] of authStore.entries()) {
+      if (entry.supabaseId === id) {
+        authStore.delete(email);
+        break;
+      }
+    }
+    // Idempotent like the real backends — missing id is not an error.
+    return { error: null };
   }
 };
 

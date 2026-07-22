@@ -201,23 +201,19 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
     >
       <UserAvatar
         userId={user.id}
-        className="h-5 w-5"
+        // Speaking lives on the avatar as a ring (same language as the
+        // voice tiles) so the name never flickers out of its style.
+        className={cn(
+          'h-5 w-5 transition-shadow duration-150',
+          isActivelySpeaking && 'ring-2 ring-green-500'
+        )}
         showUserPopover={false}
         showStatusBadge={false}
       />
 
       <span
-        className={cn(
-          'flex-1 truncate text-xs transition-colors duration-150',
-          // The speaking flash is a state indicator — it suppresses the
-          // cosmetic style while active.
-          !isActivelySpeaking && nameCss?.className
-        )}
-        style={
-          isActivelySpeaking
-            ? { color: 'rgb(34, 197, 94)' }
-            : nameCss?.style
-        }
+        className={cn('flex-1 truncate text-xs', nameCss?.className)}
+        style={nameCss?.style}
       >
         {getDisplayName(user)}
       </span>
@@ -272,6 +268,15 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
         />
       )}
       <UserContextMenu userId={user.id}>
+        {/* Real DOM node for the ContextMenu trigger: asChild onto the
+            Popover component put the contextmenu handlers on a
+            non-DOM child, so right-click fell through to the CHANNEL
+            row's menu. display:contents keeps layout; stopPropagation
+            keeps the channel menu from also claiming the click. */}
+        <div
+          className="contents"
+          onContextMenu={(e) => e.stopPropagation()}
+        >
         {isOwnUser ? (
           row
         ) : (
@@ -315,6 +320,7 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
             </PopoverContent>
           </Popover>
         )}
+        </div>
       </UserContextMenu>
     </>
   );

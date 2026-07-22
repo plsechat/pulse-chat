@@ -147,4 +147,7 @@ export enum DisconnectCode {
   KICKED = 40000,
   BANNED = 40001,
   SERVER_SHUTDOWN = 40002,
+  /** The account was self-deleted — the client signs out and must not
+   *  reconnect (the auth identity no longer exists). */
+  ACCOUNT_DELETED = 40003,
 }

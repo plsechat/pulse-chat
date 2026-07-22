@@ -26,6 +26,7 @@ import { infoSelector } from './selectors';
 import { serverSliceActions } from './slice';
 import { initSubscriptions, subscribeToVoice } from './subscriptions';
 import { type TDisconnectInfo } from './types';
+import { emitAppEvent } from '@/lib/events';
 
 let unsubscribeFromServer: (() => void) | null = null;
 let unsubscribeFromVoice: (() => void) | null = null;
@@ -157,7 +158,7 @@ export const joinServer = async (
 
   // After state is initialized, handle preference sync
   if (data.userPreferences) {
-    window.dispatchEvent(new Event('pulse-preferences-loaded'));
+    emitAppEvent('preferences-loaded');
   } else {
     seedPreferencesFromLocalStorage();
   }

@@ -8,7 +8,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
-import { OverrideLayout } from './layout';
+import { OverrideLayout } from '@/components/chat-primitives/overrides/layout';
 
 type TCommandOverrideProps = {
   command: TParsedDomCommand;

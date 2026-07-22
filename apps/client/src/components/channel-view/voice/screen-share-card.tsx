@@ -15,10 +15,17 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { Slider } from '@/components/ui/slider';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
+import { useInfo } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
 import { cn } from '@/lib/utils';
 import { Resolution } from '@/types';
+import {
+  DEFAULT_SCREEN_MAX_FRAMERATE,
+  DEFAULT_SCREEN_MAX_RESOLUTION,
+  screenFrameratesAtOrBelow,
+  screenResolutionsAtOrBelow
+} from '@pulse/shared';
 import {
   Maximize,
   Minimize,
@@ -30,7 +37,7 @@ import {
   ZoomIn,
   ZoomOut
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { CardControls } from './card-controls';
 import { CardGradient } from './card-gradient';
 import { useCardClickFocus } from './hooks/use-card-click-focus';
@@ -39,8 +46,6 @@ import { useVoiceRefs } from './hooks/use-voice-refs';
 import { PinButton } from './pin-button';
 import { VolumeButton } from './volume-button';
 
-const QUALITY_RESOLUTIONS = [Resolution['720p'], Resolution['1080p']];
-const QUALITY_FRAMERATES = [15, 30, 60];
 
 type tScreenShareControlsProps = {
   isPinned: boolean;
@@ -81,6 +86,11 @@ type TQuickBarProps = {
   children?: React.ReactNode;
 };
 
+// Enlarged, padded, hover-highlighted hit target for the QuickBar. The
+// bare-glyph default (size-4, no padding) was too small to click on a
+// video overlay — this gives a ~48px circular target with a hover ring.
+const QUICK_BTN = 'rounded-full p-2.5 hover:bg-white/15';
+
 /**
  * Bottom-center hover pill hosting the tile's quick actions. Mirrors
  * CardControls' propagation stops so the buttons never feed the
@@ -92,7 +102,7 @@ const QuickBar = memo(({ children }: TQuickBarProps) => {
       className={cn(
         'absolute bottom-2 left-1/2 -translate-x-1/2 z-20',
         'opacity-0 group-hover:opacity-100 transition-opacity',
-        'flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm px-2.5 py-1.5',
+        'flex items-center gap-1 rounded-full bg-black/60 backdrop-blur-sm px-1.5 py-1',
         'pointer-events-auto cursor-default'
       )}
       onMouseDown={(e) => e.stopPropagation()}
@@ -139,6 +149,25 @@ const ScreenShareCard = memo(
     const { getScreenVolumeKey, getVolume, setVolume, toggleMute } =
       useVolumeControl();
     const { devices, saveDevices } = useDevices();
+    const info = useInfo();
+
+    // Quality options the instance operator permits — every rung at or
+    // below the configured ceiling (falls back to the shared defaults on
+    // older servers that don't advertise a cap).
+    const availableResolutions = useMemo(
+      () =>
+        screenResolutionsAtOrBelow(
+          info?.maxScreenResolution ?? DEFAULT_SCREEN_MAX_RESOLUTION
+        ),
+      [info?.maxScreenResolution]
+    );
+    const availableFramerates = useMemo(
+      () =>
+        screenFrameratesAtOrBelow(
+          info?.maxScreenFramerate ?? DEFAULT_SCREEN_MAX_FRAMERATE
+        ),
+      [info?.maxScreenFramerate]
+    );
 
     const screenVolumeKey = getScreenVolumeKey(userId);
     const screenVolume = getVolume(screenVolumeKey);
@@ -317,12 +346,11 @@ const ScreenShareCard = memo(
                           ? 'Unmute Stream Audio'
                           : 'Mute Stream Audio'
                       }
-                      className={
-                        screenAudioMuted
-                          ? 'text-red-400 hover:text-red-300'
-                          : ''
-                      }
-                      size="sm"
+                      className={cn(
+                        QUICK_BTN,
+                        screenAudioMuted && 'text-red-400 hover:text-red-300'
+                      )}
+                      size="xl"
                     />
                   )}
                   <IconButton
@@ -331,7 +359,8 @@ const ScreenShareCard = memo(
                     onClick={changeScreenShare}
                     title="Change Source"
                     aria-label="Change Source"
-                    size="sm"
+                    className={QUICK_BTN}
+                    size="xl"
                   />
                   <IconButton
                     variant="ghost"
@@ -339,7 +368,8 @@ const ScreenShareCard = memo(
                     onClick={toggleFullscreen}
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    size="sm"
+                    className={QUICK_BTN}
+                    size="xl"
                   />
                   <IconButton
                     variant="ghost"
@@ -347,8 +377,8 @@ const ScreenShareCard = memo(
                     onClick={toggleScreenShare}
                     title="Stop Streaming"
                     aria-label="Stop Streaming"
-                    className="text-red-400 hover:text-red-300"
-                    size="sm"
+                    className={cn(QUICK_BTN, 'text-red-400 hover:text-red-300')}
+                    size="xl"
                   />
                 </>
               ) : (
@@ -359,6 +389,8 @@ const ScreenShareCard = memo(
                       label="Stream Volume"
                       muteLabel="Mute Stream Audio"
                       unmuteLabel="Unmute Stream Audio"
+                      size="xl"
+                      className={QUICK_BTN}
                     />
                   )}
                   <IconButton
@@ -367,7 +399,8 @@ const ScreenShareCard = memo(
                     onClick={toggleFullscreen}
                     title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
                     aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    size="sm"
+                    className={QUICK_BTN}
+                    size="xl"
                   />
                 </>
               )}
@@ -401,7 +434,7 @@ const ScreenShareCard = memo(
                   value={devices.screenResolution}
                   onValueChange={handleScreenResolutionChange}
                 >
-                  {QUALITY_RESOLUTIONS.map((resolution) => (
+                  {availableResolutions.map((resolution) => (
                     <ContextMenuRadioItem key={resolution} value={resolution}>
                       {resolution}
                     </ContextMenuRadioItem>
@@ -412,7 +445,7 @@ const ScreenShareCard = memo(
                   value={String(devices.screenFramerate)}
                   onValueChange={handleScreenFramerateChange}
                 >
-                  {QUALITY_FRAMERATES.map((framerate) => (
+                  {availableFramerates.map((framerate) => (
                     <ContextMenuRadioItem
                       key={framerate}
                       value={String(framerate)}

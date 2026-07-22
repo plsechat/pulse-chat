@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { addMessages, mergeMessageAuthors, purgeChannelMessages } from './actions';
 import { decryptChannelMessages } from './decrypt';
-import { finishJump, JUMP_EVENT, peekPendingJump } from './jump';
+import { finishJump, peekPendingJump } from './jump';
 import { messagesByChannelIdSelector } from './selectors';
+import { onAppEvent } from '@/lib/events';
 
 export const useMessagesByChannelId = (channelId: number) =>
   useSelector((state: IRootState) =>
@@ -199,8 +200,7 @@ export const useMessages = (channelId: number) => {
       const pending = peekPendingJump(channelId);
       if (pending && inited.current) void jumpTo(pending.messageId);
     };
-    window.addEventListener(JUMP_EVENT, handler);
-    return () => window.removeEventListener(JUMP_EVENT, handler);
+    return onAppEvent('jump-to-message', handler);
   }, [channelId, jumpTo]);
 
   const isEmpty = useMemo(

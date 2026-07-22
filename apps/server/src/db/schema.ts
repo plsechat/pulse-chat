@@ -60,7 +60,15 @@ const settings = pgTable(
       mode: 'number'
     }).notNull(),
     storageOverflowAction: text('storage_overflow_action').notNull(),
-    enablePlugins: boolean('enable_plugins').notNull()
+    enablePlugins: boolean('enable_plugins').notNull(),
+    // Instance-global screen-share quality ceiling. The client offers every
+    // resolution/framerate rung at or below these and clamps its capture to
+    // them. Resolution can't be enforced by the SFU (it never sees pixel
+    // dims), so this is a client-honored policy, not a hard wire limit.
+    screenMaxResolution: text('screen_max_resolution')
+      .notNull()
+      .default('1080p'),
+    screenMaxFramerate: integer('screen_max_framerate').notNull().default(60)
   },
   (t) => [
     index('settings_server_idx').on(t.serverId),
@@ -257,6 +265,11 @@ const users = pgTable(
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
+    // Set when the account is self-deleted: the row stays as an
+    // anonymized tombstone (messages keep their author) but the name/
+    // profile are scrubbed, auth is severed, and clients render
+    // "Deleted User". Never unset.
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
     bannerColor: text('banner_color'),
     lastLoginAt: bigint('last_login_at', { mode: 'number' })
       .notNull()
@@ -361,6 +374,18 @@ const messages = pgTable(
     type: text('type').notNull().default('user'),
     mentionedUserIds: jsonb('mentioned_user_ids').$type<number[]>(),
     mentionsAll: boolean('mentions_all').default(false),
+    /**
+     * Immutable forward attribution, SERVER-derived from the source
+     * message at send time (never client-claimed) and never touched by
+     * the edit route. The name is a snapshot so attribution survives
+     * the author's deletion (FK goes null) and federated shadow-user
+     * renames.
+     */
+    forwardedFromUserId: integer('forwarded_from_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' }
+    ),
+    forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -785,6 +810,12 @@ const dmMessages = pgTable(
     }),
     edited: boolean('edited').notNull().default(false),
     type: text('type').notNull().default('user'),
+    /** Same immutable forward attribution as messages (see there). */
+    forwardedFromUserId: integer('forwarded_from_user_id').references(
+      () => users.id,
+      { onDelete: 'set null' }
+    ),
+    forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -985,6 +1016,77 @@ const userNotes = pgTable(
     index('user_notes_author_idx').on(t.authorId),
     index('user_notes_target_idx').on(t.targetUserId),
     index('user_notes_author_target_idx').on(t.authorId, t.targetUserId)
+  ]
+);
+
+/**
+ * Abuse reports, layered: channel-message reports route to the server's
+ * moderators (`audience` = 'server'); DM and account reports — and any
+ * report that trips an escalation trigger — go to the instance operator
+ * ('instance'). The operator additionally sees every server-audience
+ * report as a read-mostly receipt. `contentSnapshot` is captured at
+ * report time: server-verified for plaintext targets, the REPORTER's
+ * decrypted copy for E2EE targets (`snapshotAttested` = true — nobody
+ * can cryptographically verify it, reviewers are told so). It survives
+ * edits/deletions of the original. Escalation triggers at create time:
+ * reason 'illegal' and target-is-mod/owner; later: manual escalation by
+ * a mod, and the stale-report cron. Message FKs are SET NULL so a
+ * report outlives its target; targetUserId always remains. No files FK
+ * on purpose — files are reported via the message that carries them
+ * (keeps this table out of the orphan-file machinery).
+ */
+const reports = pgTable(
+  'reports',
+  {
+    id: serial('id').primaryKey(),
+    /** 'message' | 'dm_message' | 'user' */
+    kind: text('kind').notNull(),
+    targetUserId: integer('target_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    targetMessageId: integer('target_message_id').references(
+      () => messages.id,
+      { onDelete: 'set null' }
+    ),
+    targetDmMessageId: integer('target_dm_message_id').references(
+      () => dmMessages.id,
+      { onDelete: 'set null' }
+    ),
+    /** Context server for channel-message reports. */
+    serverId: integer('server_id').references(() => servers.id, {
+      onDelete: 'set null'
+    }),
+    reporterId: integer('reporter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** 'illegal' | 'spam' | 'harassment' | 'other' */
+    reason: text('reason').notNull(),
+    details: text('details'),
+    contentSnapshot: text('content_snapshot'),
+    /** True when the snapshot is reporter-attested E2EE plaintext. */
+    snapshotAttested: boolean('snapshot_attested').notNull().default(false),
+    /** Whose queue acts on this now: 'server' | 'instance'. */
+    audience: text('audience').notNull(),
+    /** 'illegal' | 'target_mod' | 'manual' | 'stale' — why it moved to 'instance'. */
+    escalationReason: text('escalation_reason'),
+    escalatedAt: bigint('escalated_at', { mode: 'number' }),
+    /** Set only for manual escalation by a server mod. */
+    escalatedBy: integer('escalated_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    /** 'open' | 'resolved' | 'dismissed' */
+    status: text('status').notNull().default('open'),
+    resolvedBy: integer('resolved_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    resolvedAt: bigint('resolved_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('reports_audience_status_idx').on(t.audience, t.status),
+    index('reports_server_idx').on(t.serverId),
+    index('reports_target_user_idx').on(t.targetUserId),
+    index('reports_reporter_idx').on(t.reporterId)
   ]
 );
 
@@ -1238,6 +1340,7 @@ export {
   messages,
   nameplates,
   pluginData,
+  reports,
   rolePermissions,
   roles,
   serverMembers,

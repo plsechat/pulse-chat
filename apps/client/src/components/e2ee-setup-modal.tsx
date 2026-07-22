@@ -15,6 +15,7 @@ import { serverSliceActions } from '@/features/server/slice';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { AlertTriangle, KeyRound, Loader2 } from 'lucide-react';
+import { onAppEvent } from '@/lib/events';
 
 type Step = 'choosing' | 'confirm-regenerate' | 'processing';
 
@@ -29,11 +30,10 @@ const E2EESetupModal = memo(() => {
   const rejectRef = useRef<((err: Error) => void) | null>(null);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as {
-        resolve: () => void;
-        reject: (err: Error) => void;
-      };
+    const handler = (detail: {
+      resolve: () => void;
+      reject: (err: Error) => void;
+    }) => {
       resolveRef.current = detail.resolve;
       rejectRef.current = detail.reject;
       setOpen(true);
@@ -52,8 +52,7 @@ const E2EESetupModal = memo(() => {
         .then((result) => setHasBackup(result.exists))
         .catch(() => setHasBackup(false));
     };
-    window.addEventListener('e2ee-setup-needed', handler);
-    return () => window.removeEventListener('e2ee-setup-needed', handler);
+    return onAppEvent('e2ee-setup-needed', handler);
   }, []);
 
   // The identity-parity guard (initE2EE) fires this when the server's
@@ -67,8 +66,7 @@ const E2EESetupModal = memo(() => {
         { duration: 12000 }
       );
     };
-    window.addEventListener('e2ee-identity-mismatch', handler);
-    return () => window.removeEventListener('e2ee-identity-mismatch', handler);
+    return onAppEvent('e2ee-identity-mismatch', handler);
   }, []);
 
   const handleCancel = useCallback(() => {

@@ -3,14 +3,14 @@ import { removeFile } from '../db/mutations/files';
 import { getOrphanedFileIds } from '../db/queries/files';
 import { logger } from '../logger';
 
-const cleanupFiles = async () => {
+const cleanupFiles = async (): Promise<number> => {
   logger.debug(`${chalk.dim('[Cron]')} Starting file cleanup...`);
 
   const orphanedFileIds = await getOrphanedFileIds();
 
   if (orphanedFileIds.length === 0) {
     logger.debug(`${chalk.dim('[Cron]')} No orphaned files found.`);
-    return;
+    return 0;
   }
 
   logger.info(
@@ -26,6 +26,7 @@ const cleanupFiles = async () => {
   logger.info(
     `${chalk.dim('[Cron]')} Cleaned up ${orphanedFileIds.length} orphaned files.`
   );
+  return orphanedFileIds.length;
 };
 
 export { cleanupFiles };

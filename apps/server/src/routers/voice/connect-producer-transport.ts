@@ -20,7 +20,7 @@ const connectProducerTransportRoute = protectedProcedure
       message: 'User is not in a voice channel'
     });
 
-    const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
+    const runtime = VoiceRuntime.requireByCtx(ctx);
 
     const producerTransport = runtime.getProducerTransport(ctx.user.id);
 

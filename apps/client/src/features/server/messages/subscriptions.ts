@@ -22,6 +22,7 @@ import {
   updateMessage
 } from './actions';
 import { decryptChannelMessageForDisplay } from './decrypt';
+import { emitAppEvent } from '@/lib/events';
 
 
 const subscribeToMessages = () => {
@@ -65,14 +66,10 @@ const subscribeToMessages = () => {
       ({ userId, channelId }) => addTypingUser(channelId, userId)
     ),
     subscribe('onMessagePin', trpc.messages.onPin, ({ channelId }) =>
-      window.dispatchEvent(
-        new CustomEvent('pinned-messages-changed', { detail: { channelId } })
-      )
+      emitAppEvent('pinned-messages-changed', { channelId })
     ),
     subscribe('onMessageUnpin', trpc.messages.onUnpin, ({ channelId }) =>
-      window.dispatchEvent(
-        new CustomEvent('pinned-messages-changed', { detail: { channelId } })
-      )
+      emitAppEvent('pinned-messages-changed', { channelId })
     ),
     subscribe(
       'onSenderKeyDistribution',
@@ -107,24 +104,22 @@ const subscribeToMessages = () => {
       }
     ),
     subscribe('onInviteCreate', trpc.invites.onInviteCreate, () =>
-      window.dispatchEvent(new CustomEvent('invites-changed'))
+      emitAppEvent('invites-changed')
     ),
     subscribe('onInviteDelete', trpc.invites.onInviteDelete, () =>
-      window.dispatchEvent(new CustomEvent('invites-changed'))
+      emitAppEvent('invites-changed')
     ),
     subscribe('onNoteUpdate', trpc.notes.onNoteUpdate, ({ targetUserId }) =>
-      window.dispatchEvent(
-        new CustomEvent('notes-changed', { detail: { targetUserId } })
-      )
+      emitAppEvent('notes-changed', { targetUserId })
     ),
     subscribe('onThreadCreate', trpc.threads.onThreadCreate, () =>
-      window.dispatchEvent(new CustomEvent('threads-changed'))
+      emitAppEvent('threads-changed')
     ),
     subscribe('onThreadUpdate', trpc.threads.onThreadUpdate, () =>
-      window.dispatchEvent(new CustomEvent('threads-changed'))
+      emitAppEvent('threads-changed')
     ),
     subscribe('onThreadDelete', trpc.threads.onThreadDelete, () =>
-      window.dispatchEvent(new CustomEvent('threads-changed'))
+      emitAppEvent('threads-changed')
     )
   ];
 

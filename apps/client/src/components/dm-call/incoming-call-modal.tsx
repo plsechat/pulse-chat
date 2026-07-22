@@ -14,6 +14,7 @@ import { Phone, PhoneOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useOutgoingCallTimeout } from './use-outgoing-call-timeout';
+import { emitAppEvent } from '@/lib/events';
 
 const RING_INTERVAL_MS = 2500;
 
@@ -116,9 +117,7 @@ const IncomingCallContent = memo(
         // Tell HomeView (already mounted) to switch — the local state
         // there is the source of truth for which DM is rendered, so
         // localStorage alone wouldn't trigger a re-render.
-        window.dispatchEvent(
-          new CustomEvent('dm-navigate', { detail: { dmChannelId } })
-        );
+        emitAppEvent('dm-navigate', { dmChannelId });
         setActiveView('home');
 
         const result = await joinDmVoiceCall(dmChannelId);

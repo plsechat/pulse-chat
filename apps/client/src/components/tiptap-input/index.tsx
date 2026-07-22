@@ -11,7 +11,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { Smile } from 'lucide-react';
-import { MENTION_USER_EVENT } from '@/lib/events';
+import { onAppEvent } from '@/lib/events';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
 import {
@@ -428,8 +428,7 @@ const TiptapInput = memo(
 
     // Listen for external mention-user events (e.g. from UserContextMenu)
     useEffect(() => {
-      const handler = (e: Event) => {
-        const { userId, username } = (e as CustomEvent).detail;
+      const handler = ({ userId, username }: { userId: number; username: string }) => {
         editor
           ?.chain()
           .focus()
@@ -446,8 +445,7 @@ const TiptapInput = memo(
           ])
           .run();
       };
-      window.addEventListener(MENTION_USER_EVENT, handler);
-      return () => window.removeEventListener(MENTION_USER_EVENT, handler);
+      return onAppEvent('mention-user', handler);
     }, [editor]);
 
     return (
@@ -484,3 +482,4 @@ const TiptapInput = memo(
 );
 
 export { TiptapInput };
+export type { TMentionableUser };

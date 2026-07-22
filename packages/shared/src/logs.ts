@@ -12,6 +12,11 @@ export enum ActivityLogType {
   USER_BANNED = "USER_BANNED",
   USER_UNBANNED = "USER_UNBANNED",
   USER_UPDATED_PASSWORD = "USER_UPDATED_PASSWORD",
+  USER_DELETED_ACCOUNT = "USER_DELETED_ACCOUNT",
+  USER_REPORTED = "USER_REPORTED",
+  REPORT_RESOLVED = "REPORT_RESOLVED",
+  REPORT_ESCALATED = "REPORT_ESCALATED",
+  SERVER_DELETED = "SERVER_DELETED",
   USER_ROLE_ASSIGNED = "USER_ROLE_ASSIGNED",
   USER_ROLE_REMOVED = "USER_ROLE_REMOVED",
   USER_NICKNAME_SET = "USER_NICKNAME_SET",
@@ -45,7 +50,7 @@ export enum ActivityLogType {
 }
 
 export type TActivityLogDetailsMap = {
-  [ActivityLogType.SERVER_STARTED]: {};
+  [ActivityLogType.SERVER_STARTED]: Record<string, never>;
   [ActivityLogType.EDIT_SERVER_SETTINGS]: {
     values: Partial<{
       [K in keyof TSettings]: any;
@@ -84,8 +89,31 @@ export type TActivityLogDetailsMap = {
   [ActivityLogType.USER_JOINED]: {
     inviteCode: string | undefined;
   };
-  [ActivityLogType.USER_LEFT]: {};
-  [ActivityLogType.USER_UPDATED_PASSWORD]: {};
+  [ActivityLogType.USER_LEFT]: Record<string, never>;
+  [ActivityLogType.USER_UPDATED_PASSWORD]: Record<string, never>;
+  [ActivityLogType.USER_DELETED_ACCOUNT]: Record<string, never>;
+  [ActivityLogType.USER_REPORTED]: {
+    reportId: number;
+    kind: string;
+    reason: string;
+    reportedBy: number;
+  };
+  [ActivityLogType.REPORT_RESOLVED]: {
+    reportId: number;
+    action: string;
+    resolvedBy: number;
+  };
+  [ActivityLogType.REPORT_ESCALATED]: {
+    reportId: number;
+    reason: string;
+    escalatedBy: number | null;
+  };
+  [ActivityLogType.SERVER_DELETED]: {
+    serverId: number;
+    serverName: string;
+    serverPublicId: string;
+    deletedBy: number;
+  };
   // -------------------- ROLES --------------------
   [ActivityLogType.CREATED_ROLE]: {
     roleId: number;

@@ -1,8 +1,8 @@
-import { serializer } from '@/components/channel-view/text/renderer/serializer';
+import { serializer } from '@/components/chat-primitives/serializer';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
-import { useUserById } from '@/features/server/users/hooks';
+import { useHomeUserById } from '@/features/server/users/hooks';
 import { longDateTime } from '@/helpers/time-format';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import type { TJoinedDmMessage } from '@pulse/shared';
@@ -18,7 +18,8 @@ type TDmSearchPopoverProps = {
 
 const DmSearchResult = memo(
   ({ message, query: _query }: { message: TJoinedDmMessage; query: string }) => {
-    const user = useUserById(message.userId);
+    // HOME-space id — see dm-pin-banner.
+    const user = useHomeUserById(message.userId);
 
     const messageHtml = useMemo(() => {
       return parse(message.content ?? '', {
@@ -29,7 +30,7 @@ const DmSearchResult = memo(
     return (
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
         <div className="flex items-center gap-2 mb-1">
-          <UserAvatar userId={message.userId} className="h-5 w-5" />
+          <UserAvatar userId={message.userId} className="h-5 w-5" homeScope />
           <span className="text-sm font-medium">
             {user?.name ?? 'Unknown'}
           </span>

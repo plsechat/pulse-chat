@@ -7,6 +7,7 @@ import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TJoinedMessage } from '@pulse/shared';
 import { memo, useCallback, useEffect, useState } from 'react';
+import { onAppEvent } from '@/lib/events';
 
 /**
  * Channel-specific pin banner. Owns the channel data flow (selected
@@ -52,15 +53,11 @@ const PinBanner = memo(() => {
   }, [fetchLatest]);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.channelId === channelId) {
+    return onAppEvent('pinned-messages-changed', (payload) => {
+      if (payload.channelId === channelId) {
         fetchLatest();
       }
-    };
-    window.addEventListener('pinned-messages-changed', handler);
-    return () =>
-      window.removeEventListener('pinned-messages-changed', handler);
+    });
   }, [channelId, fetchLatest]);
 
   const author = useUserById(latest?.userId ?? -1);

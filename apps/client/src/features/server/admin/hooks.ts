@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { useCan } from '../hooks';
+import { onAppEvent } from '@/lib/events';
 
 /**
  * Calls `refetch` whenever the watched Redux selector value changes,
@@ -700,9 +701,7 @@ export const useAdminInvites = (serverId: number | undefined) => {
 
   // Refetch when invite events arrive
   useEffect(() => {
-    const handler = () => { fetchInvites(); };
-    window.addEventListener('invites-changed', handler);
-    return () => window.removeEventListener('invites-changed', handler);
+    return onAppEvent('invites-changed', () => fetchInvites());
   }, [fetchInvites]);
 
   return {

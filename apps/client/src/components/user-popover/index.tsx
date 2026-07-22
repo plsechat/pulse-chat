@@ -33,13 +33,18 @@ import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import { Permission, UserStatus } from '@pulse/shared';
+import {
+  MAX_MESSAGE_CONTENT_LENGTH,
+  Permission,
+  UserStatus
+} from '@pulse/shared';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   Ban,
   Copy,
   Ellipsis,
   Fingerprint,
+  Flag,
   Globe,
   Pencil,
   Plus,
@@ -55,6 +60,7 @@ import { forwardRef, memo, useCallback, useEffect, useMemo, useState } from 'rea
 import { Slot } from '@radix-ui/react-slot';
 import { toast } from 'sonner';
 import { Protect } from '../protect';
+import { ReportDialog } from '../report-dialog';
 import { RoleBadge } from '../role-badge';
 import {
   DropdownMenu,
@@ -69,6 +75,7 @@ import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { UserAvatar } from '../user-avatar';
 import { UserStatusBadge } from '../user-status';
+import { onAppEvent } from '@/lib/events';
 
 type TNote = {
   id: number;
@@ -130,6 +137,7 @@ const UserPopover = memo(
     [friends, userId]
   );
   const isBlocked = useIsUserBlocked(userId);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const handleBlockToggle = useCallback(async () => {
     if (!user) return;
@@ -180,14 +188,11 @@ const UserPopover = memo(
 
   // Refetch notes when they change in another tab
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.targetUserId === userId && notesLoaded) {
+    return onAppEvent('notes-changed', ({ targetUserId }) => {
+      if (targetUserId === userId && notesLoaded) {
         fetchNotes();
       }
-    };
-    window.addEventListener('notes-changed', handler);
-    return () => window.removeEventListener('notes-changed', handler);
+    });
   }, [userId, notesLoaded, fetchNotes]);
 
   const handlePopoverOpen = useCallback(
@@ -259,6 +264,17 @@ const UserPopover = memo(
 
   const handleSendPopoverMessage = useCallback(async () => {
     if (isHtmlEmpty(popoverMessage)) return;
+    // Same plaintext budget the full composers enforce — without it an
+    // oversized paste would be rejected server-side AFTER the DM
+    // channel was created. The quick box doesn't do the codeblock→txt
+    // conversion; the full conversation view exists for that.
+    const content = tiptapHtmlToTokens(popoverMessage);
+    if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+      toast.error(
+        `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Send it from the conversation view instead.`
+      );
+      return;
+    }
     try {
       const localId = await resolveLocalUserId();
       const channel = await getOrCreateDmChannel(localId);
@@ -267,7 +283,7 @@ const UserPopover = memo(
         // server stores. The main DM composer does the same — without
         // it, popover-sent messages would land in the DB as raw HTML
         // (e.g. "<p>asdf</p>") and render with the literal tags.
-        await sendDmMessage(channel.id, tiptapHtmlToTokens(popoverMessage));
+        await sendDmMessage(channel.id, content);
         setPopoverMessage('');
         // Land on the DM that was just opened, not just the home view.
         await navigateToDm(channel.id);
@@ -443,6 +459,13 @@ const UserPopover = memo(
                     >
                       <Fingerprint className="h-4 w-4" />
                       Verify Identity
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setReportOpen(true)}
+                      variant="destructive"
+                    >
+                      <Flag className="h-4 w-4" />
+                      Report User
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={handleBlockToggle}
@@ -638,6 +661,16 @@ const UserPopover = memo(
           </div>
         )}
       </PopoverContent>
+
+      {/* Outside PopoverContent so it survives the popover closing
+          when the modal takes focus. */}
+      <ReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        kind="user"
+        targetId={userId}
+        homeScope={homeScope}
+      />
     </Popover>
   );
   }

@@ -544,3 +544,51 @@ describe('DM reactions', () => {
     expect(byUser.get(2)!.user?.name).toBe('Test User');
   });
 });
+
+describe('DM forward attribution', () => {
+  test('a forwarded DM message is a verbatim copy that cannot be edited', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const tdb = getTestDb();
+    const now = Date.now();
+
+    // A plaintext 1:1 DM between users 1 and 2.
+    const [channel] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, isGroup: false, e2ee: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: channel!.id, userId: 1, createdAt: now },
+      { dmChannelId: channel!.id, userId: 2, createdAt: now }
+    ]);
+
+    // User 2 authors the source; user 1 forwards it into the same DM.
+    const [source] = await tdb
+      .insert(dmMessages)
+      .values({
+        dmChannelId: channel!.id,
+        userId: 2,
+        content: 'the original',
+        createdAt: now
+      })
+      .returning();
+
+    await caller1.dms.sendMessage({
+      dmChannelId: channel!.id,
+      content: 'the original',
+      forwardedFrom: { sourceKind: 'dm', sourceId: source!.id }
+    });
+    const [fwd] = await tdb
+      .select()
+      .from(dmMessages)
+      .where(
+        and(eq(dmMessages.userId, 1), eq(dmMessages.content, 'the original'))
+      );
+    expect(fwd!.forwardedFromUserId).toBe(2);
+    expect(fwd!.forwardedFromName).toBe('Test User');
+
+    await expect(
+      caller1.dms.editMessage({ messageId: fwd!.id, content: 'tampered' })
+    ).rejects.toThrow('Forwarded messages cannot be edited');
+  });
+});

@@ -1,12 +1,10 @@
-import { Permission } from '@pulse/shared';
-import { getFirstServer } from '../../db/queries/servers';
 import { generateFederationKeys, getLocalKeys } from '../../utils/federation';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 
-const generateKeysRoute = protectedProcedure.mutation(async ({ ctx }) => {
-  const server = await getFirstServer();
-  await ctx.needsPermission(Permission.MANAGE_SETTINGS, server?.id);
-
+// Instance-owner gated like every other instance-federation surface.
+// Previously MANAGE_SETTINGS on the first server — a strictly weaker
+// gate any first-server admin satisfied.
+const generateKeysRoute = instanceOwnerProcedure.mutation(async ({ ctx }) => {
   const existing = await getLocalKeys();
   if (existing) {
     ctx.throwValidationError('keys', 'Federation keys already exist');

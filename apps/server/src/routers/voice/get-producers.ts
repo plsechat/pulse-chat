@@ -13,7 +13,7 @@ const getProducersRoute = protectedProcedure.query(async ({ ctx }) => {
     message: 'User is not in a voice channel'
   });
 
-  const runtime = VoiceRuntime.requireById(ctx.currentVoiceChannelId);
+  const runtime = VoiceRuntime.requireByCtx(ctx);
 
   return runtime.getRemoteIds(ctx.user.id);
 });

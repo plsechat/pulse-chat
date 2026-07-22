@@ -21,6 +21,7 @@ import { homeOwnUserIdSelector } from '../server/users/selectors';
 import { addUserToVoiceChannel } from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
+import { emitAppEvent } from '@/lib/events';
 import {
   deleteCachedPlaintext,
   getCachedPlaintext,
@@ -56,7 +57,7 @@ export const setSelectedDmChannelId = (channelId: number | undefined) =>
  *
  * HomeView owns the local-component state that picks which DM to
  * render, so a Redux update alone won't switch views — the
- * `dm-navigate` CustomEvent is the bridge.
+ * `dm-navigate` app event is the bridge.
  */
 export const navigateToDm = async (dmChannelId: number) => {
   const { setLocalStorageItem, LocalStorageKey } = await import(
@@ -64,9 +65,7 @@ export const navigateToDm = async (dmChannelId: number) => {
   );
   setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
   setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(dmChannelId));
-  window.dispatchEvent(
-    new CustomEvent('dm-navigate', { detail: { dmChannelId } })
-  );
+  emitAppEvent('dm-navigate', { dmChannelId });
   const { setActiveView } = await import('../app/actions');
   setActiveView('home');
 };
@@ -691,7 +690,13 @@ export const sendDmMessage = async (
   content: string,
   files?: string[],
   replyToId?: number,
-  fileKeys?: E2EEPlaintext['fileKeys']
+  fileKeys?: E2EEPlaintext['fileKeys'],
+  /**
+   * Forward attribution by source reference — only the plaintext path
+   * carries it (forwarding into E2EE DMs is not offered), so it is not
+   * threaded through the encrypted branches.
+   */
+  forwardedFrom?: { sourceKind: 'channel' | 'dm'; sourceId: number }
 ) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
@@ -753,7 +758,13 @@ export const sendDmMessage = async (
     return;
   }
 
-  await trpc.dms.sendMessage.mutate({ dmChannelId, content, files, replyToId });
+  await trpc.dms.sendMessage.mutate({
+    dmChannelId,
+    content,
+    files,
+    replyToId,
+    forwardedFrom
+  });
 };
 
 export const editDmMessage = async (messageId: number, content: string) => {

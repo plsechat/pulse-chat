@@ -110,4 +110,10 @@ export type AuthBackend = {
     id: string,
     updates: { password?: string }
   ): Promise<UpdateUserResult>;
+
+  /** Admin: permanently remove a user from the auth store. Used by
+   * account self-deletion — severs every live session and frees the
+   * email for re-registration. Deleting an already-deleted id is not
+   * an error. */
+  deleteUserById(id: string): Promise<{ error: AuthError | null }>;
 };

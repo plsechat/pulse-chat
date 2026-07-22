@@ -1,5 +1,7 @@
 import { t } from '../utils/trpc';
+import { adminRouter } from './admin';
 import { categoriesRouter } from './categories';
+import { reportsRouter } from './reports';
 import { channelsRouter } from './channels';
 import { dmsRouter } from './dms';
 import { emojisRouter } from './emojis';
@@ -25,6 +27,8 @@ import { blocksRouter } from './blocks';
 import { e2eeRouter } from './e2ee';
 
 const appRouter = t.router({
+  admin: adminRouter,
+  reports: reportsRouter,
   others: othersRouter,
   messages: messagesRouter,
   users: usersRouter,

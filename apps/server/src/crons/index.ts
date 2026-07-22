@@ -1,4 +1,5 @@
 import { CronJob } from 'cron';
+import { escalateStaleReports } from '../db/queries/reports';
 import { logger } from '../logger';
 import { cleanupEmptyThreads } from './cleanup-empty-threads';
 import { cleanupFiles } from './cleanup-files';
@@ -7,15 +8,22 @@ import { cleanupOrphanVoiceUsers } from './cleanup-orphan-voice';
 enum CRON_TIMES {
   EVERY_MINUTE = '* * * * *',
   EVERY_5_MINUTES = '*/5 * * * *',
-  EVERY_15_MINUTES = '*/15 * * * *'
+  EVERY_15_MINUTES = '*/15 * * * *',
+  EVERY_HOUR = '0 * * * *'
 }
 
 const loadCrons = () => {
   logger.debug('Loading crons...');
 
+  // cleanupFiles returns the removed count for the admin manual
+  // trigger; the cron discards it (CronJob wants a void callback).
   new CronJob(
     CRON_TIMES.EVERY_15_MINUTES,
-    cleanupFiles,
+    () => {
+      cleanupFiles().catch((err) =>
+        logger.error('[crons] file cleanup failed: %o', err)
+      );
+    },
     null,
     true,
     'Europe/Lisbon',
@@ -49,6 +57,24 @@ const loadCrons = () => {
   new CronJob(
     CRON_TIMES.EVERY_MINUTE,
     cleanupOrphanVoiceUsers,
+    null,
+    true,
+    'Europe/Lisbon',
+    null,
+    true
+  );
+
+  // Stale-report escalation: a server-queue report the mods have
+  // ignored for 7 days moves to the instance operator (audience flip,
+  // reason 'stale'). Hourly is plenty — the trigger window is days —
+  // and the sweep is one bounded UPDATE on an indexed predicate.
+  new CronJob(
+    CRON_TIMES.EVERY_HOUR,
+    () => {
+      escalateStaleReports().catch((err) =>
+        logger.error('[crons] stale-report escalation failed: %o', err)
+      );
+    },
     null,
     true,
     'Europe/Lisbon',

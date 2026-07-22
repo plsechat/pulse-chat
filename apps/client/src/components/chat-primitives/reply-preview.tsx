@@ -1,4 +1,4 @@
-import { ReplyContentPreview } from '@/components/channel-view/text/reply-content-preview';
+import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { memo, useCallback } from 'react';

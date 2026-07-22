@@ -1,21 +1,19 @@
 import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
-import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, Fingerprint, IdCard, LogOut, Monitor, Palette, User, Lock, ShieldCheck, Volume2 } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { ChevronLeft, Fingerprint, IdCard, LogOut, Monitor, Palette, User, ShieldCheck, Volume2 } from 'lucide-react';
+import { memo, useCallback, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
 import { Devices } from './devices';
 import { Encryption } from './encryption';
-import { Password } from './password';
 import { Profile } from './profile';
 import { Profiles } from './profiles';
 import { SoundsNotifications } from './sounds-notifications';
 import { VerifyIdentity } from './verify-identity';
 
-type Section = 'profile' | 'profiles' | 'password' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices';
+type Section = 'profile' | 'profiles' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices';
 
 type NavItem = {
   id: Section;
@@ -33,8 +31,7 @@ const NAV_SECTIONS: NavCategory[] = [
     heading: 'User Settings',
     items: [
       { id: 'profile', label: 'My Account', icon: <User className="h-4 w-4" /> },
-      { id: 'profiles', label: 'Profiles', icon: <IdCard className="h-4 w-4" /> },
-      { id: 'password', label: 'Password', icon: <Lock className="h-4 w-4" /> },
+      { id: 'profiles', label: 'Personalization', icon: <IdCard className="h-4 w-4" /> },
       { id: 'encryption', label: 'Encryption', icon: <ShieldCheck className="h-4 w-4" /> },
       { id: 'verify-identity', label: 'Verify Identity', icon: <Fingerprint className="h-4 w-4" /> }
     ]
@@ -51,8 +48,7 @@ const NAV_SECTIONS: NavCategory[] = [
 
 const SECTION_TITLES: Record<Section, string> = {
   profile: 'My Account',
-  profiles: 'Profiles',
-  password: 'Password',
+  profiles: 'Personalization',
   encryption: 'Encryption',
   'verify-identity': 'Verify Identity',
   appearance: 'Appearance',
@@ -61,9 +57,8 @@ const SECTION_TITLES: Record<Section, string> = {
 };
 
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
-  profile: 'Update your personal information and settings.',
+  profile: 'Your identity and sign-in: email, display name, password, and account removal.',
   profiles: 'Customize how your profile looks — avatar, banner and name flair.',
-  password: 'Manage your account password.',
   encryption: 'Manage your end-to-end encryption keys.',
   'verify-identity': 'Compare safety numbers with your peers to confirm their encryption keys.',
   appearance: 'Customize how the app looks.',
@@ -74,7 +69,6 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   profile: Profile,
   profiles: Profiles,
-  password: Password,
   encryption: Encryption,
   'verify-identity': VerifyIdentity,
   appearance: Appearance,
@@ -91,54 +85,10 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
   const [activeSection, setActiveSection] = useState<Section>(
     initialSection ?? 'profile'
   );
-  // `null` while loading; once resolved, an empty array means we got
-  // an answer back and the user has no email-password identity.
-  // The Password tab is hidden until we've heard from the server, so a
-  // federated user never sees it flicker into view on slow networks.
-  const [authProviders, setAuthProviders] = useState<string[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const trpc = getHomeTRPCClient();
-    if (!trpc) return;
-
-    trpc.users.getAuthProviders
-      .query()
-      .then((res) => {
-        if (cancelled) return;
-        setAuthProviders(res.providers);
-      })
-      .catch(() => {
-        // Network/auth failure — fall back to showing the Password tab
-        // rather than hiding it, so a transient error doesn't lock a
-        // local-account user out of changing their password. The
-        // server-side gate is the authoritative reject.
-        if (!cancelled) setAuthProviders(['email']);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const hasPasswordAuth = authProviders?.includes('email') ?? false;
-  const visibleNavSections = NAV_SECTIONS.map((cat) => ({
-    ...cat,
-    items: cat.items.filter((item) => item.id !== 'password' || hasPasswordAuth)
-  }));
-
-  // If the user opened the Password section directly (e.g. via deep
-  // link) and we've now learned they don't have password auth, bounce
-  // them back to Profile so they don't sit on a hidden tab's content.
-  useEffect(() => {
-    if (
-      authProviders !== null &&
-      !hasPasswordAuth &&
-      activeSection === 'password'
-    ) {
-      setActiveSection('profile');
-    }
-  }, [authProviders, hasPasswordAuth, activeSection]);
+  // Password management now lives inside My Account (which fetches the
+  // auth providers itself and hides the form for SSO-only users), so
+  // the nav needs no async gating.
+  const visibleNavSections = NAV_SECTIONS;
 
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
   const renderActive = () => {

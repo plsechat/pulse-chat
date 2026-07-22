@@ -10,12 +10,12 @@ import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
 import { cn } from '@/lib/utils';
 import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
 import type { TJoinedMessage } from '@pulse/shared';
-import { dateTime, fullDateTime, timeOnly } from '@/helpers/time-format';
-import { format, isToday, isYesterday } from 'date-fns';
+import { fullDateTime, groupTimestamp, timeOnly } from '@/helpers/time-format';
+import { format } from 'date-fns';
 import { memo } from 'react';
 import { Tooltip } from '../../ui/tooltip';
 import { Message } from './message';
-import { MessageErrorBoundary } from './message-error-boundary';
+import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 
 type TMessagesGroupProps = {
   group: TJoinedMessage[];
@@ -56,11 +56,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
 
   const displayName = isWebhook && webhookMeta?.title ? webhookMeta.title : getDisplayName(user);
 
-  const timeStr = isToday(date)
-    ? `Today at ${format(date, timeOnly())}`
-    : isYesterday(date)
-      ? `Yesterday at ${format(date, timeOnly())}`
-      : format(date, dateTime());
+  const timeStr = groupTimestamp(date);
 
   if (compactMode) {
     return (

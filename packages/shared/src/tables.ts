@@ -1,5 +1,8 @@
 import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
-import {
+// type-only: a value import here would evaluate the entire Drizzle schema
+// inside the client bundle (it did — table/column layout shipped to every
+// browser until this became `import type`).
+import type {
   settings,
   servers,
   serverMembers,
@@ -154,6 +157,7 @@ type TPublicUser = Pick<
   | "banner"
   | "bannerId"
   | "banned"
+  | "deletedAt"
   | "createdAt"
 > & {
   status?: UserStatus;

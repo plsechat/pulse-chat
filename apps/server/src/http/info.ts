@@ -1,6 +1,12 @@
-import type { TServerInfo } from '@pulse/shared';
+import {
+  DEFAULT_SCREEN_MAX_FRAMERATE,
+  DEFAULT_SCREEN_MAX_RESOLUTION,
+  type TServerInfo
+} from '@pulse/shared';
 import http from 'http';
+import { db } from '../db';
 import { getFirstServer } from '../db/queries/servers';
+import { settings } from '../db/schema';
 import {
   getEnabledAuthProviders,
   isPasswordLoginEnabled
@@ -25,6 +31,15 @@ const infoRouteHandler = async (
 
   const enabledAuthProviders = getEnabledAuthProviders();
 
+  // Screen-share ceiling lives on the singleton settings row.
+  const [screenLimits] = await db
+    .select({
+      maxResolution: settings.screenMaxResolution,
+      maxFramerate: settings.screenMaxFramerate
+    })
+    .from(settings)
+    .limit(1);
+
   const info: TServerInfo = {
     serverId: server.publicId,
     version: SERVER_VERSION,
@@ -38,7 +53,11 @@ const infoRouteHandler = async (
     enabledAuthProviders,
     supabaseUrl: process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
-    giphyApiKey: process.env.GIPHY_API_KEY || undefined
+    giphyApiKey: process.env.GIPHY_API_KEY || undefined,
+    maxScreenResolution:
+      screenLimits?.maxResolution ?? DEFAULT_SCREEN_MAX_RESOLUTION,
+    maxScreenFramerate:
+      screenLimits?.maxFramerate ?? DEFAULT_SCREEN_MAX_FRAMERATE
   };
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
