@@ -1,4 +1,4 @@
-import { serializer } from '@/components/channel-view/text/renderer/serializer';
+import { serializer } from '@/components/chat-primitives/serializer';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';

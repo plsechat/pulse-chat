@@ -32,11 +32,8 @@ import { AudioPlayer } from './overrides/audio-player';
 import { ImageOverride } from './overrides/image';
 import { LinkPreview } from './overrides/link-preview';
 import { VideoPlayer } from './overrides/video-player';
-// TEMPORARY back-import: the serializer (and its mention overrides)
-// moves into chat-primitives in the ChatScopeContext tranche; until
-// then the legacy-HTML path still lives beside the channel renderer.
-import { serializer } from '@/components/channel-view/text/renderer/serializer';
-import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
+import { serializer } from './serializer';
+import type { TFoundMedia } from './types';
 
 /**
  * The shared message body — content, attachments, link previews,

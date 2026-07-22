@@ -1,4 +1,4 @@
-import { serializer } from '@/components/channel-view/text/renderer/serializer';
+import { serializer } from '@/components/chat-primitives/serializer';
 import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
 import { decryptDmMessages } from '@/features/dms/actions';
 import { useHomeUserById } from '@/features/server/users/hooks';

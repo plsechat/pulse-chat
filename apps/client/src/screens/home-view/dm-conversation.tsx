@@ -11,6 +11,7 @@ import { DateDivider } from '@/components/chat-primitives/date-divider';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
+import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
@@ -69,7 +70,7 @@ import {
 } from '@/lib/converters/token-content-renderer';
 import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
 import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
-import { serializer } from '@/components/channel-view/text/renderer/serializer';
+import { serializer } from '@/components/chat-primitives/serializer';
 import parse from 'html-react-parser';
 import { dateTime, fullDateTime, longDateTime, timeOnly } from '@/helpers/time-format';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -92,7 +93,7 @@ import { DmPinBanner } from './dm-pin-banner';
 import { useDmCall, useOwnDmCallChannelId } from '@/features/dms/hooks';
 import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
 import { useVoice } from '@/features/server/voice/hooks';
-import { SystemMessage } from '@/components/channel-view/text/system-message';
+import { SystemMessage } from '@/components/chat-primitives/system-message';
 import { DmSearchPopover } from './dm-search-popover';
 import { dispatchForwardMessage, onAppEvent } from '@/lib/events';
 
@@ -445,7 +446,7 @@ const DmConversation = memo(
   }
 
   return (
-    <>
+    <ChatScopeProvider homeScope>
       <DmHeader
         dmChannelId={dmChannelId}
         isProfilePanelOpen={isProfilePanelOpen}
@@ -658,7 +659,7 @@ const DmConversation = memo(
           </Button>
         </div>
       </div>
-    </>
+    </ChatScopeProvider>
   );
   }
 );

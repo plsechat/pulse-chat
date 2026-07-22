@@ -25,11 +25,11 @@ import {
   ForumPostLink,
   MentionOverride,
   MessageLink
-} from '@/components/channel-view/text/overrides/mention';
+} from '@/components/chat-primitives/overrides/mention';
 import { TwitterOverride } from '@/components/chat-primitives/overrides/twitter';
 import { YoutubeOverride } from '@/components/chat-primitives/overrides/youtube';
 import { CustomEmoji } from './custom-emoji';
-import type { TFoundMedia } from '@/components/channel-view/text/renderer/types';
+import type { TFoundMedia } from '@/components/chat-primitives/types';
 
 // ── Token types ──────────────────────────────────────────────
 

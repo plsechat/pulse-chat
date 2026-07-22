@@ -48,7 +48,7 @@ import { Button } from '../../ui/button';
 import { cn } from '@/lib/utils';
 import { FileCard } from '@/components/chat-primitives/file-card';
 import { MessagesGroup } from './messages-group';
-import { SystemMessage } from './system-message';
+import { SystemMessage } from '@/components/chat-primitives/system-message';
 import { TextSkeleton } from './text-skeleton';
 import { SelectionActionBar } from './selection-action-bar';
 import { SelectionProvider, useSelection } from './selection-context';
