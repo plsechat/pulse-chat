@@ -54,6 +54,12 @@ describe('admin router', () => {
     await expect(caller.admin.getRegistration()).rejects.toThrow(
       'Only the instance owner'
     );
+    await expect(caller.admin.getScreenLimits()).rejects.toThrow(
+      'Only the instance owner'
+    );
+    await expect(
+      caller.admin.setScreenLimits({ maxResolution: '720p', maxFramerate: 30 })
+    ).rejects.toThrow('Only the instance owner');
     await expect(caller.admin.deleteUser({ userId: 3 })).rejects.toThrow(
       'Only the instance owner'
     );
@@ -349,5 +355,51 @@ describe('admin router', () => {
 
     // Restore — register/login suites depend on the seeded default.
     await caller.admin.setRegistration({ allowNewUsers: true });
+  });
+
+  test('screen-share limits persist on the settings row and reject bad rungs', async () => {
+    const { caller } = await initTest();
+
+    const before = await caller.admin.getScreenLimits();
+    expect(typeof before.maxResolution).toBe('string');
+    expect(typeof before.maxFramerate).toBe('number');
+
+    await caller.admin.setScreenLimits({
+      maxResolution: '720p',
+      maxFramerate: 30
+    });
+    const [row] = await db
+      .select({
+        res: settings.screenMaxResolution,
+        fps: settings.screenMaxFramerate
+      })
+      .from(settings)
+      .limit(1);
+    expect(row!.res).toBe('720p');
+    expect(row!.fps).toBe(30);
+
+    const after = await caller.admin.getScreenLimits();
+    expect(after.maxResolution).toBe('720p');
+    expect(after.maxFramerate).toBe(30);
+
+    // Off-ladder resolution and framerate are rejected by the input schema.
+    await expect(
+      caller.admin.setScreenLimits({
+        maxResolution: '8k' as never,
+        maxFramerate: 30
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller.admin.setScreenLimits({
+        maxResolution: '720p',
+        maxFramerate: 45 as never
+      })
+    ).rejects.toThrow();
+
+    // Restore the seeded default so other suites see the 1080p/60 ceiling.
+    await caller.admin.setScreenLimits({
+      maxResolution: '1080p',
+      maxFramerate: 60
+    });
   });
 });

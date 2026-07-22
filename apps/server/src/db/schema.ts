@@ -60,7 +60,15 @@ const settings = pgTable(
       mode: 'number'
     }).notNull(),
     storageOverflowAction: text('storage_overflow_action').notNull(),
-    enablePlugins: boolean('enable_plugins').notNull()
+    enablePlugins: boolean('enable_plugins').notNull(),
+    // Instance-global screen-share quality ceiling. The client offers every
+    // resolution/framerate rung at or below these and clamps its capture to
+    // them. Resolution can't be enforced by the SFU (it never sees pixel
+    // dims), so this is a client-honored policy, not a hard wire limit.
+    screenMaxResolution: text('screen_max_resolution')
+      .notNull()
+      .default('1080p'),
+    screenMaxFramerate: integer('screen_max_framerate').notNull().default(60)
   },
   (t) => [
     index('settings_server_idx').on(t.serverId),

@@ -27,6 +27,7 @@ import {
   Globe,
   HardDrive,
   IdCard,
+  MonitorPlay,
   ScrollText,
   Server,
   Settings2,
@@ -49,6 +50,7 @@ import { InstanceHealth } from './instance-health';
 import { InstanceLogs } from './instance-logs';
 import { InstanceRegistration } from './instance-registration';
 import { InstanceReports } from './instance-reports';
+import { InstanceScreenSharing } from './instance-screen-sharing';
 import { InstanceStorage } from './instance-storage';
 import { InstanceServers } from './instance-servers';
 import { InstanceUsers } from './instance-users';
@@ -75,6 +77,7 @@ type Section =
   | 'instance-servers'
   | 'instance-reports'
   | 'instance-registration'
+  | 'instance-screen-sharing'
   | 'instance-health'
   | 'instance-activity'
   | 'instance-storage'
@@ -102,6 +105,7 @@ const SECTION_TITLES: Record<Section, string> = {
   'instance-servers': 'All Servers',
   'instance-reports': 'Review Queue',
   'instance-registration': 'Registration',
+  'instance-screen-sharing': 'Screen Sharing',
   'instance-health': 'Health',
   'instance-activity': 'Activity Log',
   'instance-storage': 'Storage',
@@ -126,6 +130,8 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   'instance-reports':
     'Reports from your users — DMs, accounts, and anything escalated.',
   'instance-registration': 'Who can create accounts on this instance.',
+  'instance-screen-sharing':
+    'The maximum resolution and framerate members may screen-share.',
   'instance-health':
     'Versions, uptime, live connections, and what this instance holds.',
   'instance-activity': 'Every audited action on this instance.',
@@ -148,6 +154,7 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   'instance-servers': InstanceServers,
   'instance-reports': InstanceReports,
   'instance-registration': InstanceRegistration,
+  'instance-screen-sharing': InstanceScreenSharing,
   'instance-health': InstanceHealth,
   'instance-activity': InstanceActivity,
   'instance-storage': InstanceStorage,
@@ -273,6 +280,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             id: 'instance-registration',
             label: 'Registration',
             icon: <DoorOpen className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-screen-sharing',
+            label: 'Screen Sharing',
+            icon: <MonitorPlay className="h-4 w-4" />,
             allowed: !activeInstanceDomain && isInstanceOwner
           },
           {

@@ -13,6 +13,7 @@ import { listServersRoute } from './list-servers';
 import { listUsersRoute } from './list-users';
 import { resolveReportRoute } from './resolve-report';
 import { getRegistrationRoute, setRegistrationRoute } from './registration';
+import { getScreenLimitsRoute, setScreenLimitsRoute } from './screen-limits';
 import { unbanUserRoute } from './unban-user';
 
 /**
@@ -31,6 +32,8 @@ const adminRouter = t.router({
   deleteServer: deleteServerAdminRoute,
   getRegistration: getRegistrationRoute,
   setRegistration: setRegistrationRoute,
+  getScreenLimits: getScreenLimitsRoute,
+  setScreenLimits: setScreenLimitsRoute,
   listReports: listReportsRoute,
   resolveReport: resolveReportRoute,
   getHealth: getHealthRoute,

@@ -4,7 +4,11 @@ import { SoundType } from '@/features/server/types';
 import { logVoice } from '@/helpers/browser-logger';
 import { getResWidthHeight } from '@/helpers/get-res-with-height';
 import { getTRPCClient } from '@/lib/trpc';
-import { StreamKind } from '@pulse/shared';
+import {
+  clampScreenFramerate,
+  clampScreenResolution,
+  StreamKind
+} from '@pulse/shared';
 import { Device } from 'mediasoup-client';
 import type { RtpCapabilities } from 'mediasoup-client/types';
 import {
@@ -17,7 +21,8 @@ import {
   useState
 } from 'react';
 import { useDevices } from '../devices-provider/hooks/use-devices';
-import type { TDeviceSettings } from '@/types';
+import { useInfo } from '@/features/server/hooks';
+import { Resolution, type TDeviceSettings } from '@/types';
 import { FloatingPinnedCard } from './floating-pinned-card';
 import { useLocalStreams } from './hooks/use-local-streams';
 import { MicPipeline } from './mic-pipeline';
@@ -158,6 +163,32 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   const deviceRef = useRef<Device | null>(null);
   const audioVideoRefsMap = useRef<Map<number, AudioVideoRefs>>(new Map());
   const { devices } = useDevices();
+  const info = useInfo();
+
+  // Screen-capture video constraints, clamped to the instance operator's
+  // ceiling. A device pref left above a since-lowered cap is pulled back
+  // down here, before capture — the client-side half of the policy (the
+  // Stream Quality menu already hides above-cap options).
+  const screenVideoConstraints = useMemo(
+    () => ({
+      ...getResWidthHeight(
+        clampScreenResolution(
+          devices?.screenResolution,
+          info?.maxScreenResolution
+        ) as Resolution | undefined
+      ),
+      frameRate: clampScreenFramerate(
+        devices?.screenFramerate,
+        info?.maxScreenFramerate
+      )
+    }),
+    [
+      devices?.screenResolution,
+      devices?.screenFramerate,
+      info?.maxScreenResolution,
+      info?.maxScreenFramerate
+    ]
+  );
 
   const getOrCreateRefs = useCallback((remoteId: number): AudioVideoRefs => {
     if (!audioVideoRefsMap.current.has(remoteId)) {
@@ -498,10 +529,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       logVoice('Starting screen share stream');
 
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          ...getResWidthHeight(devices?.screenResolution),
-          frameRate: devices?.screenFramerate
-        },
+        video: screenVideoConstraints,
         audio: {
           autoGainControl: false,
           echoCancellation: false,
@@ -729,8 +757,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     localAudioProducer,
     attachMicStream,
     setSystemAudioActive,
-    devices.screenResolution,
-    devices.screenFramerate,
+    screenVideoConstraints,
     devices.screenAudioBitrate
   ]);
 
@@ -752,10 +779,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     // Same constraints as startScreenShareStream. A cancelled picker
     // rejects here, before any existing state is touched.
     const newStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        ...getResWidthHeight(devices?.screenResolution),
-        frameRate: devices?.screenFramerate
-      },
+      video: screenVideoConstraints,
       audio: {
         autoGainControl: false,
         echoCancellation: false,
@@ -873,8 +897,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     localScreenShareProducer,
     localScreenShareAudioProducer,
     producerTransport,
-    devices.screenResolution,
-    devices.screenFramerate,
+    screenVideoConstraints,
     devices.screenAudioBitrate
   ]);
 
@@ -947,10 +970,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     const videoTrack = localScreenShareStream?.getVideoTracks()[0];
     if (videoTrack && videoTrack.readyState === 'live') {
       try {
-        await videoTrack.applyConstraints({
-          ...getResWidthHeight(devices.screenResolution),
-          frameRate: devices.screenFramerate
-        });
+        await videoTrack.applyConstraints(screenVideoConstraints);
         logVoice('Screen share constraints re-applied live');
       } catch (error) {
         logVoice('Error re-applying screen share constraints', { error });
@@ -976,8 +996,7 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   }, [
     localScreenShareStream,
     localScreenShareAudioProducer,
-    devices.screenResolution,
-    devices.screenFramerate,
+    screenVideoConstraints,
     devices.screenAudioBitrate
   ]);
 

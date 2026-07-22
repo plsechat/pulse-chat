@@ -15,10 +15,17 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { Slider } from '@/components/ui/slider';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
+import { useInfo } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
 import { cn } from '@/lib/utils';
 import { Resolution } from '@/types';
+import {
+  DEFAULT_SCREEN_MAX_FRAMERATE,
+  DEFAULT_SCREEN_MAX_RESOLUTION,
+  screenFrameratesAtOrBelow,
+  screenResolutionsAtOrBelow
+} from '@pulse/shared';
 import {
   Maximize,
   Minimize,
@@ -30,7 +37,7 @@ import {
   ZoomIn,
   ZoomOut
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { CardControls } from './card-controls';
 import { CardGradient } from './card-gradient';
 import { useCardClickFocus } from './hooks/use-card-click-focus';
@@ -39,8 +46,6 @@ import { useVoiceRefs } from './hooks/use-voice-refs';
 import { PinButton } from './pin-button';
 import { VolumeButton } from './volume-button';
 
-const QUALITY_RESOLUTIONS = [Resolution['720p'], Resolution['1080p']];
-const QUALITY_FRAMERATES = [15, 30, 60];
 
 type tScreenShareControlsProps = {
   isPinned: boolean;
@@ -144,6 +149,25 @@ const ScreenShareCard = memo(
     const { getScreenVolumeKey, getVolume, setVolume, toggleMute } =
       useVolumeControl();
     const { devices, saveDevices } = useDevices();
+    const info = useInfo();
+
+    // Quality options the instance operator permits — every rung at or
+    // below the configured ceiling (falls back to the shared defaults on
+    // older servers that don't advertise a cap).
+    const availableResolutions = useMemo(
+      () =>
+        screenResolutionsAtOrBelow(
+          info?.maxScreenResolution ?? DEFAULT_SCREEN_MAX_RESOLUTION
+        ),
+      [info?.maxScreenResolution]
+    );
+    const availableFramerates = useMemo(
+      () =>
+        screenFrameratesAtOrBelow(
+          info?.maxScreenFramerate ?? DEFAULT_SCREEN_MAX_FRAMERATE
+        ),
+      [info?.maxScreenFramerate]
+    );
 
     const screenVolumeKey = getScreenVolumeKey(userId);
     const screenVolume = getVolume(screenVolumeKey);
@@ -410,7 +434,7 @@ const ScreenShareCard = memo(
                   value={devices.screenResolution}
                   onValueChange={handleScreenResolutionChange}
                 >
-                  {QUALITY_RESOLUTIONS.map((resolution) => (
+                  {availableResolutions.map((resolution) => (
                     <ContextMenuRadioItem key={resolution} value={resolution}>
                       {resolution}
                     </ContextMenuRadioItem>
@@ -421,7 +445,7 @@ const ScreenShareCard = memo(
                   value={String(devices.screenFramerate)}
                   onValueChange={handleScreenFramerateChange}
                 >
-                  {QUALITY_FRAMERATES.map((framerate) => (
+                  {availableFramerates.map((framerate) => (
                     <ContextMenuRadioItem
                       key={framerate}
                       value={String(framerate)}
