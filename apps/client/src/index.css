@@ -575,11 +575,12 @@ body,
   }
 }
 
-/* Emoji-only messages: larger emoji display */
+/* Emoji-only messages: larger emoji display. The edited tag lives
+   inside .msg-content, so it must be excluded or it scales up too. */
 .msg-content.emoji-only {
   line-height: 2.5rem;
 
-  span {
+  span:not(.edited-tag) {
     font-size: 2.25rem;
     line-height: 2.5rem;
   }

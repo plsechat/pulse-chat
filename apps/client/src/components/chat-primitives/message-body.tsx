@@ -264,7 +264,7 @@ const ChatMessageBody = memo(({
             )}
             {message.edited && (
               <Tooltip content={message.updatedAt ? `Edited ${format(new Date(message.updatedAt), fullDateTime())}` : 'Edited'}>
-                <span className="text-[10px] text-muted-foreground/50 ml-1 cursor-default">
+                <span className="edited-tag text-[10px] text-muted-foreground/50 ml-1 cursor-default">
                   (edited)
                 </span>
               </Tooltip>
