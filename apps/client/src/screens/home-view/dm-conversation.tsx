@@ -12,6 +12,7 @@ import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
+import { InlineMessageEditor } from '@/components/chat-primitives/inline-message-editor';
 import { TypingIndicator } from '@/components/chat-primitives/typing-indicator';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
@@ -68,8 +69,6 @@ import {
   isLegacyHtml,
   TokenContentRenderer
 } from '@/lib/converters/token-content-renderer';
-import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
-import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { serializer } from '@/components/chat-primitives/serializer';
 import parse from 'html-react-parser';
 import { fullDateTime, groupTimestamp, longDateTime } from '@/helpers/time-format';
@@ -1106,6 +1105,19 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
   // Forwarded messages are verbatim copies — never editable, even by
   // the forwarder who authored the copy.
   const canEditMessage = isOwnMessage && !message.forwardedFromUserId;
+  const dmChannels = useDmChannels();
+  // @mention scope for the inline editor = this DM's members.
+  const editDmMembers = useMemo(() => {
+    const channel = dmChannels.find((c) => c.id === message.dmChannelId);
+    return (
+      channel?.members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        avatar: m.avatar,
+        _identity: m._identity
+      })) ?? []
+    );
+  }, [dmChannels, message.dmChannelId]);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirmation({
@@ -1245,8 +1257,9 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           />
         </>
       ) : (
-        <DmMessageEdit
-          message={message}
+        <InlineMessageEditor
+          content={message.content}
+          mentionMembers={editDmMembers}
           onSubmit={handleEditSubmit}
           onCancel={() => setIsEditing(false)}
         />
@@ -1340,53 +1353,5 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
 });
 
 /** Renders a single DM media file, decrypting if E2EE. */
-const DmMessageEdit = memo(
-  ({
-    message,
-    onSubmit,
-    onCancel
-  }: {
-    message: TJoinedDmMessage;
-    onSubmit: (content: string) => void;
-    onCancel: () => void;
-  }) => {
-    const ctx = useTokenToTiptapContext();
-    const initialContent = useMemo(() => {
-      const raw = message.content ?? '';
-      if (isLegacyHtml(raw) || !raw) return raw;
-      return tokensToTiptapHtml(raw, ctx);
-    }, [message.content, ctx]);
-    const [editContent, setEditContent] = useState(initialContent);
-    const dmChannels = useDmChannels();
-    const editDmMembers = useMemo(() => {
-      const channel = dmChannels.find((c) => c.id === message.dmChannelId);
-      return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
-    }, [dmChannels, message.dmChannelId]);
-
-    const handleSubmit = useCallback(() => {
-      onSubmit(editContent);
-    }, [editContent, onSubmit]);
-
-    return (
-      <div className="flex flex-col gap-1">
-        <TiptapInput
-          value={editContent}
-          onChange={setEditContent}
-          onSubmit={handleSubmit}
-          onCancel={onCancel}
-          dmMembers={editDmMembers}
-        />
-        <div className="flex gap-2 text-xs text-muted-foreground">
-          <span>
-            Press <kbd className="rounded bg-muted px-1">Enter</kbd> to save
-          </span>
-          <span>
-            Press <kbd className="rounded bg-muted px-1">Escape</kbd> to cancel
-          </span>
-        </div>
-      </div>
-    );
-  }
-);
 
 export { DmConversation };

@@ -482,3 +482,4 @@ const TiptapInput = memo(
 );
 
 export { TiptapInput };
+export type { TMentionableUser };
