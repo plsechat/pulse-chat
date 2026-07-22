@@ -3,7 +3,7 @@ import { and, count, desc, eq } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { db } from '../../db';
-import { reports, users } from '../../db/schema';
+import { reports, serverMembers, users } from '../../db/schema';
 import { serverProcedure } from '../../utils/procedures';
 
 /**
@@ -46,6 +46,10 @@ const listServerQueueRoute = serverProcedure(Permission.VIEW_REPORTS)
         targetMessageId: reports.targetMessageId,
         targetUserId: reports.targetUserId,
         targetName: target.name,
+        // Identity triple for the ban decision: the nickname mods know
+        // them by, the account name, and the canonical publicId.
+        targetNickname: serverMembers.nickname,
+        targetPublicId: target.publicId,
         targetBanned: target.banned,
         targetDeletedAt: target.deletedAt,
         reporterId: reports.reporterId,
@@ -56,6 +60,13 @@ const listServerQueueRoute = serverProcedure(Permission.VIEW_REPORTS)
       .innerJoin(target, eq(reports.targetUserId, target.id))
       .innerJoin(reporter, eq(reports.reporterId, reporter.id))
       .leftJoin(resolver, eq(reports.resolvedBy, resolver.id))
+      .leftJoin(
+        serverMembers,
+        and(
+          eq(serverMembers.userId, reports.targetUserId),
+          eq(serverMembers.serverId, ctx.activeServerId)
+        )
+      )
       .where(scope)
       .orderBy(desc(reports.createdAt))
       .limit(input.limit)

@@ -1,7 +1,12 @@
 import { t } from '../../utils/trpc';
 import { banUserRoute } from './ban-user';
 import { deleteUserRoute } from './delete-user';
+import { getActivityLogRoute } from './get-activity-log';
+import { getHealthRoute } from './get-health';
+import { getMetricsRoute } from './get-metrics';
+import { getRecentLogsRoute } from './get-recent-logs';
 import { getServerInfoRoute } from './get-server-info';
+import { getStorageRoute, runStorageCleanupRoute } from './get-storage';
 import { listReportsRoute } from './list-reports';
 import { listServersRoute } from './list-servers';
 import { listUsersRoute } from './list-users';
@@ -25,7 +30,13 @@ const adminRouter = t.router({
   getRegistration: getRegistrationRoute,
   setRegistration: setRegistrationRoute,
   listReports: listReportsRoute,
-  resolveReport: resolveReportRoute
+  resolveReport: resolveReportRoute,
+  getHealth: getHealthRoute,
+  getMetrics: getMetricsRoute,
+  getActivityLog: getActivityLogRoute,
+  getStorage: getStorageRoute,
+  runStorageCleanup: runStorageCleanupRoute,
+  getRecentLogs: getRecentLogsRoute
 });
 
 export { adminRouter };

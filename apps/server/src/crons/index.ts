@@ -15,9 +15,15 @@ enum CRON_TIMES {
 const loadCrons = () => {
   logger.debug('Loading crons...');
 
+  // cleanupFiles returns the removed count for the admin manual
+  // trigger; the cron discards it (CronJob wants a void callback).
   new CronJob(
     CRON_TIMES.EVERY_15_MINUTES,
-    cleanupFiles,
+    () => {
+      cleanupFiles().catch((err) =>
+        logger.error('[crons] file cleanup failed: %o', err)
+      );
+    },
     null,
     true,
     'Europe/Lisbon',

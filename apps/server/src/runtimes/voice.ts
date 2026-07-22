@@ -234,6 +234,20 @@ class VoiceRuntime {
     return [...voiceRuntimes.values()];
   };
 
+  /** Occupancy totals for the admin health panel. */
+  public static getStats = () => {
+    let serverRooms = 0;
+    let dmRooms = 0;
+    let participants = 0;
+    for (const runtime of voiceRuntimes.values()) {
+      if (runtime.state.users.length === 0) continue;
+      participants += runtime.state.users.length;
+      if (runtime.kind === 'dm') dmRooms += 1;
+      else serverRooms += 1;
+    }
+    return { serverRooms, dmRooms, participants };
+  };
+
   public static findRuntimeByUserId = (
     userId: number
   ): VoiceRuntime | undefined => {

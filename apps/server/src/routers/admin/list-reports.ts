@@ -2,7 +2,7 @@ import { and, count, desc, eq } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { db } from '../../db';
-import { reports, servers, users } from '../../db/schema';
+import { reports, serverMembers, servers, users } from '../../db/schema';
 import { instanceOwnerProcedure } from '../../utils/procedures';
 
 /**
@@ -45,6 +45,11 @@ const listReportsRoute = instanceOwnerProcedure
         targetDmMessageId: reports.targetDmMessageId,
         targetUserId: reports.targetUserId,
         targetName: target.name,
+        // Identity triple for the ban decision: the nickname (in the
+        // report's server, when there is one), the account name, and
+        // the canonical publicId.
+        targetNickname: serverMembers.nickname,
+        targetPublicId: target.publicId,
         targetBanned: target.banned,
         targetDeletedAt: target.deletedAt,
         reporterId: reports.reporterId,
@@ -57,6 +62,13 @@ const listReportsRoute = instanceOwnerProcedure
       .innerJoin(reporter, eq(reports.reporterId, reporter.id))
       .leftJoin(resolver, eq(reports.resolvedBy, resolver.id))
       .leftJoin(servers, eq(reports.serverId, servers.id))
+      .leftJoin(
+        serverMembers,
+        and(
+          eq(serverMembers.userId, reports.targetUserId),
+          eq(serverMembers.serverId, reports.serverId)
+        )
+      )
       .where(
         and(
           eq(reports.audience, input.audience),

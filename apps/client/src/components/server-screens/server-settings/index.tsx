@@ -19,16 +19,20 @@ import { useCan, useIsInstanceOwner } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { Permission } from '@pulse/shared';
 import {
+  Activity,
   Bot,
   ChevronLeft,
   DoorOpen,
   Flag,
   Globe,
+  HardDrive,
   IdCard,
+  ScrollText,
   Server,
   Settings2,
   Shield,
   Smile,
+  Terminal,
   Ticket,
   Trash2,
   UserCog,
@@ -40,8 +44,12 @@ import type { TServerScreenBaseProps } from '../screens';
 import { AutoMod } from './automod';
 import { Emojis } from './emojis';
 import { Federation } from './federation';
+import { InstanceActivity } from './instance-activity';
+import { InstanceHealth } from './instance-health';
+import { InstanceLogs } from './instance-logs';
 import { InstanceRegistration } from './instance-registration';
 import { InstanceReports } from './instance-reports';
+import { InstanceStorage } from './instance-storage';
 import { InstanceServers } from './instance-servers';
 import { InstanceUsers } from './instance-users';
 import { ServerReports } from './reports';
@@ -66,7 +74,11 @@ type Section =
   | 'instance-users'
   | 'instance-servers'
   | 'instance-reports'
-  | 'instance-registration';
+  | 'instance-registration'
+  | 'instance-health'
+  | 'instance-activity'
+  | 'instance-storage'
+  | 'instance-logs';
 
 type NavItem = {
   id: Section;
@@ -90,6 +102,10 @@ const SECTION_TITLES: Record<Section, string> = {
   'instance-servers': 'All Servers',
   'instance-reports': 'Review Queue',
   'instance-registration': 'Registration',
+  'instance-health': 'Health',
+  'instance-activity': 'Activity Log',
+  'instance-storage': 'Storage',
+  'instance-logs': 'Logs',
   reports: 'Reports'
 };
 
@@ -110,6 +126,11 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   'instance-reports':
     'Reports from your users — DMs, accounts, and anything escalated.',
   'instance-registration': 'Who can create accounts on this instance.',
+  'instance-health':
+    'Versions, uptime, live connections, and what this instance holds.',
+  'instance-activity': 'Every audited action on this instance.',
+  'instance-storage': 'Disk usage, orphaned files, and heaviest uploaders.',
+  'instance-logs': 'The last 1000 server log lines, straight from memory.',
   reports: "Member reports about this server's messages."
 };
 
@@ -127,6 +148,10 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   'instance-servers': InstanceServers,
   'instance-reports': InstanceReports,
   'instance-registration': InstanceRegistration,
+  'instance-health': InstanceHealth,
+  'instance-activity': InstanceActivity,
+  'instance-storage': InstanceStorage,
+  'instance-logs': InstanceLogs,
   reports: ServerReports
 };
 
@@ -254,6 +279,30 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             id: 'federation',
             label: 'Federation',
             icon: <Globe className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-health',
+            label: 'Health',
+            icon: <Activity className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-activity',
+            label: 'Activity Log',
+            icon: <ScrollText className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-storage',
+            label: 'Storage',
+            icon: <HardDrive className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-logs',
+            label: 'Logs',
+            icon: <Terminal className="h-4 w-4" />,
             allowed: !activeInstanceDomain && isInstanceOwner
           }
         ]

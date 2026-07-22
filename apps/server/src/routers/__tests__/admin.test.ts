@@ -60,6 +60,91 @@ describe('admin router', () => {
     await expect(caller.admin.listServers()).rejects.toThrow(
       'Only the instance owner'
     );
+    await expect(caller.admin.getHealth()).rejects.toThrow(
+      'Only the instance owner'
+    );
+    await expect(caller.admin.getActivityLog({})).rejects.toThrow(
+      'Only the instance owner'
+    );
+    await expect(caller.admin.getStorage()).rejects.toThrow(
+      'Only the instance owner'
+    );
+    await expect(caller.admin.runStorageCleanup()).rejects.toThrow(
+      'Only the instance owner'
+    );
+    await expect(caller.admin.getRecentLogs({})).rejects.toThrow(
+      'Only the instance owner'
+    );
+    await expect(caller.admin.getMetrics({})).rejects.toThrow(
+      'Only the instance owner'
+    );
+  });
+
+  test('getMetrics serves the sampler ring', async () => {
+    const { caller } = await initTest();
+
+    // The interval sampler doesn't run under tests — seed the ring.
+    const { collectMetricsSample } = await import('../../utils/metrics');
+    await collectMetricsSample(3);
+    const { intervalMs, samples } = await caller.admin.getMetrics({});
+    expect(intervalMs).toBeGreaterThan(0);
+    expect(samples.length).toBeGreaterThanOrEqual(1);
+    const last = samples[samples.length - 1]!;
+    expect(last.rssBytes).toBeGreaterThan(0);
+    expect(last.cpuProcessPercent).toBeGreaterThanOrEqual(0);
+    expect(last.elLagMs).toBe(3);
+    expect(typeof last.netRxBps).toBe('number');
+  });
+
+  test('observability routes return live shapes for the owner', async () => {
+    const { caller } = await initTest();
+
+    const health = await caller.admin.getHealth();
+    expect(health.version.length).toBeGreaterThan(0);
+    expect(health.bunVersion.length).toBeGreaterThan(0);
+    expect(health.uptimeMs).toBeGreaterThan(0);
+    expect(health.memory.rss).toBeGreaterThan(0);
+    expect(health.database.sizeBytes).toBeGreaterThan(0);
+    expect(health.database.users).toBeGreaterThanOrEqual(1);
+    expect(health.database.servers).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(health.federation)).toBe(true);
+
+    // joinServer in initTest writes SERVER_STARTED/USER_* rows via the
+    // async activity queue; seed one row directly so the assertion
+    // never races the drain.
+    const { activityLog } = await import('../../db/schema');
+    await db.insert(activityLog).values({
+      userId: 1,
+      type: 'USER_BANNED',
+      details: { reason: 'obs-test', bannedBy: 1 },
+      createdAt: Date.now()
+    });
+    const log = await caller.admin.getActivityLog({ type: undefined });
+    expect(log.total).toBeGreaterThanOrEqual(1);
+    const filtered = await caller.admin.getActivityLog({
+      type: 'USER_BANNED' as never
+    });
+    expect(
+      filtered.entries.every((e) => e.type === 'USER_BANNED')
+    ).toBe(true);
+    expect(typeof filtered.entries[0]!.userName).toBe('string');
+
+    const storage = await caller.admin.getStorage();
+    expect(storage.totalBytes).toBeGreaterThanOrEqual(0);
+    expect(storage.orphanCount).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(storage.topUploaders)).toBe(true);
+
+    const cleanup = await caller.admin.runStorageCleanup();
+    expect(cleanup.removed).toBeGreaterThanOrEqual(0);
+
+    const { logger } = await import('../../logger');
+    logger.info('observability-probe line');
+    const logs = await caller.admin.getRecentLogs({});
+    expect(
+      logs.logs.some((l) => l.message.includes('observability-probe line'))
+    ).toBe(true);
+    const errorsOnly = await caller.admin.getRecentLogs({ level: 'error' });
+    expect(errorsOnly.logs.every((l) => l.level === 'error')).toBe(true);
   });
 
   test('listServers returns every server with owner and counts', async () => {

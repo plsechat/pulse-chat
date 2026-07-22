@@ -41,6 +41,7 @@ import { appRouter } from '../routers';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { VoiceRuntime } from '../runtimes/voice';
 import { verifyFederationToken } from './federation';
+import { setWsStatsProvider } from './ws-stats';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
 import { removeUserFromVoice } from './voice-cleanup';
@@ -691,6 +692,20 @@ const createWsServer = async (server: http.Server) => {
  */
 const hasLiveWsConnection = (userId: number): boolean =>
   (wsMapByUserId.get(userId)?.size ?? 0) > 0;
+
+// Live WebSocket totals for the admin health panel, published through
+// utils/ws-stats so the health route never imports this module (wss
+// imports the app router — the reverse import would be a cycle).
+setWsStatsProvider(() => {
+  let onlineUsers = 0;
+  let connections = 0;
+  for (const set of wsMapByUserId.values()) {
+    if (set.size === 0) continue;
+    onlineUsers += 1;
+    connections += set.size;
+  }
+  return { onlineUsers, connections };
+});
 
 export {
   createContext,

@@ -5,7 +5,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ReportCard, type TReportRowBase } from '../report-card';
+import { ReportCard, targetLabel, type TReportRowBase } from '../report-card';
 
 type TReportStatus = 'open' | 'resolved' | 'dismissed';
 type TAudience = 'instance' | 'server';
@@ -63,14 +63,16 @@ const InstanceReports = () => {
     action: 'dismiss' | 'delete-content' | 'delete-and-ban'
   ) => {
     if (action !== 'dismiss') {
+      // Identity triple in the confirmation — nickname alone can't
+      // prove which account is about to be banned.
       const confirmed = await requestConfirmation({
         title:
           action === 'delete-and-ban'
-            ? `Delete the content and ban ${report.targetName}?`
+            ? `Delete the content and ban ${targetLabel(report)}?`
             : 'Delete the reported content?',
         message:
           action === 'delete-and-ban'
-            ? 'The reported message is removed for everyone and the author is banned from the entire instance.'
+            ? `The reported message is removed for everyone and the author is banned from the entire instance. Account ID: ${report.targetPublicId.slice(0, 12)}.`
             : 'The reported message is removed for everyone. The author stays.',
         confirmLabel: action === 'delete-and-ban' ? 'Delete & ban' : 'Delete',
         cancelLabel: 'Cancel'

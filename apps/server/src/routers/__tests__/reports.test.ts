@@ -242,9 +242,19 @@ describe('server mod queue', () => {
       'Insufficient permissions'
     );
 
+    // The queue must carry the identity triple — mods know members by
+    // nickname, but bans hit the account.
+    await db
+      .update(serverMembers)
+      .set({ nickname: 'NickInServer' })
+      .where(eq(serverMembers.userId, 3));
+
     const { caller: owner } = await initTest(1);
     const { reports: queue } = await owner.reports.listServerQueue({});
-    expect(queue.find((r) => r.targetMessageId === plain.id)).toBeDefined();
+    const entry = queue.find((r) => r.targetMessageId === plain.id);
+    expect(entry).toBeDefined();
+    expect(entry!.targetNickname).toBe('NickInServer');
+    expect(entry!.targetPublicId.length).toBeGreaterThan(0);
     // The illegal one went straight to the operator.
     expect(queue.find((r) => r.targetMessageId === illegal.id)).toBeUndefined();
   });

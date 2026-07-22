@@ -12,11 +12,27 @@ type TReportRowBase = {
   createdAt: number;
   resolvedAt: number | null;
   targetName: string;
+  targetNickname: string | null;
+  targetPublicId: string;
   targetBanned: boolean;
   targetDeletedAt: number | null;
   reporterName: string;
   resolverName: string | null;
 };
+
+/**
+ * The name a reviewer should act on: the server nickname they know the
+ * person by, disambiguated by the account name when the two differ.
+ * The short publicId beside it is the canonical check — it matches the
+ * popover's "Copy User ID" and the All Accounts search.
+ */
+const targetLabel = (r: {
+  targetName: string;
+  targetNickname: string | null;
+}): string =>
+  r.targetNickname && r.targetNickname !== r.targetName
+    ? `${r.targetNickname} (${r.targetName})`
+    : r.targetName;
 
 const REASON_LABELS: Record<string, string> = {
   illegal: 'Illegal content',
@@ -56,7 +72,13 @@ const ReportCard = ({
       {extraBadges}
       <span className="text-muted-foreground">
         {report.reporterName} reported{' '}
-        <span className="text-foreground">{report.targetName}</span>
+        <span className="text-foreground">{targetLabel(report)}</span>
+        <code
+          className="ml-1 rounded bg-background/50 px-1 py-0.5 text-[10px]"
+          title={report.targetPublicId}
+        >
+          {report.targetPublicId.slice(0, 8)}
+        </code>
         {report.targetBanned ? ' (banned)' : ''}
         {report.targetDeletedAt ? ' (deleted account)' : ''}
       </span>
@@ -101,5 +123,5 @@ const ReportCard = ({
   </div>
 );
 
-export { ReportCard };
+export { ReportCard, targetLabel };
 export type { TReportRowBase };

@@ -4,7 +4,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ReportCard, type TReportRowBase } from '../report-card';
+import { ReportCard, targetLabel, type TReportRowBase } from '../report-card';
 
 type TReportStatus = 'open' | 'resolved' | 'dismissed';
 type TServerAction =
@@ -74,9 +74,12 @@ const ServerReports = () => {
   const resolve = async (report: TServerReportRow, action: TServerAction) => {
     const confirm = CONFIRMS[action];
     if (confirm) {
+      // The confirmation names the account THREE ways (nickname,
+      // account name, publicId) — a nickname alone can't prove which
+      // account is about to be kicked or banned.
       const confirmed = await requestConfirmation({
-        title: confirm.title(report.targetName),
-        message: confirm.message,
+        title: confirm.title(targetLabel(report)),
+        message: `${confirm.message} Account ID: ${report.targetPublicId.slice(0, 12)}.`,
         confirmLabel: confirm.confirmLabel,
         cancelLabel: 'Cancel'
       });
