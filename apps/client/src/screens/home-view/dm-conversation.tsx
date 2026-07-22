@@ -13,6 +13,7 @@ import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-sh
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
 import { InlineMessageEditor } from '@/components/chat-primitives/inline-message-editor';
+import { useChatScroll } from '@/components/chat-primitives/use-chat-scroll';
 import { TypingIndicator } from '@/components/chat-primitives/typing-indicator';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
@@ -76,11 +77,7 @@ import { format } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
-import {
-  getLocalStorageItemAsJSON,
-  LocalStorageKey,
-  setLocalStorageItemAsJSON
-} from '@/helpers/storage';
+import { LocalStorageKey } from '@/helpers/storage';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -114,7 +111,14 @@ const DmConversation = memo(
     useDmMessages(dmChannelId);
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedDmMessage | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { containerRef, onScroll, scrollToBottom } = useChatScroll({
+    posKey: `dm:${dmChannelId}`,
+    storageKey: LocalStorageKey.DM_SCROLL_POSITIONS,
+    messages,
+    fetching,
+    hasMore,
+    loadMore
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
@@ -190,9 +194,7 @@ const DmConversation = memo(
     setReplyingTo(message);
     requestAnimationFrame(() => {
       inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-      if (containerRef.current) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      }
+      scrollToBottom();
     });
   }, []);
 
@@ -210,112 +212,6 @@ const DmConversation = memo(
     [dmChannelId]
   );
 
-  const hasInitialScroll = useRef(false);
-  const isNearBottom = useRef(true);
-
-  // "At bottom" as an absolute pixel distance — a scrollHeight-ratio
-  // check misclassifies positions screens above the end once a long
-  // history is loaded (same fix as the channel scroll controller).
-  const checkNearBottom = (c: HTMLElement) =>
-    c.scrollHeight - (c.scrollTop + c.clientHeight) < 100;
-
-  // DmConversation is NOT remounted per conversation (no key on it) —
-  // without this reset, switching DM A→B skips B's restore entirely and
-  // leaves the view wherever A's scroll happened to be.
-  useEffect(() => {
-    hasInitialScroll.current = false;
-  }, [dmChannelId]);
-
-  // Restore saved scroll position or scroll to bottom on initial load
-  useEffect(() => {
-    if (!containerRef.current || loading || messages.length === 0) return;
-    if (hasInitialScroll.current) return;
-
-    const positions =
-      getLocalStorageItemAsJSON<
-        Record<number, number | { scrollTop: number; atBottom: boolean }>
-      >(LocalStorageKey.DM_SCROLL_POSITIONS) ?? {};
-    const rawSaved = positions[dmChannelId];
-    // Legacy entries were a bare scrollTop with no atBottom flag; treat
-    // them as mid-history (a stale pixel restore beats a wrong bottom).
-    const saved =
-      typeof rawSaved === 'number'
-        ? { scrollTop: rawSaved, atBottom: false }
-        : rawSaved;
-
-    const perform = () => {
-      const c = containerRef.current;
-      if (!c) return;
-      if (saved !== undefined && !saved.atBottom) {
-        c.scrollTop = saved.scrollTop;
-        isNearBottom.current = checkNearBottom(c);
-      } else {
-        // No save, or the user left anchored at the bottom: land at the
-        // bottom (scrollHeight has likely changed since save time, so
-        // the pixel value would be stale anyway).
-        c.scrollTop = c.scrollHeight;
-        isNearBottom.current = true;
-      }
-      hasInitialScroll.current = true;
-    };
-
-    perform();
-    requestAnimationFrame(perform);
-    setTimeout(perform, 50);
-    setTimeout(perform, 200);
-  }, [loading, messages.length, dmChannelId]);
-
-  // Auto-scroll on new messages only when user is near bottom
-  useEffect(() => {
-    if (!containerRef.current || !hasInitialScroll.current || messages.length === 0) return;
-    if (isNearBottom.current) {
-      setTimeout(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
-      }, 10);
-    }
-  }, [messages.length]);
-
-  // Save scroll position when leaving the conversation (channel switch
-  // or unmount — the effect cleanup runs for both since it's keyed on
-  // dmChannelId).
-  useEffect(() => {
-    const c = containerRef.current;
-    return () => {
-      if (c) {
-        const positions =
-          getLocalStorageItemAsJSON<
-            Record<number, number | { scrollTop: number; atBottom: boolean }>
-          >(LocalStorageKey.DM_SCROLL_POSITIONS) ?? {};
-        positions[dmChannelId] = {
-          scrollTop: c.scrollTop,
-          atBottom: checkNearBottom(c)
-        };
-        setLocalStorageItemAsJSON(LocalStorageKey.DM_SCROLL_POSITIONS, positions);
-      }
-    };
-  }, [dmChannelId]);
-
-  const onScroll = useCallback(() => {
-    if (!containerRef.current) return;
-
-    // Track whether user is near bottom
-    const c = containerRef.current;
-    isNearBottom.current = checkNearBottom(c);
-
-    if (!fetching && hasMore && c.scrollTop < 100) {
-      // Compensate for the prepended page so the viewport doesn't jump
-      // (same pattern as the channel scroll controller).
-      const prevScrollHeight = c.scrollHeight;
-      loadMore().then(() => {
-        const container = containerRef.current;
-        if (!container) return;
-        container.scrollTop =
-          container.scrollHeight - prevScrollHeight + container.scrollTop;
-      });
-    }
-  }, [fetching, hasMore, loadMore]);
 
   const onSendMessage = useCallback(async () => {
     if (isHtmlEmpty(newMessage) && !files.length) return;
