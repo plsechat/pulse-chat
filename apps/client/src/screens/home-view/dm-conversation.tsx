@@ -1,4 +1,5 @@
 import { E2EEStatusBadge } from '@/components/e2ee-status-badge';
+import { ReportDialog } from '@/components/report-dialog';
 import { FileCard } from '@/components/channel-view/text/file-card';
 import { FormattingHints } from '@/components/channel-view/text/formatting-hints';
 import {
@@ -85,7 +86,7 @@ import { dateTime, fullDateTime, longDateTime, timeOnly } from '@/helpers/time-f
 import { format, isToday, isYesterday } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Copy, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { Copy, Flag, Loader2, Lock, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import {
   getLocalStorageItemAsJSON,
   LocalStorageKey,
@@ -1143,6 +1144,7 @@ const DmReplyBar = memo(
 const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onReply: () => void }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const ownUserId = useHomeOwnUserId();
   const isOwnMessage = message.userId === ownUserId;
 
@@ -1324,6 +1326,12 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
           <Copy className="h-4 w-4" />
           Copy Text
         </ContextMenuItem>
+        {!isOwnMessage && (
+          <ContextMenuItem onClick={() => setReportOpen(true)}>
+            <Flag className="h-4 w-4" />
+            Report Message
+          </ContextMenuItem>
+        )}
         {isOwnMessage && (
           <>
             <ContextMenuSeparator />
@@ -1350,6 +1358,14 @@ const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onRep
       >
         <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
       </PopoverContent>
+
+      <ReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        kind="dm_message"
+        targetId={message.id}
+        content={message.content}
+      />
     </Popover>
   );
 });

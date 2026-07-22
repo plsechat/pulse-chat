@@ -183,6 +183,13 @@
       "when": 1784649486804,
       "tag": "0025_past_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784681542138,
+      "tag": "0026_complete_puppet_master",
+      "breakpoints": true
     }
   ]
 }

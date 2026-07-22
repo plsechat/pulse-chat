@@ -993,6 +993,77 @@ const userNotes = pgTable(
   ]
 );
 
+/**
+ * Abuse reports, layered: channel-message reports route to the server's
+ * moderators (`audience` = 'server'); DM and account reports — and any
+ * report that trips an escalation trigger — go to the instance operator
+ * ('instance'). The operator additionally sees every server-audience
+ * report as a read-mostly receipt. `contentSnapshot` is captured at
+ * report time: server-verified for plaintext targets, the REPORTER's
+ * decrypted copy for E2EE targets (`snapshotAttested` = true — nobody
+ * can cryptographically verify it, reviewers are told so). It survives
+ * edits/deletions of the original. Escalation triggers at create time:
+ * reason 'illegal' and target-is-mod/owner; later: manual escalation by
+ * a mod, and the stale-report cron. Message FKs are SET NULL so a
+ * report outlives its target; targetUserId always remains. No files FK
+ * on purpose — files are reported via the message that carries them
+ * (keeps this table out of the orphan-file machinery).
+ */
+const reports = pgTable(
+  'reports',
+  {
+    id: serial('id').primaryKey(),
+    /** 'message' | 'dm_message' | 'user' */
+    kind: text('kind').notNull(),
+    targetUserId: integer('target_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    targetMessageId: integer('target_message_id').references(
+      () => messages.id,
+      { onDelete: 'set null' }
+    ),
+    targetDmMessageId: integer('target_dm_message_id').references(
+      () => dmMessages.id,
+      { onDelete: 'set null' }
+    ),
+    /** Context server for channel-message reports. */
+    serverId: integer('server_id').references(() => servers.id, {
+      onDelete: 'set null'
+    }),
+    reporterId: integer('reporter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** 'illegal' | 'spam' | 'harassment' | 'other' */
+    reason: text('reason').notNull(),
+    details: text('details'),
+    contentSnapshot: text('content_snapshot'),
+    /** True when the snapshot is reporter-attested E2EE plaintext. */
+    snapshotAttested: boolean('snapshot_attested').notNull().default(false),
+    /** Whose queue acts on this now: 'server' | 'instance'. */
+    audience: text('audience').notNull(),
+    /** 'illegal' | 'target_mod' | 'manual' | 'stale' — why it moved to 'instance'. */
+    escalationReason: text('escalation_reason'),
+    escalatedAt: bigint('escalated_at', { mode: 'number' }),
+    /** Set only for manual escalation by a server mod. */
+    escalatedBy: integer('escalated_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    /** 'open' | 'resolved' | 'dismissed' */
+    status: text('status').notNull().default('open'),
+    resolvedBy: integer('resolved_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    resolvedAt: bigint('resolved_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('reports_audience_status_idx').on(t.audience, t.status),
+    index('reports_server_idx').on(t.serverId),
+    index('reports_target_user_idx').on(t.targetUserId),
+    index('reports_reporter_idx').on(t.reporterId)
+  ]
+);
+
 const federationKeys = pgTable('federation_keys', {
   id: serial('id').primaryKey(),
   publicKey: text('public_key').notNull(),
@@ -1243,6 +1314,7 @@ export {
   messages,
   nameplates,
   pluginData,
+  reports,
   rolePermissions,
   roles,
   serverMembers,

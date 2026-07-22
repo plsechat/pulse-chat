@@ -13,6 +13,9 @@ export enum ActivityLogType {
   USER_UNBANNED = "USER_UNBANNED",
   USER_UPDATED_PASSWORD = "USER_UPDATED_PASSWORD",
   USER_DELETED_ACCOUNT = "USER_DELETED_ACCOUNT",
+  USER_REPORTED = "USER_REPORTED",
+  REPORT_RESOLVED = "REPORT_RESOLVED",
+  REPORT_ESCALATED = "REPORT_ESCALATED",
   USER_ROLE_ASSIGNED = "USER_ROLE_ASSIGNED",
   USER_ROLE_REMOVED = "USER_ROLE_REMOVED",
   USER_NICKNAME_SET = "USER_NICKNAME_SET",
@@ -88,6 +91,22 @@ export type TActivityLogDetailsMap = {
   [ActivityLogType.USER_LEFT]: Record<string, never>;
   [ActivityLogType.USER_UPDATED_PASSWORD]: Record<string, never>;
   [ActivityLogType.USER_DELETED_ACCOUNT]: Record<string, never>;
+  [ActivityLogType.USER_REPORTED]: {
+    reportId: number;
+    kind: string;
+    reason: string;
+    reportedBy: number;
+  };
+  [ActivityLogType.REPORT_RESOLVED]: {
+    reportId: number;
+    action: string;
+    resolvedBy: number;
+  };
+  [ActivityLogType.REPORT_ESCALATED]: {
+    reportId: number;
+    reason: string;
+    escalatedBy: number | null;
+  };
   // -------------------- ROLES --------------------
   [ActivityLogType.CREATED_ROLE]: {
     roleId: number;

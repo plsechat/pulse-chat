@@ -1,11 +1,8 @@
-import { ActivityLogType, DisconnectCode } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { publishUser } from '../../db/publishers';
 import { users } from '../../db/schema';
-import { enqueueActivityLog } from '../../queues/activity-log';
-import { markBanned } from '../../utils/banned-cache';
+import { applyInstanceBan } from '../../utils/instance-ban';
 import { invariant } from '../../utils/invariant';
 import { instanceOwnerProcedure } from '../../utils/procedures';
 
@@ -47,32 +44,11 @@ const banUserRoute = instanceOwnerProcedure
       message: 'User is already banned.'
     });
 
-    const userConnections = ctx.getUserWs(input.userId);
-    if (userConnections) {
-      for (const ws of userConnections) {
-        ws.close(DisconnectCode.BANNED, input.reason);
-      }
-    }
-
-    await db
-      .update(users)
-      .set({
-        banned: true,
-        banReason: input.reason ?? null,
-        bannedAt: Date.now()
-      })
-      .where(eq(users.id, input.userId));
-
-    markBanned(input.userId);
-    publishUser(input.userId, 'update');
-
-    enqueueActivityLog({
-      type: ActivityLogType.USER_BANNED,
-      userId: input.userId,
-      details: {
-        reason: input.reason,
-        bannedBy: ctx.userId
-      }
+    await applyInstanceBan({
+      targetUserId: input.userId,
+      reason: input.reason ?? null,
+      bannedBy: ctx.userId,
+      getUserWs: ctx.getUserWs
     });
   });
 

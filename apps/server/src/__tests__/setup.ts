@@ -125,6 +125,7 @@ beforeEach(async () => {
     user_identity_keys,
     user_preferences,
     user_notes,
+    reports,
     plugin_data,
     thread_followers,
     forum_post_tags,

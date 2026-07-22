@@ -22,6 +22,7 @@ import {
   Bot,
   ChevronLeft,
   DoorOpen,
+  Flag,
   Globe,
   IdCard,
   Server,
@@ -40,8 +41,10 @@ import { AutoMod } from './automod';
 import { Emojis } from './emojis';
 import { Federation } from './federation';
 import { InstanceRegistration } from './instance-registration';
+import { InstanceReports } from './instance-reports';
 import { InstanceServers } from './instance-servers';
 import { InstanceUsers } from './instance-users';
+import { ServerReports } from './reports';
 import { General } from './general';
 import { Invites } from './invites';
 import { Nameplates } from './nameplates';
@@ -50,6 +53,7 @@ import { Users } from './users';
 import { Webhooks } from './webhooks';
 
 type Section =
+  | 'reports'
   | 'general'
   | 'roles'
   | 'users'
@@ -61,6 +65,7 @@ type Section =
   | 'federation'
   | 'instance-users'
   | 'instance-servers'
+  | 'instance-reports'
   | 'instance-registration';
 
 type NavItem = {
@@ -83,7 +88,9 @@ const SECTION_TITLES: Record<Section, string> = {
   federation: 'Federation',
   'instance-users': 'All Accounts',
   'instance-servers': 'All Servers',
-  'instance-registration': 'Registration'
+  'instance-reports': 'Review Queue',
+  'instance-registration': 'Registration',
+  reports: 'Reports'
 };
 
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
@@ -100,7 +107,10 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
     'Every account on this instance — ban, unban, or delete any of them.',
   'instance-servers':
     'Every server on this instance, its owner, and what it contains.',
-  'instance-registration': 'Who can create accounts on this instance.'
+  'instance-reports':
+    'Reports from your users — DMs, accounts, and anything escalated.',
+  'instance-registration': 'Who can create accounts on this instance.',
+  reports: "Member reports about this server's messages."
 };
 
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
@@ -115,7 +125,9 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   federation: Federation,
   'instance-users': InstanceUsers,
   'instance-servers': InstanceServers,
-  'instance-registration': InstanceRegistration
+  'instance-reports': InstanceReports,
+  'instance-registration': InstanceRegistration,
+  reports: ServerReports
 };
 
 type TServerSettingsProps = TServerScreenBaseProps;
@@ -164,6 +176,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             label: 'Invites',
             icon: <Ticket className="h-4 w-4" />,
             allowed: can(Permission.MANAGE_INVITES)
+          },
+          {
+            id: 'reports',
+            label: 'Reports',
+            icon: <Flag className="h-4 w-4" />,
+            allowed: can(Permission.VIEW_REPORTS)
           }
         ]
       },
@@ -218,6 +236,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             id: 'instance-servers',
             label: 'All Servers',
             icon: <Server className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
+            id: 'instance-reports',
+            label: 'Review Queue',
+            icon: <Flag className="h-4 w-4" />,
             allowed: !activeInstanceDomain && isInstanceOwner
           },
           {

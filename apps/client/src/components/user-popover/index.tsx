@@ -44,6 +44,7 @@ import {
   Copy,
   Ellipsis,
   Fingerprint,
+  Flag,
   Globe,
   Pencil,
   Plus,
@@ -59,6 +60,7 @@ import { forwardRef, memo, useCallback, useEffect, useMemo, useState } from 'rea
 import { Slot } from '@radix-ui/react-slot';
 import { toast } from 'sonner';
 import { Protect } from '../protect';
+import { ReportDialog } from '../report-dialog';
 import { RoleBadge } from '../role-badge';
 import {
   DropdownMenu,
@@ -134,6 +136,7 @@ const UserPopover = memo(
     [friends, userId]
   );
   const isBlocked = useIsUserBlocked(userId);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const handleBlockToggle = useCallback(async () => {
     if (!user) return;
@@ -460,6 +463,13 @@ const UserPopover = memo(
                       Verify Identity
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      onClick={() => setReportOpen(true)}
+                      variant="destructive"
+                    >
+                      <Flag className="h-4 w-4" />
+                      Report User
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onClick={handleBlockToggle}
                       variant={isBlocked ? undefined : 'destructive'}
                     >
@@ -653,6 +663,16 @@ const UserPopover = memo(
           </div>
         )}
       </PopoverContent>
+
+      {/* Outside PopoverContent so it survives the popover closing
+          when the modal takes focus. */}
+      <ReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        kind="user"
+        targetId={userId}
+        homeScope={homeScope}
+      />
     </Popover>
   );
   }

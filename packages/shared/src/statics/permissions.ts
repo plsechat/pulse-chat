@@ -22,6 +22,7 @@ export enum Permission {
   PIN_MESSAGES = "PIN_MESSAGES",
   MANAGE_WEBHOOKS = "MANAGE_WEBHOOKS",
   MANAGE_AUTOMOD = "MANAGE_AUTOMOD",
+  VIEW_REPORTS = "VIEW_REPORTS",
 }
 
 export const permissionLabels: Record<Permission, string> = {
@@ -47,6 +48,7 @@ export const permissionLabels: Record<Permission, string> = {
   [Permission.PIN_MESSAGES]: "Pin messages",
   [Permission.MANAGE_WEBHOOKS]: "Manage webhooks",
   [Permission.MANAGE_AUTOMOD]: "Manage auto-moderation",
+  [Permission.VIEW_REPORTS]: "Review reports",
 };
 
 export const permissionDescriptions: Record<Permission, string> = {
@@ -86,6 +88,8 @@ export const permissionDescriptions: Record<Permission, string> = {
     "Grants the ability to create, edit, and delete webhooks.",
   [Permission.MANAGE_AUTOMOD]:
     "Grants the ability to manage auto-moderation rules.",
+  [Permission.VIEW_REPORTS]:
+    "Grants access to the server's report queue to review and act on member reports.",
 };
 
 export const DEFAULT_ROLE_PERMISSIONS = [

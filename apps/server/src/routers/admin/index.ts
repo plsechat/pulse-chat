@@ -2,8 +2,10 @@ import { t } from '../../utils/trpc';
 import { banUserRoute } from './ban-user';
 import { deleteUserRoute } from './delete-user';
 import { getServerInfoRoute } from './get-server-info';
+import { listReportsRoute } from './list-reports';
 import { listServersRoute } from './list-servers';
 import { listUsersRoute } from './list-users';
+import { resolveReportRoute } from './resolve-report';
 import { getRegistrationRoute, setRegistrationRoute } from './registration';
 import { unbanUserRoute } from './unban-user';
 
@@ -21,7 +23,9 @@ const adminRouter = t.router({
   unbanUser: unbanUserRoute,
   deleteUser: deleteUserRoute,
   getRegistration: getRegistrationRoute,
-  setRegistration: setRegistrationRoute
+  setRegistration: setRegistrationRoute,
+  listReports: listReportsRoute,
+  resolveReport: resolveReportRoute
 });
 
 export { adminRouter };
