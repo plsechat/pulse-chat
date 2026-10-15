@@ -6,8 +6,8 @@ import {
 import { SoundType } from '../types';
 
 const audioCtx = new (window.AudioContext ||
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).webkitAudioContext)();
+  (window as Window & { webkitAudioContext?: typeof AudioContext })
+    .webkitAudioContext)();
 
 const SOUNDS_VOLUME = 5;
 

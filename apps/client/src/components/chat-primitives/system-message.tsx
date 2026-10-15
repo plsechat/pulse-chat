@@ -2,7 +2,7 @@ import {
   useHomeUserById,
   useUserById
 } from '@/features/server/users/hooks';
-import { useChatScope } from '@/components/chat-primitives/chat-scope';
+import { useChatScope } from '@/components/chat-primitives/chat-scope-context';
 import { Tooltip } from '@/components/ui/tooltip';
 import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';

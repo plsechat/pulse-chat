@@ -1,34 +1,15 @@
-import { ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
+import { createEmptyTextChannel } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { channels, messages, userRoles } from '../../db/schema';
+import { messages, userRoles } from '../../db/schema';
 
 // Exact-count tests need a TEXT channel with no seeded messages: channel 1
 // carries a seed message, and channel 2 is the seeded VOICE channel, which
 // no longer accepts messages. Called inside each test (not beforeEach) so
 // it doesn't compete with the global per-test TRUNCATE.
-const createEmptyTextChannel = async (name: string) => {
-  const [channel] = await getTestDb()
-    .insert(channels)
-    .values({
-      type: ChannelType.TEXT,
-      name,
-      position: 50,
-      fileAccessToken: randomUUIDv7(),
-      fileAccessTokenUpdatedAt: Date.now(),
-      publicId: randomUUIDv7(),
-      categoryId: 1,
-      serverId: 1,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  return channel!;
-};
-
 describe('messages router', () => {
   test('should throw when user lacks permissions (edit - not own message)', async () => {
     const { caller: caller1 } = await initTest(1);

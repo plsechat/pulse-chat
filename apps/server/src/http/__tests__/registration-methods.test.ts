@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
+import { provision } from '../../__tests__/fixtures';
 import { getTestDb } from '../../__tests__/mock-db';
 import { testsBaseUrl } from '../../__tests__/setup';
 import { invites } from '../../db/schema';
@@ -14,16 +15,6 @@ const register = (body: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
-  });
-
-const provision = (token: string, body?: { invite?: string }) =>
-  fetch(`${testsBaseUrl}/auth/provision`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(body ?? {})
   });
 
 const makeInvite = async (code: string) => {
@@ -59,7 +50,7 @@ describe('per-method registration switches', () => {
       });
 
       expect(response.status).toBe(400);
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('errors');
     });
 
@@ -75,7 +66,7 @@ describe('per-method registration switches', () => {
       });
 
       expect(response.status).toBe(200);
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
 
       const [used] = await getTestDb()
@@ -108,7 +99,7 @@ describe('per-method registration switches', () => {
       const response = await provision(crypto.randomUUID());
 
       expect(response.status).toBe(400);
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('errors');
     });
 
@@ -121,7 +112,7 @@ describe('per-method registration switches', () => {
       });
 
       expect(response.status).toBe(200);
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
     });
 

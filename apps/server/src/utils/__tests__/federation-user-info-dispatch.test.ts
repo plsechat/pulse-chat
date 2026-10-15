@@ -6,11 +6,15 @@
  * (called inside `federationFetch`) accepts the requests.
  */
 
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import dns from 'dns/promises';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { config } from '../../config';
 import { db } from '../../db';
 import { dmChannelMembers, dmChannels, federationInstances, friendships, users } from '../../db/schema';
+import {
+  expectDispatcherLogsDbError,
+  mockDns,
+  spyOnFetch
+} from '../../__tests__/federation-fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { generateFederationKeys } from '../federation';
 import { relayUserInfoUpdate } from '../federation-user-info-dispatch';
@@ -20,45 +24,9 @@ config.federation.enabled = true;
 const PEER_DOMAIN_A = 'peera.userinfo.example.com';
 const PEER_DOMAIN_B = 'peerb.userinfo.example.com';
 
-type FetchCall = {
-  url: string;
-  method: string;
-  body: Record<string, unknown>;
-};
-
-const originalFetch = globalThis.fetch;
-
-function spyOnFetch(): { calls: FetchCall[] } {
-  const calls: FetchCall[] = [];
-  const fakeFetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-    let body: Record<string, unknown> = {};
-    if (init?.body) {
-      try {
-        body = JSON.parse(init.body as string);
-      } catch {
-        body = {};
-      }
-    }
-    calls.push({ url: u, method: init?.method ?? 'GET', body });
-    return new Response(JSON.stringify({ applied: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  });
-  globalThis.fetch = fakeFetch as unknown as typeof fetch;
-  return { calls };
-}
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   mock.restore();
 });
-
-function mockDns() {
-  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
-  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
-}
 
 async function seedFederatedPeerWithDmFriend(
   domain: string,
@@ -268,5 +236,16 @@ describe('relayUserInfoUpdate (E3)', () => {
     );
     expect(updates).toHaveLength(1);
     expect(updates[0]!.body.triggerProfileSync).toBe(true);
+  });
+});
+
+describe('relayUserInfoUpdate resilience', () => {
+  test('a DB failure before any relay is logged, never thrown', async () => {
+    await initTest(1);
+
+    await expectDispatcherLogsDbError(
+      () => relayUserInfoUpdate(1, { status: 'idle' }),
+      'relayUserInfoUpdate'
+    );
   });
 });

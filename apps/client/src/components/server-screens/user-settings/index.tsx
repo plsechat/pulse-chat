@@ -76,7 +76,7 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   devices: Devices
 };
 
-type TUserSettingsProps = TServerScreenBaseProps & {
+export type TUserSettingsProps = TServerScreenBaseProps & {
   initialSection?: Section;
   initialVerifyPeerId?: number;
 };

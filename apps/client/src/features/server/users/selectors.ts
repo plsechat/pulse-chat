@@ -46,10 +46,6 @@ export const usersSelector = createSelector(
   }
 );
 
-export const ownUserSelector = createSelector(
-  [ownUserIdSelector, usersSelector],
-  (ownUserId, users) => users.find((user) => user.id === ownUserId)
-);
 
 export const userByIdSelector = createCachedSelector(
   [

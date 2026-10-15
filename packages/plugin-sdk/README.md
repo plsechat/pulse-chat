@@ -1,174 +1,205 @@
 # Pulse Plugin SDK
 
-The official SDK for building Pulse plugins. This package provides TypeScript types and interfaces to extend Pulse with custom functionality.
+TypeScript types for building Pulse server plugins. SDK version: `0.1.0`.
 
 > [!NOTE]
-> Pulse plugins are an experimental feature and the SDK API may change in future releases.
+> Plugins are experimental. The `PluginContext` API may change between minor versions. Declare the SDK range your plugin was built against (`pulse.sdk`, below) so the server refuses a mismatched plugin with a clear load error instead of failing at runtime.
 
-## Creating a Plugin
+## How plugins run
 
-### 1. Create Plugin Directory
+- A plugin is a plain ES module that the server `import()`s **into its own process**. A plugin can do anything the server can — only install plugins you trust.
+- Plugins are instance-global: one plugin directory per Pulse data directory, shared by every server on the instance.
+- Plugins load at boot when the **Enable plugins** server setting is on, and are all unloaded or reloaded when that setting flips. Individual plugins are switched with the `plugins.toggle` procedure, which needs the **Manage plugins** permission (held by the instance owner). The settings page for this is being restored in the admin UI; until then the procedure is the only switch.
 
-Create a plugin folder, e.g., `my-plugin`.
+## Creating a plugin
 
-### 2. Initialize Package
+### 1. Scaffold
 
-Run `bun init` to bootstrap your plugin.
-
-### 3. Edit `package.json`
-
-Make sure your `package.json` includes the necessary fields.
-
-**Required fields:**
-
-- `name`: Plugin identifier
-- `version`: Semver version (e.g., `1.0.0`)
-- `pulse.entry`: Entry file (must be `.js`)
-- `pulse.author`: Plugin author name
-- `pulse.description`: Brief description
-
-**Optional fields:**
-
-- `pulse.homepage`: Plugin website/repository URL
-- `pulse.logo`: Logo image filename
-
-Example `package.json`:
+Run `bun init` in a new folder (e.g. `my-plugin`) and set up `package.json` like this:
 
 ```json
 {
   "name": "my-plugin",
-  "version": "0.0.1",
-  "module": "src/index.ts",
+  "version": "0.1.0",
+  "type": "module",
   "pulse": {
     "entry": "index.js",
+    "sdk": "^0.1",
     "author": "Me",
-    "homepage": "https://some-page.com",
-    "description": "This is my first Pulse plugin!",
-    "logo": "https://some-page.com/logo.png"
+    "description": "My first Pulse plugin",
+    "homepage": "https://example.com/my-plugin",
+    "logo": "https://example.com/logo.png"
   },
-  "type": "module",
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --minify --format esm && cp package.json dist/"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5"
   }
 }
 ```
 
-### 4. Install SDK
+The server validates these fields (`zPluginPackageJson` in `@pulse/shared`):
 
-```bash
-bun add @pulse/plugin-sdk
-```
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | yes | Plugin name shown to admins |
+| `version` | yes | Semver (`1.2.3`, optional pre-release suffix) |
+| `pulse.entry` | yes | Compiled entry file; **must end in `.js`** |
+| `pulse.sdk` | recommended (optional this release, required from the next) | Semver range of the plugin SDK the plugin targets, e.g. `^0.1`. The server checks its own SDK version (`PLUGIN_SDK_VERSION`) against it and records a load error — `requires @pulse/plugin-sdk ^0.1, server provides 0.2.0`, or `invalid pulse.sdk range` — instead of importing the module when it does not satisfy. A plugin without the field loads with no check. |
+| `pulse.author` | yes | Author name |
+| `pulse.description` | yes | One-line description |
+| `pulse.homepage` | no | URL |
+| `pulse.logo` | no | Logo URL or filename |
 
-> [!NOTE]
-> The SDK is not published to any package registry. For now, you need to link it locally using `bun link`.
+### 2. Get the types
 
-### 5. Edit Entry File
+`@pulse/plugin-sdk` is a private workspace package and is not published to any registry. The SDK is type-only, so either:
+
+- build the plugin inside a checkout of the Pulse monorepo (any folder under `apps/*` or `packages/*` resolves `@pulse/plugin-sdk` through the Bun workspace), or
+- copy `packages/plugin-sdk/src/index.ts` and `packages/shared/src/plugins.ts` into your project, point the `@pulse/shared` import at your copy, and add `mediasoup` (the version pinned in `packages/plugin-sdk/package.json`) as a dev dependency for the re-exported mediasoup types.
+
+Either way the compiled plugin has no runtime dependency on the SDK.
+
+### 3. Entry file
 
 ```typescript
-import type { PluginContext } from "@pulse/plugin-sdk";
+import type { PluginContext, UnloadPluginContext } from "@pulse/plugin-sdk";
 
-const onLoad = (ctx: PluginContext) => {
-  ctx.log("My Plugin loaded");
+const settingDefinitions = [
+  { key: "greeting", name: "Greeting", type: "string", defaultValue: "Hello" },
+  { key: "shout", name: "Shout", type: "boolean", defaultValue: false },
+] as const;
 
-  ctx.events.on("user:joined", ({ userId, username }) => {
-    ctx.log(`User joined: ${username} (ID: ${userId})`);
+const onLoad = async (ctx: PluginContext) => {
+  const settings = await ctx.settings.register(settingDefinitions);
+
+  ctx.events.on("user:joined", ({ userId, username, serverId }) => {
+    ctx.log(`${username} (#${userId}) opened server ${serverId}`);
+  });
+
+  ctx.events.on("user:left", ({ username, serverId }) => {
+    ctx.log(`${username} left server ${serverId}`);
+  });
+
+  ctx.commands.register({
+    name: "greet",
+    description: "Greet someone",
+    args: [{ name: "who", type: "string", required: true }],
+    async executes(invoker, args: { who: string }) {
+      const text = `${settings.get("greeting")}, ${args.who}!`;
+      return settings.get("shout") ? text.toUpperCase() : text;
+    },
   });
 };
 
-const onUnload = (ctx: PluginContext) => {
-  ctx.log("My Plugin unloaded");
+const onUnload = (ctx: UnloadPluginContext) => {
+  ctx.log("Bye");
 };
 
 export { onLoad, onUnload };
 ```
 
-Compile to JavaScript before loading:
+Build it: `bun run build` writes `dist/index.js` and copies `package.json` next to it.
 
-```bash
-bun run build
-```
+### 4. Install
+
+The plugin directory is `<data dir>/plugins/<plugin-id>/`, where the data directory is:
+
+- Linux: `$XDG_CONFIG_HOME/pulse` (default `~/.config/pulse`); the Docker image mounts it at `/root/.config/pulse`
+- macOS: `~/Library/Application Support/pulse`
+- Windows: `%APPDATA%\pulse`
+- running the server from source: `apps/server/data/`
+
+1. Create `plugins/my-plugin/` there (the folder name is the plugin id) and copy the contents of `dist/` into it.
+2. Turn on **Enable plugins** in the server settings if it is off.
+3. Enable the plugin: `plugins.toggle({ pluginId: "my-plugin", enabled: true })`. A plugin that is already enabled is also picked up by a server restart.
+4. Watch its log (`plugins.getLogs`, or the plugin log view once the admin page is back). A failed `onLoad` shows as `loadError` in `plugins.getPlugins`.
 
 ## Lifecycle
 
-### onLoad
+### `onLoad(ctx: PluginContext)` — required
 
-Called when the plugin is loaded. This is where you should:
+Called when the plugin is enabled (at boot, or when toggled on). Register event listeners, commands and settings here. If `onLoad` throws, the error is recorded as the plugin's `loadError`, `onUnload` runs, and the plugin stays unloaded.
 
-- Register event listeners
-- Register commands
-- Initialize resources
-- Set up external connections
+### `onUnload(ctx: UnloadPluginContext)` — optional
 
-### onUnload
+Called on unload: when the plugin is toggled off, when the instance-wide **Enable plugins** setting is turned off, and after a failed `onLoad`. Graceful-shutdown support (running `onUnload` when the server process receives SIGTERM/SIGINT) is being added; until it lands a process stop does **not** call it, so do not rely on `onUnload` for durable state — persist as you go.
 
-Called when the plugin is unloaded or the server shuts down. Use this to:
+`UnloadPluginContext` only has `log` / `debug` / `error`. Event listeners, commands and settings definitions are unregistered automatically after `onUnload` returns.
 
-- Clean up resources
-- Close connections
-- Save state
+## API reference — `PluginContext`
 
-**Note:** All event listeners and commands are automatically unregistered when the plugin unloads.
+Everything below is what `apps/server/src/plugins/index.ts` (`createContext`) actually provides.
 
-## Commands
+### `path: string`
 
-Plugins can register custom commands that users can execute. Commands can accept arguments and return results.
+Absolute path of the plugin's directory.
 
-### Registering a Command
+### `log(...args)`, `debug(...args)`, `error(...args)`
+
+Append to the plugin's log (levels `info` / `debug` / `error`), which admins read via `plugins.getLogs` and stream via `plugins.onPluginLog`.
+
+### `events.on(event, handler)`
+
+Subscribe to a server event. Handlers may be async; listeners are removed on unload.
+
+| Event | Payload | Fired when |
+| --- | --- | --- |
+| `user:joined` | `{ userId, username, serverId }` | a user's client session connects and bootstraps a server (`others.join`) — fires on every connect, **not** when someone becomes a member |
+| `user:left` | `{ userId, username, serverId }` | a user leaves, or is kicked or banned from, a server |
+| `message:created` | `{ messageId, channelId, userId, content }` | a plaintext channel message is sent |
+| `message:updated` | `{ messageId, channelId, userId, content }` | a plaintext channel message is edited |
+| `message:deleted` | `{ messageId, channelId }` | a channel message is deleted (single, bulk, or report takedown) |
+| `voice:runtime_initialized` | `{ channelId }` | a server voice channel's mediasoup router is created |
+| `voice:runtime_closed` | `{ channelId }` | that router is destroyed |
+
+`message:*` events are **not** emitted for end-to-end-encrypted messages, and no event covers DMs.
+
+### `commands.register(command)`
+
+Registers a slash command users can invoke from the composer.
 
 ```typescript
-import type { PluginContext, TInvokerContext } from "@pulse/plugin-sdk";
-
-const onLoad = (ctx: PluginContext) => {
-  ctx.commands.register({
-    name: "greet",
-    description: "Greet a user",
-    args: [
-      {
-        name: "username",
-        type: "string",
-        description: "The user to greet",
-        required: true,
-        sensitive: false, // set to true if the argument is sensitive (e.g., passwords), in the interface it will be shown as ****
-      },
-    ],
-    async executes(invokerCtx: TInvokerContext, args: { username: string }) {
-      ctx.log(`Greeting ${args.username} invoked by user ${invokerCtx.userId}`);
-
-      return "Hello, " + args.username + "!";
-    },
-  });
-};
+ctx.commands.register({
+  name: "greet",
+  description: "Greet a user",
+  args: [
+    { name: "username", type: "string", description: "Who to greet", required: true, sensitive: false },
+  ],
+  async executes(invoker: TInvokerContext, args: { username: string }) {
+    return `Hello, ${args.username}!`;
+  },
+});
 ```
 
-## Adding The Plugin to Pulse
+- `args[].type` is `"string" | "number" | "boolean"`; `sensitive: true` masks the value as `****` in the UI.
+- `executes(invoker, args)` receives `{ userId, currentVoiceChannelId? }` and whatever it returns is shown to the invoker.
+- Registering a name twice overwrites the first registration (and logs an error).
 
-1. Go to the Pulse data directory (usually `~/.config/pulse`).
-2. Create a `plugins` folder if it doesn't exist.
-3. Create a folder for your plugin (e.g., `my-plugin`).
-4. Copy your compiled plugin files (e.g., from `dist/`) into the `my-plugin` folder.
-5. Enable your plugin in the server settings under the "Plugins" section.
-6. Restart Pulse or reload plugins from the admin panel.
-7. Your plugin should now be loaded and active!
+### `settings.register(definitions)` → `Promise<PluginSettings>`
 
-## Best Practices
+Declares typed, admin-editable settings. Each definition is `{ key, name, description?, type: "string" | "number" | "boolean", defaultValue }`. Values persist in the database (`plugin_data`), merge over the defaults on every load, and admins can change them with `plugins.updateSetting` / read them with `plugins.getSettings`.
 
-1. **Always handle errors**: Wrap async operations in try-catch blocks
-2. **Clean up resources**: Implement `onUnload` to prevent memory leaks
-3. **Use TypeScript**: Get type safety and better IDE support
-4. **Log appropriately**: Use `debug` for verbose info, `error` for failures
-5. **Validate inputs**: Check command arguments before using them
-6. **Version carefully**: Follow semver for plugin updates
-7. **Prevent blocking operations**: Do NOT block the event loop with long-running tasks (example: using Bun.spawnSync). Use asynchronous methods instead.
+The returned object has `get(key)` and `set(key, value)`; `set` persists asynchronously and logs an error for an unregistered key. Pass the definitions `as const` to get typed `get`/`set`.
 
-## API Reference
+### `actions.voice`
 
-No documentation available yet. Use the types in `packages/plugin-sdk/src/index.ts` as a reference.
+- `getRouter(channelId)` — the mediasoup `Router` of a **server** voice channel runtime (DM calls are not addressable). Throws if no runtime exists for the id.
+- `createStream({ channelId, title, key, avatarUrl?, producers: { audio?, video? } })` — publishes an external stream into the channel; it appears in the roster as a synthetic participant and every member gets the new producers announced. The producers must be created on that channel's router (typically via a `PlainTransport` you open yourself). Returns `{ streamId, remove(), update({ title?, avatarUrl?, producers? }) }`.
+- `getListenInfo()` — `{ ip, announcedAddress }` the server's own WebRTC transports use, so your `PlainTransport` advertises the same address.
+
+The SDK re-exports the mediasoup types you need for this (`Router`, `Producer`, `PlainTransport`, `RtpParameters`, …).
+
+## Best practices
+
+1. **Handle errors** — wrap async work in try/catch; an unhandled rejection inside a handler is logged but can leave your plugin in a half-initialised state.
+2. **Clean up** in `onUnload`: close sockets, timers and transports you opened.
+3. **Never block the event loop** (no `Bun.spawnSync`, no long synchronous loops) — the server is single-threaded and voice runs in the same process.
+4. **Persist as you go**; do not count on `onUnload` running on a process stop (see Lifecycle).
+5. **Declare `pulse.sdk`** (import `PLUGIN_SDK_VERSION` from the SDK if you want to assert it at build time) and bump the range when you adopt a new SDK version.
+6. **Validate command arguments** before using them.
 
 ## License
 

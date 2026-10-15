@@ -5,7 +5,8 @@
  * `migrate()`, which records applied migrations in
  * `drizzle.__drizzle_migrations` and skips them on later boots. The old
  * boot path wiped that table every start and re-ran everything, which is
- * why migrations used to be forced idempotent (`docker/patch-migrations.ts`).
+ * why every migration is hand-written in idempotent form (IF NOT EXISTS /
+ * DO $$ guards).
  *
  * Idempotency is retained as a SAFETY NET, not the primary mechanism:
  * it covers the one residual edge case where an existing database's

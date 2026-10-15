@@ -4,7 +4,7 @@ import type { TServerScreenBaseProps } from '../screens';
 import { ServerScreenLayout } from '../server-screen-layout';
 import { General } from './general';
 
-type TCategorySettingsProps = TServerScreenBaseProps & {
+export type TCategorySettingsProps = TServerScreenBaseProps & {
   categoryId: number;
 };
 

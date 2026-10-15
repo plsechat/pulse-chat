@@ -1,17 +1,17 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import * as serverQueries from '../../db/queries/server';
 import { generateFileToken, verifyFileToken } from '../files-crypto';
 
-const mockGetFileHmacSecretSync = mock(() => 'test-server-token-12345');
+// The HMAC secret comes from the real `getFileHmacSecretSync`: setup.ts
+// warms it from the seeded server row before every test. The two tests
+// that care about the lookup itself spy on the export (restorable) —
+// never `mock.module`, which is process-global and irreversible.
 
-mock.module('../../db/queries/server', () => ({
-  getFileHmacSecretSync: mockGetFileHmacSecretSync
-}));
+afterEach(() => {
+  mock.restore();
+});
 
 describe('files-crypto', () => {
-  beforeEach(() => {
-    mockGetFileHmacSecretSync.mockClear();
-  });
-
   describe('generateFileToken', () => {
     test('should generate a valid token for given fileId and channelAccessToken', () => {
       const fileId = 123;
@@ -22,7 +22,6 @@ describe('files-crypto', () => {
       expect(token).toBeDefined();
       expect(typeof token).toBe('string');
       expect(token.length).toBe(64);
-      expect(mockGetFileHmacSecretSync).toHaveBeenCalledTimes(1);
     });
 
     test('should generate different tokens for different fileIds', () => {
@@ -56,10 +55,26 @@ describe('files-crypto', () => {
     test('should use server token from getFileHmacSecretSync', () => {
       const fileId = 123;
       const channelAccessToken = 'channel-token-abc';
+      const secretSpy = spyOn(serverQueries, 'getFileHmacSecretSync');
 
-      generateFileToken(fileId, channelAccessToken);
+      const token = generateFileToken(fileId, channelAccessToken);
 
-      expect(mockGetFileHmacSecretSync).toHaveBeenCalledTimes(1);
+      expect(secretSpy).toHaveBeenCalledTimes(1);
+      expect(verifyFileToken(fileId, channelAccessToken, token)).toBe(true);
+    });
+
+    test('tokens are bound to the server secret', () => {
+      const fileId = 123;
+      const channelAccessToken = 'channel-token-abc';
+      const realToken = generateFileToken(fileId, channelAccessToken);
+
+      spyOn(serverQueries, 'getFileHmacSecretSync').mockReturnValue(
+        'a-different-server-secret'
+      );
+      const otherSecretToken = generateFileToken(fileId, channelAccessToken);
+
+      expect(otherSecretToken).not.toBe(realToken);
+      expect(verifyFileToken(fileId, channelAccessToken, realToken)).toBe(false);
     });
   });
 

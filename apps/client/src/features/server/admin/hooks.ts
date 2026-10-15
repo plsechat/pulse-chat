@@ -1,10 +1,8 @@
-import { requestConfirmation } from '@/features/dialogs/actions';
 import type { IRootState } from '@/features/store';
 import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
 import {
-  Permission,
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MAX_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
@@ -22,20 +20,18 @@ import {
   type TJoinedUser,
   type TLogin,
   type TMessage,
-  type TPluginInfo,
-  type TRole,
   type TStorageSettings
 } from '@pulse/shared';
 import { filesize } from 'filesize';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
-import { useCan } from '../hooks';
 import { onAppEvent } from '@/lib/events';
 
 /**
  * Calls `refetch` whenever the watched Redux selector value changes,
- * skipping the initial mount.
+ * skipping the initial mount. `refetch` is read through a ref so a new
+ * callback identity never triggers a fetch on its own — only `value` does.
  */
 function useSubscriptionRefetch<T>(
   selector: (state: IRootState) => T,
@@ -43,23 +39,34 @@ function useSubscriptionRefetch<T>(
 ) {
   const value = useSelector(selector);
   const mounted = useRef(false);
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
 
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
-    refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    refetchRef.current();
   }, [value]);
 }
 
 // TODO: review this whole file for optimizations and improvements
 
+type TGeneralSettings = {
+  name: string;
+  description: string;
+  password: string;
+  allowNewUsers: boolean;
+  enablePlugins: boolean;
+  discoverable: boolean;
+  federatable: boolean;
+};
+
 export const useAdminGeneral = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState<TGeneralSettings>({
     name: '',
     description: '',
     password: '',
@@ -114,11 +121,13 @@ export const useAdminGeneral = (serverId: number | undefined) => {
     }
   }, [settings, serverId]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onChange = useCallback((field: keyof typeof settings, value: any) => {
-    setSettings((s) => ({ ...s, [field]: value }));
-    setErrors((e) => ({ ...e, [field]: undefined }));
-  }, []);
+  const onChange = useCallback(
+    <K extends keyof TGeneralSettings>(field: K, value: TGeneralSettings[K]) => {
+      setSettings((s) => ({ ...s, [field]: value }));
+      setErrors((e) => ({ ...e, [field]: undefined }));
+    },
+    []
+  );
 
   useEffect(() => {
     fetchSettings();
@@ -137,80 +146,22 @@ export const useAdminGeneral = (serverId: number | undefined) => {
   };
 };
 
-export const useAdminUpdates = () => {
-  const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [hasUpdate, setHasUpdate] = useState(false);
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
-  const [canUpdate, setCanUpdate] = useState(false);
+/**
+ * Plugin row as the `plugins.get` route actually returns it (`logo` /
+ * `homepage` are optional on the wire, matching the package.json
+ * schema they come from).
+ */
+export type TAdminPlugin = Awaited<
+  ReturnType<
+    NonNullable<ReturnType<typeof getTRPCClient>>['plugins']['get']['query']
+  >
+>['plugins'][number];
 
-  const fetchUpdate = useCallback(async () => {
-    setLoading(true);
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      const { hasUpdate, latestVersion, canUpdate, currentVersion } =
-        await trpc.others.getUpdate.query();
-
-      setHasUpdate(hasUpdate);
-      setLatestVersion(latestVersion);
-      setCurrentVersion(currentVersion);
-      setCanUpdate(canUpdate);
-    } catch (error) {
-      console.error('Error fetching update:', error);
-      setErrors(parseTrpcErrors(error));
-    }
-
-    setLoading(false);
-  }, []);
-
-  const update = useCallback(async () => {
-    const answer = await requestConfirmation({
-      title: 'Are you sure you want to update the server?',
-      message:
-        'This will download and install the latest version of the server. The server will be restarted during the process, which may cause temporary downtime.',
-      confirmLabel: 'Update',
-      cancelLabel: 'Cancel'
-    });
-
-    if (!answer) return;
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      await trpc.others.updateServer.mutate();
-
-      toast.success('Server update initiated');
-    } catch (error) {
-      console.error('Error updating server:', error);
-      setErrors(parseTrpcErrors(error));
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUpdate();
-  }, [fetchUpdate]);
-
-  return {
-    refetch: fetchUpdate,
-    loading,
-    hasUpdate,
-    latestVersion,
-    currentVersion,
-    canUpdate,
-    errors,
-    update
-  };
-};
-
+/** @pendingBatch B9 — consumer is the plugins settings panel, mounted in B9 (A8-1) */
 export const useAdminPlugins = () => {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [plugins, setPlugins] = useState<TPluginInfo[]>([]);
+  const [plugins, setPlugins] = useState<TAdminPlugin[]>([]);
 
   const fetchPlugins = useCallback(async () => {
     setLoading(true);
@@ -221,8 +172,6 @@ export const useAdminPlugins = () => {
     try {
       const { plugins } = await trpc.plugins.get.query();
 
-      // TODO: check this
-      // @ts-expect-error - ver esta merda wtf
       setPlugins(plugins);
     } catch (error) {
       console.error('Error fetching plugins:', error);
@@ -242,32 +191,6 @@ export const useAdminPlugins = () => {
     loading,
     errors
   };
-};
-
-export const useHasUpdates = () => {
-  const can = useCan();
-  const [hasUpdates, setHasUpdates] = useState(false);
-
-  const fetchHasUpdates = useCallback(async () => {
-    if (!can(Permission.MANAGE_UPDATES)) return;
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      const { hasUpdate } = await trpc.others.getUpdate.query();
-
-      setHasUpdates(hasUpdate);
-    } catch (error) {
-      console.error('Error fetching update status:', error);
-    }
-  }, [can]);
-
-  useEffect(() => {
-    fetchHasUpdates();
-  }, [fetchHasUpdates]);
-
-  return hasUpdates;
 };
 
 export const useAdminChannelGeneral = (channelId: number) => {
@@ -391,7 +314,6 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
 
 export const useAdminEmojis = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState<TTrpcErrors>({});
   const [emojis, setEmojis] = useState<TJoinedEmoji[]>([]);
 
   const fetchEmojis = useCallback(async () => {
@@ -406,16 +328,6 @@ export const useAdminEmojis = (serverId: number | undefined) => {
     setLoading(false);
   }, [serverId]);
 
-  const onChange = useCallback(
-    (field: keyof TJoinedEmoji, value: string | null) => {
-      if (!emojis) return;
-
-      setEmojis((c) => (c ? { ...c, [field]: value } : c));
-      setErrors((e) => ({ ...e, [field]: undefined }));
-    },
-    [emojis]
-  );
-
   useEffect(() => {
     fetchEmojis();
   }, [fetchEmojis]);
@@ -425,15 +337,12 @@ export const useAdminEmojis = (serverId: number | undefined) => {
   return {
     emojis,
     refetch: fetchEmojis,
-    loading,
-    errors,
-    onChange
+    loading
   };
 };
 
 export const useAdminRoles = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState<TTrpcErrors>({});
   const [roles, setRoles] = useState<TJoinedRole[]>([]);
 
   const fetchRoles = useCallback(async () => {
@@ -448,16 +357,6 @@ export const useAdminRoles = (serverId: number | undefined) => {
     setLoading(false);
   }, [serverId]);
 
-  const onChange = useCallback(
-    (field: keyof TRole, value: string | null) => {
-      if (!roles) return;
-
-      setRoles((c) => (c ? { ...c, [field]: value } : c));
-      setErrors((e) => ({ ...e, [field]: undefined }));
-    },
-    [roles]
-  );
-
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
@@ -467,12 +366,11 @@ export const useAdminRoles = (serverId: number | undefined) => {
   return {
     roles,
     refetch: fetchRoles,
-    loading,
-    errors,
-    onChange
+    loading
   };
 };
 
+/** @pendingBatch B9 — consumer is the upload-limits UI restored in B9 (A8-3) */
 export const useAdminStorage = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
   const { values, setValues, setTrpcErrors, r, onChange } =

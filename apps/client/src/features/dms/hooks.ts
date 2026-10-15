@@ -7,13 +7,9 @@ import {
   dmActiveCallsSelector,
   dmCallByChannelIdSelector,
   dmChannelsSelector,
-  dmMessagesSelector,
-  dmsLoadingSelector,
   dmTypingUsersSelector,
   ownDmCallChannelIdSelector,
-  ringingCallsSelector,
-  selectedDmChannelIdSelector,
-  selectedDmChannelSelector
+  ringingCallsSelector
 } from './selectors';
 
 /**
@@ -38,17 +34,6 @@ export const useDmChannels = () => {
     });
   }, [channels, blocked, ownUserId]);
 };
-
-export const useSelectedDmChannelId = () =>
-  useSelector(selectedDmChannelIdSelector);
-
-export const useSelectedDmChannel = () =>
-  useSelector(selectedDmChannelSelector);
-
-export const useDmMessages = (dmChannelId: number) =>
-  useSelector((state: IRootState) => dmMessagesSelector(state, dmChannelId));
-
-export const useDmsLoading = () => useSelector(dmsLoadingSelector);
 
 export const useDmActiveCalls = () => useSelector(dmActiveCallsSelector);
 

@@ -2,9 +2,6 @@ import { store } from '@/features/store';
 import type { TJoinedPublicUser } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
 
-export const setUsers = (users: TJoinedPublicUser[]) => {
-  store.dispatch(serverSliceActions.setUsers(users));
-};
 
 export const addUser = (user: TJoinedPublicUser) => {
   store.dispatch(serverSliceActions.addUser(user));

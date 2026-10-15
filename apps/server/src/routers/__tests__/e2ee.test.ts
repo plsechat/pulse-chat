@@ -248,16 +248,15 @@ describe('e2ee router', () => {
     expect(bundle!.signedPreKey.signature).toBe('rotated-signature');
   });
 
-  // --- distributeSenderKey / getPendingSenderKeys ---
+  // --- distributeSenderKeysBatch / getPendingSenderKeys ---
 
   test('should distribute and retrieve sender keys', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'encrypted-sender-key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'encrypted-sender-key-data' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({});
@@ -300,10 +299,9 @@ describe('e2ee router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-data' }]
     });
 
     // First fetch returns the key
@@ -327,10 +325,9 @@ describe('e2ee router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-data' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({});
@@ -347,16 +344,14 @@ describe('e2ee router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-for-channel-1'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-for-channel-1' }]
     });
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 2,
-      toUserId: 2,
-      distributionMessage: 'key-for-channel-2'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-for-channel-2' }]
     });
 
     const filtered = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -370,10 +365,9 @@ describe('e2ee router', () => {
     const { caller: caller2 } = await initTest(2);
 
     // Distribute to user 1 (not user 2)
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'key-for-user-1'
+      distributions: [{ toUserId: 1, distributionMessage: 'key-for-user-1' }]
     });
 
     // User 2 should not see keys meant for user 1
@@ -392,10 +386,9 @@ describe('e2ee router', () => {
     const { caller: caller2 } = await initTest(2);
 
     // Omit senderKeyId — should default to 1.
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'phase-a-fallback'
+      distributions: [{ toUserId: 2, distributionMessage: 'phase-a-fallback' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({});
@@ -408,19 +401,17 @@ describe('e2ee router', () => {
     const { caller: caller2 } = await initTest(2);
 
     // First chain (initial creation).
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
       senderKeyId: 1,
-      distributionMessage: 'chain-v1'
+      distributions: [{ toUserId: 2, distributionMessage: 'chain-v1' }]
     });
 
     // Rotation — kicked someone, generated a fresh chain.
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
       senderKeyId: 2,
-      distributionMessage: 'chain-v2'
+      distributions: [{ toUserId: 2, distributionMessage: 'chain-v2' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -479,15 +470,13 @@ describe('e2ee router', () => {
     const { caller: caller3 } = await initTest(3);
 
     // User 1 distributes to user 2 and user 3
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-for-user-2'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-for-user-2' }]
     });
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 3,
-      distributionMessage: 'key-for-user-3'
+      distributions: [{ toUserId: 3, distributionMessage: 'key-for-user-3' }]
     });
 
     const pending2 = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -505,15 +494,13 @@ describe('e2ee router', () => {
     const { caller: caller3 } = await initTest(3);
 
     // User 1 and User 2 both distribute keys to User 3
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 3,
-      distributionMessage: 'key-from-user-1'
+      distributions: [{ toUserId: 3, distributionMessage: 'key-from-user-1' }]
     });
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 3,
-      distributionMessage: 'key-from-user-2'
+      distributions: [{ toUserId: 3, distributionMessage: 'key-from-user-2' }]
     });
 
     const pending = await caller3.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -638,17 +625,15 @@ describe('e2ee router', () => {
     await caller1.e2ee.registerKeys(mockKeys);
 
     // Distribute a sender key from user 1 to user 2
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'old-key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'old-key-data' }]
     });
 
     // Distribute a sender key from user 2 to user 1
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'key-for-user-1'
+      distributions: [{ toUserId: 1, distributionMessage: 'key-for-user-1' }]
     });
 
     // Verify distributions exist
@@ -684,15 +669,13 @@ describe('e2ee router', () => {
     await caller1.e2ee.registerKeys(k1);
 
     // Pre-backup: a sender-key distribution exists in either direction.
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'k_a1-distribution'
+      distributions: [{ toUserId: 2, distributionMessage: 'k_a1-distribution' }]
     });
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'b-distribution-encrypted-to-k_a1'
+      distributions: [{ toUserId: 1, distributionMessage: 'b-distribution-encrypted-to-k_a1' }]
     });
 
     // Step 2: user 1 regenerates → identity flips to K_A2.
@@ -709,10 +692,9 @@ describe('e2ee router', () => {
 
     // Post-regen, peers (via handlePeerIdentityReset) re-distribute their
     // sender keys to user 1's K_A2 prekey-bundle. Simulate that.
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'b-distribution-encrypted-to-k_a2'
+      distributions: [{ toUserId: 1, distributionMessage: 'b-distribution-encrypted-to-k_a2' }]
     });
     expect((await caller1.e2ee.getPendingSenderKeys({})).length).toBe(1);
 
@@ -739,10 +721,9 @@ describe('e2ee router', () => {
 
     await caller1.e2ee.registerKeys(mockKeys);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'valid-key'
+      distributions: [{ toUserId: 2, distributionMessage: 'valid-key' }]
     });
 
     // Re-register with SAME identity key (e.g. OTP replenishment)

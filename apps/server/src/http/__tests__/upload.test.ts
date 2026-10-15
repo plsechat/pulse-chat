@@ -1,5 +1,5 @@
 import { UploadHeaders, type TTempFile } from '@pulse/shared';
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'path';
 import { login, uploadFile } from '../../__tests__/helpers';
@@ -14,16 +14,17 @@ const getMockFile = (content: string): File => {
   return new File([blob], 'test-upload.txt', { type: 'text/plain' });
 };
 
+// Called inside each test (not beforeEach) so the login's DB writes
+// don't pile onto the global per-test TRUNCATE inside the same hook
+// budget.
+const loginOwner = async (): Promise<string> => {
+  const response = await login('testowner', 'password123');
+  const data = (await response.json()) as { accessToken: string };
+
+  return data.accessToken;
+};
+
 describe('/upload', () => {
-  let token: string;
-
-  beforeEach(async () => {
-    const response = await login('testowner', 'password123');
-    const data = (await response.json()) as { accessToken: string };
-
-    token = data.accessToken;
-  });
-
   afterAll(async () => {
     const files = await fs.readdir(TMP_PATH);
 
@@ -33,6 +34,7 @@ describe('/upload', () => {
   });
 
   test('should upload a file successfully', async () => {
+    const token = await loginOwner();
     const file = getMockFile('Hello, this is a test file for upload.');
     const response = await uploadFile(file, token);
 
@@ -86,6 +88,7 @@ describe('/upload', () => {
   });
 
   test('should throw when uploads are disabled', async () => {
+    const token = await loginOwner();
     await tdb.update(servers).set({ storageUploadEnabled: false });
 
     const file = getMockFile('gonna fail');
@@ -102,6 +105,7 @@ describe('/upload', () => {
   });
 
   test('should throw when file exceeds max size', async () => {
+    const token = await loginOwner();
     await tdb
       .update(servers)
       .set({ storageUploadMaxFileSize: 5 * 1024 * 1024 }); // 5 MB
@@ -121,6 +125,7 @@ describe('/upload', () => {
   });
 
   test('should handle files with special characters in name', async () => {
+    const token = await loginOwner();
     const specialContent = 'File with special name';
     const blob = new Blob([specialContent], { type: 'text/plain' });
     const file = new File([blob], 'test file (1) [copy].txt', {
@@ -138,6 +143,7 @@ describe('/upload', () => {
   });
 
   test('should handle empty files', async () => {
+    const token = await loginOwner();
     const blob = new Blob([], { type: 'text/plain' });
     const file = new File([blob], 'empty.txt', { type: 'text/plain' });
 
@@ -152,6 +158,7 @@ describe('/upload', () => {
   });
 
   test('should handle different file types', async () => {
+    const token = await loginOwner();
     // Test with a JSON file
     const jsonContent = JSON.stringify({ test: true });
     const jsonBlob = new Blob([jsonContent], { type: 'application/json' });
@@ -171,6 +178,7 @@ describe('/upload', () => {
   });
 
   test('should handle files with no extension', async () => {
+    const token = await loginOwner();
     const blob = new Blob(['Makefile content'], { type: 'text/plain' });
     const file = new File([blob], 'Makefile', { type: 'text/plain' });
 
@@ -185,6 +193,7 @@ describe('/upload', () => {
   });
 
   test('should handle files with multiple dots in name', async () => {
+    const token = await loginOwner();
     const blob = new Blob(['backup content'], { type: 'text/plain' });
     const file = new File([blob], 'file.backup.old.txt', {
       type: 'text/plain'
@@ -201,6 +210,7 @@ describe('/upload', () => {
   });
 
   test('should handle very long filenames', async () => {
+    const token = await loginOwner();
     const longName = 'a'.repeat(200) + '.txt';
     const blob = new Blob(['content'], { type: 'text/plain' });
     const file = new File([blob], longName, { type: 'text/plain' });
@@ -216,6 +226,7 @@ describe('/upload', () => {
   });
 
   test('should upload multiple files sequentially', async () => {
+    const token = await loginOwner();
     const file1 = getMockFile('First file content');
     const file2 = getMockFile('Second file content');
 
@@ -233,6 +244,7 @@ describe('/upload', () => {
   });
 
   test('should generate unique MD5 hashes for different files', async () => {
+    const token = await loginOwner();
     const file1 = getMockFile('Content A');
     const file2 = getMockFile('Content B');
 
@@ -246,6 +258,7 @@ describe('/upload', () => {
   });
 
   test('should set correct userId for uploaded file', async () => {
+    const token = await loginOwner();
     const file = getMockFile('User association test');
     const response = await uploadFile(file, token);
 
@@ -257,6 +270,7 @@ describe('/upload', () => {
   });
 
   test('should handle binary files correctly', async () => {
+    const token = await loginOwner();
     // Create a small binary file (simulating an image)
     const binaryData = new Uint8Array([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a

@@ -362,7 +362,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     replyingTo,
     startSlowModeCooldown,
     isE2ee,
-    ownUserId
+    ownUserId,
+    fileKeyMapRef
   ]);
 
   const onFileInputChange = useCallback(

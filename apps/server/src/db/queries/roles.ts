@@ -43,16 +43,6 @@ const getRole = async (roleId: number): Promise<TJoinedRole | undefined> => {
   return parseRole(role);
 };
 
-const getRoles = async (): Promise<TJoinedRole[]> => {
-  const results = await db
-    .select(roleSelectFields)
-    .from(roles)
-    .leftJoin(rolePermissions, sql`${roles.id} = ${rolePermissions.roleId}`)
-    .groupBy(roles.id);
-
-  return results.map(parseRole);
-};
-
 const getUserRoleIds = async (userId: number): Promise<number[]> => {
   const userRoleRecords = await db
     .select({ roleId: userRoles.roleId })
@@ -90,7 +80,6 @@ export {
   getDefaultRole,
   getDefaultRoleForServer,
   getRole,
-  getRoles,
   getRolesForServer,
   getUserRoleIds
 };

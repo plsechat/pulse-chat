@@ -1,15 +1,19 @@
 import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
+import dns from 'dns/promises';
 import { sql } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import { warmFileHmacSecret } from '../db/queries/server';
 import { DATA_PATH } from '../helpers/paths';
 import { createHttpServer } from '../http';
 import { activityLogQueue } from '../queues/activity-log';
+import { dmMessageMetadataQueue } from '../queues/dm-message-metadata';
 import { drainQueue } from '../queues/drain';
 import { loginsQueue } from '../queues/logins';
+import { messageMetadataQueue } from '../queues/message-metadata';
 import { loadMediasoup } from '../utils/mediasoup';
 import { client, dbProxy, getTestDb } from './mock-db';
 import { seedDatabase } from './seed';
+import { TRUNCATE_ALL_SQL } from './truncate';
 
 /**
  * Global test setup - truncates all tables and re-seeds before each test.
@@ -22,6 +26,47 @@ import { seedDatabase } from './seed';
 const CLEANUP_AFTER_FINISH = true;
 
 let testsBaseUrl: string;
+
+// ── Mock-leak guard ──────────────────────────────────────────────────
+//
+// Test files stub `globalThis.fetch` and `dns.resolve4/6` (via spyOn)
+// to keep federation traffic off the network. Those stubs are
+// restorable — and MUST be restored, or every later file in the same
+// process sees the stub: validate-url.test.ts' SSRF rejections "pass"
+// a URL the fake accepts, dispatcher tests never see their traffic.
+// afterAll compares the live values against the originals captured at
+// preload time and fails the run loudly if a file leaked.
+//
+// `mock.module` is worse: it is process-global and cannot be undone.
+// The server eslint config forbids it outside the four preload files.
+const ORIGINAL_FETCH = globalThis.fetch;
+const ORIGINAL_DNS_RESOLVE4 = dns.resolve4;
+const ORIGINAL_DNS_RESOLVE6 = dns.resolve6;
+
+const isMockFn = (fn: unknown): boolean =>
+  typeof fn === 'function' && 'mock' in fn;
+
+const findLeakedMocks = (): string[] => {
+  const leaks: string[] = [];
+  if (globalThis.fetch !== ORIGINAL_FETCH || isMockFn(globalThis.fetch)) {
+    leaks.push('globalThis.fetch');
+  }
+  if (dns.resolve4 !== ORIGINAL_DNS_RESOLVE4 || isMockFn(dns.resolve4)) {
+    leaks.push('dns.resolve4');
+  }
+  if (dns.resolve6 !== ORIGINAL_DNS_RESOLVE6 || isMockFn(dns.resolve6)) {
+    leaks.push('dns.resolve6');
+  }
+  return leaks;
+};
+
+const drainFireAndForgetQueues = () =>
+  Promise.all([
+    drainQueue(activityLogQueue),
+    drainQueue(loginsQueue),
+    drainQueue(messageMetadataQueue),
+    drainQueue(dmMessageMetadataQueue)
+  ]);
 
 beforeAll(async () => {
   await createHttpServer(9999);
@@ -101,70 +146,20 @@ beforeEach(async () => {
   const tdb = getTestDb();
 
   // Quiesce fire-and-forget DB writers from the previous test BEFORE
-  // taking the truncate locks. Cheap when idle (sync no-op).
-  await Promise.all([
-    drainQueue(activityLogQueue),
-    drainQueue(loginsQueue)
-  ]);
+  // taking the truncate locks. Cheap when idle (sync no-op). The two
+  // message-metadata queues issue an UPDATE per non-E2EE send — a
+  // straggler there races the TRUNCATE exactly like the log queues.
+  await drainFireAndForgetQueues();
 
-  // Truncate all tables in reverse dependency order, then reseed —
+  // Truncate every schema table (truncate.ts derives the list from
+  // db/schema.ts, so a new table can't be forgotten), then reseed —
   // atomically, inside one transaction (see hardening note above).
-  // Keep the table list in sync with the schema — leftover rows in
-  // tables that aren't truncated here lengthen CASCADE chains and
-  // widen deadlock windows.
   await executeWithResetRetry(() =>
     tdb.transaction(async (tx) => {
       // Fail fast instead of eating the whole hook-timeout budget when
       // a straggler still holds a lock; 55P03 is retried with backoff.
       await tx.execute(sql`SET LOCAL lock_timeout = '2500ms'`);
-      await tx.execute(sql`TRUNCATE TABLE
-    e2ee_sender_keys,
-    user_key_backups,
-    user_one_time_pre_keys,
-    user_signed_pre_keys,
-    user_identity_keys,
-    user_preferences,
-    user_notes,
-    reports,
-    plugin_data,
-    thread_followers,
-    forum_post_tags,
-    forum_tags,
-    channel_notification_settings,
-    channel_read_states,
-    channel_user_permissions,
-    channel_role_permissions,
-    message_reactions,
-    message_files,
-    dm_read_states,
-    dm_message_reactions,
-    dm_message_files,
-    dm_messages,
-    dm_channel_members,
-    dm_channels,
-    friend_requests,
-    friendships,
-    activity_log,
-    logins,
-    server_members,
-    user_roles,
-    webhooks,
-    automod_rules,
-    messages,
-    emojis,
-    invites,
-    files,
-    user_federated_servers,
-    federation_instances,
-    federation_keys,
-    users,
-    role_permissions,
-    roles,
-    channels,
-    categories,
-    servers,
-    settings
-    RESTART IDENTITY CASCADE`);
+      await tx.execute(TRUNCATE_ALL_SQL);
 
       // seedDatabase's param is typed as the plain database handle; a
       // drizzle transaction exposes the identical query API (insert/
@@ -187,6 +182,10 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  // Check for leaked mocks first, but only throw after the pool is
+  // closed — a thrown guard must not leave postgres connections open.
+  const leakedMocks = findLeakedMocks();
+
   if (CLEANUP_AFTER_FINISH) {
     try {
       await fs.rm(DATA_PATH, { recursive: true });
@@ -197,12 +196,17 @@ afterAll(async () => {
 
   // Drain stragglers before ending the pool — a queued insert racing
   // client.end() is the CONNECTION_ENDED flake.
-  await Promise.all([
-    drainQueue(activityLogQueue),
-    drainQueue(loginsQueue)
-  ]);
+  await drainFireAndForgetQueues();
 
   await client.end();
+
+  if (leakedMocks.length > 0) {
+    throw new Error(
+      `A test file leaked a mock past its last test: ${leakedMocks.join(', ')}. ` +
+        'Restore it in afterEach (mock.restore() for spyOn stubs). ' +
+        'Later files in the same process would otherwise run against the stub.'
+    );
+  }
 });
 
 export { dbProxy as tdb, getTestDb, testsBaseUrl };

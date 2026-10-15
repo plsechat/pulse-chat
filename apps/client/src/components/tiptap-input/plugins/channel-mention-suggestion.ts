@@ -1,6 +1,10 @@
 import { computePosition } from '@floating-ui/dom';
 import type { Editor } from '@tiptap/core';
 import { ReactRenderer } from '@tiptap/react';
+import type {
+  SuggestionKeyDownProps,
+  SuggestionProps
+} from '@tiptap/suggestion';
 import {
   ChannelMentionList,
   type ChannelMentionListRef
@@ -15,22 +19,28 @@ export type TChannelMentionItem = {
   parentName?: string;
 };
 
-interface SuggestionProps {
-  editor: Editor;
-  query: string;
-  clientRect?: (() => DOMRect | null) | null;
-  command: (item: TChannelMentionItem) => void;
+export type TChannelMentionStorage = {
+  channels: TChannelMentionItem[];
+};
+
+declare module '@tiptap/core' {
+  interface Storage {
+    [CHANNEL_MENTION_STORAGE_KEY]: TChannelMentionStorage;
+  }
 }
+
+type TChannelMentionSuggestionProps = SuggestionProps<
+  TChannelMentionItem,
+  TChannelMentionItem
+>;
 
 export const ChannelMentionSuggestion = {
   char: '#',
   startOfLine: false,
   allowSpaces: false,
   items: ({ editor, query }: { editor: Editor; query: string }) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const storage = (editor.storage as any)[CHANNEL_MENTION_STORAGE_KEY];
     const channels: TChannelMentionItem[] =
-      storage?.channels ?? [];
+      editor.storage[CHANNEL_MENTION_STORAGE_KEY]?.channels ?? [];
 
     const q = query.toLowerCase();
 
@@ -65,7 +75,7 @@ export const ChannelMentionSuggestion = {
     }
 
     return {
-      onStart: (props: SuggestionProps) => {
+      onStart: (props: TChannelMentionSuggestionProps) => {
         const filteredItems = ChannelMentionSuggestion.items({
           editor: props.editor,
           query: props.query
@@ -88,8 +98,7 @@ export const ChannelMentionSuggestion = {
               component = null;
             }
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          editor: props.editor as any
+          editor: props.editor
         });
 
         document.body.appendChild(component.element);
@@ -98,7 +107,7 @@ export const ChannelMentionSuggestion = {
           reposition(rect);
         }
       },
-      onUpdate(props: SuggestionProps) {
+      onUpdate(props: TChannelMentionSuggestionProps) {
         const filteredItems = ChannelMentionSuggestion.items({
           editor: props.editor,
           query: props.query
@@ -126,7 +135,7 @@ export const ChannelMentionSuggestion = {
           reposition(rect);
         }
       },
-      onKeyDown(props: { event: KeyboardEvent }) {
+      onKeyDown(props: SuggestionKeyDownProps) {
         const listRef = component?.ref as ChannelMentionListRef | undefined;
         if (listRef?.onKeyDown) {
           return listRef.onKeyDown(props.event);

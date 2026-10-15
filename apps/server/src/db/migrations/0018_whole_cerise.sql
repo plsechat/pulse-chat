@@ -2,9 +2,10 @@
 -- The id stored here is what gets placed on `users.supabaseId` when
 -- registerUser runs after createUser. Empty in supabase mode.
 --
--- Idempotent for the boot-loop replay-safety pattern (db/index.ts wipes
--- drizzle migration tracking on every start). See migration-pipeline
--- gotcha + the migrations-idempotent CI job.
+-- Idempotent: drizzle tracking runs this once; the IF NOT EXISTS /
+-- exception guards are the safety net for a replay, which CI exercises
+-- by applying every migration twice (migrations-idempotent job,
+-- scripts/check-migrations-idempotent.ts).
 
 CREATE TABLE IF NOT EXISTS "local_auth_users" (
 	"id" text PRIMARY KEY NOT NULL,

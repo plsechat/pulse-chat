@@ -19,6 +19,15 @@ const FAKE_MEDIA_ARGS = [
   '--use-fake-device-for-media-stream'
 ];
 
+// Shared by the `core` and `probes` projects: both target the core
+// instance with the same fake-media launch flags.
+const CORE_USE = {
+  ...devices['Desktop Chrome'],
+  baseURL: 'http://127.0.0.1:14991',
+  launchOptions: { args: FAKE_MEDIA_ARGS },
+  permissions: ['microphone']
+};
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -47,12 +56,17 @@ export default defineConfig({
       testDir: './tests/core',
       testIgnore: /core\.setup\.ts/,
       dependencies: ['core-setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        baseURL: 'http://127.0.0.1:14991',
-        launchOptions: { args: FAKE_MEDIA_ARGS },
-        permissions: ['microphone']
-      }
+      use: CORE_USE
+    },
+    // Env-gated probe utilities (screenshot walkers, manual-review
+    // harnesses). Each spec skips itself unless its own *_PROBE / UI_SHOTS
+    // variable is set, so `--project=core` never parses or lists them:
+    //   COSMETICS_PROBE=1 npx playwright test --project=probes
+    {
+      name: 'probes',
+      testDir: './tests/probes',
+      dependencies: ['core-setup'],
+      use: CORE_USE
     },
     {
       name: 'sso',

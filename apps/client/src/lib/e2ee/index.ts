@@ -20,6 +20,7 @@ import {
 import {
   captureOwnPlaintextByCiphertext,
   clearAllOwnPlaintexts,
+  getPersistedOwnPlaintextBatch,
   getPersistedOwnPlaintextById,
   persistOwnPlaintextById,
   takeOwnPlaintextByCiphertext
@@ -547,20 +548,6 @@ async function ensureSession(
   const storeKey = storeIdentity(s);
   const cacheKey = `${userId}::${storeKey}::${opts?.verifyIdentity ? '1' : '0'}`;
   const existing = inflightSessions.get(cacheKey);
-  // TEMP diag — vite strips console.* in production via esbuild.drop,
-  // so stash the trace on `window` directly. Inspect with
-  // `window.__pulseE2eeDiag` in the browser console. Remove once
-  // the multi-prekey-bundle bug is root-caused.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const diagWin = window as any;
-  if (!diagWin.__pulseE2eeDiag) diagWin.__pulseE2eeDiag = [];
-  diagWin.__pulseE2eeDiag.push({
-    t: Date.now(),
-    userId,
-    cacheKey,
-    mapSize: inflightSessions.size,
-    hadExisting: !!existing
-  });
   if (existing) return existing;
 
   const promise = doEnsureSession(userId, s, trpc, opts).finally(() => {
@@ -709,14 +696,6 @@ export function clearDistributedMember(userId: number): void {
   signalStore.clearChainDistributionForUser(userId).catch(() => {});
 }
 
-/**
- * DM-channel-equivalent of clearDistributedMember. Same behavior; DM
- * group chains live in the home store only, so we only touch
- * signalStore.
- */
-export function clearDmDistributedMember(userId: number): void {
-  signalStore.clearChainDistributionForUser(userId).catch(() => {});
-}
 
 /**
  * Distribute the latest SKDM for a chain to every member who hasn't
@@ -1027,35 +1006,6 @@ export async function distributeSenderKeysToOnlineMember(
   }
 }
 
-/**
- * Process a received sender-key distribution message from a peer.
- * The wire `distributionMessage` is a Signal envelope encrypting the
- * JSON-serialized `SenderKeyDistribution`. After X3DH-decryption we
- * persist an inbound chain at the embedded senderKeyId.
- *
- * Channel-side: uses the active store (federated channels live in
- * per-instance stores).
- */
-export async function processIncomingSenderKey(
-  channelId: number,
-  fromUserId: number,
-  distributionMessage: string
-): Promise<void> {
-  const store = getActiveStore();
-  const decryptedJson = await decryptMessage(
-    fromUserId,
-    distributionMessage,
-    store
-  );
-  const distribution = JSON.parse(decryptedJson) as SenderKeyDistribution;
-  await acceptInboundChannelChain(channelId, fromUserId, distribution, store);
-  // Phase B follow-up: SKDM finally landed — re-decrypt any messages
-  // from this sender that arrived first and got stuck on the
-  // "[Unable to decrypt]" placeholder.
-  retryFailedChannelDecrypts(channelId, fromUserId).catch((err) => {
-    console.warn('[E2EE] Channel retry-decrypt loop errored:', err);
-  });
-}
 
 /**
  * Phase E / E1f — process a federated channel SKDM.
@@ -1239,6 +1189,18 @@ export async function encryptChannelMessage(
 }
 
 /**
+ * One IDB transaction for the whole batch instead of one `get` per
+ * message — the history/pagination path hands the result to
+ * `decryptChannelMessage` so reloads of a cached page never touch the
+ * chain or IDB per row.
+ */
+export function loadPersistedChannelPlaintexts(
+  messageIds: number[]
+): Promise<Map<number, string>> {
+  return getPersistedOwnPlaintextBatch(messageIds);
+}
+
+/**
  * Decrypt a channel message. Loads the sender's chain at the
  * senderKeyId embedded in the wire — if missing, fetches pending
  * SKDMs (bounded exponential backoff up to ~3.5s) and retries.
@@ -1246,12 +1208,18 @@ export async function encryptChannelMessage(
  * `messageId` is optional — when provided, the own-message cache
  * persists the plaintext keyed by id so reload survives. Live-path
  * subscription handlers always pass it; legacy callers may not.
+ *
+ * `persisted` is the batch-loaded plaintext cache for the message set
+ * being decrypted (see `loadPersistedChannelPlaintexts`). When given,
+ * the per-message IDB lookup is skipped: a miss in the batch map IS
+ * the answer for that id.
  */
 export async function decryptChannelMessage(
   channelId: number,
   fromUserId: number,
   encryptedContent: string,
-  messageId?: number
+  messageId?: number,
+  persisted?: ReadonlyMap<number, string>
 ): Promise<E2EEPlaintext> {
   // Own-message fast path — see encryptChannelMessage. The wire bytes
   // we just captured during encrypt are exactly what comes back via
@@ -1265,9 +1233,11 @@ export async function decryptChannelMessage(
     return JSON.parse(cachedByCiphertext) as E2EEPlaintext;
   }
   if (messageId !== undefined) {
-    const persisted = await getPersistedOwnPlaintextById(messageId);
-    if (persisted !== undefined) {
-      return JSON.parse(persisted) as E2EEPlaintext;
+    const persistedPlaintext = persisted
+      ? persisted.get(messageId)
+      : await getPersistedOwnPlaintextById(messageId);
+    if (persistedPlaintext !== undefined) {
+      return JSON.parse(persistedPlaintext) as E2EEPlaintext;
     }
   }
 

@@ -2,24 +2,32 @@ import { computePosition } from '@floating-ui/dom';
 import type { TCommandInfo } from '@pulse/shared';
 import type { Editor } from '@tiptap/core';
 import { ReactRenderer } from '@tiptap/react';
+import type {
+  SuggestionKeyDownProps,
+  SuggestionProps
+} from '@tiptap/suggestion';
 import { CommandList, type CommandListRef } from './command-list';
 
 const COMMANDS_STORAGE_KEY = 'slashCommands';
 
-interface SuggestionProps {
-  editor: Editor;
-  query: string;
-  clientRect?: (() => DOMRect | null) | null;
-  command: (item: TCommandInfo) => void;
+export type TSlashCommandsStorage = {
+  commands: TCommandInfo[];
+};
+
+declare module '@tiptap/core' {
+  interface Storage {
+    [COMMANDS_STORAGE_KEY]: TSlashCommandsStorage;
+  }
 }
+
+type TCommandSuggestionProps = SuggestionProps<TCommandInfo, TCommandInfo>;
 
 export const CommandSuggestion = {
   char: '/',
   startOfLine: true,
   items: ({ editor, query }: { editor: Editor; query: string }) => {
     const commands: TCommandInfo[] =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (editor.storage as any)[COMMANDS_STORAGE_KEY]?.commands || [];
+      editor.storage[COMMANDS_STORAGE_KEY]?.commands ?? [];
 
     if (!query) {
       return commands.slice(0, 10);
@@ -77,7 +85,7 @@ export const CommandSuggestion = {
     }
 
     return {
-      onStart: (props: SuggestionProps) => {
+      onStart: (props: TCommandSuggestionProps) => {
         const filteredItems = CommandSuggestion.items({
           editor: props.editor,
           query: props.query
@@ -100,8 +108,7 @@ export const CommandSuggestion = {
               component = null;
             }
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          editor: props.editor as any
+          editor: props.editor
         });
 
         document.body.appendChild(component.element);
@@ -110,7 +117,7 @@ export const CommandSuggestion = {
           reposition(rect);
         }
       },
-      onUpdate(props: SuggestionProps) {
+      onUpdate(props: TCommandSuggestionProps) {
         const filteredItems = CommandSuggestion.items({
           editor: props.editor,
           query: props.query
@@ -138,7 +145,7 @@ export const CommandSuggestion = {
           reposition(rect);
         }
       },
-      onKeyDown(props: { event: KeyboardEvent }) {
+      onKeyDown(props: SuggestionKeyDownProps) {
         const commandListRef = component?.ref as CommandListRef | undefined;
         if (commandListRef?.onKeyDown) {
           return commandListRef.onKeyDown(props.event);

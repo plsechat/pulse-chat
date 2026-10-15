@@ -1,22 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
+import { provision } from '../../__tests__/fixtures';
 import { getTestDb } from '../../__tests__/mock-db';
-import { testsBaseUrl } from '../../__tests__/setup';
 import { users } from '../../db/schema';
 import { mintSessionToken, oidcSupabaseId } from '../../utils/oidc';
 
 const AUTH_SECRET = 'test-oidc-secret-at-least-32-chars-long!!';
-
-const provision = (token: string) =>
-  fetch(`${testsBaseUrl}/auth/provision`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({})
-  });
 
 describe('/auth/provision — OIDC session tokens', () => {
   let prevSecret: string | undefined;

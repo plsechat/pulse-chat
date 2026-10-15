@@ -363,47 +363,6 @@ const rotateSignedPreKeyRoute = protectedProcedure
     });
   });
 
-const distributeSenderKeyRoute = protectedProcedure
-  .input(
-    z.object({
-      channelId: z.number(),
-      // Phase B: bumps on every chain rotation. Defaults to 1 so any
-      // pre-Phase-B clients still in the wild keep working until they
-      // upgrade — and there's no clean way to make this `required`
-      // without breaking the wire-compat split with their bundles.
-      senderKeyId: z.number().int().min(1).default(1),
-      toUserId: z.number(),
-      distributionMessage: z.string()
-    })
-  )
-  .mutation(async ({ ctx, input }) => {
-    // Verify the caller has access to this channel
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-    // Previewers hold VIEW_CHANNEL but must not write sender-key rows
-    await refuseInPreview(ctx, input.channelId);
-
-    await db.insert(e2eeSenderKeys).values({
-      channelId: input.channelId,
-      senderKeyId: input.senderKeyId,
-      fromUserId: ctx.userId,
-      toUserId: input.toUserId,
-      distributionMessage: input.distributionMessage,
-      createdAt: Date.now()
-    });
-
-    pubsub.publishFor(
-      input.toUserId,
-      ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION,
-      {
-        channelId: input.channelId,
-        fromUserId: ctx.userId
-      }
-    );
-  });
-
 // Phase E / E1b — distribution targets accept either the legacy
 // numeric `toUserId` shape or the new (toPublicId, toInstanceDomain)
 // shape. PublicId-keyed targets let federated members on other
@@ -550,11 +509,9 @@ const distributeSenderKeysBatchRoute = protectedProcedure
     // distributionMessage, where the update is a no-op.
     //
     // DO UPDATE (not DO NOTHING) so a DIFFERING distribution at the same
-    // tuple overwrites rather than being silently dropped: two devices on
-    // one account each build an outbound chain starting at senderKeyId=1,
-    // and DO NOTHING would strand whichever lost the race with the
-    // receiver marking distribution "succeeded". Last-writer-wins is
-    // deterministic; true per-device addressing is the Tier-2 fix.
+    // tuple overwrites rather than being silently dropped — a re-sent
+    // distribution after a client-side chain rebuild must win, not be
+    // stranded behind the stale row. Last-writer-wins is deterministic.
     await db
       .insert(e2eeSenderKeys)
       .values(insertRows)
@@ -777,7 +734,6 @@ export const e2eeRouter = t.router({
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,
   listMyE2eeChannelIds: listMyE2eeChannelIdsRoute,
-  distributeSenderKey: distributeSenderKeyRoute,
   distributeSenderKeysBatch: distributeSenderKeysBatchRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
   acknowledgeSenderKeys: acknowledgeSenderKeysRoute,

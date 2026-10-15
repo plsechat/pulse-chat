@@ -5,6 +5,7 @@ import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import type { TCommandInfo } from '@pulse/shared';
+import type { AnyExtension } from '@tiptap/core';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import Placeholder from '@tiptap/extension-placeholder';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -124,7 +125,7 @@ const TiptapInput = memo(
     }, [isDm, channels]);
 
     const extensions = useMemo(() => {
-      const exts = [
+      const exts: AnyExtension[] = [
         StarterKit.configure({
           // Use our customized Bold (`**` only) and Underline (`__`) so the
           // markdown shortcuts in the formatting hint bar match what the
@@ -158,8 +159,7 @@ const TiptapInput = memo(
           isDm,
           ownUserId: ownUserId ?? 0,
           suggestion: MentionSuggestion
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }) as any
+        })
       ];
 
       if (!isDm) {
@@ -167,8 +167,7 @@ const TiptapInput = memo(
           ChannelMentionExtension.configure({
             channels: mentionChannels,
             suggestion: ChannelMentionSuggestion
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          }) as any
+          })
         );
       }
 
@@ -177,8 +176,7 @@ const TiptapInput = memo(
           SlashCommands.configure({
             commands,
             suggestion: CommandSuggestion
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          }) as any
+          })
         );
       }
 
@@ -376,10 +374,9 @@ const TiptapInput = memo(
     // keep commands storage in sync with plugin commands from the store
     useEffect(() => {
       if (editor && commands) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = editor.storage as any;
-        if (storage[COMMANDS_STORAGE_KEY]) {
-          storage[COMMANDS_STORAGE_KEY].commands = commands;
+        const storage = editor.storage[COMMANDS_STORAGE_KEY];
+        if (storage) {
+          storage.commands = commands;
         }
       }
     }, [editor, commands]);
@@ -387,13 +384,12 @@ const TiptapInput = memo(
     // keep mention storage in sync with users and roles from the store
     useEffect(() => {
       if (editor) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = editor.storage as any;
-        if (storage[MENTION_STORAGE_KEY]) {
-          storage[MENTION_STORAGE_KEY].users = mentionUsers;
-          storage[MENTION_STORAGE_KEY].roles = mentionRoles;
-          storage[MENTION_STORAGE_KEY].isDm = isDm;
-          storage[MENTION_STORAGE_KEY].ownUserId = ownUserId ?? 0;
+        const storage = editor.storage[MENTION_STORAGE_KEY];
+        if (storage) {
+          storage.users = mentionUsers;
+          storage.roles = mentionRoles;
+          storage.isDm = isDm;
+          storage.ownUserId = ownUserId ?? 0;
         }
       }
     }, [editor, mentionUsers, mentionRoles, isDm, ownUserId]);
@@ -401,10 +397,9 @@ const TiptapInput = memo(
     // keep channel mention storage in sync with channels from the store
     useEffect(() => {
       if (editor && !isDm) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = editor.storage as any;
-        if (storage[CHANNEL_MENTION_STORAGE_KEY]) {
-          storage[CHANNEL_MENTION_STORAGE_KEY].channels = mentionChannels;
+        const storage = editor.storage[CHANNEL_MENTION_STORAGE_KEY];
+        if (storage) {
+          storage.channels = mentionChannels;
         }
       }
     }, [editor, mentionChannels, isDm]);

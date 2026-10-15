@@ -12,16 +12,6 @@ async function getFederationInstanceById(id: number) {
   return instance;
 }
 
-async function getFederationInstanceByDomain(domain: string) {
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(eq(federationInstances.domain, domain))
-    .limit(1);
-
-  return instance;
-}
-
 async function getActiveFederationInstanceByDomain(domain: string) {
   const [instance] = await db
     .select()
@@ -55,7 +45,6 @@ async function listActiveFederationInstances() {
 
 export {
   getActiveFederationInstanceByDomain,
-  getFederationInstanceByDomain,
   getFederationInstanceById,
   listActiveFederationInstances,
   listFederationInstances

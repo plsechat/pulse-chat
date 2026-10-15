@@ -21,7 +21,7 @@ import { AlertTriangle } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import type { TDialogBaseProps } from '../types';
 
-type TIdentityChangedDialogProps = TDialogBaseProps & {
+export type TIdentityChangedDialogProps = TDialogBaseProps & {
   userId: number;
   newIdentityKey: string;
   previousIdentityKey?: string;

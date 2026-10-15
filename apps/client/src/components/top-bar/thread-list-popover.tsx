@@ -59,14 +59,17 @@ const ThreadListPopover = memo(
       fetchThreads();
     }, [fetchThreads]);
 
-    // Refetch when channels change (threads are channels)
+    // Refetch when channels change (threads are channels). fetchThreads
+    // is read through a ref so only a channels change triggers this —
+    // a new callback identity is already covered by the effect above.
+    const fetchThreadsRef = useRef(fetchThreads);
+    fetchThreadsRef.current = fetchThreads;
     useEffect(() => {
       if (!mounted.current) {
         mounted.current = true;
         return;
       }
-      fetchThreads();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      fetchThreadsRef.current();
     }, [channels]);
 
     // Refetch on custom threads-changed event (from thread subscriptions)

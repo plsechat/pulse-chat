@@ -27,8 +27,6 @@ export const currentVoiceServerIdSelector = (state: IRootState) =>
 export const currentVoiceServerPublicIdSelector = (state: IRootState) =>
   state.server.currentVoiceServerPublicId;
 
-export const channelPermissionsSelector = (state: IRootState) =>
-  state.server.channelPermissions;
 
 export const channelsReadStatesSelector = (state: IRootState) =>
   state.server.readStatesMap;

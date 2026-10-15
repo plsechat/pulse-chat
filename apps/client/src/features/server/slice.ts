@@ -5,7 +5,6 @@ import type {
   TCategory,
   TChannel,
   TChannelUserPermissionsMap,
-  TCommandInfo,
   TCommandsMapByPlugin,
   TExternalStream,
   TExternalStreamsMap,
@@ -45,7 +44,6 @@ import type {
  */
 export interface IServerState {
   connected: boolean;
-  connecting: boolean;
   reconnecting: boolean;
   reconnectAttempt: number;
   disconnectInfo?: TDisconnectInfo;
@@ -111,7 +109,6 @@ export interface IServerState {
 
 const initialState: IServerState = {
   connected: false,
-  connecting: false,
   reconnecting: false,
   reconnectAttempt: 0,
   disconnectInfo: undefined,
@@ -170,10 +167,6 @@ export const serverSlice = createSlice({
     },
     setConnected: (state, action: PayloadAction<boolean>) => {
       state.connected = action.payload;
-      state.connecting = false;
-    },
-    setConnecting: (state, action: PayloadAction<boolean>) => {
-      state.connecting = action.payload;
     },
     setReconnecting: (state, action: PayloadAction<boolean>) => {
       state.reconnecting = action.payload;
@@ -184,9 +177,7 @@ export const serverSlice = createSlice({
     setReconnectAttempt: (state, action: PayloadAction<number>) => {
       state.reconnectAttempt = action.payload;
     },
-    setServerId: (state, action: PayloadAction<string | undefined>) => {
-      state.serverId = action.payload;
-    },
+
     setInfo: (state, action: PayloadAction<TServerInfo | undefined>) => {
       state.info = action.payload;
     },
@@ -217,7 +208,6 @@ export const serverSlice = createSlice({
       }>
     ) => {
       state.connected = true;
-      state.connecting = false;
       state.categories = action.payload.categories;
       state.channels = action.payload.channels;
       state.roles = action.payload.roles;
@@ -434,9 +424,7 @@ export const serverSlice = createSlice({
 
     // ROLES ------------------------------------------------------------
 
-    setRoles: (state, action: PayloadAction<TJoinedRole[]>) => {
-      state.roles = action.payload;
-    },
+
     updateRole: (
       state,
       action: PayloadAction<{
@@ -468,9 +456,7 @@ export const serverSlice = createSlice({
 
     // CHANNELS ------------------------------------------------------------
 
-    setChannels: (state, action: PayloadAction<TChannel[]>) => {
-      state.channels = action.payload;
-    },
+
     updateChannel: (
       state,
       action: PayloadAction<{ channelId: number; channel: Partial<TChannel> }>
@@ -612,9 +598,7 @@ export const serverSlice = createSlice({
 
     // CATEGORIES ------------------------------------------------------------
 
-    setCategories: (state, action: PayloadAction<TCategory[]>) => {
-      state.categories = action.payload;
-    },
+
     addCategory: (state, action: PayloadAction<TCategory>) => {
       const exists = state.categories.find((c) => c.id === action.payload.id);
 
@@ -799,33 +783,7 @@ export const serverSlice = createSlice({
     setPluginCommands: (state, action: PayloadAction<TCommandsMapByPlugin>) => {
       state.pluginCommands = action.payload;
     },
-    addPluginCommand: (state, action: PayloadAction<TCommandInfo>) => {
-      const { pluginId } = action.payload;
 
-      if (!state.pluginCommands[pluginId]) {
-        state.pluginCommands[pluginId] = [];
-      }
-
-      const exists = state.pluginCommands[pluginId].find(
-        (c) => c.name === action.payload.name
-      );
-
-      if (exists) return;
-
-      state.pluginCommands[pluginId].push(action.payload);
-    },
-    removePluginCommand: (
-      state,
-      action: PayloadAction<{ commandName: string }>
-    ) => {
-      const { commandName } = action.payload;
-
-      for (const pluginId in state.pluginCommands) {
-        state.pluginCommands[pluginId] = state.pluginCommands[pluginId].filter(
-          (c) => c.name !== commandName
-        );
-      }
-    },
 
     // THREADS ------------------------------------------------------------
 

@@ -20,6 +20,10 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Read pinned bun version
+        id: bun
+        run: echo "version=$(jq -r '.packageManager | sub("^bun@"; "")' package.json)" >> "$GITHUB_OUTPUT"
+
       # Build the harness image once with layer caching — bun install +
       # vite build dominate; warm cache turns ~5 min into ~1 min.
       - name: Build pulse-e2e image
@@ -28,6 +32,8 @@ jobs:
           context: .
           file: e2e/docker/Dockerfile
           tags: pulse-e2e:latest
+          build-args: |
+            BUN_VERSION=${{ steps.bun.outputs.version }}
           load: true
           cache-from: type=gha,scope=e2e
           cache-to: type=gha,scope=e2e,mode=max

@@ -57,7 +57,6 @@ const authBackend = await pickBackend();
 // the logger here creates a TDZ from the import cycle:
 // logger → log-redact → config → file-manager → ... → auth.
 // One-shot boot line; standard out is fine.
-// eslint-disable-next-line no-console
 console.log(`[auth] backend=${authBackend.kind}`);
 
 export { authBackend };

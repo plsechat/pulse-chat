@@ -25,7 +25,7 @@ function extractInviteCode(input: string): string {
   return match ? match[1] : trimmed;
 }
 
-type TCreateServerDialogProps = TDialogBaseProps;
+export type TCreateServerDialogProps = TDialogBaseProps;
 
 const CreateServerDialog = memo(
   ({ isOpen, close }: TCreateServerDialogProps) => {

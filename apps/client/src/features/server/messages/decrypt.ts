@@ -1,6 +1,7 @@
 import {
   decryptChannelMessage,
-  fetchAndProcessPendingSenderKeys
+  fetchAndProcessPendingSenderKeys,
+  loadPersistedChannelPlaintexts
 } from '@/lib/e2ee';
 import {
   patchFilesWithE2eeMetadata,
@@ -22,7 +23,8 @@ import type { TJoinedMessage } from '@pulse/shared';
  */
 async function maybeDecryptReplyTo(
   replyTo: NonNullable<TJoinedMessage['replyTo']> | null | undefined,
-  channelId: number
+  channelId: number,
+  persisted: ReadonlyMap<number, string>
 ): Promise<NonNullable<TJoinedMessage['replyTo']> | null | undefined> {
   if (!replyTo || !replyTo.e2ee || !replyTo.content) return replyTo;
   try {
@@ -30,7 +32,8 @@ async function maybeDecryptReplyTo(
       channelId,
       replyTo.userId,
       replyTo.content,
-      replyTo.id
+      replyTo.id,
+      persisted
     );
     return { ...replyTo, content: payload.content };
   } catch {
@@ -47,15 +50,29 @@ export async function decryptChannelMessages(
   const e2eeChannelIds = new Set(
     messages.filter((m) => m.e2ee && m.content).map((m) => m.channelId)
   );
-  await Promise.all(
-    [...e2eeChannelIds].map((channelId) =>
+  // One IDB read for every encrypted id in the batch (messages + their
+  // encrypted replyTo targets) instead of one per decryptChannelMessage
+  // call; a page that was already decrypted once never touches the
+  // chain again.
+  const persistedIds = new Set<number>();
+  for (const m of messages) {
+    if (m.e2ee && m.content) persistedIds.add(m.id);
+    if (m.replyTo?.e2ee && m.replyTo.content) persistedIds.add(m.replyTo.id);
+  }
+  const [persisted] = await Promise.all([
+    loadPersistedChannelPlaintexts([...persistedIds]),
+    ...[...e2eeChannelIds].map((channelId) =>
       fetchAndProcessPendingSenderKeys(channelId)
     )
-  );
+  ]);
 
   return Promise.all(
     messages.map(async (msg) => {
-      const replyTo = await maybeDecryptReplyTo(msg.replyTo, msg.channelId);
+      const replyTo = await maybeDecryptReplyTo(
+        msg.replyTo,
+        msg.channelId,
+        persisted
+      );
 
       if (!msg.e2ee || !msg.content) {
         return replyTo === msg.replyTo ? msg : { ...msg, replyTo };
@@ -66,7 +83,8 @@ export async function decryptChannelMessages(
           msg.channelId,
           msg.userId,
           msg.content,
-          msg.id
+          msg.id,
+          persisted
         );
         setFileKeys(msg.id, payload.fileKeys);
         const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);

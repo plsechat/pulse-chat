@@ -7,8 +7,11 @@ const useForm = <T extends Record<string, unknown>>(initialValues: T) => {
 
   const registerInput = useCallback(
     (key: keyof T, type?: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const onChange = (e: React.ChangeEvent<any>) => {
+      const onChange = (
+        e: React.ChangeEvent<
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        >
+      ) => {
         const newValue = e.target.value;
         const value = type === 'number' ? +newValue : newValue;
 

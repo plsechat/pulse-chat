@@ -15,15 +15,10 @@ type TConfig = {
   server: {
     port: number;
     debug: boolean;
-    autoupdate: boolean;
     debugLogMaxSizeMb: number;
     debugLogMaxFiles: number;
     debugLogIncludeBody: boolean;
     redactExtra: string[];
-  };
-  http: {
-    maxFiles: number;
-    maxFileSize: number;
   };
   mediasoup: {
     worker: {
@@ -54,15 +49,10 @@ let config: TConfig = {
   server: {
     port: 5443,
     debug: IS_DEVELOPMENT ? true : false,
-    autoupdate: false,
     debugLogMaxSizeMb: 200,
     debugLogMaxFiles: 10,
     debugLogIncludeBody: true,
     redactExtra: []
-  },
-  http: {
-    maxFiles: 40,
-    maxFileSize: 100 // 100 MB
   },
   mediasoup: {
     worker: {
@@ -86,7 +76,9 @@ let config: TConfig = {
   }
 };
 
-// TODO: get rid of this double write here, but it's fine for now
+// Runs at module-evaluation time, before the config.ini write below. ESM
+// evaluates every import before the body of index.ts runs, so this (not index.ts)
+// is what guarantees the data directories exist on a fresh install.
 await ensureServerDirs();
 
 if (!(await fileExists(CONFIG_INI_PATH))) {
@@ -103,7 +95,6 @@ const parsed = parse(text) as Record<string, unknown>;
 // are always present even on existing installs.
 config = {
   server: { ...config.server, ...(parsed.server as object) },
-  http: { ...config.http, ...(parsed.http as object) },
   mediasoup: {
     worker: {
       ...config.mediasoup.worker,
@@ -124,9 +115,6 @@ config = {
 // Coerce INI string values back to proper types
 config.server.port = Number(config.server.port);
 config.server.debug = String(config.server.debug) === 'true';
-config.server.autoupdate = String(config.server.autoupdate) === 'true';
-config.http.maxFiles = Number(config.http.maxFiles);
-config.http.maxFileSize = Number(config.http.maxFileSize);
 config.mediasoup.worker.rtcMinPort = Number(config.mediasoup.worker.rtcMinPort);
 config.mediasoup.worker.rtcMaxPort = Number(config.mediasoup.worker.rtcMaxPort);
 config.mediasoup.audio.maxBitrate = Number(config.mediasoup.audio.maxBitrate);

@@ -162,7 +162,7 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   reports: ServerReports
 };
 
-type TServerSettingsProps = TServerScreenBaseProps;
+export type TServerSettingsProps = TServerScreenBaseProps;
 
 const ServerSettings = memo(({ close }: TServerSettingsProps) => {
   const can = useCan();

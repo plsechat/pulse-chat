@@ -61,9 +61,10 @@ const loadDb = async () => {
     // it defeated the exact bookkeeping that makes migrations run once,
     // and made one-shot data migrations (backfills, NOT NULL enforcement)
     // silently re-execute forever. Migrations now run once, in order.
-    // Idempotency (docker/patch-migrations.ts) is retained only as a
-    // safety net for the rare case of an existing DB with an emptied
-    // tracking table — not as the primary mechanism.
+    // Migrations are still hand-written idempotent (IF NOT EXISTS /
+    // exception guards) and CI applies every one twice
+    // (scripts/check-migrations-idempotent.ts) — a safety net for a DB
+    // whose tracking table was emptied, not the primary mechanism.
     await migrate(db, { migrationsFolder: DRIZZLE_PATH });
     await seedDatabase();
   } finally {

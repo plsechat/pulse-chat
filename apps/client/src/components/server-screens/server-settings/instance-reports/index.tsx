@@ -5,7 +5,8 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ReportCard, targetLabel, type TReportRowBase } from '../report-card';
+import { ReportCard, type TReportRowBase } from '../report-card';
+import { targetLabel } from '../report-utils';
 
 type TReportStatus = 'open' | 'resolved' | 'dismissed';
 type TAudience = 'instance' | 'server';

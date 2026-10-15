@@ -1,13 +1,12 @@
 import { ChannelPermission, ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { randomUUIDv7 } from 'bun';
 import { db } from '../../db';
 import {
-  channels,
   federationInstances,
   serverMembers,
   users
 } from '../../db/schema';
+import { createEmptyTextChannel } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getChannelsReadStatesForUser } from '../../db/queries/channels';
 import { generateFileToken, verifyFileToken } from '../../helpers/files-crypto';
@@ -16,25 +15,6 @@ import { generateFileToken, verifyFileToken } from '../../helpers/files-crypto';
 // carries a seed message, and channel 2 is the seeded VOICE channel, which
 // no longer accepts messages. Called inside each test (not beforeEach) so
 // it doesn't compete with the global per-test TRUNCATE.
-const createEmptyTextChannel = async (name: string) => {
-  const [channel] = await db
-    .insert(channels)
-    .values({
-      type: ChannelType.TEXT,
-      name,
-      position: 50,
-      fileAccessToken: randomUUIDv7(),
-      fileAccessTokenUpdatedAt: Date.now(),
-      publicId: randomUUIDv7(),
-      categoryId: 1,
-      serverId: 1,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  return channel!;
-};
-
 describe('channels router', () => {
   test('should throw when user lacks permissions (add)', async () => {
     const { caller } = await initTest(2);

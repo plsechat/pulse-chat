@@ -1,8 +1,4 @@
-import type { TArtifact } from '@pulse/shared';
-import {
-  validateReleaseMetadata,
-  type TReleaseMetadata
-} from 'bun-sfe-autoupdater';
+import type { TArtifact, TVersionInfo } from '@pulse/shared';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -14,6 +10,12 @@ const rootPckJson = path.join(rootCwd, 'package.json');
 const serverPckJson = path.join(rootCwd, 'apps', 'server', 'package.json');
 const clientPckJson = path.join(rootCwd, 'apps', 'client', 'package.json');
 const sharedPckJson = path.join(rootCwd, 'packages', 'shared', 'package.json');
+const pluginSdkPckJson = path.join(
+  rootCwd,
+  'packages',
+  'plugin-sdk',
+  'package.json'
+);
 
 const unpack = async (tgzPath: string, outDir: string) => {
   const tarProc = Bun.spawn(['tar', '-xzf', tgzPath, '-C', outDir], {
@@ -113,7 +115,8 @@ const patchPackageJsons = async (newVersion: string) => {
     rootPckJson,
     serverPckJson,
     clientPckJson,
-    sharedPckJson
+    sharedPckJson,
+    pluginSdkPckJson
   ];
 
   for (const pckPath of packageJsonPaths) {
@@ -176,7 +179,7 @@ const getFileChecksum = async (filePath: string) => {
 const getVersionInfo = async (
   targets: TTarget[],
   outPath: string
-): Promise<TReleaseMetadata> => {
+): Promise<TVersionInfo> => {
   const version = await getCurrentVersion();
 
   const artifacts: TArtifact[] = [];
@@ -192,13 +195,11 @@ const getVersionInfo = async (
     });
   }
 
-  const versionInfo = validateReleaseMetadata({
+  return {
     version,
     releaseDate: new Date().toISOString(),
     artifacts
-  });
-
-  return versionInfo;
+  };
 };
 
 const rmIfExists = async (filePath: string) => {

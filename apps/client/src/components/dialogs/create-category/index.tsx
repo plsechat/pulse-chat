@@ -15,7 +15,7 @@ import { getTRPCClient } from '@/lib/trpc';
 import { memo, useCallback, useState } from 'react';
 import type { TDialogBaseProps } from '../types';
 
-type TCreateCategoryDialogProps = TDialogBaseProps;
+export type TCreateCategoryDialogProps = TDialogBaseProps;
 
 const CreateCategoryDialog = memo(
   ({ isOpen, close }: TCreateCategoryDialogProps) => {

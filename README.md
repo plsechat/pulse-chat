@@ -9,7 +9,8 @@
   <br />
   <a href="https://plse.chat"><strong>plse.chat</strong></a> &middot;
   <a href="README-SELFHOSTED-SUPABASE.md">Self-Hosting Guide</a> &middot;
-  <a href="https://github.com/plsechat/pulse-chat/releases">Releases</a>
+  <a href="https://github.com/plsechat/pulse-chat/releases">Releases</a> &middot;
+  <a href="https://github.com/plsechat/pulse-desktop">Desktop app</a>
 </p>
 
 <p align="center">
@@ -29,13 +30,13 @@
 
 ## Why Pulse?
 
-Pulse is a self-hosted alternative to Discord and Slack that puts you in control. Every message can be end-to-end encrypted, voice and video stay on your infrastructure, and federation lets separate instances talk to each other — no central service required.
+Pulse is a self-hosted alternative to Discord and Slack that puts you in control. Messages and attachments can be end-to-end encrypted (opt-in per channel or DM — see [what the server can still see](docs/e2ee-sender-keys.md#what-the-server-can-still-see)), voice and video stay on your infrastructure, and federation lets separate instances talk to each other — no central service required.
 
 ## What's included
 
 | | |
 |---|---|
-| **Encrypted messaging** | Signal Protocol (X3DH + Double Ratchet) for DMs and channels, with TOFU identity pinning and safety-number verification |
+| **Encrypted messaging** | Opt-in end-to-end encryption for DMs and channels (X3DH pairwise sessions + sender keys), with TOFU identity pinning and safety-number verification. One device per identity; metadata such as reactions, timestamps and file sizes stays visible to the server — see [docs/e2ee-sender-keys.md](docs/e2ee-sender-keys.md#what-the-server-can-still-see) |
 | **Voice & video** | WebRTC-powered calls with screen sharing via Mediasoup |
 | **Federation** | Link multiple Pulse instances so users can discover and join across servers |
 | **Forum channels** | Threaded discussions with tags for long-form topics |
@@ -105,10 +106,9 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 
 ### After first launch
 
-1. Open `http://localhost:5443`
-2. A **security token** prints to the server console on first run — save it
-3. Register and log in
-4. Claim ownership: open the browser console and run `useToken('your_token_here')`
+1. Open `http://localhost:5443` and register.
+2. The **first account registered becomes the instance operator** — owner of the bootstrap server, with every permission. Later registrations are regular users. There is no token to claim and nothing prints to the console.
+3. To hand the instance to someone else later, use **Server Settings → Users → Transfer Ownership** (the `servers.transferOwner` procedure).
 
 ## Configuration
 
@@ -120,6 +120,7 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 | `AUTH_SECRET` | `AUTH_BACKEND=local` | ≥32 random chars; HS256 signing key for session tokens. **Rotating invalidates every session.** |
 | `DATABASE_URL` | always | Full Postgres connection string |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | `AUTH_BACKEND=supabase` | Managed or self-hosted Supabase Auth |
+| `SUPABASE_PUBLIC_URL` | `AUTH_BACKEND=supabase` when `SUPABASE_URL` is an internal hostname | Browser-facing Supabase URL handed to the client via `/info`. Falls back to `SUPABASE_URL`; the bundled compose sets it from `SITE_URL`. |
 | `PUBLIC_IP` | production behind NAT | Public IP for WebRTC ICE candidates |
 | `REGISTRATION_DISABLED` | optional | Lock down registration instance-wide (all methods; invites still work) |
 | `REGISTRATION_PASSWORD_ENABLED` / `REGISTRATION_OIDC_ENABLED` / `REGISTRATION_SOCIAL_ENABLED` | optional | Per-method signup switches (default `true`). Set to `false` to disable that method's self-registration; a valid invite still bypasses it. For OIDC-only signups, set the password + social ones to `false`. |
@@ -131,8 +132,13 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 | `GOOGLE_OAUTH_ENABLED` / `DISCORD_OAUTH_ENABLED` / `FACEBOOK_OAUTH_ENABLED` / `TWITCH_OAUTH_ENABLED` | `AUTH_BACKEND=supabase` | Toggle each Supabase-mediated social provider |
 | `GIPHY_API_KEY` | optional | Enables GIF search in the composer |
 | `TRUST_PROXY` | behind a reverse proxy | Trust `X-Forwarded-*` headers for client IP / protocol |
-| `DEBUG_LOGGING` | optional | Write JSON debug events to `log/debug.log` |
+| `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_MS` | optional | Per-IP budget for the auth endpoints — default 10 requests per 15 minutes (`900000` ms). Raise `AUTH_RATE_LIMIT_MAX` behind a shared NAT. |
+| `DEBUG_LOGGING` | optional | Write JSON debug events to `logs/debug.log` under the data directory (`DEBUG=true` / `DEBUG=1` is accepted as a backward-compatible alias) |
 | `DEBUG_LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_FILES` | optional | Rotation limits for `debug.log` (used with `DEBUG_LOGGING`) |
+| `DEBUG_LOG_INCLUDE_BODY` | optional | Set `false` to strip request bodies from debug events (default `true`) |
+| `REDACT_EXTRA` | optional | Comma-separated extra keys to redact in logs, on top of the built-in secret/token denylist |
+
+The debug/redaction variables override the matching `config.ini` keys below; env always wins over the INI file.
 
 Full, commented templates — copy the one that matches your setup to `.env`:
 
@@ -142,23 +148,36 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 
 ### config.ini
 
-A config file is generated at `~/.config/pulse/config.ini` on first run.
+`config.ini` is generated on first run in the Pulse data directory, which also holds uploads, logs and plugins:
+
+- Linux: `$XDG_CONFIG_HOME/pulse` (default `~/.config/pulse`) — the Docker image mounts this as `/root/.config/pulse`
+- macOS: `~/Library/Application Support/pulse`
+- Windows: `%APPDATA%\pulse`
+- running from source (`bun run dev`): `apps/server/data/`
 
 | Section | Key | Default | What it does |
 |---|---|---|---|
 | server | `port` | `5443` | HTTP / WebSocket port |
-| server | `debug` | `false` | Verbose logging |
-| server | `autoupdate` | `false` | Auto-check for updates |
-| http | `maxFiles` | `40` | Max files per upload |
-| http | `maxFileSize` | `100` | Max file size (MB) |
+| server | `debug` | `false` | Debug logging (`DEBUG_LOGGING=true` overrides) |
+| server | `debugLogMaxSizeMb` | `200` | Rotate `debug.log` at this size in MB (`DEBUG_LOG_MAX_SIZE_MB` overrides) |
+| server | `debugLogMaxFiles` | `10` | Rotated debug-log files to keep (`DEBUG_LOG_MAX_FILES` overrides) |
+| server | `debugLogIncludeBody` | `true` | Include request bodies in debug events (`DEBUG_LOG_INCLUDE_BODY=false` overrides) |
+| server | `redactExtra` | — | Extra keys to redact in logs; INI list syntax `redactExtra[]=key` (`REDACT_EXTRA` overrides) |
 | mediasoup | `worker.rtcMinPort` | `40000` | WebRTC port range start |
 | mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC port range end |
-| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Bandwidth per stream (bps) |
+| mediasoup | `audio.maxBitrate` | `510000` | Opus max bitrate (bps) |
+| mediasoup | `audio.stereo` | `true` | Opus stereo |
+| mediasoup | `audio.fec` | `true` | Opus in-band forward error correction |
+| mediasoup | `audio.dtx` | `true` | Opus discontinuous transmission (silence suppression) |
+| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Initial estimated outgoing bandwidth per transport (bps) |
 | federation | `enabled` | `false` | Turn on federation |
 | federation | `domain` | — | Your public domain (required for federation) |
+| federation | `allowUserFederatableServers` | `false` | `true` lets any server owner mark their server federatable; otherwise only the instance owner can |
+
+Upload limits (max file size, per-user quota, overflow action) are server settings edited in the admin UI, not `config.ini` keys.
 
 > [!IMPORTANT]
-> The port range `rtcMinPort`–`rtcMaxPort` controls how many concurrent voice/video connections are possible. Each connection uses one UDP port. Open these ports (TCP + UDP) in your firewall, and map the range in Docker if applicable.
+> **Voice ports.** Every voice participant gets two WebRTC transports (send + receive), and each transport binds one UDP port **and** one TCP port from `rtcMinPort`–`rtcMaxPort`. The range is shared by every voice channel and DM call on the instance, so the default 21-port range caps the instance at roughly 10 concurrent voice participants in total; widen the range (plus the Docker mapping and firewall rules) for more. Open the range for both UDP and TCP — UDP is preferred, TCP is the fallback. Pulse runs no STUN/TURN relay: clients must reach `PUBLIC_IP` on those ports directly. See [docs/voice.md](docs/voice.md#networking) for details.
 
 ## Single Sign-On (OIDC)
 
@@ -194,6 +213,8 @@ Subsystem deep-dives for contributors live in [docs/](docs/):
 [federation wire protocol](docs/federation.md) ·
 [E2EE sender keys](docs/e2ee-sender-keys.md) ·
 [voice lifecycle](docs/voice.md)
+
+Release notes live at the repository root as `RELEASE-NOTES-v<version>.md` (latest: [v0.3.0](RELEASE-NOTES-v0.3.0.md)). Contributor setup, the test loop and the pre-push gate are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Built with
 

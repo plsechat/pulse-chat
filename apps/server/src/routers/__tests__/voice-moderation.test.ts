@@ -1,14 +1,12 @@
-import {
-  ChannelType,
-  STORAGE_MAX_FILE_SIZE,
-  STORAGE_MIN_QUOTA_PER_USER,
-  STORAGE_OVERFLOW_ACTION,
-  STORAGE_QUOTA
-} from '@pulse/shared';
-import { randomUUIDv7 } from 'bun';
+
+
 import { describe, expect, test } from 'bun:test';
-import { db } from '../../db';
-import { channels, serverMembers, servers, users } from '../../db/schema';
+import {
+  insertMemberUser,
+  insertOtherServer,
+  insertVoiceChannel,
+  stageUserInVoice
+} from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { VoiceRuntime } from '../../runtimes/voice';
 
@@ -17,70 +15,6 @@ import { VoiceRuntime } from '../../runtimes/voice';
 // needed — router creation only happens on real joins). Each test
 // destroys the runtimes it creates: the module-level runtime map is NOT
 // reset by the between-test TRUNCATE.
-
-const insertVoiceChannel = async (serverId = 1) => {
-  const [channel] = await db
-    .insert(channels)
-    .values({
-      type: ChannelType.VOICE,
-      name: `voice-mod-${randomUUIDv7()}`,
-      fileAccessToken: randomUUIDv7(),
-      fileAccessTokenUpdatedAt: Date.now(),
-      position: 999,
-      serverId,
-      publicId: randomUUIDv7(),
-      createdAt: Date.now()
-    })
-    .returning();
-  return channel!;
-};
-
-const insertMemberUser = async () => {
-  const suffix = randomUUIDv7();
-  const [user] = await db
-    .insert(users)
-    .values({
-      supabaseId: `voice-mod-supa-${suffix}`,
-      name: `VoiceModUser-${suffix.slice(0, 8)}`,
-      publicId: `voice-mod-pid-${suffix}`,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  await db.insert(serverMembers).values({
-    userId: user!.id,
-    serverId: 1,
-    nickname: null,
-    joinedAt: Date.now()
-  });
-
-  return user!;
-};
-
-const insertOtherServer = async () => {
-  const [server] = await db
-    .insert(servers)
-    .values({
-      name: 'Voice Mod Other Server',
-      publicId: randomUUIDv7(),
-      allowNewUsers: true,
-      storageUploadEnabled: true,
-      storageQuota: STORAGE_QUOTA,
-      storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
-      storageSpaceQuotaByUser: STORAGE_MIN_QUOTA_PER_USER,
-      storageOverflowAction: STORAGE_OVERFLOW_ACTION,
-      enablePlugins: false,
-      createdAt: Date.now()
-    })
-    .returning();
-  return server!;
-};
-
-const stageUserInVoice = (channelId: number, userId: number) => {
-  const runtime = new VoiceRuntime(channelId);
-  runtime.addUser(userId, { micMuted: false, soundMuted: false });
-  return runtime;
-};
 
 describe('voice.disconnectUser', () => {
   test('moderator disconnects a user from a voice channel of the active server', async () => {

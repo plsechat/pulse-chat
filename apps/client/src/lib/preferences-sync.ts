@@ -38,8 +38,8 @@ const flush = async () => {
     if (!trpc) return;
     await trpc.users.updatePreferences.mutate(update as Parameters<typeof trpc.users.updatePreferences.mutate>[0]);
   } catch {
-    // Silent failure — localStorage is the immediate cache,
-    // preferences will re-sync on next successful call
+    // The batched update is dropped: localStorage keeps the local value,
+    // but nothing re-queues this payload for the server.
   }
 };
 

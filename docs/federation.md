@@ -17,11 +17,20 @@ tokens, outbound dispatch), `apps/server/src/routers/federation/`
   `federation_keys`. Public keys are exchanged at peering time and
   pinned in `federation_instances` — later requests are verified
   against the pinned key, not re-fetched.
-- **Federation tokens are JWTs** signed with the instance key:
-  `iss` = advertised domain, verified against the pinned public key of
-  a known, non-blocked peer. Signed payloads use canonicalized JSON
-  (sorted keys) so signatures are stable; a JTI replay window
-  (~5 min TTL, 10 min retention) rejects replays.
+- **Two kinds of signed material**, both EdDSA under the instance key
+  and both verified against the pinned public key of a known,
+  non-blocked peer:
+  - *User federation tokens* (`generateFederationToken`) — JWTs with
+    `iss` = advertised domain, `aud` = target domain, `sub` / `name` /
+    `avatar` / `publicId` claims and a 24 h expiry. They carry **no
+    `jti`** and there is no replay window for them: within its
+    lifetime a captured token can be presented again. Treat it as a
+    bearer credential scoped to one audience.
+  - *Request signatures* (`signChallenge` / `verifyChallenge`) on the
+    server-to-server endpoints — canonicalized JSON (sorted keys) with
+    the body's `sha256`, `iss`, `aud`, a short expiry and a random
+    `jti`; the receiver rejects a `jti` it has already seen within a
+    10-minute retention window. Replay protection exists **only** here.
 - **publicId is the only cross-instance user identity.** Numeric row
   ids never travel as identity — both sides mint their own serials.
   A remote user materializes locally as a **shadow user** looked up
@@ -47,7 +56,7 @@ per-server permissions.
 | --- | --- |
 | Peering | `GET /federation/info`, `POST /federation/request`, `/federation/accept` |
 | Discovery | `GET /federation/servers*`, `POST /federation/shares-server` |
-| Users | `POST /federation/user-info`, `/federation/user-info-update`, `/federation/report-user` |
+| Users | `POST /federation/user-info`, `/federation/user-info-update`, `/federation/report-user` (receiver stub — see Moderation) |
 | Social | `POST /federation/friend-request`, `/friend-accept`, `/friend-remove` |
 | DMs | `POST /federation/dm-relay`, `/dm-group-create`, `/dm-group-add-member`, `/dm-group-remove-member`, `/dm-channel-state-update` |
 | E2EE | `POST /federation/get-prekey-bundle`, `/dm-sender-key`, `/channel-sender-key-notify`, `/identity-rotation-broadcast` |
@@ -60,8 +69,14 @@ handshake/join), and the remote side resolves it to the shadow user.
 ## Outbound discipline
 
 - All outbound calls go through `federationFetch`
-  (`utils/federation-fetch.ts`): hardened URL validation, per-peer
-  token-bucket rate limit, bounded responses.
+  (`utils/federation-fetch.ts`): URL re-validation at the fetch
+  boundary (DNS re-resolved, private ranges rejected),
+  `redirect: 'manual'` (any 3xx or opaque redirect throws), and a
+  per-peer token-bucket rate limit (60 burst, 1/s sustained).
+  Responses are **not** size- or time-bounded today: callers
+  `response.json()` the peer's body directly, so a hostile peer can
+  return an arbitrarily large body. Treat every peer response as
+  untrusted input when adding callers.
 - Dispatch helpers (`utils/federation-*-dispatch.ts`) fan out to peers.
   Fire-and-forget relays (`void relayFederatedSkdm(...)` etc.) MUST
   carry a `.catch` — an unguarded rejection inside their DB preamble is
@@ -73,6 +88,38 @@ Kick/ban of a federated member sends `POST /federation/member-removed`
 to the member's home instance, which removes the membership locally and
 notifies the user. Bans are recorded on the serving instance; the home
 instance is told only about removal.
+
+Only kick/ban propagate. **Roles are local to each instance**: a role
+granted to a shadow user on the serving instance is stored and enforced
+there only and is never sent to the user's home instance (nor the other
+way round). Expect a remote member's roles to differ per instance.
+
+`/federation/report-user` is a **receiver stub**: the handler verifies
+the peer signature and logs the report, and no code path on any
+instance sends one yet. Reports stay local to the instance they were
+filed on.
+
+## Version compatibility
+
+`GET /federation/info` includes the responding instance's `version`,
+but nothing reads it: there is no negotiated protocol version, no
+minimum-peer-version check and no capability flags. Compatibility is by
+convention — the signed-request format changed in v0.2.0 (`sha256` /
+`iss` / `aud` / `jti` claims) and a pre-v0.2 peer cannot federate with
+a v0.2+ one. Any future wire change needs the same release-note warning
+until a version signal lands.
+
+## Known gaps (current behaviour)
+
+- Outbound response bodies are unbounded (see Outbound discipline).
+- User federation tokens have no replay protection within their 24 h
+  lifetime.
+- DNS is re-resolved at the fetch boundary but not pinned for the TCP
+  connect — a short TOCTOU window remains (needs a custom dispatcher).
+- No outbox: a relay that fails while the peer is unreachable is logged
+  and dropped, not queued or retried.
+- `/federation/report-user` has a receiver but no sender.
+- No version negotiation between peers.
 
 ## Invariants
 

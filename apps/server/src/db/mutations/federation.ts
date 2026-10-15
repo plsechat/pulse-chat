@@ -229,19 +229,6 @@ async function deleteShadowUsersByInstance(instanceId: number): Promise<void> {
     );
 }
 
-async function getShadowUsersByInstance(
-  instanceId: number
-): Promise<TUser[]> {
-  return db
-    .select()
-    .from(users)
-    .where(
-      and(
-        eq(users.isFederated, true),
-        eq(users.federatedInstanceId, instanceId)
-      )
-    );
-}
 
 // Caps for federated media proxies (Phase 4 / F3). Federated peers
 // can serve arbitrarily large bytes; we don't blindly accept what
@@ -542,7 +529,6 @@ export {
   deleteShadowUsersByInstance,
   findOrCreateShadowUser,
   findOrCreateShadowUserByPublicId,
-  getShadowUsersByInstance,
   syncShadowUserAvatar,
   syncShadowUserProfile
 };

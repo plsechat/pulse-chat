@@ -9,82 +9,84 @@
  * "Invalid signature" whenever the two strings differed (custom port,
  * LAN hostname, proxy alias).
  *
- * federationFetch is mocked at the module level: /federation/info
- * returns a scripted TFederationInfo and /federation/request captures
- * the signed body for inspection.
+ * The real `validateFederationUrl` + `federationFetch` run; only the
+ * edges are stubbed, per test and restorably: DNS resolves every
+ * hostname to a public IP (so the SSRF guard accepts the fake peers)
+ * and `globalThis.fetch` scripts /federation/info and
+ * /federation/request. `mock.module` is deliberately NOT used — it is
+ * process-global and irreversible, and leaked stubs into every later
+ * file that imported either module.
  */
 
-import { describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test';
 import { decodeJwt } from 'jose';
-
-// Must be registered before the route module graph pulls in the real
-// implementation (bun rewires already-loaded importers too, but being
-// first keeps this independent of load order).
-type TFetchCall = { url: string; body?: unknown };
-const fetchCalls: TFetchCall[] = [];
-let scriptedInfo: Record<string, unknown> = {};
-let scriptedRequestStatus = 200;
-let scriptedRequestBody: Record<string, unknown> = { success: true };
-
-// The real validateFederationUrl resolves DNS (SSRF guard) — fake test
-// hostnames would fail there before ever reaching the mocked fetch. The
-// SSRF validator has its own coverage; here we test the orchestration.
-mock.module('../../utils/validate-url', () => ({
-  validateFederationUrl: async (urlString: string) => new URL(urlString),
-  getFederationProtocol: () => 'http',
-  isPrivateIp: () => false
-}));
-
-mock.module('../../utils/federation-fetch', () => ({
-  federationFetch: async (
-    url: string,
-    init?: { method?: string; body?: string }
-  ) => {
-    const call: TFetchCall = { url };
-    if (init?.body) call.body = JSON.parse(init.body);
-    fetchCalls.push(call);
-
-    if (url.includes('/federation/info')) {
-      return new Response(JSON.stringify(scriptedInfo), { status: 200 });
-    }
-    if (url.includes('/federation/request')) {
-      return new Response(JSON.stringify(scriptedRequestBody), {
-        status: scriptedRequestStatus
-      });
-    }
-    return new Response(JSON.stringify({}), { status: 404 });
-  }
-}));
-
-const { config } = await import('../../config');
-const { initTest } = await import('../../__tests__/helpers');
-const { generateFederationKeys } = await import('../../utils/federation');
+import { config } from '../../config';
+import {
+  mockDns,
+  spyOnFetch,
+  type FetchCall
+} from '../../__tests__/federation-fixtures';
+import { initTest } from '../../__tests__/helpers';
+import { generateFederationKeys } from '../../utils/federation';
+import { _resetFederationRateLimit } from '../../utils/federation-fetch';
 
 // Handlers short-circuit when federation is disabled; the mock-modules
-// default is disabled. Per-file process isolation keeps this local.
+// default is disabled. The config object is shared by every file in
+// the process, so put the flag back when this file is done.
+const previousFederationEnabled = config.federation.enabled;
 config.federation.enabled = true;
 config.federation.domain = 'test.local';
 
-const resetScript = () => {
-  fetchCalls.length = 0;
-  scriptedRequestStatus = 200;
-  scriptedRequestBody = { success: true };
+afterEach(() => {
+  mock.restore();
+});
+
+afterAll(() => {
+  config.federation.enabled = previousFederationEnabled;
+});
+
+type Script = {
+  info: Record<string, unknown>;
+  requestStatus?: number;
+  requestBody?: Record<string, unknown>;
+};
+
+/**
+ * Stub the network for one addInstance call: GET /federation/info on
+ * any host returns `info`; POST /federation/request returns the
+ * scripted status/body. Returns the recorded calls for inspection.
+ */
+const scriptRemote = (script: Script): { calls: FetchCall[] } => {
+  mockDns();
+  _resetFederationRateLimit();
+  return spyOnFetch((call) => {
+    if (call.url.includes('/federation/info')) {
+      return new Response(JSON.stringify(script.info), { status: 200 });
+    }
+    if (call.url.includes('/federation/request')) {
+      return new Response(JSON.stringify(script.requestBody ?? { success: true }), {
+        status: script.requestStatus ?? 200
+      });
+    }
+    return new Response(JSON.stringify({}), { status: 404 });
+  });
 };
 
 describe('federation.addInstance', () => {
   test('signs the challenge for the ADVERTISED domain, not the dial host', async () => {
-    resetScript();
     const { caller } = await initTest(1);
     await generateFederationKeys();
 
     // Remote is dialed as pulse-b:4991 but advertises plain "peer.example"
-    scriptedInfo = {
-      domain: 'peer.example',
-      name: 'Peer',
-      version: '0.0.0',
-      publicKey: '{}',
-      federationEnabled: true
-    };
+    const { calls } = scriptRemote({
+      info: {
+        domain: 'peer.example',
+        name: 'Peer',
+        version: '0.0.0',
+        publicKey: '{}',
+        federationEnabled: true
+      }
+    });
 
     const result = await caller.federation.addInstance({
       remoteUrl: 'http://pulse-b:4991'
@@ -94,10 +96,13 @@ describe('federation.addInstance', () => {
     expect(result).toBeDefined();
     expect(result!.instance.domain).toBe('peer.example');
 
-    const requestCall = fetchCalls.find((c) =>
+    const requestCall = calls.find((c) =>
       c.url.includes('/federation/request')
     );
     expect(requestCall).toBeDefined();
+    expect(requestCall!.method).toBe('POST');
+    // The request goes to the dialed origin, not the advertised domain
+    expect(requestCall!.url).toBe('http://pulse-b:4991/federation/request');
 
     const body = requestCall!.body as { signature: string; domain: string };
     expect(body.domain).toBe('test.local');
@@ -108,28 +113,25 @@ describe('federation.addInstance', () => {
 
     // The advertised-domain reachability pre-check must have dialed the
     // advertised domain's /federation/info (advertised ≠ dial host here).
-    const reachabilityCheck = fetchCalls.filter((c) =>
-      c.url.includes('/federation/info')
-    );
-    expect(
-      reachabilityCheck.some((c) => c.url.includes('peer.example'))
-    ).toBe(true);
+    const infoChecks = calls.filter((c) => c.url.includes('/federation/info'));
+    expect(infoChecks.some((c) => c.url.includes('peer.example'))).toBe(true);
   });
 
   test('surfaces the remote rejection reason instead of a generic failure', async () => {
-    resetScript();
     const { caller } = await initTest(1);
     await generateFederationKeys();
 
-    scriptedInfo = {
-      domain: 'peer2.example',
-      name: 'Peer2',
-      version: '0.0.0',
-      publicKey: '{}',
-      federationEnabled: true
-    };
-    scriptedRequestStatus = 401;
-    scriptedRequestBody = { error: 'Invalid signature' };
+    scriptRemote({
+      info: {
+        domain: 'peer2.example',
+        name: 'Peer2',
+        version: '0.0.0',
+        publicKey: '{}',
+        federationEnabled: true
+      },
+      requestStatus: 401,
+      requestBody: { error: 'Invalid signature' }
+    });
 
     await expect(
       caller.federation.addInstance({ remoteUrl: 'http://peer2.example' })
@@ -137,17 +139,18 @@ describe('federation.addInstance', () => {
   });
 
   test('rejects a remote that advertises no Instance Domain', async () => {
-    resetScript();
     const { caller } = await initTest(1);
     await generateFederationKeys();
 
-    scriptedInfo = {
-      domain: '',
-      name: 'Broken',
-      version: '0.0.0',
-      publicKey: '{}',
-      federationEnabled: true
-    };
+    scriptRemote({
+      info: {
+        domain: '',
+        name: 'Broken',
+        version: '0.0.0',
+        publicKey: '{}',
+        federationEnabled: true
+      }
+    });
 
     await expect(
       caller.federation.addInstance({ remoteUrl: 'http://broken.example' })

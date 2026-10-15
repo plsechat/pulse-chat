@@ -1,6 +1,6 @@
 import { closeDialogs } from '@/features/dialogs/actions';
 import { useDialogInfo } from '@/features/dialogs/hooks';
-import { createElement, memo } from 'react';
+import { createElement, memo, type ComponentType } from 'react';
 import { AssignRoleDialog } from './assign-role';
 import ConfirmActionDialog from './confirm-action';
 import { CreateCategoryDialog } from './create-category';
@@ -13,9 +13,9 @@ import { PluginCommandsDialog } from './plugin-commands';
 import { PluginLogsDialog } from './plugin-logs';
 import { PluginSettingsDialog } from './plugin-settings';
 import { TextInputDialog } from './text-input';
+import type { TDialogBaseProps, TDialogPropsMap } from './types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const DialogsMap: any = {
+const DialogsMap: { [K in Dialog]: ComponentType<TDialogPropsMap[K]> } = {
   [Dialog.CONFIRM_ACTION]: ConfirmActionDialog,
   [Dialog.CREATE_CHANNEL]: CreateChannelDialog,
   [Dialog.TEXT_INPUT]: TextInputDialog,
@@ -29,6 +29,19 @@ const DialogsMap: any = {
   [Dialog.IDENTITY_CHANGED]: IdentityChangedDialog
 };
 
+/**
+ * The dialog-specific props travel through Redux as an untyped record
+ * (`openDialog(dialog, props)`); the opener owns their shape, so this
+ * is the one boundary where that record is narrowed to the dialog's
+ * declared props.
+ */
+function renderDialog<K extends Dialog>(
+  dialog: K,
+  props: TDialogBaseProps & Record<string, unknown>
+) {
+  return createElement(DialogsMap[dialog], props as TDialogPropsMap[K]);
+}
+
 const DialogsProvider = memo(() => {
   const { isOpen, openDialog, props, closing } = useDialogInfo();
 
@@ -36,7 +49,7 @@ const DialogsProvider = memo(() => {
 
   const realIsOpen = isOpen && !closing;
 
-  return createElement(DialogsMap[openDialog], {
+  return renderDialog(openDialog, {
     ...props,
     isOpen: realIsOpen,
     close: closeDialogs

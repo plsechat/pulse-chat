@@ -5,7 +5,6 @@ import {
   activeServerIdSelector,
   activeViewSelector,
   appLoadingSelector,
-  devicesSelector,
   federatedConnectionStatusesSelector,
   federatedMentionCountsSelector,
   federatedServersSelector,
@@ -19,8 +18,6 @@ import {
 } from './selectors';
 
 export const useIsAppLoading = () => useSelector(appLoadingSelector);
-
-export const useDevices = () => useSelector(devicesSelector);
 
 export const useModViewOpen = () => {
   const isOpen = useSelector(modViewOpenSelector);

@@ -1,6 +1,5 @@
 import {
   ChannelPermission,
-  type TChannel,
   type TChannelUserPermissionsMap,
   type TLastReadMessageIdMap,
   type TMentionStateMap,
@@ -20,144 +19,6 @@ import {
 import { getUserRoleIds } from './roles';
 import { getServerById } from './servers';
 
-const getPermissions = async (
-  userId: number,
-  roleIds: number[],
-  permission: ChannelPermission,
-  channelId?: number
-) => {
-  const userPermissionsQuery = db
-    .select({
-      channelId: channelUserPermissions.channelId,
-      allow: channelUserPermissions.allow
-    })
-    .from(channelUserPermissions)
-    .where(
-      and(
-        eq(channelUserPermissions.userId, userId),
-        eq(channelUserPermissions.permission, permission),
-        channelId ? eq(channelUserPermissions.channelId, channelId) : undefined
-      )
-    );
-
-  let rolePermissionsQuery = null;
-
-  if (roleIds.length > 0) {
-    rolePermissionsQuery = db
-      .select({
-        channelId: channelRolePermissions.channelId,
-        allow: channelRolePermissions.allow
-      })
-      .from(channelRolePermissions)
-      .where(
-        and(
-          inArray(channelRolePermissions.roleId, roleIds),
-          eq(channelRolePermissions.permission, permission),
-          channelId
-            ? eq(channelRolePermissions.channelId, channelId)
-            : undefined
-        )
-      );
-  }
-
-  const [userPermissions, rolePermissions] = await Promise.all([
-    userPermissionsQuery,
-    rolePermissionsQuery || Promise.resolve([])
-  ]);
-
-  const userPermissionMap = new Map(
-    userPermissions.map((p) => [p.channelId, p.allow])
-  );
-
-  const rolePermissionMap = new Map<number, boolean>();
-
-  for (const perm of rolePermissions) {
-    const existing = rolePermissionMap.get(perm.channelId);
-
-    rolePermissionMap.set(perm.channelId, existing || perm.allow);
-  }
-
-  return { userPermissionMap, rolePermissionMap };
-};
-
-const channelUserCan = async (
-  channelId: number,
-  userId: number,
-  permission: ChannelPermission
-): Promise<boolean> => {
-  const [channel] = await db
-    .select()
-    .from(channels)
-    .where(eq(channels.id, channelId))
-    .limit(1);
-
-  if (!channel) {
-    return false;
-  }
-
-  // Check if user is server owner (bypasses all channel permissions)
-  const server = await getServerById(channel.serverId);
-  if (server && server.ownerId === userId) {
-    return true;
-  }
-
-  if (!channel.private) {
-    return true;
-  }
-
-  const roleIds = await getUserRoleIds(userId);
-
-  const { userPermissionMap, rolePermissionMap } = await getPermissions(
-    userId,
-    roleIds,
-    permission,
-    channelId
-  );
-
-  const userPerm = userPermissionMap.get(channelId);
-
-  if (userPerm !== undefined) {
-    return userPerm;
-  }
-
-  const rolePerm = rolePermissionMap.get(channelId);
-
-  if (rolePerm !== undefined) {
-    return rolePerm;
-  }
-
-  return false;
-};
-
-const getChannelsForUser = async (userId: number): Promise<TChannel[]> => {
-  const roleIds = await getUserRoleIds(userId);
-  const allChannels = await db.select().from(channels);
-
-  const { userPermissionMap, rolePermissionMap } = await getPermissions(
-    userId,
-    roleIds,
-    ChannelPermission.VIEW_CHANNEL
-  );
-
-  const accessibleChannels = allChannels.filter((channel) => {
-    if (!channel.private) {
-      return true;
-    }
-
-    const userPerm = userPermissionMap.get(channel.id);
-
-    if (userPerm !== undefined) {
-      return userPerm;
-    }
-
-    const rolePerm = rolePermissionMap.get(channel.id);
-
-    return rolePerm;
-  });
-
-  return accessibleChannels;
-};
-
 const getAllChannelUserPermissions = async (
   userId: number,
   serverId?: number
@@ -171,7 +32,7 @@ const getAllChannelUserPermissions = async (
     ? allChannels.map((c) => c.id)
     : undefined;
 
-  let userPermissions = await db
+  const userPermissions = await db
     .select({
       channelId: channelUserPermissions.channelId,
       permission: channelUserPermissions.permission,
@@ -272,68 +133,6 @@ const getAllChannelUserPermissions = async (
   }
 
   return channelPermissions;
-};
-
-const getRoleChannelPermissions = async (
-  roleId: number,
-  channelId: number
-): Promise<Record<ChannelPermission, boolean>> => {
-  const rolePermissions = await db
-    .select({
-      permission: channelRolePermissions.permission,
-      allow: channelRolePermissions.allow
-    })
-    .from(channelRolePermissions)
-    .where(
-      and(
-        eq(channelRolePermissions.roleId, roleId),
-        eq(channelRolePermissions.channelId, channelId)
-      )
-    );
-
-  const allPermissionTypes = Object.values(ChannelPermission);
-  const permissions: Record<string, boolean> = {};
-
-  const permissionMap = new Map(
-    rolePermissions.map((p) => [p.permission as ChannelPermission, p.allow])
-  );
-
-  for (const permissionType of allPermissionTypes) {
-    permissions[permissionType] = permissionMap.get(permissionType) ?? false;
-  }
-
-  return permissions;
-};
-
-const getUserChannelPermissions = async (
-  userId: number,
-  channelId: number
-): Promise<Record<ChannelPermission, boolean>> => {
-  const userPermissions = await db
-    .select({
-      permission: channelUserPermissions.permission,
-      allow: channelUserPermissions.allow
-    })
-    .from(channelUserPermissions)
-    .where(
-      and(
-        eq(channelUserPermissions.userId, userId),
-        eq(channelUserPermissions.channelId, channelId)
-      )
-    );
-
-  const allPermissionTypes = Object.values(ChannelPermission);
-  const permissions: Record<string, boolean> = {};
-
-  const permissionMap = new Map(
-    userPermissions.map((p) => [p.permission as ChannelPermission, p.allow])
-  );
-
-  for (const permissionType of allPermissionTypes) {
-    permissions[permissionType] = permissionMap.get(permissionType) ?? false;
-  }
-
-  return permissions;
 };
 
 const getAffectedUserIdsForChannel = async (
@@ -536,12 +335,8 @@ const getForumUnreadForUser = async (
 };
 
 export {
-  channelUserCan,
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
-  getChannelsForUser,
   getChannelsReadStatesForUser,
-  getForumUnreadForUser,
-  getRoleChannelPermissions,
-  getUserChannelPermissions
+  getForumUnreadForUser
 };

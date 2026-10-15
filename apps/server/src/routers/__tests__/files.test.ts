@@ -1,26 +1,29 @@
 import type { TTempFile } from '@pulse/shared';
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { randomUUIDv7 } from 'bun';
+import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { fileExists, fileManager } from '../../utils/file-manager';
 
+// Called inside each test (not beforeEach) so the upload doesn't pile
+// onto the global per-test TRUNCATE inside the same hook budget.
+const uploadTempFile = async (): Promise<TTempFile> => {
+  const response = await login('testowner', 'password123');
+  const data = (await response.json()) as { accessToken: string };
+
+  const res = await uploadFile(
+    new File(['test'], `file-${randomUUIDv7().slice(0, 8)}.txt`, {
+      type: 'text/plain'
+    }),
+    data.accessToken
+  );
+
+  return (await res.json()) as TTempFile;
+};
+
 describe('files router', () => {
-  let tempFile: TTempFile;
-  let counter = 0;
-
-  beforeEach(async () => {
-    const response = await login('testowner', 'password123');
-    const data = (await response.json()) as { accessToken: string };
-
-    const res = await uploadFile(
-      new File(['test'], `file-${counter++}.txt`, { type: 'text/plain' }),
-      data.accessToken
-    );
-
-    tempFile = (await res.json()) as TTempFile;
-  });
-
   test('should check temporary file existence', async () => {
+    const tempFile = await uploadTempFile();
     expect(tempFile).toBeDefined();
     expect(tempFile.id).toBeDefined();
 
@@ -37,6 +40,7 @@ describe('files router', () => {
   });
 
   test('should delete a temporary file', async () => {
+    const tempFile = await uploadTempFile();
     const { caller } = await initTest();
 
     expect(await fileExists(tempFile.path)).toBe(true);
@@ -59,6 +63,7 @@ describe('files router', () => {
   });
 
   test('should throw when deleting other users temporary file', async () => {
+    const tempFile = await uploadTempFile();
     const { caller } = await initTest(2);
 
     await expect(

@@ -155,8 +155,6 @@ export const deleteDmMessage = (dmChannelId: number, dmMessageId: number) => {
   store.dispatch(dmsSliceActions.deleteMessage({ dmChannelId, dmMessageId }));
 };
 
-export const setDmsLoading = (loading: boolean) =>
-  store.dispatch(dmsSliceActions.setLoading(loading));
 
 export const resetDmsState = () =>
   store.dispatch(dmsSliceActions.resetState());
@@ -189,15 +187,12 @@ async function decryptDmChannelLastMessages(
 export const fetchDmChannels = async () => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
-  setDmsLoading(true);
   try {
     const channels = await trpc.dms.getChannels.query();
     const decrypted = await decryptDmChannelLastMessages(channels);
     setDmChannels(decrypted);
   } catch (err) {
     console.error('Failed to fetch DM channels:', err);
-  } finally {
-    setDmsLoading(false);
   }
 };
 

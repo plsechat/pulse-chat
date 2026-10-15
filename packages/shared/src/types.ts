@@ -50,13 +50,7 @@ export type TPublicServerSettings = Pick<
   logo?: TFile | null;
 };
 
-export type TGenericObject = {
-  [key: string]: any;
-};
-
-export type TGenericFunction = {
-  (...args: any[]): any;
-};
+export type TGenericObject = Record<string, unknown>;
 
 export type TMessageMetadata = {
   url: string;

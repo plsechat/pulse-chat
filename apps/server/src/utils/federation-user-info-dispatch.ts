@@ -55,32 +55,40 @@ async function relayUserInfoUpdate(
   localUserId: number,
   changes: UserInfoChanges
 ): Promise<void> {
-  if (Object.keys(changes).length === 0) return;
+  // The whole body is guarded, not just the per-relay promises: every
+  // call site is fire-and-forget (`void fn()` / no catch), so a DB error
+  // in the lookups BEFORE the relay would otherwise surface as an
+  // unhandled rejection.
+  try {
+    if (Object.keys(changes).length === 0) return;
 
-  const [user] = await db
-    .select({ publicId: users.publicId, isFederated: users.isFederated })
-    .from(users)
-    .where(eq(users.id, localUserId))
-    .limit(1);
+    const [user] = await db
+      .select({ publicId: users.publicId, isFederated: users.isFederated })
+      .from(users)
+      .where(eq(users.id, localUserId))
+      .limit(1);
 
-  // Only push for local users — federated shadow users on this
-  // instance get their updates from their home instance, not us.
-  if (!user || user.isFederated || !user.publicId) return;
+    // Only push for local users — federated shadow users on this
+    // instance get their updates from their home instance, not us.
+    if (!user || user.isFederated || !user.publicId) return;
 
-  const peerDomains = await enumerateRotationPeers(localUserId);
-  if (peerDomains.length === 0) return;
+    const peerDomains = await enumerateRotationPeers(localUserId);
+    if (peerDomains.length === 0) return;
 
-  for (const domain of peerDomains) {
-    relayToInstance(domain, '/federation/user-info-update', {
-      subjectPublicId: user.publicId,
-      ...changes
-    }).catch((err) =>
-      logger.error(
-        '[relayUserInfoUpdate] relay to %s failed: %o',
-        domain,
-        err
-      )
-    );
+    for (const domain of peerDomains) {
+      relayToInstance(domain, '/federation/user-info-update', {
+        subjectPublicId: user.publicId,
+        ...changes
+      }).catch((err) =>
+        logger.error(
+          '[relayUserInfoUpdate] relay to %s failed: %o',
+          domain,
+          err
+        )
+      );
+    }
+  } catch (err) {
+    logger.error('[relayUserInfoUpdate] dispatch failed: %o', err);
   }
 }
 

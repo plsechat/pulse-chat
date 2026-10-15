@@ -7,8 +7,8 @@ import { typingMapSelector } from './messages/selectors';
 import { rolesSelector } from './roles/selectors';
 import type { TVoiceUser } from './types';
 import {
+  ownPublicUserSelector,
   ownUserIdSelector,
-  ownUserSelector,
   userByIdSelector,
   usersSelector
 } from './users/selectors';
@@ -19,8 +19,6 @@ export const connectedSelector = (state: IRootState) => state.server.connected;
 export const disconnectInfoSelector = (state: IRootState) =>
   state.server.disconnectInfo;
 
-export const connectingSelector = (state: IRootState) =>
-  state.server.connecting;
 
 export const reconnectingSelector = (state: IRootState) =>
   state.server.reconnecting;
@@ -31,8 +29,6 @@ export const reconnectAttemptSelector = (state: IRootState) =>
 export const serverNameSelector = (state: IRootState) =>
   state.server.publicSettings?.name;
 
-export const serverIdSelector = (state: IRootState) =>
-  state.server.publicSettings?.publicId;
 
 export const publicServerSettingsSelector = (state: IRootState) =>
   state.server.publicSettings;
@@ -43,7 +39,7 @@ export const pluginsEnabledSelector = (state: IRootState) =>
 export const infoSelector = (state: IRootState) => state.server.info;
 
 export const ownUserRolesSelector = createSelector(
-  [ownUserSelector, rolesSelector],
+  [ownPublicUserSelector, rolesSelector],
   (ownUser, roles) => {
     if (!ownUser?.roleIds) return [];
     return roles.filter((role) => ownUser.roleIds.includes(role.id));
@@ -78,10 +74,6 @@ export const userDisplayRoleSelector = createCachedSelector(
   }
 )((_: IRootState, userId: number) => userId);
 
-export const userRolesIdsSelector = createSelector(
-  [userByIdSelector],
-  (user) => user?.roleIds || []
-);
 
 export const typingUsersByChannelIdSelector = createCachedSelector(
   [

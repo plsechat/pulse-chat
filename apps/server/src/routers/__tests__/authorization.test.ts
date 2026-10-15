@@ -194,10 +194,9 @@ describe('E2EE authorization', () => {
     const { caller } = await initTest(1);
 
     await expect(
-      caller.e2ee.distributeSenderKey({
+      caller.e2ee.distributeSenderKeysBatch({
         channelId: channel2Id,
-        toUserId: 2,
-        distributionMessage: 'malicious-key'
+        distributions: [{ toUserId: 2, distributionMessage: 'malicious-key' }]
       })
     ).rejects.toThrow();
   });

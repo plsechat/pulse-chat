@@ -41,7 +41,7 @@ const provisionRouteHandler = async (
   const identity = await resolveTokenIdentity(token);
 
   if (!identity) {
-    logger.error('Provision auth failed: invalid or expired token');
+    logger.debug('Provision auth failed: invalid or expired token');
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid or expired token' }));
     return res;

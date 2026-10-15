@@ -17,29 +17,10 @@ import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { serverMembers, servers, settings, users } from '../../db/schema';
+import {
+  insertMemberUser
+} from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
-
-const insertMemberUser = async () => {
-  const suffix = randomUUIDv7();
-  const [user] = await db
-    .insert(users)
-    .values({
-      supabaseId: `admin-supa-${suffix}`,
-      name: `AdminTestUser-${suffix.slice(0, 8)}`,
-      publicId: `admin-pid-${suffix}`,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  await db.insert(serverMembers).values({
-    userId: user!.id,
-    serverId: 1,
-    nickname: null,
-    joinedAt: Date.now()
-  });
-
-  return user!;
-};
 
 describe('admin router', () => {
   test('every admin procedure is refused for a non-owner', async () => {

@@ -1,9 +1,10 @@
-import type {
-  PluginContext,
-  PluginSettings,
-  TCreateStreamOptions,
-  TExternalStreamHandle,
-  UnloadPluginContext
+import {
+  PLUGIN_SDK_VERSION,
+  type PluginContext,
+  type PluginSettings,
+  type TCreateStreamOptions,
+  type TExternalStreamHandle,
+  type UnloadPluginContext
 } from '@pulse/plugin-sdk';
 import {
   ServerEvents,
@@ -22,6 +23,7 @@ import chalk from 'chalk';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import path from 'path';
+import semver from 'semver';
 import { db } from '../db';
 import { getSettings } from '../db/queries/server';
 import { getServerMemberIds } from '../db/queries/servers';
@@ -43,6 +45,9 @@ type PluginStatesMap = Record<string, boolean>;
 class PluginManager {
   private loadedPlugins = new Map<string, PluginModule>();
   private loadErrors = new Map<string, string>();
+  // Plugins whose `pulse.sdk` range the running SDK does not satisfy.
+  // Populated by getPluginInfo; load() refuses to import them.
+  private sdkIncompatible = new Set<string>();
   private logs = new Map<string, TLogEntry[]>();
   private logsListeners = new Map<string, Set<(newLog: TLogEntry) => void>>();
   private commands = new Map<string, RegisteredCommand[]>();
@@ -290,6 +295,22 @@ class PluginManager {
     }
   };
 
+  private getSdkCompatError = (
+    range: string | undefined
+  ): string | undefined => {
+    if (range === undefined) return undefined;
+
+    if (semver.validRange(range) === null) {
+      return `invalid pulse.sdk range "${range}"`;
+    }
+
+    if (!semver.satisfies(PLUGIN_SDK_VERSION, range)) {
+      return `requires @pulse/plugin-sdk ${range}, server provides ${PLUGIN_SDK_VERSION}`;
+    }
+
+    return undefined;
+  };
+
   private getPluginPath = (pluginId: string) => {
     this.validatePluginId(pluginId);
     return path.join(PLUGINS_PATH, pluginId);
@@ -431,7 +452,6 @@ class PluginManager {
     this.settingDefinitions.delete(pluginId);
     this.settingValues.delete(pluginId);
     this.loadedPlugins.delete(pluginId);
-    this.loadErrors.delete(pluginId);
 
     logger.info(`Plugin unloaded: ${pluginId}`);
   };
@@ -453,6 +473,15 @@ class PluginManager {
 
     if (!(await fileExists(entryFilePath))) {
       throw new Error('Plugin entry file not found');
+    }
+
+    const sdkError = this.getSdkCompatError(packageJson.pulse.sdk);
+
+    if (sdkError) {
+      this.sdkIncompatible.add(pluginId);
+      this.loadErrors.set(pluginId, sdkError);
+    } else {
+      this.sdkIncompatible.delete(pluginId);
     }
 
     const loadError = this.loadErrors.get(pluginId);
@@ -489,6 +518,15 @@ class PluginManager {
     }
 
     const info = await this.getPluginInfo(pluginId);
+
+    if (this.sdkIncompatible.has(pluginId)) {
+      this.logPlugin(
+        pluginId,
+        'error',
+        `Failed to load plugin ${pluginId}: ${this.loadErrors.get(pluginId)}`
+      );
+      return;
+    }
 
     try {
       const ctx = this.createContext(pluginId);

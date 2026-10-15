@@ -25,7 +25,7 @@
 import { ServerEvents } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { exportJWK, generateKeyPair, type JWK } from 'jose';
+import { exportJWK, generateKeyPair } from 'jose';
 import { config } from '../../config';
 import { db } from '../../db';
 import {
@@ -40,14 +40,17 @@ import {
   userSignedPreKeys,
   users
 } from '../../db/schema';
+import {
+  PEER_DOMAIN,
+  postSignedAsPeer,
+  seedPeer,
+  TEST_LOCAL_DOMAIN
+} from '../../__tests__/federation-fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { testsBaseUrl } from '../../__tests__/setup';
 import {
-  _resetSeenJtis,
-  _signChallengeAs,
-  generateFederationKeys
+  _resetSeenJtis
 } from '../../utils/federation';
-import { _resetBundleFetchRateLimit } from '../../utils/bundle-fetch-rate-limit';
 import { pubsub } from '../../utils/pubsub';
 
 // The mock-modules default has federation disabled; the handlers
@@ -57,79 +60,6 @@ import { pubsub } from '../../utils/pubsub';
 // matrix both isolate the mutation to this Bun process; no other
 // test asserts on the "Federation not enabled" branch.
 config.federation.enabled = true;
-
-const PEER_DOMAIN = 'peer.example';
-const TEST_LOCAL_DOMAIN = 'test.local'; // matches setup.ts mock
-
-type PeerSetup = {
-  peerInstanceId: number;
-  peerPrivateJwk: JWK;
-};
-
-/**
- * Create the local instance's federation keys + a peer
- * instance row signed with the peer's own keypair so
- * `verifyChallenge` will accept signatures forged with the peer key.
- */
-async function seedPeer(): Promise<PeerSetup> {
-  _resetSeenJtis();
-  _resetBundleFetchRateLimit();
-  const { publicKey, privateKey } = await generateKeyPair('EdDSA', {
-    extractable: true
-  });
-  const peerPublicJwk = await exportJWK(publicKey);
-  const peerPrivateJwk = await exportJWK(privateKey);
-
-  const [instance] = await db
-    .insert(federationInstances)
-    .values({
-      domain: PEER_DOMAIN,
-      name: 'Peer',
-      status: 'active',
-      direction: 'outgoing',
-      publicKey: JSON.stringify(peerPublicJwk),
-      createdAt: Date.now()
-    })
-    .returning();
-
-  // Local keys are needed because signedJsonResponse signs responses
-  // with the local instance's federation key. Keys are reset by the
-  // global beforeEach TRUNCATE so they always need re-generation.
-  await generateFederationKeys();
-
-  return {
-    peerInstanceId: instance!.id,
-    peerPrivateJwk
-  };
-}
-
-async function postSignedAsPeer(
-  path: string,
-  payload: Record<string, unknown>,
-  peerPrivateJwk: JWK
-): Promise<{ status: number; body: Record<string, unknown> | null }> {
-  const bodyToSign = { ...payload, fromDomain: PEER_DOMAIN };
-  const signature = await _signChallengeAs(
-    bodyToSign,
-    PEER_DOMAIN,
-    TEST_LOCAL_DOMAIN,
-    peerPrivateJwk
-  );
-  const fullBody = { ...bodyToSign, signature };
-
-  const res = await fetch(`${testsBaseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fullBody)
-  });
-  let body: Record<string, unknown> | null;
-  try {
-    body = (await res.json()) as Record<string, unknown>;
-  } catch {
-    body = null;
-  }
-  return { status: res.status, body };
-}
 
 /**
  * Set up a complete pre-key bundle for user 1 (the test owner).

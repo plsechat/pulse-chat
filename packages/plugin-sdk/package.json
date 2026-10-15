@@ -1,6 +1,6 @@
 {
   "name": "@pulse/plugin-sdk",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "private": true,
   "main": "src/index.ts",
@@ -17,5 +17,8 @@
     "mediasoup": "3.19.17",
     "@pulse/shared": "workspace:*",
     "typescript": "^5"
+  },
+  "peerDependencies": {
+    "mediasoup": "3.19.17"
   }
 }

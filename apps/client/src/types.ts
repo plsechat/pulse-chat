@@ -1,27 +1,5 @@
 import type { StreamKind } from '@pulse/shared';
 
-export type TDevices = {
-  input: {
-    deviceId: string | undefined;
-    autoGainControl: boolean;
-    echoCancellation: boolean;
-    noiseSuppression: boolean;
-  };
-  playback: {
-    deviceId: string | undefined;
-  };
-  webcam: {
-    deviceId: string | undefined;
-    resolution: Resolution;
-    framerate: number;
-  };
-  screen: {
-    resolution: Resolution;
-    framerate: number;
-    audio: boolean;
-  };
-};
-
 export enum Resolution {
   '2160p' = '2160p',
   '1440p' = '1440p',

@@ -54,6 +54,9 @@ Pulse is a monorepo managed with Bun workspaces:
 
 The desktop client (Electron wrapper + native audio) lives in a separate
 repository: [plsechat/pulse-desktop](https://github.com/plsechat/pulse-desktop).
+Browser end-to-end tests live in `e2e/` (see [e2e/README.md](e2e/README.md)).
+Release notes for each version live at the repository root as
+`RELEASE-NOTES-v<version>.md`.
 
 ## Workflow
 
@@ -105,7 +108,9 @@ Common types:
 
 We care about confidence more than ceremony. Add tests when they provide real value.
 
-Tests need a PostgreSQL database. CI provides one automatically; locally, run a throwaway one — **never point `DATABASE_URL` at a real database**, the test setup truncates every table:
+### Server tests
+
+Server tests run with your host `bun` against a throwaway PostgreSQL in Docker. CI provides the database automatically; locally, start one — **never point `DATABASE_URL` at a real database**, the test preload truncates every table:
 
 ```bash
 docker run -d --name pulse-test-pg -p 5433:5432 \
@@ -113,17 +118,54 @@ docker run -d --name pulse-test-pg -p 5433:5432 \
   postgres:16-alpine
 
 cd apps/server
+
+# one file (fast iteration; ~2 s per file)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5433/postgres \
   bun test src/routers/__tests__/users.test.ts
+
+# the whole suite, one process per file — this is what CI runs
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/postgres \
+  bash scripts/test-per-file.sh
 ```
 
-Note that `bun test` does not type-check — run `bun run check-types` and `bun run lint` from the repo root before pushing.
+The per-file script is the gate: it runs every `*.test.ts` in its own `bun test` process and fails on a non-zero exit **or** any `(fail)` line in the output, exactly like the CI shard. The per-test timeout is 15 s (`bunfig.toml`), so you don't need `--timeout` on the command line.
+
+Rules that keep the suite deterministic:
+
+- **Never call `mock.module()` in a test file.** Bun's module mocks are process-global and cannot be restored, so a mocked module leaks into every file that runs after it in the same process. Use `spyOn(...)` plus `afterEach(() => mock.restore())`, or swap `globalThis.fetch` and restore it. The only `mock.module` calls allowed are the four preload files in `src/__tests__/`.
+- **Database setup goes inside each test, not in `beforeEach`.** The preload already truncates between tests; a `beforeEach` that inserts rows races that truncate and deadlocks.
+- Backend changes that add or modify operational behaviour need a unit test; pure cosmetics don't.
+
+### Client tests
+
+The client has a small unit suite (E2EE key chains, safety numbers, store scoping). No database needed:
+
+```bash
+bun run --filter client test
+```
+
+### Browser end-to-end tests
+
+Playwright specs in `e2e/` drive the real client against dockerized instances — see [e2e/README.md](e2e/README.md). The `probes` project there holds exploratory/visual probe specs that are not part of the CI gate.
+
+### Before you push
+
+`bun test` does not type-check. Run the full gate from the repo root — CI runs each of these as a separate job and all must be green:
+
+```bash
+bun run check-types   # tsc for every workspace
+bun run lint          # eslint for every workspace
+bun run knip          # unused files / exports / dependencies
+```
+
+`tsc` lives in each workspace's `node_modules/.bin`; there is no root `tsc`, so always go through the scripts above.
 
 ### Backend changes
 
 For backend changes that add or modify operational features, add a unit test.
 
 - Test files live alongside the code they test (e.g. `src/routers/__tests__/`)
+- Schema changes go through `cd apps/server && bun run db:gen`, then hand-patch the generated SQL to be idempotent (`IF NOT EXISTS` / `DO $$ … EXCEPTION` guards). CI applies every migration twice and fails if the second pass errors.
 - If a unit test would require heavy mocking to be meaningful, restructure the code so it can be tested cleanly through its interfaces
 - If you're unsure how to approach this, discuss it with a maintainer before investing time
 

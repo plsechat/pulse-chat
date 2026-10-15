@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { memo, useCallback, useState } from 'react';
 import type { TDialogBaseProps } from '../types';
 
-type TTextInputDialogProps = TDialogBaseProps & {
+export type TTextInputDialogProps = TDialogBaseProps & {
   onCancel?: () => void;
   onConfirm?: (text: string | undefined) => void;
   title?: string;

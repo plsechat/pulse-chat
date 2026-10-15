@@ -327,77 +327,6 @@ export class SignalProtocolStore implements StorageType {
     return !!kp;
   }
 
-  // In-memory sender key cache to avoid repeated IndexedDB reads
-  private senderKeyCache = new Map<string, string>();
-
-  // Sender key methods for channel E2EE
-  async getSenderKey(
-    channelId: number,
-    userId: number
-  ): Promise<string | undefined> {
-    const cacheKey = `${channelId}:${userId}`;
-    const cached = this.senderKeyCache.get(cacheKey);
-    if (cached) return cached;
-
-    const db = await this.getDb();
-    const value = await db.get(STORES.SENDER_KEYS, cacheKey);
-    if (value) this.senderKeyCache.set(cacheKey, value);
-    return value;
-  }
-
-  async storeSenderKey(
-    channelId: number,
-    userId: number,
-    key: string
-  ): Promise<void> {
-    const cacheKey = `${channelId}:${userId}`;
-    this.senderKeyCache.set(cacheKey, key);
-    const db = await this.getDb();
-    await db.put(STORES.SENDER_KEYS, key, cacheKey);
-  }
-
-  // DM-channel sender keys are stored in the same IDB object store but
-  // keyed with a `dm:` prefix so they can't collide with server-channel
-  // ids (server channel 5 and dm channel 5 are different things).
-  async getDmSenderKey(
-    dmChannelId: number,
-    userId: number
-  ): Promise<string | undefined> {
-    const cacheKey = `dm:${dmChannelId}:${userId}`;
-    const cached = this.senderKeyCache.get(cacheKey);
-    if (cached) return cached;
-
-    const db = await this.getDb();
-    const value = await db.get(STORES.SENDER_KEYS, cacheKey);
-    if (value) this.senderKeyCache.set(cacheKey, value);
-    return value;
-  }
-
-  async storeDmSenderKey(
-    dmChannelId: number,
-    userId: number,
-    key: string
-  ): Promise<void> {
-    const cacheKey = `dm:${dmChannelId}:${userId}`;
-    this.senderKeyCache.set(cacheKey, key);
-    const db = await this.getDb();
-    await db.put(STORES.SENDER_KEYS, key, cacheKey);
-  }
-
-  async getDmDistributedMembers(dmChannelId: number): Promise<number[]> {
-    const db = await this.getDb();
-    const value = await db.get(STORES.DISTRIBUTED_MEMBERS, `dm:${dmChannelId}`);
-    return value ?? [];
-  }
-
-  async setDmDistributedMembers(
-    dmChannelId: number,
-    memberIds: number[]
-  ): Promise<void> {
-    const db = await this.getDb();
-    await db.put(STORES.DISTRIBUTED_MEMBERS, memberIds, `dm:${dmChannelId}`);
-  }
-
   async getStoredIdentityKey(userId: number): Promise<string | undefined> {
     const db = await this.getDb();
     return db.get(STORES.IDENTITIES, `${userId}.1`);
@@ -419,52 +348,7 @@ export class SignalProtocolStore implements StorageType {
     await this.saveLocalIdentity(keyPair, registrationId);
   }
 
-  // --- Distributed Members persistence ---
-
-  async getDistributedMembers(channelId: number): Promise<number[]> {
-    const db = await this.getDb();
-    const value = await db.get(
-      STORES.DISTRIBUTED_MEMBERS,
-      String(channelId)
-    );
-    return value ?? [];
-  }
-
-  async setDistributedMembers(
-    channelId: number,
-    memberIds: number[]
-  ): Promise<void> {
-    const db = await this.getDb();
-    await db.put(
-      STORES.DISTRIBUTED_MEMBERS,
-      memberIds,
-      String(channelId)
-    );
-  }
-
-  async clearDistributedMemberFromAll(userId: number): Promise<void> {
-    const db = await this.getDb();
-    const tx = db.transaction(STORES.DISTRIBUTED_MEMBERS, 'readwrite');
-    const store = tx.objectStore(STORES.DISTRIBUTED_MEMBERS);
-    let cursor = await store.openCursor();
-    while (cursor) {
-      const members: number[] = cursor.value;
-      const filtered = members.filter((id) => id !== userId);
-      if (filtered.length !== members.length) {
-        await cursor.update(filtered);
-      }
-      cursor = await cursor.continue();
-    }
-    await tx.done;
-  }
-
-  async clearAllDistributedMembers(): Promise<void> {
-    const db = await this.getDb();
-    await db.clear(STORES.DISTRIBUTED_MEMBERS);
-  }
-
   async clearAll(): Promise<void> {
-    this.senderKeyCache.clear();
     const db = await this.getDb();
     const tx = db.transaction(Object.values(STORES), 'readwrite');
     for (const store of Object.values(STORES)) {

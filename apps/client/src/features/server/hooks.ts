@@ -11,7 +11,6 @@ import {
 import { hasAnyVoiceUsersSelector } from './voice/selectors';
 import {
   connectedSelector,
-  connectingSelector,
   disconnectInfoSelector,
   infoSelector,
   isOwnUserOwnerSelector,
@@ -30,7 +29,6 @@ import {
 
 export const useIsConnected = () => useSelector(connectedSelector);
 
-export const useIsConnecting = () => useSelector(connectingSelector);
 
 export const useDisconnectInfo = () => useSelector(disconnectInfoSelector);
 
@@ -80,6 +78,7 @@ export const useInfo = () => useSelector(infoSelector);
 
 export const useIsOwnUserOwner = () => useSelector(isOwnUserOwnerSelector);
 
+/** @pendingBatch B9 — gate for the plugins panel mounted in B9 (A8-1) */
 export const usePluginsEnabled = () => useSelector(pluginsEnabledSelector);
 
 export const useCan = () => {
@@ -160,6 +159,7 @@ export const useMentionCount = (channelId: number) =>
     channelMentionCountByIdSelector(state, channelId)
   );
 
+/** @pendingBatch B7 — wired into the tab/dock badge total in B7 (A7-11) */
 export const useHasAnyUnread = () => useSelector(hasAnyUnreadSelector);
 
 export const useHasAnyVoiceUsers = () => useSelector(hasAnyVoiceUsersSelector);

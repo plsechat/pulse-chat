@@ -11,11 +11,13 @@
  *     receiver that extracts and seeds its own context sees the
  *     same id the sender logged.
  */
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import dns from 'dns/promises';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { config } from '../../config';
-import { db } from '../../db';
-import { federationInstances } from '../../db/schema';
+import {
+  mockDns,
+  seedPeerInstance,
+  spyOnFetch
+} from '../../__tests__/federation-fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { generateFederationKeys, relayToInstance } from '../federation';
 import { withLogContext } from '../log-context';
@@ -24,56 +26,16 @@ config.federation.enabled = true;
 
 const PEER_DOMAIN = 'corr.example.com';
 
-const originalFetch = globalThis.fetch;
-
-type FetchCall = { url: string; headers: Record<string, string> };
-
-function spyOnFetch(): { calls: FetchCall[] } {
-  const calls: FetchCall[] = [];
-  const fakeFetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-    const headers: Record<string, string> = {};
-    if (init?.headers) {
-      const h = init.headers as Record<string, string>;
-      for (const k of Object.keys(h)) headers[k.toLowerCase()] = h[k]!;
-    }
-    calls.push({ url: u, headers });
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  });
-  globalThis.fetch = fakeFetch as unknown as typeof fetch;
-  return { calls };
-}
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   mock.restore();
 });
-
-function mockDns() {
-  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
-  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
-}
-
-async function seedPeer(domain: string) {
-  await db.insert(federationInstances).values({
-    domain,
-    name: domain,
-    status: 'active',
-    direction: 'outgoing',
-    publicKey: '{"kty":"OKP","crv":"Ed25519","x":"placeholder"}',
-    createdAt: Date.now()
-  });
-}
 
 describe('cross-instance correlation header', () => {
   test('relayToInstance carries the active log-context requestId', async () => {
     await initTest(1);
     await generateFederationKeys();
     mockDns();
-    await seedPeer(PEER_DOMAIN);
+    await seedPeerInstance(PEER_DOMAIN);
 
     const { calls } = spyOnFetch();
 
@@ -91,7 +53,7 @@ describe('cross-instance correlation header', () => {
     await initTest(1);
     await generateFederationKeys();
     mockDns();
-    await seedPeer(PEER_DOMAIN);
+    await seedPeerInstance(PEER_DOMAIN);
 
     const { calls } = spyOnFetch();
 

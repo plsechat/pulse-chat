@@ -10,7 +10,6 @@ export enum LocalStorageKey {
   AUDIO_DRIVER_PROMPT_DISMISSED = 'pulse-audio-driver-prompt-dismissed',
   ACTIVE_SERVER_ID = 'pulse-active-server-id',
   FEDERATED_SERVERS = 'pulse-federated-servers',
-  ACTIVE_INSTANCE = 'pulse-active-instance',
   APPEARANCE_SETTINGS = 'pulse-appearance-settings',
   SERVER_CHANNEL_MAP = 'pulse-server-channel-map',
   SOUND_NOTIFICATION_SETTINGS = 'pulse-sound-notification-settings',

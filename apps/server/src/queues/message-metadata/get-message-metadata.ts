@@ -1,11 +1,13 @@
-import type { TGenericObject, TMessageMetadata } from '@pulse/shared';
+import type { TMessageMetadata } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { getLinkPreview } from 'link-preview-js';
 import { db } from '../../db';
 import { messages } from '../../db/schema';
 import { validateFederationUrl } from '../../utils/validate-url';
 
-const metadataCache = new Map<string, TGenericObject>();
+type TLinkPreview = Awaited<ReturnType<typeof getLinkPreview>>;
+
+const metadataCache = new Map<string, TLinkPreview>();
 
 setInterval(
   () => metadataCache.clear(),

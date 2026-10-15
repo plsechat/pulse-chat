@@ -11,7 +11,7 @@ import { mock } from 'bun:test';
  * - logger    — imports config, creates log files at module scope
  * - env       — isRegistrationDisabled() via globalThis.__registrationDisabled;
  *               isRegistrationMethodEnabled() via __disabledRegistrationMethods
- * - supabase  — throws immediately if SUPABASE_URL env vars are missing
+ * - auth      — the auth backend (would read env + reach Supabase at import)
  */
 
 // ── Suppress console output during tests ──
@@ -28,13 +28,11 @@ mock.module('../config', () => ({
     server: {
       port: 9999,
       debug: false,
-      autoupdate: false,
       debugLogMaxSizeMb: 200,
       debugLogMaxFiles: 10,
       debugLogIncludeBody: true,
       redactExtra: [] as string[]
     },
-    http: { maxFiles: 40, maxFileSize: 100 },
     mediasoup: {
       worker: { rtcMinPort: 40000, rtcMaxPort: 40020 },
       audio: { maxBitrate: 510000, stereo: true, fec: true, dtx: true },
@@ -279,9 +277,5 @@ const mockAuthBackend = {
 };
 
 mock.module('../utils/auth', () => ({
-  authBackend: mockAuthBackend
-}));
-
-mock.module('../utils/supabase', () => ({
   authBackend: mockAuthBackend
 }));

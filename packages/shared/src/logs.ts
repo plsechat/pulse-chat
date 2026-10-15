@@ -52,9 +52,10 @@ export enum ActivityLogType {
 export type TActivityLogDetailsMap = {
   [ActivityLogType.SERVER_STARTED]: Record<string, never>;
   [ActivityLogType.EDIT_SERVER_SETTINGS]: {
-    values: Partial<{
-      [K in keyof TSettings]: any;
-    }>;
+    // The updateSettings input: the settings columns plus the numeric
+    // serverId the route is scoped to (TSettings.serverId is the text
+    // column, hence the override).
+    values: Partial<Omit<TSettings, "serverId">> & { serverId?: number };
   };
   // -------------------- USERS --------------------
   [ActivityLogType.USER_KICKED]: {
@@ -208,7 +209,7 @@ export type TActivityLogDetailsMap = {
   [ActivityLogType.EXECUTED_PLUGIN_COMMAND]: {
     pluginId: string;
     commandName: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
   };
   [ActivityLogType.PLUGIN_TOGGLED]: {
     pluginId: string;

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { login } from '../../__tests__/helpers';
+import { provision } from '../../__tests__/fixtures';
 import { getTestDb } from '../../__tests__/mock-db';
 import { testsBaseUrl } from '../../__tests__/setup';
 import { invites } from '../../db/schema';
@@ -15,16 +16,6 @@ const register = (body: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
-  });
-
-const provision = (token: string, body?: { invite?: string }) =>
-  fetch(`${testsBaseUrl}/auth/provision`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(body ?? {})
   });
 
 afterEach(() => {
@@ -46,7 +37,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(400);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('errors');
     });
 
@@ -73,7 +64,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
 
       // Verify invite usage was incremented
@@ -119,7 +110,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
     });
   });
@@ -134,7 +125,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(400);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('errors');
       expect(data.errors).toHaveProperty('email');
       expect(data.errors.email).toContain('disabled');
@@ -153,7 +144,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
       expect(data).toHaveProperty('accessToken');
     });
@@ -172,7 +163,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(400);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('errors');
     });
 
@@ -196,7 +187,7 @@ describe('REGISTRATION_DISABLED', () => {
 
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
 
       // Verify invite usage was incremented
@@ -222,7 +213,7 @@ describe('REGISTRATION_DISABLED', () => {
       const response = await provision(token);
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('success', true);
     });
   });
@@ -236,7 +227,7 @@ describe('REGISTRATION_DISABLED', () => {
       const response = await fetch(`${testsBaseUrl}/info`);
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('registrationDisabled', true);
     });
 
@@ -244,7 +235,7 @@ describe('REGISTRATION_DISABLED', () => {
       const response = await fetch(`${testsBaseUrl}/info`);
       expect(response.status).toBe(200);
 
-      const data: any = await response.json();
+      const data = (await response.json()) as { errors: Record<string, string> };
       expect(data).toHaveProperty('registrationDisabled', false);
     });
   });

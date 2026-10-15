@@ -70,17 +70,6 @@ const getServerPublicSettings = async (
   };
 };
 
-const getPublicSettings = async (): Promise<TPublicServerSettings> => {
-  // For backward compat, reads from the first server
-  const [server] = await db.select().from(servers).limit(1);
-
-  if (!server) {
-    throw new Error('No server found in database');
-  }
-
-  return getServerPublicSettings(server.id);
-};
-
 // Per-instance HMAC secret used by files-crypto to mint short-lived file
 // access tokens. Stored in `servers.secret_token` for historical reasons —
 // pre-Phase-3 the column also doubled as the owner-claim challenge, but
@@ -113,7 +102,6 @@ const warmFileHmacSecret = async (): Promise<string> => {
 
 export {
   getFileHmacSecretSync,
-  getPublicSettings,
   getServerPublicSettings,
   getSettings,
   warmFileHmacSecret

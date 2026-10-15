@@ -5,37 +5,6 @@ import { getPublicUserById } from './users';
 import type { TJoinedPublicUser } from '@pulse/shared';
 
 /**
- * IDs of every user blocker has blocked.
- *
- * Used to filter outbound DMs / pubsub from the *blocker's* side.
- */
-const getBlockedUserIds = async (blockerId: number): Promise<Set<number>> => {
-  const rows = await db
-    .select({ id: userBlocks.blockedUserId })
-    .from(userBlocks)
-    .where(eq(userBlocks.blockerId, blockerId));
-  return new Set(rows.map((r) => r.id));
-};
-
-/**
- * IDs of every user who has blocked targetId.
- *
- * Mirror of getBlockedUserIds — used to filter inbound DMs to targetId
- * (don't deliver messages from anyone who has blocked them) and to
- * refuse friend requests / DM creation initiated by a user the target
- * has blocked.
- */
-const getBlockedByUserIds = async (
-  targetId: number
-): Promise<Set<number>> => {
-  const rows = await db
-    .select({ id: userBlocks.blockerId })
-    .from(userBlocks)
-    .where(eq(userBlocks.blockedUserId, targetId));
-  return new Set(rows.map((r) => r.id));
-};
-
-/**
  * Symmetric "are these two users mutually invisible to each other?"
  * Returns true if either user has blocked the other.
  */
@@ -112,8 +81,6 @@ const removeBlock = async (
 
 export {
   addBlock,
-  getBlockedByUserIds,
-  getBlockedUserIds,
   getBlockedUsers,
   isBlockBetween,
   removeBlock

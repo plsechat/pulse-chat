@@ -2,9 +2,6 @@ import { store } from '@/features/store';
 import type { TJoinedEmoji } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
 
-export const setEmojis = (emojis: TJoinedEmoji[]) => {
-  store.dispatch(serverSliceActions.setEmojis(emojis));
-};
 
 export const addEmoji = (emoji: TJoinedEmoji) => {
   store.dispatch(serverSliceActions.addEmoji(emoji));

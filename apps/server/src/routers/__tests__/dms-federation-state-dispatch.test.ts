@@ -11,8 +11,7 @@
  * Inline setup (no beforeEach) per the cross-file deadlock pattern.
  */
 
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import dns from 'dns/promises';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { config } from '../../config';
 import { db } from '../../db';
 import {
@@ -22,6 +21,12 @@ import {
   friendships,
   users
 } from '../../db/schema';
+import {
+  expectDispatcherLogsDbError,
+  mockDns,
+  spyOnFetch
+} from '../../__tests__/federation-fixtures';
+import { seedLocalFriend } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { generateFederationKeys } from '../../utils/federation';
 import { relayFederatedDmChannelStateUpdate } from '../../utils/federation-dm-state-dispatch';
@@ -35,50 +40,9 @@ config.federation.enabled = true;
 const PEER_DOMAIN_A = 'peera.example.com';
 const PEER_DOMAIN_B = 'peerb.example.com';
 
-type FetchCall = {
-  url: string;
-  method: string;
-  body: Record<string, unknown>;
-};
-
-const originalFetch = globalThis.fetch;
-
-function spyOnFetch(): { calls: FetchCall[]; restore: () => void } {
-  const calls: FetchCall[] = [];
-  const fakeFetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-    let body: Record<string, unknown> = {};
-    if (init?.body) {
-      try {
-        body = JSON.parse(init.body as string);
-      } catch {
-        body = {};
-      }
-    }
-    calls.push({ url: u, method: init?.method ?? 'GET', body });
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  });
-  globalThis.fetch = fakeFetch as unknown as typeof fetch;
-  return {
-    calls,
-    restore: () => {
-      globalThis.fetch = originalFetch;
-    }
-  };
-}
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   mock.restore();
 });
-
-function mockDns() {
-  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
-  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
-}
 
 async function seedFederatedPeer(domain: string): Promise<{ instanceId: number }> {
   const [instance] = await db
@@ -118,25 +82,6 @@ async function seedShadowFriend(
     createdAt: Date.now()
   });
   return shadow!.id;
-}
-
-async function seedLocalFriend(name: string): Promise<number> {
-  const [local] = await db
-    .insert(users)
-    .values({
-      supabaseId: `local-${name}`,
-      name,
-      publicId: `local-pid-${name}`,
-      isFederated: false,
-      createdAt: Date.now()
-    })
-    .returning();
-  await db.insert(friendships).values({
-    userId: 1,
-    friendId: local!.id,
-    createdAt: Date.now()
-  });
-  return local!.id;
 }
 
 async function createDmChannel(
@@ -279,5 +224,18 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
       c.url.includes('/federation/dm-channel-state-update')
     );
     expect(stateCalls).toHaveLength(0);
+  });
+});
+
+describe('relayFederatedDmChannelStateUpdate resilience', () => {
+  test('a DB failure before any relay is logged, never thrown', async () => {
+    await initTest(1);
+    const localFriend = await seedLocalFriend('resilience');
+    const channelId = await createDmChannel(false, [1, localFriend]);
+
+    await expectDispatcherLogsDbError(
+      () => relayFederatedDmChannelStateUpdate(channelId, 1, { e2ee: true }),
+      'relayFederatedDmChannelStateUpdate'
+    );
   });
 });

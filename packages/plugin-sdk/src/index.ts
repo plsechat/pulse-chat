@@ -4,8 +4,16 @@ import type {
   TInvokerContext,
   TPluginSettingDefinition,
 } from "@pulse/shared";
+import pkg from "../package.json" with { type: "json" };
 
 export type { TInvokerContext };
+
+/**
+ * Version of this SDK. A plugin declares the range it was written against
+ * in its package.json as `pulse.sdk` (a semver range); the server refuses
+ * to load a plugin whose range this version does not satisfy.
+ */
+export const PLUGIN_SDK_VERSION: string = pkg.version;
 
 export type TCreateStreamOptions = {
   channelId: number;
@@ -44,10 +52,12 @@ export interface EventPayloads {
   "user:joined": {
     userId: number;
     username: string;
+    serverId: number;
   };
   "user:left": {
     userId: number;
     username: string;
+    serverId: number;
   };
   "message:created": {
     messageId: number;

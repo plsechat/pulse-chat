@@ -26,7 +26,7 @@ const loadCrons = () => {
     },
     null,
     true,
-    'Europe/Lisbon',
+    null,
     null,
     true
   );
@@ -44,7 +44,7 @@ const loadCrons = () => {
     cleanupEmptyThreads,
     null,
     true,
-    'Europe/Lisbon',
+    null,
     null,
     true
   );
@@ -59,7 +59,7 @@ const loadCrons = () => {
     cleanupOrphanVoiceUsers,
     null,
     true,
-    'Europe/Lisbon',
+    null,
     null,
     true
   );
@@ -77,7 +77,7 @@ const loadCrons = () => {
     },
     null,
     true,
-    'Europe/Lisbon',
+    null,
     null,
     true
   );

@@ -1,4 +1,4 @@
-import { isLegacyHtml } from '@/lib/converters/token-content-renderer';
+import { isLegacyHtml } from '@/lib/converters/token-content';
 
 /**
  * Extract readable plain text from message content.

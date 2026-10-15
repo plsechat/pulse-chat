@@ -638,12 +638,6 @@ export const switchToFederatedServer = async (
 
 export const setActiveInstanceDomain = (domain: string | null) => {
   store.dispatch(appSliceActions.setActiveInstanceDomain(domain));
-
-  if (domain) {
-    setLocalStorageItem(LocalStorageKey.ACTIVE_INSTANCE, domain);
-  } else {
-    removeLocalStorageItem(LocalStorageKey.ACTIVE_INSTANCE);
-  }
 };
 
 export const saveFederatedServers = () => {

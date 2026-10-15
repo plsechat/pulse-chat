@@ -16,6 +16,14 @@ let trpc: ReturnType<typeof createTRPCProxyClient<AppRouter>> | null = null;
 /** Set to true when the client intentionally closes the connection (sign-out). */
 let intentionalClose = false;
 
+/**
+ * tRPC types `onClose` as `(cause?: { code?: number }) => void` but
+ * forwards the socket's CloseEvent at runtime; narrow it so reason /
+ * wasClean are read only when they are really there.
+ */
+const isCloseEvent = (cause: unknown): cause is CloseEvent =>
+  typeof CloseEvent !== 'undefined' && cause instanceof CloseEvent;
+
 /** Whether a disconnect code means the user cannot reconnect. */
 const isNonRecoverable = (code: number) =>
   code === DisconnectCode.BANNED ||
@@ -31,9 +39,8 @@ const initializeTRPC = (host: string) => {
       intervalMs: 30_000,
       pongTimeoutMs: 5_000
     },
-    // @ts-expect-error - the onclose type is not correct in trpc
-    onClose: (cause: CloseEvent) => {
-      const code = cause.code;
+    onClose: (cause) => {
+      const code = cause?.code ?? 0;
 
       // Null out the ws/trpc references so connect() recreates them
       wsClient = null;
@@ -51,9 +58,9 @@ const initializeTRPC = (host: string) => {
         // Kicked/Banned — full teardown, show the Disconnected screen
         fullTeardown();
         setDisconnectInfo({
-          code: cause.code,
-          reason: cause.reason,
-          wasClean: cause.wasClean,
+          code,
+          reason: isCloseEvent(cause) ? cause.reason : '',
+          wasClean: isCloseEvent(cause) ? cause.wasClean : false,
           time: new Date()
         });
         return;

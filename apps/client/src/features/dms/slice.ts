@@ -31,7 +31,6 @@ export interface TDmsState {
   // accepted or dismissed. Drives the global IncomingCallModal so
   // the ring follows the user across views.
   ringingCalls: number[];
-  loading: boolean;
 }
 
 const initialState: TDmsState = {
@@ -41,8 +40,7 @@ const initialState: TDmsState = {
   activeCalls: {},
   ownDmCallChannelId: undefined,
   dmTypingMap: {},
-  ringingCalls: [],
-  loading: false
+  ringingCalls: []
 };
 
 export const dmsSlice = createSlice({
@@ -183,9 +181,6 @@ export const dmsSlice = createSlice({
       if (channel) {
         channel.lastMessage = action.payload.lastMessage;
       }
-    },
-    setLoading: (state, action: PayloadAction<boolean>) => {
-      state.loading = action.payload;
     },
     dmCallStarted: (
       state,

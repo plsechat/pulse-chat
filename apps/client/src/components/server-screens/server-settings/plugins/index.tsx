@@ -13,12 +13,14 @@ import { LoadingCard } from '@/components/ui/loading-card';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { openDialog } from '@/features/dialogs/actions';
-import { useAdminPlugins } from '@/features/server/admin/hooks';
+import {
+  useAdminPlugins,
+  type TAdminPlugin
+} from '@/features/server/admin/hooks';
 import { usePluginsEnabled } from '@/features/server/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TPluginInfo } from '@pulse/shared';
 import {
   AlertCircle,
   FileText,
@@ -32,7 +34,7 @@ import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
 type TPluginItemProps = {
-  plugin: TPluginInfo;
+  plugin: TAdminPlugin;
   onToggle: (pluginId: string, enabled: boolean) => Promise<void>;
 };
 

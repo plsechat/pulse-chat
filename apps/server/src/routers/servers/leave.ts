@@ -2,6 +2,7 @@ import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { publishUser } from '../../db/publishers';
 import { getServerById, removeServerMember } from '../../db/queries/servers';
+import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
@@ -36,6 +37,12 @@ const leaveServerRoute = protectedProcedure
     // Notify remaining server members so the leaving user disappears from
     // their roster in real time (no more "stale until refresh").
     publishUser(ctx.userId, 'delete', { scopeServerId: input.serverId });
+
+    eventBus.emit('user:left', {
+      userId: ctx.userId,
+      username: ctx.user.name,
+      serverId: input.serverId
+    });
   });
 
 export { leaveServerRoute };

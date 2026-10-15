@@ -34,6 +34,7 @@ import {
   friendships,
   users
 } from '../../db/schema';
+import { seedLocalFriend } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 
 const PEER_DOMAIN = 'peer.dispatch.example';
@@ -72,27 +73,6 @@ async function seedFederatedFriend(): Promise<number> {
   });
 
   return federated!.id;
-}
-
-async function seedLocalFriend(): Promise<number> {
-  const [local] = await db
-    .insert(users)
-    .values({
-      supabaseId: 'local-friend-uuid',
-      name: 'localFriend',
-      publicId: 'local-friend-pid',
-      isFederated: false,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  await db.insert(friendships).values({
-    userId: 1,
-    friendId: local!.id,
-    createdAt: Date.now()
-  });
-
-  return local!.id;
 }
 
 describe('dms.createGroup federation dispatch (D2)', () => {

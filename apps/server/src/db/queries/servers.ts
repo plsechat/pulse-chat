@@ -43,33 +43,6 @@ const getServerById = async (
   };
 };
 
-const getServerByPublicId = async (
-  publicId: string
-): Promise<TJoinedServer | undefined> => {
-  const [server] = await db
-    .select()
-    .from(servers)
-    .where(eq(servers.publicId, publicId))
-    .limit(1);
-
-  if (!server) return undefined;
-
-  const logo = server.logoId
-    ? (
-        await db
-          .select()
-          .from(files)
-          .where(eq(files.id, server.logoId))
-          .limit(1)
-      )[0]
-    : undefined;
-
-  return {
-    ...server,
-    logo: logo ?? null
-  };
-};
-
 const getServersByUserId = async (
   userId: number
 ): Promise<TServerSummary[]> => {
@@ -544,7 +517,6 @@ export {
   getFirstServer,
   getPresenceInterestedIds,
   getServerById,
-  getServerByPublicId,
   getServerMemberIds,
   getServerUnreadCount,
   getServerUnreadCounts,

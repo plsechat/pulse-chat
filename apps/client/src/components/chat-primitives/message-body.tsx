@@ -2,9 +2,9 @@ import { fullDateTime } from '@/helpers/time-format';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import {
   isEmojiOnlyContent,
-  isLegacyHtml,
-  TokenContentRenderer
-} from '@/lib/converters/token-content-renderer';
+  isLegacyHtml
+} from '@/lib/converters/token-content';
+import { TokenContentRenderer } from '@/lib/converters/token-content-renderer';
 import { cn } from '@/lib/utils';
 import {
   audioExtensions,

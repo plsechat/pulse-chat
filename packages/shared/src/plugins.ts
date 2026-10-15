@@ -7,6 +7,10 @@ export const zPluginPackageJson = z.object({
   name: z.string().min(1, "Package name is required"),
   pulse: z.object({
     entry: z.string().endsWith(".js", "Plugin entry file must be a .js file"),
+    // Semver range of @pulse/plugin-sdk the plugin was written against.
+    // Optional for one release; the server refuses to load a plugin whose
+    // range the running SDK version does not satisfy.
+    sdk: z.string().min(1).optional(),
     author: z.string().min(1, "Plugin author is required"),
     homepage: z.url().optional(),
     description: z.string().min(1, "Plugin description is required"),
@@ -23,9 +27,12 @@ export type TPluginInfo = {
   author: TPluginPackageJson["pulse"]["author"];
   description: TPluginPackageJson["pulse"]["description"];
   version: TPluginPackageJson["version"];
-  logo: TPluginPackageJson["pulse"]["logo"];
+  // Optional keys (not `string | undefined`): both are absent from the
+  // plugin's package.json when unset, and the tRPC wire type drops
+  // undefined-valued keys, so the client sees them as optional too.
+  logo?: TPluginPackageJson["pulse"]["logo"];
   name: TPluginPackageJson["name"];
-  homepage: TPluginPackageJson["pulse"]["homepage"];
+  homepage?: TPluginPackageJson["pulse"]["homepage"];
   path: string;
   entry: string;
 };

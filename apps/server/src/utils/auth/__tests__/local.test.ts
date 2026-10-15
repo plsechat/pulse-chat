@@ -6,9 +6,16 @@
  * directly from `../local`. The DB is real (test fixture).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { randomUUIDv7 } from 'bun';
 import { SignJWT } from 'jose';
 import { localAuthBackend } from '../local';
 import { initTest } from '../../../__tests__/helpers';
+
+// `local_auth_users` is reset between tests, but a hard-coded address
+// would still collide with a row left by a crashed previous run against
+// the same database. Unique per test keeps createUser deterministic.
+const uniqueEmail = (label: string) =>
+  `${label}-${randomUUIDv7().slice(0, 8)}@example.com`;
 
 const TEST_SECRET = 'test-secret-min-32-chars-must-be-this-or-longer';
 
@@ -25,16 +32,17 @@ afterAll(() => {
 describe('localAuthBackend', () => {
   test('createUser → signInWithPassword → getUser round-trip', async () => {
     await initTest(1);
+    const email = uniqueEmail('roundtrip');
 
     const created = await localAuthBackend.createUser({
-      email: 'roundtrip@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     expect(created.error).toBeNull();
-    expect(created.data.user?.email).toBe('roundtrip@example.com');
+    expect(created.data.user?.email).toBe(email);
 
     const signed = await localAuthBackend.signInWithPassword({
-      email: 'roundtrip@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     expect(signed.error).toBeNull();
@@ -45,20 +53,21 @@ describe('localAuthBackend', () => {
       signed.data.session!.access_token
     );
     expect(verified.data.user?.id).toBe(created.data.user!.id);
-    expect(verified.data.user?.email).toBe('roundtrip@example.com');
+    expect(verified.data.user?.email).toBe(email);
     expect(verified.data.user?.identities).toEqual([{ provider: 'email' }]);
   });
 
   test('signInWithPassword rejects the wrong password', async () => {
     await initTest(1);
+    const email = uniqueEmail('wrongpw');
 
     await localAuthBackend.createUser({
-      email: 'wrongpw@example.com',
+      email: email,
       password: 'correct-horse-battery-staple'
     });
 
     const result = await localAuthBackend.signInWithPassword({
-      email: 'wrongpw@example.com',
+      email: email,
       password: 'definitely-not-it'
     });
 
@@ -69,9 +78,10 @@ describe('localAuthBackend', () => {
 
   test('signInWithPassword rejects an unknown email with the same canonical reason', async () => {
     await initTest(1);
+    const email = uniqueEmail('no-such-user');
 
     const result = await localAuthBackend.signInWithPassword({
-      email: 'no-such-user@example.com',
+      email: email,
       password: 'whatever'
     });
 
@@ -82,14 +92,15 @@ describe('localAuthBackend', () => {
 
   test('createUser is rejected when the email is already registered', async () => {
     await initTest(1);
+    const email = uniqueEmail('duplicate');
 
     await localAuthBackend.createUser({
-      email: 'duplicate@example.com',
+      email: email,
       password: 'pw1234567'
     });
 
     const second = await localAuthBackend.createUser({
-      email: 'duplicate@example.com',
+      email: email,
       password: 'a-different-pw'
     });
     expect(second.data.user).toBeNull();
@@ -98,9 +109,10 @@ describe('localAuthBackend', () => {
 
   test('updateUserById changes the password — old password stops working', async () => {
     await initTest(1);
+    const email = uniqueEmail('rotate');
 
     const created = await localAuthBackend.createUser({
-      email: 'rotate@example.com',
+      email: email,
       password: 'old-password-hunter'
     });
     expect(created.data.user).not.toBeNull();
@@ -112,13 +124,13 @@ describe('localAuthBackend', () => {
     expect(updated.error).toBeNull();
 
     const oldFails = await localAuthBackend.signInWithPassword({
-      email: 'rotate@example.com',
+      email: email,
       password: 'old-password-hunter'
     });
     expect(oldFails.error?.reason).toBe('invalid_credentials');
 
     const newWorks = await localAuthBackend.signInWithPassword({
-      email: 'rotate@example.com',
+      email: email,
       password: 'fresh-password-victor'
     });
     expect(newWorks.error).toBeNull();
@@ -127,9 +139,10 @@ describe('localAuthBackend', () => {
 
   test('getUser rejects a token signed with a different secret', async () => {
     await initTest(1);
+    const email = uniqueEmail('foreign-sig');
 
     const created = await localAuthBackend.createUser({
-      email: 'foreign-sig@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     expect(created.data.user).not.toBeNull();
@@ -159,15 +172,16 @@ describe('localAuthBackend', () => {
 
   test('getUserById returns the user with email + identities', async () => {
     await initTest(1);
+    const email = uniqueEmail('lookup');
 
     const created = await localAuthBackend.createUser({
-      email: 'lookup@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
 
     const found = await localAuthBackend.getUserById(created.data.user!.id);
     expect(found.error).toBeNull();
-    expect(found.data.user?.email).toBe('lookup@example.com');
+    expect(found.data.user?.email).toBe(email);
     expect(found.data.user?.identities).toEqual([{ provider: 'email' }]);
   });
 
@@ -184,13 +198,14 @@ describe('localAuthBackend', () => {
 
   test('refreshSession rotates the pair and the new tokens work', async () => {
     await initTest(1);
+    const email = uniqueEmail('refresh');
 
     await localAuthBackend.createUser({
-      email: 'refresh@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     const signed = await localAuthBackend.signInWithPassword({
-      email: 'refresh@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     const session = signed.data.session!;
@@ -210,18 +225,19 @@ describe('localAuthBackend', () => {
     const verified = await localAuthBackend.getUser(
       refreshed.data.session!.access_token
     );
-    expect(verified.data.user?.email).toBe('refresh@example.com');
+    expect(verified.data.user?.email).toBe(email);
   });
 
   test('getUser rejects a refresh token used as an access token', async () => {
     await initTest(1);
+    const email = uniqueEmail('typ-access');
 
     await localAuthBackend.createUser({
-      email: 'typ-access@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     const signed = await localAuthBackend.signInWithPassword({
-      email: 'typ-access@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
 
@@ -234,13 +250,14 @@ describe('localAuthBackend', () => {
 
   test('refreshSession rejects an access token', async () => {
     await initTest(1);
+    const email = uniqueEmail('typ-refresh');
 
     await localAuthBackend.createUser({
-      email: 'typ-refresh@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
     const signed = await localAuthBackend.signInWithPassword({
-      email: 'typ-refresh@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
 
@@ -251,16 +268,17 @@ describe('localAuthBackend', () => {
     expect(result.error?.reason).toBe('invalid_credentials');
   });
 
-  test('legacy untyped tokens are accepted by both paths (upgrade compat)', async () => {
+  test('untyped tokens are rejected by both paths', async () => {
     await initTest(1);
+    const email = uniqueEmail('legacy');
 
     const created = await localAuthBackend.createUser({
-      email: 'legacy@example.com',
+      email: email,
       password: 'hunter2-strong'
     });
 
-    // Pre-`typ` token: same signing, no typ claim — what existing
-    // sessions hold at upgrade time.
+    // Pre-`typ` token: same signing, no typ claim. The upgrade window
+    // that accepted these closed on 2026-08-09.
     const legacyToken = await new SignJWT({})
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(created.data.user!.id)
@@ -270,11 +288,11 @@ describe('localAuthBackend', () => {
       .sign(new TextEncoder().encode(TEST_SECRET));
 
     const asAccess = await localAuthBackend.getUser(legacyToken);
-    expect(asAccess.data.user?.email).toBe('legacy@example.com');
+    expect(asAccess.data.user).toBeNull();
 
     const asRefresh = await localAuthBackend.refreshSession!(legacyToken);
-    expect(asRefresh.error).toBeNull();
-    expect(asRefresh.data.session?.access_token).toBeTruthy();
+    expect(asRefresh.data.session).toBeNull();
+    expect(asRefresh.error?.reason).toBe('invalid_credentials');
   });
 
   test('refreshSession rejects garbage', async () => {

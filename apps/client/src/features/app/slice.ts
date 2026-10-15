@@ -1,4 +1,3 @@
-import type { TDevices } from '@/types';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { TServerSummary } from '@pulse/shared';
 
@@ -20,7 +19,6 @@ export type TFederatedServerEntry = {
 
 export interface TAppState {
   loading: boolean;
-  devices: TDevices | undefined;
   modViewOpen: boolean;
   modViewUserId?: number;
   activeView: TActiveView;
@@ -49,7 +47,6 @@ export interface TAppState {
 
 const initialState: TAppState = {
   loading: true,
-  devices: undefined,
   modViewOpen: false,
   modViewUserId: undefined,
   activeView: 'home',
@@ -72,9 +69,7 @@ export const appSlice = createSlice({
     setAppLoading: (state, action: PayloadAction<boolean>) => {
       state.loading = action.payload;
     },
-    setDevices: (state, action: PayloadAction<TDevices>) => {
-      state.devices = action.payload;
-    },
+
     setModViewOpen: (
       state,
       action: PayloadAction<{

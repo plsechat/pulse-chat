@@ -1,22 +1,27 @@
 # E2E harness image — runs Pulse via the bun runtime (interpreted, not
-# the compiled single binary). Mirrors test-deploy's approach; see
-# test-deploy/TEST-DEPLOY.md for why runtime mode is used (bun --compile
-# flattens the auth dispatcher's dynamic imports, which crashes local
-# mode when Supabase env vars are absent).
+# the compiled single binary): bun --compile flattens the auth dispatcher's
+# dynamic imports, which crashes local mode when Supabase env vars are
+# absent, and the suite only needs a bootable instance, not the shipped
+# artifact.
 #
 # Instance-specific config (federation on/off, instance domain) is
 # injected via env by entrypoint.sh, which writes config.ini BEFORE the
 # app's first boot — no post-boot sed, no container-restart dance.
 
-FROM oven/bun:1.3.5
+# Pinned via root package.json "packageManager"; e2e.yml passes it through.
+ARG BUN_VERSION=1.3.9
+FROM oven/bun:${BUN_VERSION}
 WORKDIR /app
+
+# Manifests first so the dependency layer survives source-only edits.
+COPY package.json bun.lock ./
+COPY apps/server/package.json apps/server/
+COPY apps/client/package.json apps/client/
+COPY packages/shared/package.json packages/shared/
+COPY packages/plugin-sdk/package.json packages/plugin-sdk/
+RUN bun install --frozen-lockfile
+
 COPY . .
-
-RUN bun install
-
-# Migrations need patching for the runtime path the same way the
-# compiled image does.
-RUN cd apps/server && bun run /app/docker/patch-migrations.ts ./src/db/migrations
 
 # Build the client bundle.
 RUN cd apps/client && bun run build

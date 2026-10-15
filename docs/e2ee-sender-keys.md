@@ -18,8 +18,11 @@ outside SKDM envelopes it cannot open).
   conversation (`senderKeyId` + chain key). Messages are encrypted once
   with the chain; the chain is announced to every other member via a
   **Sender Key Distribution Message (SKDM)** encrypted pairwise.
-- **Single-device keying**: one identity per user. A second device
-  restoring from backup replaces, not augments, the identity.
+- **Single-device keying is the contract**: one identity key per user,
+  held by one browser profile. A second device (or a cleared browser)
+  restoring from backup *replaces* the identity; two devices never
+  share one. History encrypted before the replacement stays readable
+  only where the old identity's store survives.
 - Identity verification is TOFU with explicit verification on top
   (identity changes surface as warnings; `decrypt-retry.ts` +
   `identity-change-dispatch.ts` handle re-sync after a peer rotates).
@@ -67,6 +70,40 @@ These relays are dispatched fire-and-forget from
 `routers/dms/sender-keys.ts` and `routers/e2ee/index.ts`; each `void`
 call carries `.catch` (unguarded rejections here were a CI-flake
 source — keep the handlers).
+
+## What the server can still see
+
+End-to-end encryption covers message bodies and attachment bytes.
+Everything else about a conversation is plaintext to the server, to
+anyone with database access, and to the federated peers that relay it.
+All of this is current behaviour:
+
+| Visible to the server | Where |
+| --- | --- |
+| Who talks to whom, when and how often — sender, channel / DM, timestamps, edit and delete events | `messages`, `dm_messages` rows |
+| Reactions: the emoji and who reacted | `message_reactions`, `dm_message_reactions` (`messages.toggleMessageReaction`, `dms.toggleReaction`) |
+| Pin state (`pinned`, `pinnedBy`, `pinnedAt`) | `messages` columns |
+| Reply graph (`replyToId`) and thread membership | `messages` columns |
+| Attachment count and size, plus whatever MIME type the client declares; the original filename is replaced by a UUID placeholder only when the client uploads with the `encrypted` flag | `files` rows (`http/upload.ts`) |
+| Identity-reset system rows (`content: 'identity_reset'`) | `routers/e2ee/identity-reset-messages.ts` |
+| Typing indicators | `messages.signalTyping` pubsub |
+| Membership, roles and read state | the usual tables |
+
+Two further caveats:
+
+- **Forum posts under an E2EE channel are stored in plaintext.**
+  `messages.sendMessage` refuses a non-E2EE message in an encrypted
+  channel, but `threads.createForumPost` writes `input.content`
+  directly with no E2EE check. Do not treat a forum channel as
+  encrypted.
+- **Search excludes encrypted messages.** Channel search
+  (`search.searchMessages`) and DM search (`dms.searchMessages`) both
+  filter on `e2ee = false`; encrypted history is not searchable
+  anywhere today.
+
+The server also does not emit plugin events (`message:created` /
+`message:updated`) for E2EE messages, so plugins never see ciphertext
+either — they see nothing.
 
 ## Invariants
 

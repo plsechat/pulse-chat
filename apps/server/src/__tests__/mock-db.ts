@@ -1,10 +1,10 @@
 import { mock } from 'bun:test';
-import { sql } from 'drizzle-orm';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { DRIZZLE_PATH } from '../helpers/paths';
 import { seedDatabase } from './seed';
+import { TRUNCATE_ALL_SQL } from './truncate';
 
 /**
  * This file is preloaded via bunfig.toml to mock the db module
@@ -92,54 +92,9 @@ await migrate(tdb, { migrationsFolder: DRIZZLE_PATH });
 // (role id=1, server id=1, etc) collide with that leftover data.
 // setup.ts's beforeEach already truncates, but it only runs before
 // each test, not at module load. Reset everything here so the
-// bootstrap seed is the first thing in the table.
-await tdb.execute(sql`TRUNCATE TABLE
-  e2ee_sender_keys,
-  user_key_backups,
-  user_one_time_pre_keys,
-  user_signed_pre_keys,
-  user_identity_keys,
-  user_preferences,
-  user_notes,
-  plugin_data,
-  thread_followers,
-  forum_post_tags,
-  forum_tags,
-  channel_notification_settings,
-  channel_read_states,
-  channel_user_permissions,
-  channel_role_permissions,
-  message_reactions,
-  message_files,
-  dm_read_states,
-  dm_message_reactions,
-  dm_message_files,
-  dm_messages,
-  dm_channel_members,
-  dm_channels,
-  friend_requests,
-  friendships,
-  activity_log,
-  logins,
-  server_members,
-  user_roles,
-  webhooks,
-  automod_rules,
-  messages,
-  emojis,
-  invites,
-  files,
-  user_federated_servers,
-  federation_instances,
-  federation_keys,
-  users,
-  role_permissions,
-  roles,
-  channels,
-  categories,
-  servers,
-  settings
-  RESTART IDENTITY CASCADE`);
+// bootstrap seed is the first thing in the table. The statement is
+// derived from the schema (see truncate.ts) so it can't drift.
+await tdb.execute(TRUNCATE_ALL_SQL);
 
 await seedDatabase(tdb);
 

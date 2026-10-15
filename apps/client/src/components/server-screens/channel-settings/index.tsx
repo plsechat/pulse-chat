@@ -6,7 +6,7 @@ import { General } from './general';
 import { ChannelPermissions } from './permissions';
 import { Security } from './security';
 
-type TChannelSettingsProps = TServerScreenBaseProps & {
+export type TChannelSettingsProps = TServerScreenBaseProps & {
   channelId: number;
 };
 

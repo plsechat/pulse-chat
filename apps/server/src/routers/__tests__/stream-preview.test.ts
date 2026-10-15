@@ -1,17 +1,15 @@
 import {
-  ChannelType,
-  STORAGE_MAX_FILE_SIZE,
-  STORAGE_MIN_QUOTA_PER_USER,
-  STORAGE_OVERFLOW_ACTION,
-  STORAGE_QUOTA,
   VOICE_STREAM_PREVIEW_MAX_LENGTH,
   VOICE_STREAM_PREVIEW_PREFIX
 } from '@pulse/shared';
-import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { db } from '../../db';
-import { channels, servers } from '../../db/schema';
+import { servers } from '../../db/schema';
+import {
+  insertOtherServer,
+  insertVoiceChannel,
+  stageUserInVoice
+} from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { VoiceRuntime } from '../../runtimes/voice';
@@ -23,48 +21,6 @@ import { VoiceRuntime } from '../../runtimes/voice';
 // reset by the between-test TRUNCATE.
 
 const validPreview = `${VOICE_STREAM_PREVIEW_PREFIX}dGVzdC1mcmFtZQ==`;
-
-const insertVoiceChannel = async (serverId = 1) => {
-  const [channel] = await db
-    .insert(channels)
-    .values({
-      type: ChannelType.VOICE,
-      name: `stream-preview-${randomUUIDv7()}`,
-      fileAccessToken: randomUUIDv7(),
-      fileAccessTokenUpdatedAt: Date.now(),
-      position: 999,
-      serverId,
-      publicId: randomUUIDv7(),
-      createdAt: Date.now()
-    })
-    .returning();
-  return channel!;
-};
-
-const insertOtherServer = async () => {
-  const [server] = await db
-    .insert(servers)
-    .values({
-      name: 'Stream Preview Other Server',
-      publicId: randomUUIDv7(),
-      allowNewUsers: true,
-      storageUploadEnabled: true,
-      storageQuota: STORAGE_QUOTA,
-      storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
-      storageSpaceQuotaByUser: STORAGE_MIN_QUOTA_PER_USER,
-      storageOverflowAction: STORAGE_OVERFLOW_ACTION,
-      enablePlugins: false,
-      createdAt: Date.now()
-    })
-    .returning();
-  return server!;
-};
-
-const stageUserInVoice = (channelId: number, userId: number) => {
-  const runtime = new VoiceRuntime(channelId);
-  runtime.addUser(userId, { micMuted: false, soundMuted: false });
-  return runtime;
-};
 
 describe('voice.updateStreamPreview', () => {
   test('refused when not in voice or not sharing', async () => {

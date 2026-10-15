@@ -19,7 +19,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
 
-type TPluginSettingsDialogProps = TDialogBaseProps & {
+export type TPluginSettingsDialogProps = TDialogBaseProps & {
   pluginId: string;
   pluginName: string;
 };

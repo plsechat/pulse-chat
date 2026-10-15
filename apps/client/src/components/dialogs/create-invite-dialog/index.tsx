@@ -18,7 +18,7 @@ import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
 
-type TCreateInviteDialogProps = TDialogBaseProps & {
+export type TCreateInviteDialogProps = TDialogBaseProps & {
   refetch?: () => void;
 };
 

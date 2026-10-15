@@ -18,15 +18,14 @@
  * The two are distinguished by a `typ` claim ('access' | 'refresh'):
  * getUser rejects refresh-typed tokens (a refresh token must never
  * work as a session credential), and refreshSession only accepts
- * refresh-typed ones. Tokens minted before the `typ` claim existed
- * carry neither — those are accepted by BOTH paths until they age
- * out (≤30 days) so live sessions survive the upgrade.
+ * refresh-typed ones. A token without a `typ` claim is rejected by
+ * both paths.
  * refreshSession rotates the pair: each refresh issues a new access
  * AND a new refresh token, giving active users a sliding 30-day
  * window while idle sessions still expire.
  *
  * AUTH_SECRET must be set when `AUTH_BACKEND=local`. The dispatcher
- * (utils/supabase.ts) refuses to load this backend without it.
+ * (utils/auth/index.ts) refuses to load this backend without it.
  */
 
 import { randomUUIDv7 } from 'bun';
@@ -87,9 +86,8 @@ async function signToken(
 /**
  * Verify a token and return its subject, or null.
  *
- * `expect` gates on the `typ` claim. Legacy tokens (minted before the
- * claim existed) carry no `typ` and are accepted by both paths so live
- * sessions survive the upgrade; they age out within 30 days.
+ * `expect` gates on the `typ` claim: the token must carry exactly the
+ * expected type. Tokens without a `typ` are rejected.
  */
 async function verifyToken(
   token: string,
@@ -99,8 +97,7 @@ async function verifyToken(
     const { payload } = await jwtVerify(token, getSecret(), {
       issuer: ISSUER
     });
-    const typ = payload.typ as TokenType | undefined;
-    if (typ !== undefined && typ !== expect) return null;
+    if (payload.typ !== expect) return null;
     return typeof payload.sub === 'string' ? payload.sub : null;
   } catch {
     return null;

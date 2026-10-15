@@ -174,6 +174,7 @@ export async function getPersistedOwnPlaintextBatch(
  * Delete the persisted entry — used after an own message is edited so
  * the cache doesn't return stale plaintext for the new ciphertext.
  */
+/** @pendingBatch B6 — called on ciphertext mismatch in B6 (A4-2) */
 export async function deletePersistedOwnPlaintext(
   messageId: number
 ): Promise<void> {

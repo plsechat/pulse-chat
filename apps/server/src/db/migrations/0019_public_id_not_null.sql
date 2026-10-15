@@ -5,10 +5,10 @@
 -- sets it (randomUUIDv7); this guarantees it at the DB level so client and
 -- federation code can rely on it always being present.
 --
--- Idempotent for the boot-loop replay-safety pattern (db/index.ts wipes
--- drizzle migration tracking on every start): the UPDATEs only touch NULL
--- rows and re-applying SET NOT NULL to an already NOT NULL column is a
--- no-op in Postgres.
+-- Idempotent: drizzle tracking runs this once, and a replay (CI applies
+-- every migration twice) is harmless — the UPDATEs only touch NULL rows
+-- and re-applying SET NOT NULL to an already NOT NULL column is a no-op
+-- in Postgres.
 UPDATE "channels" SET "public_id" = gen_random_uuid()::text WHERE "public_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "channels" ALTER COLUMN "public_id" SET NOT NULL;

@@ -673,19 +673,6 @@ class VoiceRuntime {
       } else if (type === StreamKind.SCREEN_AUDIO) {
         delete this.screenAudioProducers[userId];
       }
-
-      // Notify peers that this producer is gone so they can clean up consumers
-      this.getServerMemberIdsForChannel()
-        .then((memberIds) => {
-          pubsub.publishFor(memberIds, ServerEvents.VOICE_PRODUCER_CLOSED, {
-            channelId: this.id,
-            remoteId: userId,
-            kind: type
-          });
-        })
-        .catch((err) => {
-          logger.error('[VoiceRuntime] Failed to broadcast producer close for user %d:', userId, err);
-        });
     });
   };
 

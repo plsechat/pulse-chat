@@ -19,7 +19,7 @@ This guide walks you through deploying Pulse with a fully self-hosted Supabase s
 8. [Build and Start](#build-and-start)
 9. [Set Up HTTPS](#set-up-https)
 10. [Firewall Configuration](#firewall-configuration)
-11. [Claim Server Ownership](#claim-server-ownership)
+11. [Server Ownership](#server-ownership)
 12. [Verify Installation](#verify-installation)
 13. [Updating Pulse](#updating-pulse)
 14. [OAuth Setup (Optional)](#oauth-setup-optional)
@@ -165,7 +165,7 @@ SITE_URL=https://your-domain.com
 | `SUPABASE_ANON_KEY` | Yes | — | Supabase public/anonymous API key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Supabase admin service role key |
 | `AUTH_SECRET` | For OIDC | — | ≥32 random chars; signs the Pulse session token minted after OIDC login. Required only if you enable OIDC below. |
-| `SITE_URL` | Yes | — | Public URL (e.g., `https://pulse.example.com`) |
+| `SITE_URL` | Yes | — | Public URL (e.g., `https://pulse.example.com`). The compose file also passes it to Pulse as `SUPABASE_PUBLIC_URL`, the browser-facing Supabase URL (the container-internal `SUPABASE_URL` would not resolve from a browser). |
 | `PULSE_PORT` | No | `5443` | Host port for Pulse |
 | `JWT_EXPIRY` | No | `3600` | Token expiry in seconds |
 | `PUBLIC_IP` | No | auto | Public IP for WebRTC |
@@ -217,7 +217,7 @@ NAME         IMAGE                            STATUS
 pulse-db     supabase/postgres:15.6.1.143     Up (healthy)
 pulse-auth   supabase/gotrue:v2.170.0         Up
 pulse-kong   kong:3.4                         Up
-pulse        pulse-pulse                      Up
+pulse        ghcr.io/plsechat/pulse-chat:latest   Up
 ```
 
 ### Check logs
@@ -334,25 +334,20 @@ sudo ufw enable
 | 5443 | TCP | Pulse (only if no reverse proxy) |
 | 40000-40020 | UDP + TCP | WebRTC media (voice/video/screen share) |
 
+Each voice participant uses two transports (send + receive) and each transport takes one UDP and one TCP port from the range, shared across every voice channel and DM call on the instance — the default 21-port range supports roughly 10 concurrent voice participants. To allow more, widen `rtcMinPort`/`rtcMaxPort` in `config.ini`, the port mapping in the compose file and the firewall rule together. Pulse runs no STUN/TURN relay; clients need a direct path to the public IP on these ports.
+
 > **Note:** Docker manipulates iptables directly and can bypass ufw rules. Ports mapped in `docker-compose-supabase.yml` may be publicly accessible even if ufw doesn't allow them. The compose file binds Kong (port 8000) to `127.0.0.1` so it is only accessible from the reverse proxy — do not change this to `0.0.0.0`.
 
 ---
 
-## Claim Server Ownership
+## Server Ownership
 
 1. Open `https://your-domain.com` in your browser
 2. Register a new account
-3. Find the ownership token in the server logs:
 
-```bash
-docker logs pulse 2>&1 | grep -i token
-```
+The **first account registered becomes the instance operator** — owner of the bootstrap server with every permission — so register your own account before opening the instance to others. Later registrations are regular users. There is no ownership token; nothing prints to the logs apart from a one-line `[register] First user registered — granted ownership` notice.
 
-4. In the Pulse web interface, open browser DevTools (F12)
-5. Go to the Console tab and run: `useToken('your_token_here')`
-6. Your account is now the server owner
-
-> The ownership token is printed once on first start. Save it somewhere secure.
+To hand the instance to another account later, use **Server Settings → Users → Transfer Ownership**.
 
 ---
 
@@ -360,7 +355,7 @@ docker logs pulse 2>&1 | grep -i token
 
 - [ ] `https://your-domain.com` loads the login page
 - [ ] You can register and log in
-- [ ] You claimed ownership with the token
+- [ ] Your (first-registered) account shows Server Settings, i.e. it holds ownership
 - [ ] Text channels work (send/receive messages)
 - [ ] File uploads work
 - [ ] Voice channels work (join, speak, hear others)

@@ -145,7 +145,9 @@ const baseTransports = [
 const RECENT_LOGS_MAX = 1000;
 type TRecentLog = { ts: number; level: string; message: string };
 const recentLogs: TRecentLog[] = [];
-const stripAnsi = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, '');
+// Built with fromCharCode so the source holds no literal control character.
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;]*m`, 'g');
+const stripAnsi = (s: string) => s.replace(ANSI_ESCAPE, '');
 const ringTap = format((info) => {
   recentLogs.push({
     ts: Date.now(),

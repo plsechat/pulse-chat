@@ -33,9 +33,3 @@ export type PreKeyBundle = {
     publicKey: string;
   } | null;
 };
-
-export type SenderKeyDistribution = {
-  channelId: number;
-  fromUserId: number;
-  distributionMessage: string;
-};

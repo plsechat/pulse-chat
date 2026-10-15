@@ -26,8 +26,6 @@ export const addRequest = (request: TJoinedFriendRequest) =>
 export const removeRequest = (requestId: number) =>
   store.dispatch(friendsSliceActions.removeRequest(requestId));
 
-export const setFriendsLoading = (loading: boolean) =>
-  store.dispatch(friendsSliceActions.setLoading(loading));
 
 export const resetFriendsState = () =>
   store.dispatch(friendsSliceActions.resetState());
@@ -35,14 +33,11 @@ export const resetFriendsState = () =>
 export const fetchFriends = async () => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
-  setFriendsLoading(true);
   try {
     const friends = await trpc.friends.getAll.query();
     setFriends(friends);
   } catch (err) {
     console.error('Failed to fetch friends:', err);
-  } finally {
-    setFriendsLoading(false);
   }
 };
 
@@ -84,11 +79,6 @@ export const removeFriendAction = async (userId: number) => {
 export const setBlockedUsers = (users: TJoinedPublicUser[]) =>
   store.dispatch(friendsSliceActions.setBlocked(users));
 
-export const addBlockedUser = (user: TJoinedPublicUser) =>
-  store.dispatch(friendsSliceActions.addBlocked(user));
-
-export const removeBlockedUser = (userId: number) =>
-  store.dispatch(friendsSliceActions.removeBlocked(userId));
 
 export const fetchBlockedUsers = async () => {
   const trpc = getHomeTRPCClient();

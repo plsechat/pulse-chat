@@ -18,7 +18,7 @@ import { Helpers } from './helpers';
 import { Response } from './response';
 import type { TCommandResponse } from './types';
 
-type TPluginCommandsDialogProps = TDialogBaseProps & {
+export type TPluginCommandsDialogProps = TDialogBaseProps & {
   pluginId: string;
 };
 

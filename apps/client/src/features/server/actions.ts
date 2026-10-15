@@ -44,9 +44,6 @@ export const setDisconnectInfo = (info: TDisconnectInfo | undefined) => {
   store.dispatch(serverSliceActions.setDisconnectInfo(info));
 };
 
-export const setConnecting = (status: boolean) => {
-  store.dispatch(serverSliceActions.setConnecting(status));
-};
 
 export const setReconnecting = (status: boolean) => {
   store.dispatch(serverSliceActions.setReconnecting(status));
@@ -56,9 +53,6 @@ export const setReconnectAttempt = (attempt: number) => {
   store.dispatch(serverSliceActions.setReconnectAttempt(attempt));
 };
 
-export const setServerId = (id: string) => {
-  store.dispatch(serverSliceActions.setServerId(id));
-};
 
 export const setPublicServerSettings = (
   settings: TPublicServerSettings | undefined

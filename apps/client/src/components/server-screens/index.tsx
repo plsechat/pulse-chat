@@ -3,20 +3,39 @@ import { closeServerScreens } from '@/features/server-screens/actions';
 import { useServerScreenInfo } from '@/features/server-screens/hooks';
 import { useEscapeKey } from '@/hooks/use-escape-key';
 import { X } from 'lucide-react';
-import { createElement, memo, type JSX } from 'react';
+import { createElement, memo, type ComponentType, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { CategorySettings } from './category-settings';
 import { ChannelSettings } from './channel-settings';
-import { ServerScreen } from './screens';
+import {
+  ServerScreen,
+  type TServerScreenBaseProps,
+  type TServerScreenPropsMap
+} from './screens';
 import { ServerSettings } from './server-settings';
 import { UserSettings } from './user-settings';
 
-const ScreensMap = {
+const ScreensMap: {
+  [K in ServerScreen]: ComponentType<TServerScreenPropsMap[K]>;
+} = {
   [ServerScreen.SERVER_SETTINGS]: ServerSettings,
   [ServerScreen.CHANNEL_SETTINGS]: ChannelSettings,
   [ServerScreen.USER_SETTINGS]: UserSettings,
   [ServerScreen.CATEGORY_SETTINGS]: CategorySettings
 };
+
+/**
+ * Screen-specific props travel through Redux as an untyped record
+ * (`openServerScreen(screen, props)`); the opener owns their shape, so
+ * this is the one boundary where that record is narrowed to the
+ * screen's declared props.
+ */
+function renderScreen<K extends ServerScreen>(
+  screen: K,
+  props: TServerScreenBaseProps & Record<string, unknown>
+) {
+  return createElement(ScreensMap[screen], props as TServerScreenPropsMap[K]);
+}
 
 const portalRoot = document.getElementById('portal')!;
 
@@ -59,14 +78,11 @@ const ServerScreensProvider = memo(() => {
   let component: JSX.Element | null = null;
 
   if (openServerScreen && ScreensMap[openServerScreen]) {
-    const baseProps = {
+    component = renderScreen(openServerScreen, {
       ...props,
       isOpen,
       close: closeServerScreens
-    };
-
-    // @ts-expect-error - é lidar irmoum
-    component = createElement(ScreensMap[openServerScreen], baseProps);
+    });
   }
 
   const realIsOpen = isOpen && !!component;

@@ -12,7 +12,7 @@ import { AutoFocus } from '@/components/ui/auto-focus';
 import { memo } from 'react';
 import type { TDialogBaseProps } from '../types';
 
-type TConfirmActionDialogProps = TDialogBaseProps & {
+export type TConfirmActionDialogProps = TDialogBaseProps & {
   onCancel?: () => void;
   onConfirm?: () => void;
   title?: string;

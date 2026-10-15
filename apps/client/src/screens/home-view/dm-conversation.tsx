@@ -66,10 +66,8 @@ import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import {
-  isLegacyHtml,
-  TokenContentRenderer
-} from '@/lib/converters/token-content-renderer';
+import { isLegacyHtml } from '@/lib/converters/token-content';
+import { TokenContentRenderer } from '@/lib/converters/token-content-renderer';
 import { serializer } from '@/components/chat-primitives/serializer';
 import parse from 'html-react-parser';
 import { fullDateTime, groupTimestamp, longDateTime } from '@/helpers/time-format';
@@ -190,13 +188,18 @@ const DmConversation = memo(
   const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
     useUploadFiles(false, isE2ee, focusEditor);
 
-  const handleReply = useCallback((message: TJoinedDmMessage) => {
-    setReplyingTo(message);
-    requestAnimationFrame(() => {
-      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-      scrollToBottom();
-    });
-  }, []);
+  const handleReply = useCallback(
+    (message: TJoinedDmMessage) => {
+      setReplyingTo(message);
+      requestAnimationFrame(() => {
+        inputAreaRef.current
+          ?.querySelector<HTMLElement>('.ProseMirror')
+          ?.focus();
+        scrollToBottom();
+      });
+    },
+    [scrollToBottom]
+  );
 
   const sendTypingSignal = useMemo(
     () =>

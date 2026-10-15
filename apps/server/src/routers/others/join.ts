@@ -223,7 +223,8 @@ const joinServerRoute = t.procedure
 
     eventBus.emit('user:joined', {
       userId: ctx.user.id,
-      username: ctx.user.name
+      username: ctx.user.name,
+      serverId: targetServer.id
     });
 
     // Aggregate unread counts for forum channels from their child threads

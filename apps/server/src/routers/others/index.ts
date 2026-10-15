@@ -6,10 +6,8 @@ import { getServerMembersRoute } from './get-server-members';
 import { getServerVoiceStateRoute } from './get-server-voice-state';
 import { getSettingsRoute } from './get-settings';
 import { getStorageSettingsRoute } from './get-storage-settings';
-import { getUpdateRoute } from './get-update';
 import { handshakeRoute } from './handshake';
 import { joinServerRoute } from './join';
-import { updateServerRoute } from './update-server';
 import { updateSettingsRoute } from './update-settings';
 
 export const othersRouter = t.router({
@@ -22,7 +20,5 @@ export const othersRouter = t.router({
   getServerEmojis: getServerEmojisRoute,
   getServerVoiceState: getServerVoiceStateRoute,
   onServerSettingsUpdate: onServerSettingsUpdateRoute,
-  getStorageSettings: getStorageSettingsRoute,
-  getUpdate: getUpdateRoute,
-  updateServer: updateServerRoute
+  getStorageSettings: getStorageSettingsRoute
 });

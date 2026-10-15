@@ -1,5 +1,5 @@
 import { OWNER_ROLE_ID } from '@pulse/shared';
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { and, eq, gt } from 'drizzle-orm';
 import { login } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
@@ -13,7 +13,9 @@ const BOOTSTRAP_SERVER_ID = 1;
  * truncated everything and reseeded a Test Owner — we leave seeded rows
  * alone (truncating users with CASCADE would blow away the bootstrap
  * server itself via the owner_id FK), and only clear the owner-claim
- * markers so the unclaimed-server path is exercised.
+ * markers so the unclaimed-server path is exercised. Called inside each
+ * test (not beforeEach) so the writes don't pile onto the global
+ * per-test TRUNCATE inside the same hook budget.
  */
 async function unclaimBootstrapServer() {
   const tdb = getTestDb();
@@ -34,11 +36,8 @@ async function maxExistingUserId(): Promise<number> {
 }
 
 describe('first-user-becomes-owner registration', () => {
-  beforeEach(async () => {
-    await unclaimBootstrapServer();
-  });
-
   test('first registered user is granted ownership of server 1', async () => {
+    await unclaimBootstrapServer();
     const tdb = getTestDb();
     const baseline = await maxExistingUserId();
 
@@ -86,6 +85,7 @@ describe('first-user-becomes-owner registration', () => {
   });
 
   test('second registered user does not get ownership', async () => {
+    await unclaimBootstrapServer();
     const tdb = getTestDb();
 
     const firstResponse = await login('firstuser@pulse.local', 'password123');
@@ -141,6 +141,7 @@ describe('first-user-becomes-owner registration', () => {
   });
 
   test('concurrent first registrations: only one wins ownership', async () => {
+    await unclaimBootstrapServer();
     const tdb = getTestDb();
     const baseline = await maxExistingUserId();
 

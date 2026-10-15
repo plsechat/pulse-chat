@@ -6,7 +6,7 @@
  * state from IDB, hands it to the chain, and stores the advanced
  * state back. It does not talk to the network — distribution flows
  * through `index.ts` (`ensureChannelSenderKey`,
- * `processIncomingSenderKey`, `fetchAndProcessPendingSenderKeys`).
+ * `fetchAndProcessPendingSenderKeys`).
  *
  * No-cache surface area: the chain owns its own forward state in
  * IDB; CryptoKeys are derived per-message from the chainKey HKDF

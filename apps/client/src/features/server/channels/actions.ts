@@ -10,9 +10,6 @@ import { ChannelType, type TChannel, type TChannelUserPermissionsMap } from '@pu
 import { serverSliceActions } from '../slice';
 import { channelByIdSelector, channelReadStateByIdSelector, selectedChannelIdSelector } from './selectors';
 
-export const setChannels = (channels: TChannel[]) => {
-  store.dispatch(serverSliceActions.setChannels(channels));
-};
 
 /** Get the saved channel-per-server map from localStorage. */
 export const getServerChannelMap = (): Record<string, number> =>

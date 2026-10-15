@@ -1,9 +1,8 @@
-import { ChannelType } from '@pulse/shared';
-import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
+import { createEmptyTextChannel } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { channels, messages } from '../../db/schema';
+import { messages } from '../../db/schema';
 
 /**
  * Jump-to-message pagination: `aroundId` (window centered on a message)
@@ -15,25 +14,6 @@ import { channels, messages } from '../../db/schema';
  * is timestamp-based, so deterministic spacing matters more than going
  * through messages.send (which stamps Date.now() and can collide).
  */
-
-const createEmptyTextChannel = async (name: string) => {
-  const [channel] = await getTestDb()
-    .insert(channels)
-    .values({
-      type: ChannelType.TEXT,
-      name,
-      position: 50,
-      fileAccessToken: randomUUIDv7(),
-      fileAccessTokenUpdatedAt: Date.now(),
-      publicId: randomUUIDv7(),
-      categoryId: 1,
-      serverId: 1,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  return channel!;
-};
 
 /** Insert `count` messages spaced 1s apart; returns rows oldest-first. */
 const seedMessages = async (channelId: number, count: number) => {

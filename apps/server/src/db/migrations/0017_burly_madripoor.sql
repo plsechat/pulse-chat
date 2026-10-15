@@ -6,11 +6,11 @@
 -- the route use ON CONFLICT DO NOTHING so the second call is a no-op.
 --
 -- Two-step: dedupe pre-existing rows first (keep the lowest id per
--- tuple), then create the unique index. Both wrapped for replay-
--- safety per the boot loop pattern (db/index.ts wipes drizzle
--- migration tracking on every start; pulse-issue-migration-pipeline).
--- See the Postgres error-class cheatsheet in that memory note for
--- why CREATE INDEX raises duplicate_table (42P07) on rerun.
+-- tuple), then create the unique index. Drizzle tracking runs this
+-- once; both steps are still wrapped for replay-safety because CI
+-- applies every migration twice (scripts/check-migrations-idempotent.ts).
+-- CREATE INDEX raises duplicate_table (42P07), not duplicate_object,
+-- on rerun — hence the exception class below.
 
 DELETE FROM "e2ee_sender_keys"
 WHERE "id" NOT IN (

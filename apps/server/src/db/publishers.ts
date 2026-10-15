@@ -18,7 +18,6 @@ import {
 import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
-import { getServerPublicSettings } from './queries/server';
 import {
   getPresenceInterestedIds,
   getServerMemberIds
@@ -339,13 +338,6 @@ const publishChannel = async (
   pubsub.publishFor(memberIds, targetEvent, channel);
 };
 
-const publishSettings = async (serverId?: number) => {
-  const effectiveServerId = serverId ?? 1;
-  const settings = await getServerPublicSettings(effectiveServerId);
-  const memberIds = await getServerMemberIds(effectiveServerId);
-  pubsub.publishFor(memberIds, ServerEvents.SERVER_SETTINGS_UPDATE, settings);
-};
-
 const publishCategory = async (
   categoryId: number | undefined,
   type: 'create' | 'update' | 'delete',
@@ -438,7 +430,6 @@ const guardedPublishPluginCommands = swallowRejection(
   publishPluginCommands
 );
 const guardedPublishRole = swallowRejection('publishRole', publishRole);
-const guardedPublishSettings = swallowRejection('publishSettings', publishSettings);
 const guardedPublishUser = swallowRejection('publishUser', publishUser);
 
 export {
@@ -449,6 +440,5 @@ export {
   publishMessage,
   guardedPublishPluginCommands as publishPluginCommands,
   guardedPublishRole as publishRole,
-  guardedPublishSettings as publishSettings,
   guardedPublishUser as publishUser
 };

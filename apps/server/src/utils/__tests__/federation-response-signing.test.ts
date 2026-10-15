@@ -14,7 +14,7 @@
  * just plumbing.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { sql } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
@@ -29,17 +29,15 @@ import {
 const LOCAL_DOMAIN = 'test.local';
 const PEER_DOMAIN = 'peer.example';
 
-beforeEach(async () => {
-  // setup.ts's beforeEach already TRUNCATEs federation_keys (and every
-  // other table), so we don't need to DELETE it again here. Skipping
-  // the redundant DELETE matters: parallel test files all running
-  // their own redundant DELETE on the same shared CI database widen
-  // the deadlock window with anything else taking AccessShareLocks
-  // on adjacent tables.
+// Called inside each test, not from beforeEach: a file-level hook runs
+// inside the same budget as the global TRUNCATE+seed and its inserts
+// widen the deadlock window. The global reset already empties
+// federation_keys, so a fresh pair per test is all that's needed.
+const setup = async () => {
   await initTest();
   await generateFederationKeys();
   _resetSeenJtis();
-});
+};
 
 afterEach(() => {
   _resetSeenJtis();
@@ -47,6 +45,7 @@ afterEach(() => {
 
 describe('signFederationResponse shape', () => {
   test('embeds fromDomain and signature in the wire body', async () => {
+    await setup();
     const payload = { bundleVersion: 1, identityKey: 'aGVsbG8=' };
     const body = await signFederationResponse(payload, LOCAL_DOMAIN);
 
@@ -59,6 +58,7 @@ describe('signFederationResponse shape', () => {
 
 describe('signFederationResponse / verifyFederationResponse round-trip', () => {
   test('valid round-trip returns the payload without the signature field', async () => {
+    await setup();
     // Self-loop: responder is LOCAL signing for LOCAL (same as the
     // challenge round-trip test), since the verifier enforces
     // aud === config.federation.domain (LOCAL_DOMAIN under the test
@@ -85,6 +85,7 @@ describe('signFederationResponse / verifyFederationResponse round-trip', () => {
 
 describe('verifyFederationResponse rejection paths', () => {
   test('rejects when signature field is missing', async () => {
+    await setup();
     const keys = await getLocalKeys();
     const publicKeyStr = JSON.stringify(keys!.publicKey);
 
@@ -97,6 +98,7 @@ describe('verifyFederationResponse rejection paths', () => {
   });
 
   test('rejects when signature is not a string', async () => {
+    await setup();
     const keys = await getLocalKeys();
     const publicKeyStr = JSON.stringify(keys!.publicKey);
 
@@ -109,6 +111,7 @@ describe('verifyFederationResponse rejection paths', () => {
   });
 
   test('rejects when payload is mutated after signing', async () => {
+    await setup();
     const original = { value: 'original' };
     const body = await signFederationResponse(original, LOCAL_DOMAIN);
 
@@ -126,6 +129,7 @@ describe('verifyFederationResponse rejection paths', () => {
   });
 
   test('rejects when expectedPeerDomain does not match the signer', async () => {
+    await setup();
     const body = await signFederationResponse({ foo: 'bar' }, LOCAL_DOMAIN);
 
     const keys = await getLocalKeys();
@@ -141,6 +145,7 @@ describe('verifyFederationResponse rejection paths', () => {
   });
 
   test('rejects when verified with an unrelated public key', async () => {
+    await setup();
     const body = await signFederationResponse({ foo: 'bar' }, LOCAL_DOMAIN);
 
     // Replace the keypair so the stored pubkey no longer matches the
@@ -160,6 +165,7 @@ describe('verifyFederationResponse rejection paths', () => {
   });
 
   test('rejects audience-mismatch — response signed for a different requester', async () => {
+    await setup();
     // Sign for an audience that isn't us. verifyChallenge enforces
     // aud === config.federation.domain (LOCAL_DOMAIN here), so a
     // response captured while in flight to peer X cannot be replayed
@@ -181,6 +187,7 @@ describe('verifyFederationResponse rejection paths', () => {
   });
 
   test('rejects on replay (same response body twice)', async () => {
+    await setup();
     // Each signed response carries a fresh jti. If the same response
     // body arrives twice the second verification should reject.
     const body = await signFederationResponse({ foo: 'bar' }, LOCAL_DOMAIN);

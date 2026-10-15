@@ -14,12 +14,12 @@
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "eslint": "^8.56.0",
     "eslint-plugin-unused-imports": "^4.1.4",
+    "mediasoup": "3.19.17",
     "typescript": "^5"
   },
   "dependencies": {
     "drizzle-orm": "^0.44.6",
     "js-sha256": "^0.11.1",
-    "mediasoup": "3.19.17",
     "zod": "^4.3.5"
   }
 }

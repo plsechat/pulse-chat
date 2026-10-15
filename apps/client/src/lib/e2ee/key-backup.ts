@@ -24,9 +24,16 @@ const ALL_STORES = [
   'verifiedIdentities'
 ] as const;
 
-// Stores that actually flow through backup. Phase B chain stores
-// (chainState, ownChainCursor, chainDistribution, dirtyChains) are
-// EXCLUDED for two reasons:
+// Stores that actually flow through backup.
+//
+// Phase A `senderKeys` / `distributedMembers` are EXCLUDED as of v5:
+// nothing reads them since Phase B (store.ts keeps the object stores
+// only to avoid a structural IDB delete at upgrade), so carrying them
+// would restore inert rows. v≤4 payloads still contain them and are
+// accepted; their rows are simply not written back.
+//
+// Phase B chain stores (chainState, ownChainCursor, chainDistribution,
+// dirtyChains) are EXCLUDED for two reasons:
 //   1. chainState holds non-extractable `CryptoKey` (Ed25519 signing
 //      private key). JSON.stringify drops it to `{}`, so a backup
 //      would silently lose the signing material.
@@ -46,16 +53,15 @@ const STORE_NAMES = [
   'signedPreKeys',
   'sessions',
   'identities',
-  'senderKeys',
-  'distributedMembers',
   'meta',
   'verifiedIdentities'
 ] as const;
 
 // Required-store sets per backup-payload version. v1 predates
 // senderKeys; v2 predates meta; v3 predates verifiedIdentities; v4
-// is the current set (still excludes Phase B chains by design —
-// see STORE_NAMES comment).
+// added verifiedIdentities; v5 (current) drops the Phase A
+// senderKeys/distributedMembers stores (still excludes Phase B chains
+// by design — see STORE_NAMES comment).
 const V1_STORE_NAMES = [
   'identityKey',
   'registrationId',
@@ -76,12 +82,21 @@ const V3_STORE_NAMES = [
   'meta'
 ] as const;
 
+const V4_STORE_NAMES = [
+  ...V3_STORE_NAMES,
+  'verifiedIdentities'
+] as const;
+
+const CURRENT_BACKUP_VERSION = 5;
+
+const SUPPORTED_BACKUP_VERSIONS: readonly BackupPayload['version'][] = [
+  1, 2, 3, 4, 5
+];
+
 export const PBKDF2_ITERATIONS = 600_000;
 
-export const BACKUP_STORE_NAMES = STORE_NAMES;
-
 export type BackupPayload = {
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   salt: string;
   iv: string;
   ciphertext: string;
@@ -137,7 +152,7 @@ export async function encryptBackupData(
   );
 
   return {
-    version: 4,
+    version: CURRENT_BACKUP_VERSION,
     salt: arrayBufferToBase64(salt.buffer),
     iv: arrayBufferToBase64(iv.buffer),
     ciphertext: arrayBufferToBase64(ciphertext)
@@ -148,7 +163,7 @@ export async function decryptBackupPayload(
   payload: BackupPayload,
   passphrase: string
 ): Promise<Record<string, unknown[]>> {
-  if (payload.version !== 1 && payload.version !== 2 && payload.version !== 3 && payload.version !== 4) {
+  if (!SUPPORTED_BACKUP_VERSIONS.includes(payload.version)) {
     throw new Error(`Unsupported backup version: ${payload.version}`);
   }
 
@@ -184,9 +199,11 @@ export async function decryptBackupPayload(
 
   // Validate only the stores that existed in this payload's version.
   // Stores added in later versions are simply absent — restore writes
-  // them as empty, which is correct (e.g. a v2 backup restored on v4
+  // them as empty, which is correct (e.g. a v2 backup restored on v5
   // gets empty meta/verifiedIdentities; both are rebuilt lazily as
-  // peers reconnect and re-pin via TOFU).
+  // peers reconnect and re-pin via TOFU). Stores a later version
+  // dropped (v≤4 senderKeys/distributedMembers) are validated here
+  // but ignored by writeAllStores.
   const requiredStores =
     payload.version === 1
       ? V1_STORE_NAMES
@@ -194,7 +211,9 @@ export async function decryptBackupPayload(
         ? V2_STORE_NAMES
         : payload.version === 3
           ? V3_STORE_NAMES
-          : STORE_NAMES;
+          : payload.version === 4
+            ? V4_STORE_NAMES
+            : STORE_NAMES;
   for (const storeName of requiredStores) {
     if (!Array.isArray(data[storeName])) {
       throw new Error(`Backup is missing store: ${storeName}`);
@@ -208,7 +227,7 @@ async function readAllStores(
   dbName: string
 ): Promise<Record<string, unknown[]>> {
   const db = await openDB(dbName, DB_VERSION, {
-    // Always materialize the full v5 schema (ALL_STORES) regardless of
+    // Always materialize the full IDB schema (ALL_STORES) regardless of
     // whether the store is in the backup payload. Otherwise the
     // upgrade callback would leave new stores missing and subsequent
     // reads via store.ts would fail.
@@ -252,7 +271,8 @@ async function writeAllStores(
 
   // Clear & write only the BACKUP-bearing stores. Chain stores are
   // intentionally left as-is here; finalizeRestoredKeys clears them
-  // explicitly afterward as part of the restore flow.
+  // explicitly afterward as part of the restore flow. Stores present
+  // in an older payload but no longer in STORE_NAMES are skipped.
   const tx = db.transaction([...STORE_NAMES], 'readwrite');
 
   for (const storeName of STORE_NAMES) {

@@ -31,9 +31,6 @@ export type TMessagesMap = {
   [channelId: number]: TJoinedMessage[];
 };
 
-export type TMessagesPagination = {
-  cursor: number | null;
-};
 
 export type TDisconnectInfo = {
   code: number;

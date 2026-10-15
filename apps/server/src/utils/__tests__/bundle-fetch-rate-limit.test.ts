@@ -50,17 +50,28 @@ describe('bundle fetch rate limit (D1)', () => {
     expect(_tryConsumeBundleFetchToken('pub-alice')).toBe(true);
   });
 
-  test('refills tokens over time at 10/min sustained', async () => {
+  test('refills tokens over time at 10/min sustained', () => {
+    // Drive the limiter's clock explicitly instead of sleeping: the
+    // refill math is what's under test, not the wall clock.
+    const t0 = 1_700_000_000_000;
     for (let i = 0; i < 10; i++) {
-      _tryConsumeBundleFetchToken('pub-alice');
+      _tryConsumeBundleFetchToken('pub-alice', t0);
     }
-    expect(_tryConsumeBundleFetchToken('pub-alice')).toBe(false);
+    expect(_tryConsumeBundleFetchToken('pub-alice', t0)).toBe(false);
 
-    // 10/min = 1 token per 6 seconds. 7 seconds → at least 1 token
-    // refilled. Slightly generous to absorb scheduler jitter under
-    // CI load.
-    await new Promise((r) => setTimeout(r, 7_000));
+    // 10/min = 1 token per 6 seconds. Just short of that, still empty.
+    expect(_tryConsumeBundleFetchToken('pub-alice', t0 + 5_999)).toBe(false);
 
-    expect(_tryConsumeBundleFetchToken('pub-alice')).toBe(true);
-  }, 10_000);
+    // Past the 6 s mark a single token has refilled — one request goes
+    // through, the next is refused again.
+    expect(_tryConsumeBundleFetchToken('pub-alice', t0 + 7_000)).toBe(true);
+    expect(_tryConsumeBundleFetchToken('pub-alice', t0 + 7_000)).toBe(false);
+
+    // A full minute of idleness refills the whole burst, capped at 10.
+    expect(_tryConsumeBundleFetchToken('pub-alice', t0 + 120_000)).toBe(true);
+    for (let i = 0; i < 9; i++) {
+      expect(_tryConsumeBundleFetchToken('pub-alice', t0 + 120_000)).toBe(true);
+    }
+    expect(_tryConsumeBundleFetchToken('pub-alice', t0 + 120_000)).toBe(false);
+  });
 });

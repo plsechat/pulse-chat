@@ -178,43 +178,51 @@ async function announceFederatedGroupCreate(
   dmChannelId: number,
   ownerUserId: number | null
 ): Promise<void> {
-  const [channel] = await db
-    .select({
-      federationGroupId: dmChannels.federationGroupId,
-      name: dmChannels.name
-    })
-    .from(dmChannels)
-    .where(eq(dmChannels.id, dmChannelId))
-    .limit(1);
-  if (!channel?.federationGroupId) return;
+  // The whole body is guarded, not just the per-relay promises: every
+  // call site is fire-and-forget (`void fn()` / no catch), so a DB error
+  // in the lookups BEFORE the relay would otherwise surface as an
+  // unhandled rejection.
+  try {
+    const [channel] = await db
+      .select({
+        federationGroupId: dmChannels.federationGroupId,
+        name: dmChannels.name
+      })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, dmChannelId))
+      .limit(1);
+    if (!channel?.federationGroupId) return;
 
-  const { members, byUserId, peerDomains } =
-    await buildFederatedMemberList(dmChannelId);
-  if (peerDomains.size === 0) return;
+    const { members, byUserId, peerDomains } =
+      await buildFederatedMemberList(dmChannelId);
+    if (peerDomains.size === 0) return;
 
-  const ownerMember =
-    ownerUserId !== null ? byUserId.get(ownerUserId) : undefined;
-  if (!ownerMember) {
-    logger.warn(
-      '[announceFederatedGroupCreate] owner %s missing from members',
-      ownerUserId
-    );
-    return;
-  }
+    const ownerMember =
+      ownerUserId !== null ? byUserId.get(ownerUserId) : undefined;
+    if (!ownerMember) {
+      logger.warn(
+        '[announceFederatedGroupCreate] owner %s missing from members',
+        ownerUserId
+      );
+      return;
+    }
 
-  for (const peerDomain of peerDomains) {
-    relayToInstance(peerDomain, '/federation/dm-group-create', {
-      federationGroupId: channel.federationGroupId,
-      name: channel.name,
-      ownerPublicId: ownerMember.publicId,
-      members
-    }).catch((err) =>
-      logger.error(
-        '[announceFederatedGroupCreate] relay to %s failed: %o',
-        peerDomain,
-        err
-      )
-    );
+    for (const peerDomain of peerDomains) {
+      relayToInstance(peerDomain, '/federation/dm-group-create', {
+        federationGroupId: channel.federationGroupId,
+        name: channel.name,
+        ownerPublicId: ownerMember.publicId,
+        members
+      }).catch((err) =>
+        logger.error(
+          '[announceFederatedGroupCreate] relay to %s failed: %o',
+          peerDomain,
+          err
+        )
+      );
+    }
+  } catch (err) {
+    logger.error('[announceFederatedGroupCreate] dispatch failed: %o', err);
   }
 }
 
@@ -225,60 +233,68 @@ async function announceFederatedGroupAddMember(
   dmChannelId: number,
   addedUserId: number
 ): Promise<void> {
-  const [channel] = await db
-    .select({ federationGroupId: dmChannels.federationGroupId })
-    .from(dmChannels)
-    .where(eq(dmChannels.id, dmChannelId))
-    .limit(1);
-  if (!channel?.federationGroupId) return;
-
-  const [addedRow] = await db
-    .select({
-      publicId: users.publicId,
-      name: users.name,
-      isFederated: users.isFederated,
-      federatedInstanceId: users.federatedInstanceId,
-      federatedPublicId: users.federatedPublicId
-    })
-    .from(users)
-    .where(eq(users.id, addedUserId))
-    .limit(1);
-  if (!addedRow?.publicId) return;
-
-  let addedDomain = config.federation.domain;
-  let addedPublicId = addedRow.publicId;
-  if (addedRow.isFederated && addedRow.federatedInstanceId) {
-    const [inst] = await db
-      .select({ domain: federationInstances.domain })
-      .from(federationInstances)
-      .where(eq(federationInstances.id, addedRow.federatedInstanceId))
+  // The whole body is guarded, not just the per-relay promises: every
+  // call site is fire-and-forget (`void fn()` / no catch), so a DB error
+  // in the lookups BEFORE the relay would otherwise surface as an
+  // unhandled rejection.
+  try {
+    const [channel] = await db
+      .select({ federationGroupId: dmChannels.federationGroupId })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, dmChannelId))
       .limit(1);
-    if (!inst) return;
-    addedDomain = inst.domain;
-    addedPublicId = addedRow.federatedPublicId ?? addedPublicId;
-  }
+    if (!channel?.federationGroupId) return;
 
-  const { peerDomains } = await buildFederatedMemberList(dmChannelId);
-  // Don't echo the announcement back to the added user's own instance —
-  // they originate the membership over there independently.
-  peerDomains.delete(addedDomain);
-  if (peerDomains.size === 0) return;
+    const [addedRow] = await db
+      .select({
+        publicId: users.publicId,
+        name: users.name,
+        isFederated: users.isFederated,
+        federatedInstanceId: users.federatedInstanceId,
+        federatedPublicId: users.federatedPublicId
+      })
+      .from(users)
+      .where(eq(users.id, addedUserId))
+      .limit(1);
+    if (!addedRow?.publicId) return;
 
-  for (const peerDomain of peerDomains) {
-    relayToInstance(peerDomain, '/federation/dm-group-add-member', {
-      federationGroupId: channel.federationGroupId,
-      addedMember: {
-        publicId: addedPublicId,
-        instanceDomain: addedDomain,
-        name: addedRow.name
-      }
-    }).catch((err) =>
-      logger.error(
-        '[announceFederatedGroupAddMember] relay to %s failed: %o',
-        peerDomain,
-        err
-      )
-    );
+    let addedDomain = config.federation.domain;
+    let addedPublicId = addedRow.publicId;
+    if (addedRow.isFederated && addedRow.federatedInstanceId) {
+      const [inst] = await db
+        .select({ domain: federationInstances.domain })
+        .from(federationInstances)
+        .where(eq(federationInstances.id, addedRow.federatedInstanceId))
+        .limit(1);
+      if (!inst) return;
+      addedDomain = inst.domain;
+      addedPublicId = addedRow.federatedPublicId ?? addedPublicId;
+    }
+
+    const { peerDomains } = await buildFederatedMemberList(dmChannelId);
+    // Don't echo the announcement back to the added user's own instance —
+    // they originate the membership over there independently.
+    peerDomains.delete(addedDomain);
+    if (peerDomains.size === 0) return;
+
+    for (const peerDomain of peerDomains) {
+      relayToInstance(peerDomain, '/federation/dm-group-add-member', {
+        federationGroupId: channel.federationGroupId,
+        addedMember: {
+          publicId: addedPublicId,
+          instanceDomain: addedDomain,
+          name: addedRow.name
+        }
+      }).catch((err) =>
+        logger.error(
+          '[announceFederatedGroupAddMember] relay to %s failed: %o',
+          peerDomain,
+          err
+        )
+      );
+    }
+  } catch (err) {
+    logger.error('[announceFederatedGroupAddMember] dispatch failed: %o', err);
   }
 }
 
@@ -294,31 +310,39 @@ async function announceFederatedGroupRemoveMember(
   // intended.
   removedPublicId: string
 ): Promise<void> {
-  const [channel] = await db
-    .select({ federationGroupId: dmChannels.federationGroupId })
-    .from(dmChannels)
-    .where(eq(dmChannels.id, dmChannelId))
-    .limit(1);
-  if (!channel?.federationGroupId) return;
+  // The whole body is guarded, not just the per-relay promises: every
+  // call site is fire-and-forget (`void fn()` / no catch), so a DB error
+  // in the lookups BEFORE the relay would otherwise surface as an
+  // unhandled rejection.
+  try {
+    const [channel] = await db
+      .select({ federationGroupId: dmChannels.federationGroupId })
+      .from(dmChannels)
+      .where(eq(dmChannels.id, dmChannelId))
+      .limit(1);
+    if (!channel?.federationGroupId) return;
 
-  const { peerDomains } = await buildFederatedMemberList(dmChannelId);
-  if (peerDomains.size === 0) return;
+    const { peerDomains } = await buildFederatedMemberList(dmChannelId);
+    if (peerDomains.size === 0) return;
 
-  // Use removedUserId for log only — the federation message just
-  // carries removedPublicId.
-  void removedUserId;
+    // Use removedUserId for log only — the federation message just
+    // carries removedPublicId.
+    void removedUserId;
 
-  for (const peerDomain of peerDomains) {
-    relayToInstance(peerDomain, '/federation/dm-group-remove-member', {
-      federationGroupId: channel.federationGroupId,
-      removedPublicId
-    }).catch((err) =>
-      logger.error(
-        '[announceFederatedGroupRemoveMember] relay to %s failed: %o',
-        peerDomain,
-        err
-      )
-    );
+    for (const peerDomain of peerDomains) {
+      relayToInstance(peerDomain, '/federation/dm-group-remove-member', {
+        federationGroupId: channel.federationGroupId,
+        removedPublicId
+      }).catch((err) =>
+        logger.error(
+          '[announceFederatedGroupRemoveMember] relay to %s failed: %o',
+          peerDomain,
+          err
+        )
+      );
+    }
+  } catch (err) {
+    logger.error('[announceFederatedGroupRemoveMember] dispatch failed: %o', err);
   }
 }
 

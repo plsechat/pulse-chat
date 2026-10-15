@@ -1,5 +1,5 @@
 import { ChannelType, type TFile, type TTempFile } from '@pulse/shared';
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import path from 'path';
@@ -49,70 +49,75 @@ const getFileByMessageId = async (
   return dbFile;
 };
 
-describe('/public', () => {
-  const filesToCreate = [
+type TSeededFile = {
+  name: string;
+  content: string;
+  messageId: number | null;
+  tempFile: TTempFile | null;
+};
+
+/**
+ * Upload three files as the owner: the first two attached to messages
+ * in channel 1 (non-orphaned), the third saved manually as an orphan.
+ * Called inside each test (not beforeEach) so these writes don't pile
+ * onto the global per-test TRUNCATE inside the same hook budget.
+ */
+const setup = async (): Promise<{
+  token: string;
+  filesToCreate: TSeededFile[];
+}> => {
+  const response = await login('testowner', 'password123');
+  const data = (await response.json()) as { accessToken: string };
+  const token = data.accessToken;
+
+  const filesToCreate: TSeededFile[] = [
     {
       name: 'test-public.txt',
       content: 'This is a test file for public endpoint.',
-      messageId: null as number | null,
-      tempFile: null as TTempFile | null
+      messageId: null,
+      tempFile: null
     },
     {
       name: 'another-test.txt',
       content: 'This is another test file.',
-      messageId: null as number | null,
-      tempFile: null as TTempFile | null
+      messageId: null,
+      tempFile: null
     },
     {
       name: 'orphan.txt',
       content: 'This is an orphaned file.',
-      messageId: null as number | null,
-      tempFile: null as TTempFile | null
+      messageId: null,
+      tempFile: null
     }
   ];
 
-  let token: string;
+  for (const fileData of filesToCreate) {
+    fileData.tempFile = await upload(
+      new File([fileData.content], fileData.name, { type: 'text/plain' }),
+      token
+    );
+  }
 
-  beforeEach(async () => {
-    const response = await login('testowner', 'password123');
-    const data = (await response.json()) as { accessToken: string };
+  // add first two files to messages to make them non-orphaned
+  for (let i = 0; i < 2; i++) {
+    const { caller } = await initTest();
 
-    token = data.accessToken;
+    filesToCreate[i]!.messageId = await caller.messages.send({
+      content: 'Message with file',
+      channelId: 1,
+      files: [filesToCreate[i]!.tempFile!.id]
+    });
+  }
 
-    for (const fileData of filesToCreate) {
-      fileData.messageId = null;
-      fileData.tempFile = null;
-    }
+  // third we save manually as orphan
+  await fileManager.saveFile(filesToCreate[2]!.tempFile!.id, 1);
 
-    for (const fileData of filesToCreate) {
-      const tempFile = await upload(
-        new File([fileData.content], fileData.name, {
-          type: 'text/plain'
-        }),
-        token
-      );
+  return { token, filesToCreate };
+};
 
-      fileData.tempFile = tempFile;
-    }
-
-    // add first two files to messages to make them non-orphaned
-    for (let i = 0; i < 2; i++) {
-      const { caller } = await initTest();
-
-      const messageId = await caller.messages.send({
-        content: 'Message with file',
-        channelId: 1,
-        files: [filesToCreate[i]!.tempFile!.id]
-      });
-
-      filesToCreate[i]!.messageId = messageId;
-    }
-
-    // third we save manually as orphan
-    await fileManager.saveFile(filesToCreate[2]!.tempFile!.id, 1);
-  });
-
+describe('/public', () => {
   test('files were created in public folder', async () => {
+    const { filesToCreate } = await setup();
     for (const fileData of filesToCreate) {
       if (!fileData.messageId) continue;
 
@@ -131,6 +136,7 @@ describe('/public', () => {
   });
 
   test('should serve a file successfully', async () => {
+    const { filesToCreate } = await setup();
     const file = filesToCreate[0];
 
     expect(file).toBeDefined();
@@ -172,6 +178,7 @@ describe('/public', () => {
   });
 
   test('should return 404 when file is orphaned', async () => {
+    const { filesToCreate } = await setup();
     const orphanFile = filesToCreate[2];
 
     expect(orphanFile).toBeDefined();
@@ -248,6 +255,7 @@ describe('/public', () => {
   });
 
   test('should delete file when message is deleted', async () => {
+    const { filesToCreate } = await setup();
     const orphanFile = filesToCreate[0];
 
     const dbFile = await getFileByMessageId(orphanFile!.messageId!);
@@ -277,6 +285,7 @@ describe('/public', () => {
   });
 
   test('should delete file inside message when channel is deleted', async () => {
+    const { filesToCreate } = await setup();
     const orphanFile = filesToCreate[1];
 
     const dbFile = await getFileByMessageId(orphanFile!.messageId!);
@@ -311,6 +320,7 @@ describe('/public', () => {
   });
 
   test('should return 403 when trying to access a private channel file without token', async () => {
+    const { token } = await setup();
     const { caller } = await initTest();
 
     const channelId = await caller.channels.add({
@@ -363,6 +373,7 @@ describe('/public', () => {
   });
 
   test('should return 403 when trying to access a private channel file with invalid token', async () => {
+    const { token } = await setup();
     const { caller } = await initTest();
 
     const channelId = await caller.channels.add({
@@ -406,6 +417,7 @@ describe('/public', () => {
   });
 
   test('should return 200 when accessing a private channel file with valid token', async () => {
+    const { token } = await setup();
     const { caller } = await initTest();
 
     const channelId = await caller.channels.add({
@@ -462,6 +474,7 @@ describe('/public', () => {
   });
 
   test('should return 403 when using token from different channel', async () => {
+    const { token } = await setup();
     const { caller } = await initTest();
 
     const channelId1 = await caller.channels.add({
@@ -538,6 +551,7 @@ describe('/public', () => {
   });
 
   test('should allow access to public channel files without token', async () => {
+    const { token } = await setup();
     const { caller } = await initTest();
 
     const channelId = await caller.channels.add({
@@ -658,6 +672,7 @@ describe('/public', () => {
   });
 
   test('should allow access to non-message files without token', async () => {
+    const { filesToCreate } = await setup();
     const file = filesToCreate[0];
 
     expect(file).toBeDefined();

@@ -11,7 +11,7 @@
  * import/export path as runtime.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { decodeJwt } from 'jose';
 import { sql } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
@@ -28,14 +28,16 @@ import {
 const LOCAL_DOMAIN = 'test.local';
 const PEER_DOMAIN = 'peer.example';
 
-beforeEach(async () => {
+// Called inside each DB-touching test, not from beforeEach: a file-level
+// hook runs inside the same budget as the global TRUNCATE+seed and its
+// inserts widen the deadlock window. The global reset already empties
+// federation_keys, so generating a fresh pair per test is all that's
+// needed for each test to own its private/public pair.
+const setup = async () => {
   await initTest();
-  // Ensure each test has its own private/public pair.
-  const tdb = getTestDb();
-  await tdb.execute(sql`DELETE FROM federation_keys`);
   await generateFederationKeys();
   _resetSeenJtis();
-});
+};
 
 afterEach(() => {
   _resetSeenJtis();
@@ -71,6 +73,7 @@ describe('canonicalize', () => {
 
 describe('signChallenge / verifyChallenge round-trip', () => {
   test('valid signature passes when issuer + audience + body match', async () => {
+    await setup();
     const payload = { fromDomain: LOCAL_DOMAIN, publicId: 'abc' };
     const sig = await signChallenge(payload, PEER_DOMAIN);
 
@@ -96,6 +99,7 @@ describe('signChallenge / verifyChallenge round-trip', () => {
   });
 
   test('JWT carries sha256, iss, aud, jti, exp claims', async () => {
+    await setup();
     const payload = { foo: 'bar' };
     const sig = await signChallenge(payload, PEER_DOMAIN);
     const claims = decodeJwt(sig);
@@ -109,6 +113,7 @@ describe('signChallenge / verifyChallenge round-trip', () => {
 
 describe('verifyChallenge rejection paths', () => {
   test('rejects on body tampering (sha256 mismatch)', async () => {
+    await setup();
     const original = { fromDomain: LOCAL_DOMAIN, value: 'original' };
     const sig = await signChallenge(original, LOCAL_DOMAIN);
     const keys = await getLocalKeys();
@@ -120,6 +125,7 @@ describe('verifyChallenge rejection paths', () => {
   });
 
   test('rejects on issuer mismatch', async () => {
+    await setup();
     const payload = { fromDomain: LOCAL_DOMAIN };
     const sig = await signChallenge(payload, LOCAL_DOMAIN);
     const keys = await getLocalKeys();
@@ -135,6 +141,7 @@ describe('verifyChallenge rejection paths', () => {
   });
 
   test('rejects on audience mismatch', async () => {
+    await setup();
     // Sign with audience='wrong.example' — signed for someone else,
     // so when we verify locally (aud must be 'test.local'), reject.
     const payload = { fromDomain: LOCAL_DOMAIN };
@@ -147,6 +154,7 @@ describe('verifyChallenge rejection paths', () => {
   });
 
   test('rejects replay (same jti twice)', async () => {
+    await setup();
     const payload = { fromDomain: LOCAL_DOMAIN };
     const sig = await signChallenge(payload, LOCAL_DOMAIN);
     const keys = await getLocalKeys();
@@ -159,6 +167,7 @@ describe('verifyChallenge rejection paths', () => {
   });
 
   test('rejects garbage signature', async () => {
+    await setup();
     const keys = await getLocalKeys();
     const publicKeyStr = JSON.stringify(keys!.publicKey);
     const ok = await verifyChallenge(
@@ -171,6 +180,7 @@ describe('verifyChallenge rejection paths', () => {
   });
 
   test('rejects when signed with a different key', async () => {
+    await setup();
     const payload = { foo: 'bar' };
     const sig = await signChallenge(payload, LOCAL_DOMAIN);
 
@@ -193,6 +203,7 @@ describe('verifyChallenge rejection paths', () => {
 
 describe('canonical body shape independence', () => {
   test('verifier accepts payloads with different key insertion order', async () => {
+    await setup();
     const a = { foo: 1, bar: 2, baz: 3 };
     const b = { baz: 3, bar: 2, foo: 1 };
     const sig = await signChallenge(a, LOCAL_DOMAIN);

@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+# The bun version comes from root package.json "packageManager" —
+# oven-sh/setup-bun@v2 reads it when bun-version is omitted, so there is
+# exactly one place to bump it (the Dockerfiles take it as a build-arg).
+
 jobs:
   lint:
     name: Lint & Type Check
@@ -17,9 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: 1.3.9
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -30,14 +32,57 @@ jobs:
       - name: Lint
         run: bun run lint
 
-  # Catch non-idempotent migrations at PR time. The PULSE boot loop
-  # wipes drizzle's tracking table on every start and re-runs every
-  # committed migration, so each migration SQL file must be replay-
-  # safe. CI's fresh Postgres normally never exercises the rerun
-  # path — this job applies every migration twice against a clean DB
-  # so the second pass would explode if anything regressed (PR #73's
+      # Dead files / exports / dependencies fail the build. knip.json lists
+      # the non-import entry points (bun:test preloads, CLI scripts).
+      - name: Dead code (knip)
+        run: bun run knip
+
+  # The client's bun:test suite needs no Postgres: happy-dom + the
+  # fake-indexeddb shim come from apps/client/bunfig.toml's preload.
+  client-tests:
+    name: Client unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run client tests
+        working-directory: apps/client
+        # Same discipline as the server shards: a non-zero exit OR any
+        # `(fail)` line marks the run failed. Bun logs hook-level failures
+        # as `(fail)` without bumping the fail count or the exit code, so
+        # the exit code alone is not trusted. Output is never truncated.
+        run: |
+          set -e
+          output_file=$(mktemp)
+          set +e
+          bun run test 2>&1 | tee "$output_file"
+          bun_exit=${PIPESTATUS[0]}
+          set -e
+          if [ "$bun_exit" -ne 0 ] || grep -qE '^\(fail\)' "$output_file"; then
+            echo "::error::client unit tests failed (bun exit=$bun_exit)"
+            rm -f "$output_file"
+            exit 1
+          fi
+          rm -f "$output_file"
+
+  # Catch non-idempotent migrations at PR time. Drizzle's migration
+  # tracking is kept, so in production each migration runs once — but
+  # the house rule is that every committed SQL file must also be
+  # replay-safe (IF NOT EXISTS / DO $$ guards), because a crashed or
+  # partially applied upgrade is recovered by re-running the folder.
+  # CI's fresh Postgres never exercises that rerun path on its own, so
+  # this job applies every migration twice against a clean DB; the
+  # second pass explodes if anything regressed (PR #73's
   # 0016_huge_prodigy.sql shipped with the wrong EXCEPTION class and
-  # crashed the chat2 boot; this job would have flagged it pre-merge).
+  # crashed a production boot; this job would have flagged it pre-merge).
   migrations-idempotent:
     name: Migrations replay-safe
     runs-on: ubuntu-latest
@@ -65,9 +110,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: 1.3.9
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -80,12 +123,22 @@ jobs:
             sleep 2
           done
 
-      # Generate any newly-introduced migration SQL from schema.ts.
-      # Mirrors the test job so we exercise the same migration set the
-      # tests run against.
+      # Regenerate from schema.ts, then refuse any drift: a migration that
+      # db:gen produces here but nobody committed (and hand-patched
+      # idempotent) must fail the PR instead of silently passing.
       - name: Generate Drizzle migrations
         working-directory: apps/server
         run: bun run db:gen
+
+      - name: Fail on uncommitted migration drift
+        working-directory: apps/server
+        run: |
+          if [ -n "$(git status --porcelain -- src/db/migrations)" ]; then
+            echo "::error::schema.ts drifted from the committed migrations — run 'bun run db:gen' in apps/server, hand-patch the SQL idempotent, and commit it"
+            git status --porcelain -- src/db/migrations
+            git diff -- src/db/migrations
+            exit 1
+          fi
 
       - name: Apply migrations twice
         working-directory: apps/server
@@ -127,10 +180,13 @@ jobs:
           echo "Split $total test files into $(echo "$shards" | jq 'length') shards:"
           echo "$shards" | jq -c '.[]'
 
-  # Each shard runs its assigned files in a single bun-test
-  # invocation. The shard is an array of file paths; we join with
-  # spaces so `bun test path1 path2 path3 ...` runs them all in
-  # sequence inside the same Bun process.
+  # Each shard is an array of file paths handed to
+  # apps/server/scripts/test-per-file.sh, which runs every file in its
+  # own `bun test` process. Bun runs the files of one invocation
+  # sequentially inside a single process, but `mock.module` is
+  # process-global: a mock installed by one file leaks into the next,
+  # so per-file processes are the isolation boundary. The script is
+  # also what developers run locally, so CI and local share one path.
   test:
     name: Test shard ${{ strategy.job-index }}
     needs: discover-tests
@@ -164,9 +220,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: 1.3.9
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -183,47 +237,20 @@ jobs:
         working-directory: apps/server
         run: bun run db:gen
 
-      - name: Run shard
+      - name: Fail on uncommitted migration drift
         working-directory: apps/server
-        # Run each file in its own bun-test invocation. Bun runs test
-        # files in parallel within a single process by default, which
-        # reintroduces the cross-file TRUNCATE deadlock the per-shard
-        # postgres isolation was meant to avoid. Per-file invocation
-        # serializes them, paying ~50ms per file in startup cost — a
-        # cheap trade for reliability.
-        #
-        # Bun classifies a beforeEach/afterEach hook timeout as a
-        # hook-level error rather than a test failure: it logs `(fail)`
-        # for visibility but doesn't increment the fail count and
-        # exits the process with 0. Capture stdout/stderr, scan for
-        # `(fail)` markers, and fail the file regardless of Bun's exit
-        # code. NEVER trust just the exit code.
         run: |
-          set -e
-          first_failure=
-          for file in ${{ join(matrix.shard, ' ') }}; do
-            echo "::group::$file"
-            output_file=$(mktemp)
-            set +e
-            # --timeout 15000: the default 5s per-test budget (which includes
-            # beforeEach) converted brief between-test lock waits into hook
-            # timeouts whose detached TRUNCATE+seed chains corrupted the next
-            # reseed. The hardened setup.ts reset retries within this budget.
-            bun test --timeout 15000 "$file" 2>&1 | tee "$output_file"
-            bun_exit=${PIPESTATUS[0]}
-            set -e
-            # Either a non-zero exit OR any `(fail)` line in the
-            # output marks this file as failed. The `(fail)` scan
-            # catches Bun's hook-timeout edge case where the runner
-            # logs the failure but exits 0.
-            if [ "$bun_exit" -ne 0 ] || grep -qE '^\(fail\)' "$output_file"; then
-              first_failure=${first_failure:-$file}
-              echo "::error::$file failed (bun exit=$bun_exit)"
-            fi
-            rm -f "$output_file"
-            echo "::endgroup::"
-          done
-          if [ -n "$first_failure" ]; then
-            echo "Shard failed; first failing file: $first_failure"
+          if [ -n "$(git status --porcelain -- src/db/migrations)" ]; then
+            echo "::error::schema.ts drifted from the committed migrations — run 'bun run db:gen' in apps/server, hand-patch the SQL idempotent, and commit it"
+            git status --porcelain -- src/db/migrations
+            git diff -- src/db/migrations
             exit 1
           fi
+
+      # test-per-file.sh owns the failure discipline: each file runs with
+      # --timeout 15000, and a non-zero bun exit OR any `(fail)` line in
+      # the untruncated output fails the shard (bun logs hook timeouts as
+      # `(fail)` while still exiting 0). Never trust the exit code alone.
+      - name: Run shard
+        working-directory: apps/server
+        run: bash scripts/test-per-file.sh ${{ join(matrix.shard, ' ') }}

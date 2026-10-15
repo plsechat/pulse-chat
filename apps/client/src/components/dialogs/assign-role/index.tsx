@@ -28,7 +28,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
 
-type TAssignRoleDialogProps = TDialogBaseProps & {
+export type TAssignRoleDialogProps = TDialogBaseProps & {
   user: TJoinedUser;
   refetch: () => Promise<void>;
 };

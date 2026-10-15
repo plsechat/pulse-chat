@@ -1,8 +1,6 @@
-// these two imports NEED to be at the very top in this order
-// keep the "---------" because it forces prettier to not mess with the order, I can't turn this off here for some reason, need to check later
-import { ensureServerDirs } from './helpers/ensure-server-dirs';
-await ensureServerDirs();
-// ----------------------------------------
+// Data directories are created by config.ts at module-evaluation time
+// (it is the first module in the import graph that writes to them).
+// The "---------" comments keep prettier from reordering these imports.
 import { loadEmbeds } from './utils/embeds';
 await loadEmbeds();
 // ----------------------------------------
@@ -23,7 +21,6 @@ import { createServers } from './utils/create-servers';
 import { loadMediasoup } from './utils/mediasoup';
 import { logger } from './logger';
 import { printDebug } from './utils/print-debug';
-import './utils/updater';
 
 console.log('[pulse] Connecting to database...');
 try {

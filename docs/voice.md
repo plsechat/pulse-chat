@@ -66,12 +66,49 @@ self-healing join makes that harmless.
 - Codecs: H264 (packetization-mode 1) is listed before VP8 —
   hardware-encoder friendly; forcing H264 for screen share resolved
   severe encoder heat on macOS clients.
-- Audio: opus with FEC/DTX/stereo/bitrate from operator config.
+- Audio: opus with FEC/DTX/stereo/bitrate from operator config
+  (`config.ini` → `mediasoup.audio.{maxBitrate,stereo,fec,dtx}`,
+  defaults 510 kbps / on / on / on).
+- Produce caps (`routers/voice/produce.ts`, enforced server-side via
+  `superRefine` so a client cannot claim more): audio and screen-audio
+  510 kbps, webcam 3 Mbps, screen share 6 Mbps, at most 60 fps and 3
+  encodings per producer; external (plugin) streams use the same
+  audio/video ceilings.
 - Screen-share hover previews are a pull model: the sharer pushes a
   bounded JPEG data-URL periodically (`updateStreamPreview`, only while
   actually sharing); roster hover queries it (`getStreamPreview`,
   VIEW_CHANNEL-gated via `channelProcedure`, previews excluded). The
   thumbnail is dropped when sharing stops. Never fanned out.
+
+## Networking
+
+- **Transports**: each participant gets two `WebRtcTransport`s on the
+  runtime's router — one producer (send) and one consumer (receive)
+  transport. Each transport binds one UDP port **and** one TCP port
+  from the worker's `rtcMinPort`–`rtcMaxPort` range (`listenInfos`
+  lists both protocols; `enableUdp` / `enableTcp` true, `preferUdp`).
+- **Capacity**: a single mediasoup worker serves the whole instance, so
+  the port range is shared by every voice channel and DM call. With the
+  default 21-port range (40000–40020) the instance holds roughly 10
+  concurrent voice participants in total; the only lever today is
+  widening the range in `config.ini` together with the Docker mapping
+  and firewall rules. A single-port `WebRtcServer` mode is not
+  implemented.
+- **ICE**: mediasoup is ICE-lite — the server never gathers candidates
+  and announces exactly one host candidate per protocol. In production
+  the transport listens on `0.0.0.0` and announces `SERVER_PUBLIC_IP`
+  (`PUBLIC_IP` env, else auto-detected); in development it listens on
+  `127.0.0.1` with no announced address.
+- **No STUN/TURN**: the client builds its transports with no
+  `iceServers`, so there is no relay path. Clients must reach the
+  announced address on the port range directly (UDP preferred, TCP
+  fallback). A client behind a NAT that blocks that direct path cannot
+  join, and a TURN relay is not configurable today.
+- **ICE restart**: on a transport `disconnected` event the client calls
+  `voice.restartIce` for that transport instead of rebuilding it.
+- Plugins get the same `{ ip, announcedAddress }` pair from
+  `PluginContext.actions.voice.getListenInfo()` so `PlainTransport`s
+  they open advertise consistently.
 
 ## Moderation
 

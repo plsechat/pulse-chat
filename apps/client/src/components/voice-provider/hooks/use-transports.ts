@@ -296,35 +296,31 @@ const useTransports = ({
 
         logVoice('Created new consumer', { newConsumer });
 
-        const cleanupEvents = [
-          'transportclose',
-          'trackended',
-          '@close',
-          'close'
-        ];
-
-        cleanupEvents.forEach((event) => {
-          // @ts-expect-error - YOLO
-          newConsumer?.on(event, () => {
-            logVoice(`Consumer cleanup event "${event}" triggered`, {
-              remoteId,
-              kind
-            });
-
-            if (
-              kind === StreamKind.EXTERNAL_VIDEO ||
-              kind === StreamKind.EXTERNAL_AUDIO
-            ) {
-              removeExternalStreamTrack(remoteId, kind);
-            } else {
-              removeRemoteUserStream(remoteId, kind);
-            }
-
-            if (consumers.current[remoteId]?.[consumerKind]) {
-              delete consumers.current[remoteId][consumerKind];
-            }
+        // Consumer emits transportclose/trackended; its observer emits
+        // `close` for every close path (including consumer.close()).
+        const onConsumerGone = (event: string) => {
+          logVoice(`Consumer cleanup event "${event}" triggered`, {
+            remoteId,
+            kind
           });
-        });
+
+          if (
+            kind === StreamKind.EXTERNAL_VIDEO ||
+            kind === StreamKind.EXTERNAL_AUDIO
+          ) {
+            removeExternalStreamTrack(remoteId, kind);
+          } else {
+            removeRemoteUserStream(remoteId, kind);
+          }
+
+          if (consumers.current[remoteId]?.[consumerKind]) {
+            delete consumers.current[remoteId][consumerKind];
+          }
+        };
+
+        newConsumer.on('transportclose', () => onConsumerGone('transportclose'));
+        newConsumer.on('trackended', () => onConsumerGone('trackended'));
+        newConsumer.observer.on('close', () => onConsumerGone('close'));
 
         consumers.current[remoteId][consumerKind] = newConsumer;
 
