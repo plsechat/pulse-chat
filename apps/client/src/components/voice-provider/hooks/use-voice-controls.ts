@@ -4,6 +4,7 @@ import { SoundType } from '@/features/server/types';
 import { updateOwnVoiceState } from '@/features/server/voice/actions';
 import { useOwnVoiceState } from '@/features/server/voice/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { LocalStorageKey } from '@/helpers/storage';
 import { getTRPCClient } from '@/lib/trpc';
 import { useCallback } from 'react';
 import { toast } from 'sonner';
@@ -151,15 +152,21 @@ const useVoiceControls = ({
     if (!trpc) return;
 
     if (newState) {
-      // macOS Electron: prompt to install audio driver if not yet active
-      if (window.pulseDesktop?.platform === 'darwin' && window.pulseDesktop?.audioDriver) {
+      // macOS Electron: offer to install the audio driver if not yet active.
+      // Ask ONCE — a decline is remembered so every subsequent share doesn't
+      // re-nag; the driver can still be installed from Voice & Video settings.
+      if (
+        window.pulseDesktop?.platform === 'darwin' &&
+        window.pulseDesktop?.audioDriver &&
+        localStorage.getItem(LocalStorageKey.AUDIO_DRIVER_PROMPT_DISMISSED) !== 'true'
+      ) {
         try {
           const status = await window.pulseDesktop.audioDriver.getStatus();
           if (status.supported && !status.active) {
             const shouldInstall = confirm(
               'To share system audio on macOS, Pulse needs to install a virtual audio driver.\n\n' +
               'This requires administrator privileges. You can also share without audio.\n\n' +
-              'Install the audio driver now?'
+              'Install the audio driver now? (You can do this later in Voice & Video settings.)'
             );
             if (shouldInstall) {
               const result = await window.pulseDesktop.audioDriver.install();
@@ -168,6 +175,8 @@ const useVoiceControls = ({
               } else if (result.error && !result.error.includes('cancelled')) {
                 toast.error(`Driver install failed: ${result.error}`);
               }
+            } else {
+              localStorage.setItem(LocalStorageKey.AUDIO_DRIVER_PROMPT_DISMISSED, 'true');
             }
           }
         } catch {

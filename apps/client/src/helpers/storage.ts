@@ -7,6 +7,7 @@ export enum LocalStorageKey {
   RIGHT_SIDEBAR_STATE = 'pulse-right-sidebar-state',
   VOLUME_SETTINGS = 'pulse-volume-settings',
   RECENT_EMOJIS = 'pulse-recent-emojis',
+  AUDIO_DRIVER_PROMPT_DISMISSED = 'pulse-audio-driver-prompt-dismissed',
   ACTIVE_SERVER_ID = 'pulse-active-server-id',
   FEDERATED_SERVERS = 'pulse-federated-servers',
   ACTIVE_INSTANCE = 'pulse-active-instance',
