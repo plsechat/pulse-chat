@@ -37,7 +37,15 @@ const interfaceRouteHandler = (
 
   const urlPart = subPath.split('?')[0];
 
-  subPath = urlPart ? decodeURIComponent(urlPart) : '/';
+  try {
+    subPath = urlPart ? decodeURIComponent(urlPart) : '/';
+  } catch {
+    // Malformed percent-encoding is a client error, not a 500.
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Bad request' }));
+    return res;
+  }
+
   subPath = subPath === '/' ? 'index.html' : subPath;
 
   const cleanSubPath = subPath.startsWith('/') ? subPath.slice(1) : subPath;
@@ -45,7 +53,10 @@ const interfaceRouteHandler = (
   const requestedPath = path.resolve(INTERFACE_PATH, cleanSubPath);
   const basePath = path.resolve(INTERFACE_PATH);
 
-  if (!requestedPath.startsWith(basePath)) {
+  // Compare against the directory boundary, not the bare prefix:
+  // INTERFACE_PATH is versioned (data/interface/<ver>), so a sibling
+  // such as data/interface/<ver>-rc1 would otherwise pass as "inside".
+  if (!requestedPath.startsWith(basePath + path.sep)) {
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Forbidden' }));
     return res;

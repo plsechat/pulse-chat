@@ -5,7 +5,7 @@
  * `mock-modules.ts`) by importing the concrete `localAuthBackend`
  * directly from `../local`. The DB is real (test fixture).
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { randomUUIDv7 } from 'bun';
 import { SignJWT } from 'jose';
 import { localAuthBackend } from '../local';
@@ -300,5 +300,79 @@ describe('localAuthBackend', () => {
     const result = await localAuthBackend.refreshSession!('not-a-jwt');
     expect(result.data.session).toBeNull();
     expect(result.error?.reason).toBe('invalid_credentials');
+  });
+});
+
+// --- e-mail normalisation + unknown-e-mail timing ---
+
+describe('localAuthBackend e-mail handling', () => {
+  test('createUser stores the e-mail trimmed and lower-cased', async () => {
+    await initTest(1);
+    const base = uniqueEmail('case');
+    const mixed = `  ${base.replace(/^./, (c) => c.toUpperCase()).replace('@example', '@Example')} `;
+
+    const created = await localAuthBackend.createUser({
+      email: mixed,
+      password: 'hunter2-strong'
+    });
+    expect(created.error).toBeNull();
+    expect(created.data.user?.email).toBe(base);
+
+    const found = await localAuthBackend.getUserById(created.data.user!.id);
+    expect(found.data.user?.email).toBe(base);
+  });
+
+  test('signInWithPassword matches the e-mail regardless of case or padding', async () => {
+    await initTest(1);
+    const base = uniqueEmail('login-case');
+
+    await localAuthBackend.createUser({
+      email: base.toUpperCase(),
+      password: 'hunter2-strong'
+    });
+
+    for (const spelling of [base, base.toUpperCase(), ` ${base} `]) {
+      const signed = await localAuthBackend.signInWithPassword({
+        email: spelling,
+        password: 'hunter2-strong'
+      });
+      expect(signed.error).toBeNull();
+      expect(signed.data.user?.email).toBe(base);
+    }
+  });
+
+  test('createUser treats a differently-cased duplicate as already registered', async () => {
+    await initTest(1);
+    const base = uniqueEmail('dupe-case');
+
+    const first = await localAuthBackend.createUser({
+      email: base,
+      password: 'hunter2-strong'
+    });
+    expect(first.error).toBeNull();
+
+    const second = await localAuthBackend.createUser({
+      email: base.toUpperCase(),
+      password: 'other-password-1'
+    });
+    expect(second.data.user).toBeNull();
+    expect(second.error?.reason).toBe('user_already_exists');
+  });
+
+  test('an unknown e-mail still costs one password verification (no timing tell)', async () => {
+    await initTest(1);
+    const verify = spyOn(Bun.password, 'verify');
+    try {
+      const result = await localAuthBackend.signInWithPassword({
+        email: uniqueEmail('ghost'),
+        password: 'whatever-it-is'
+      });
+      expect(result.error?.reason).toBe('invalid_credentials');
+      expect(verify).toHaveBeenCalledTimes(1);
+      // Verified against the static dummy hash, not skipped.
+      expect(String(verify.mock.calls[0]?.[1])).toStartWith('$argon2id$');
+    } finally {
+      verify.mockRestore();
+    }
   });
 });

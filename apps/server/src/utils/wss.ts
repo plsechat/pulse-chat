@@ -34,7 +34,7 @@ import {
 } from '../db/queries/servers';
 import { getUserById, getUserByToken } from '../db/queries/users';
 import { channels } from '../db/schema';
-import { getWsInfo } from '../helpers/get-ws-info';
+import { getClientIp, getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
 import { enqueueActivityLog } from '../queues/activity-log';
 import { appRouter } from '../routers';
@@ -53,6 +53,60 @@ const wsMapByToken = new Map<string, WebSocket>();
 const wsMapByUserId = new Map<number, Set<WebSocket>>();
 
 const usersIpMap = new Map<number, string>();
+
+// Open sockets per source address, for the per-IP cap. Decremented on
+// close; an entry is removed at zero so the map tracks live sources only.
+const connectionsByIp = new Map<string, number>();
+
+/** WebSocket close code: policy violation (RFC 6455 §7.4.1). */
+const WS_CLOSE_POLICY_VIOLATION = 1008;
+
+/** WebSocket close code: message too big (RFC 6455 §7.4.1). */
+const WS_CLOSE_MESSAGE_TOO_BIG = 1009;
+
+/**
+ * Largest frame the server accepts. The biggest legitimate payload is
+ * one message at MAX_MESSAGE_WIRE_LENGTH plus its E2EE envelope — far
+ * below 1 MiB. Passed to `ws` as `maxPayload` (the Node implementation
+ * refuses the frame with 1009 before buffering it) AND checked on every
+ * message, because Bun's `ws`-compatible server ignores the option and
+ * only applies its own 16 MiB native ceiling.
+ */
+const WS_MAX_PAYLOAD_BYTES = 1024 * 1024;
+
+const frameSize = (data: unknown): number => {
+  if (typeof data === 'string') return Buffer.byteLength(data);
+  if (Array.isArray(data)) {
+    return data.reduce((sum: number, part) => sum + frameSize(part), 0);
+  }
+  if (ArrayBuffer.isView(data) || data instanceof ArrayBuffer) {
+    return data.byteLength;
+  }
+  return 0;
+};
+
+const envInt = (name: string, fallback: number): number => {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/**
+ * Connection caps, read when the server is created so a deployment's
+ * env (and a test's override) is honoured without a module reload.
+ * Per-IP guards unauthenticated socket floods; per-user bounds what one
+ * account (many tabs, a runaway client) can hold open; the params
+ * timeout drops sockets that connect and never identify themselves —
+ * without it they'd be kept alive by the 30 s keepalive ping forever.
+ */
+const readWsLimits = () => ({
+  maxConnectionsPerIp: envInt('WS_MAX_CONNECTIONS_PER_IP', 20),
+  maxConnectionsPerUser: envInt('WS_MAX_CONNECTIONS_PER_USER', 10),
+  connectionParamsTimeoutMs: envInt('WS_CONNECTION_PARAMS_TIMEOUT_MS', 10_000)
+});
+
+let wsLimits = readWsLimits();
 
 /**
  * Module-level mutator for the runtime user-status override map.
@@ -398,6 +452,28 @@ const createContext = async ({
         wsMapByUserId.set(userId, connections);
       }
       connections.add(ws);
+
+      // Per-user cap, applied once the socket is attributable to an
+      // account. The newest socket is the one refused: the join fails
+      // with TOO_MANY_REQUESTS and the socket is closed a tick later so
+      // that error reaches the client before the close frame. The close
+      // handler removes it from the set again.
+      if (connections.size > wsLimits.maxConnectionsPerUser) {
+        logger.warn(
+          '[WS] user %d exceeded %d connections, closing newest',
+          userId,
+          wsLimits.maxConnectionsPerUser
+        );
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(WS_CLOSE_POLICY_VIOLATION, 'Too many connections');
+          }
+        }, 0);
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many connections for this user'
+        });
+      }
     }
   };
 
@@ -500,15 +576,60 @@ const createContext = async ({
 
 const createWsServer = async (server: http.Server) => {
   return new Promise<WebSocketServer>((resolve) => {
-    wss = new WebSocketServer({ server });
+    wsLimits = readWsLimits();
 
-    wss.on('connection', (ws) => {
+    wss = new WebSocketServer({ server, maxPayload: WS_MAX_PAYLOAD_BYTES });
+
+    wss.on('connection', (ws, req) => {
       ws.userId = undefined;
       ws.token = '';
 
+      // Per-IP cap. Counted before the first message so an unauthenticated
+      // flood is bounded; released in the close handler below.
+      const ip = getClientIp(req);
+      const openForIp = (connectionsByIp.get(ip) ?? 0) + 1;
+      connectionsByIp.set(ip, openForIp);
+
+      ws.once('close', () => {
+        const remaining = (connectionsByIp.get(ip) ?? 1) - 1;
+        if (remaining <= 0) connectionsByIp.delete(ip);
+        else connectionsByIp.set(ip, remaining);
+      });
+
+      if (openForIp > wsLimits.maxConnectionsPerIp) {
+        logger.warn(
+          '[WS] %s exceeded %d connections, refusing',
+          ip,
+          wsLimits.maxConnectionsPerIp
+        );
+        ws.close(WS_CLOSE_POLICY_VIOLATION, 'Too many connections');
+        return;
+      }
+
       logger.debug('[WS] connection open');
 
+      // A socket that never sends its connection params is not a client
+      // of ours; drop it instead of holding it open on keepalive pings.
+      const paramsTimer = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        logger.debug('[WS] no connection params within %d ms, closing', wsLimits.connectionParamsTimeoutMs);
+        ws.close(WS_CLOSE_POLICY_VIOLATION, 'Connection params timeout');
+      }, wsLimits.connectionParamsTimeoutMs);
+      paramsTimer.unref();
+      ws.once('close', () => clearTimeout(paramsTimer));
+
+      // Registered before tRPC's handler (which attaches on the same
+      // 'connection' event after this listener), so an oversize frame is
+      // refused before anything tries to parse it.
+      ws.on('message', (data) => {
+        if (frameSize(data) > WS_MAX_PAYLOAD_BYTES) {
+          logger.warn('[WS] %s sent a frame over %d bytes, closing', ip, WS_MAX_PAYLOAD_BYTES);
+          ws.close(WS_CLOSE_MESSAGE_TOO_BIG, 'Message too big');
+        }
+      });
+
       ws.once('message', async (message) => {
+        clearTimeout(paramsTimer);
         try {
           const parsed = JSON.parse(message.toString());
           const params = parsed.data as TConnectionParams;

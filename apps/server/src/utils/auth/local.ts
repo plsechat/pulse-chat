@@ -5,11 +5,20 @@
  * Storage
  * =======
  * One table, `local_auth_users`, mirrors what `supabaseAdmin.auth`
- * exposes: a stable per-user id, an email (unique), a bcrypt hash,
- * and a list of linked providers (always `[{provider:'email'}]` in
- * local mode — OAuth is a Supabase-only feature for now). The id
- * stored here is what gets placed on `users.supabaseId` when the
- * registerUser flow runs after createUser.
+ * exposes: a stable per-user id, an email (unique), a password hash
+ * (`Bun.password`, argon2id), and a list of linked providers (always
+ * `[{provider:'email'}]` in local mode — OAuth is a Supabase-only
+ * feature for now). The id stored here is what gets placed on
+ * `users.supabaseId` when the registerUser flow runs after createUser.
+ *
+ * E-mails are case-insensitive: createUser stores `trim().toLowerCase()`
+ * and signInWithPassword matches on `lower(email)` (migration 0030
+ * lower-cased existing rows; a row it had to skip because of a collision
+ * is still reachable — exact-case match wins, then the oldest row).
+ *
+ * Unknown-email sign-ins still run one password verification against a
+ * static hash so the response time does not reveal whether the address
+ * is registered.
  *
  * Tokens
  * ======
@@ -29,7 +38,7 @@
  */
 
 import { randomUUIDv7 } from 'bun';
-import { eq, sql } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import { jwtVerify, SignJWT } from 'jose';
 import { db } from '../../db';
 import { localAuthUsers } from '../../db/schema';
@@ -46,6 +55,17 @@ import type {
 const ACCESS_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ISSUER = 'pulse:local-auth';
+
+/**
+ * Verified against when the e-mail is unknown so the unknown-email and
+ * wrong-password paths cost the same. Same algorithm + parameters as
+ * `Bun.password.hash` defaults (argon2id, m=65536, t=2, p=1); the
+ * plaintext behind it is irrelevant — nothing is ever expected to match.
+ */
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,t=2,p=1$SYa0By3J9AMtEydW+DU4+yccOhDSKuQ8GBlxbxF1QH8$a9j64WKHpxO5ihJVNbtUJX0POumC66UrRhqraVNOzLc';
+
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
 function err(message: string, reason: AuthError['reason'] = 'unknown'): AuthError {
   return { message, reason };
@@ -135,13 +155,24 @@ const localAuthBackend: AuthBackend = {
   kind: 'local',
 
   async signInWithPassword({ email, password }): Promise<SignInResult> {
+    const normalized = normalizeEmail(email);
+
+    // Exact-case row first, then the oldest — only matters for rows the
+    // 0030 migration could not lower-case because of a collision.
     const [row] = await db
       .select()
       .from(localAuthUsers)
-      .where(eq(localAuthUsers.email, email))
+      .where(sql`lower(${localAuthUsers.email}) = ${normalized}`)
+      .orderBy(
+        desc(sql`${localAuthUsers.email} = ${normalized}`),
+        asc(localAuthUsers.id)
+      )
       .limit(1);
 
     if (!row) {
+      // Burn the same work a real verification costs — see
+      // DUMMY_PASSWORD_HASH.
+      await Bun.password.verify(password, DUMMY_PASSWORD_HASH);
       return {
         data: { user: null, session: null },
         error: err('Invalid login credentials', 'invalid_credentials')
@@ -211,14 +242,18 @@ const localAuthBackend: AuthBackend = {
     };
   },
 
-  async createUser({ email, password }): Promise<CreateUserResult> {
+  async createUser({ email: rawEmail, password }): Promise<CreateUserResult> {
+    const email = normalizeEmail(rawEmail);
+
     // Pre-check for an existing email so we can return the canonical
     // error reason. The unique index below catches the race; this just
-    // skips the work in the common case.
+    // skips the work in the common case. Case-insensitive so a mixed-case
+    // row the 0030 migration had to skip still blocks its lower-cased
+    // twin.
     const [existing] = await db
       .select({ id: localAuthUsers.id })
       .from(localAuthUsers)
-      .where(eq(localAuthUsers.email, email))
+      .where(sql`lower(${localAuthUsers.email}) = ${email}`)
       .limit(1);
     if (existing) {
       return {

@@ -21,6 +21,7 @@
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@floating-ui/dom": "^1.7.4",
+    "@fontsource-variable/inter": "^5.3.0",
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.16",
     "@pulse/shared": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.15",

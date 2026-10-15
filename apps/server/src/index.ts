@@ -12,6 +12,7 @@ import { config, SERVER_PRIVATE_IP } from './config';
 import { loadCrons } from './crons';
 import { loadDb } from './db';
 import { warmFileHmacSecret } from './db/queries/server';
+import { fileManager } from './utils/file-manager';
 import { pluginManager } from './plugins';
 import { loadBannedUsersCache } from './utils/banned-cache';
 import { startMetricsSampler } from './utils/metrics';
@@ -42,6 +43,16 @@ try {
 } catch (e) {
   console.error('[pulse] FATAL: Database connection failed:', e);
   process.exit(1);
+}
+
+// Temp/upload leftovers from a previous process (timers do not survive a
+// restart); sweep them before the first request can allocate a path.
+// Non-fatal: a sweep failure must not take the server down.
+try {
+  const swept = await fileManager.sweepStaleFiles();
+  if (swept > 0) logger.info(`Removed ${swept} stale upload file(s)`);
+} catch (e) {
+  logger.warn('Stale upload sweep failed: %o', e);
 }
 
 console.log('[pulse] Loading plugins...');

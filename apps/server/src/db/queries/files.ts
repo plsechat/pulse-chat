@@ -138,6 +138,12 @@ const getOrphanedFileIds = async (): Promise<number[]> => {
     AND NOT EXISTS (
       SELECT 1 FROM nameplates np WHERE np.file_id = f.id
     )
+    AND NOT EXISTS (
+      SELECT 1 FROM webhooks w WHERE w.avatar_file_id = f.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM dm_channels dc WHERE dc.icon_file_id = f.id
+    )
   `);
 
   return orphanedFileIds.map(({ id }) => id);
@@ -156,6 +162,8 @@ const isFileOrphaned = async (fileId: number): Promise<boolean> => {
         AND NOT EXISTS (SELECT 1 FROM servers srv WHERE srv.logo_id = ${fileId})
         AND NOT EXISTS (SELECT 1 FROM settings s WHERE s.logo_id = ${fileId})
         AND NOT EXISTS (SELECT 1 FROM nameplates np WHERE np.file_id = ${fileId})
+        AND NOT EXISTS (SELECT 1 FROM webhooks w WHERE w.avatar_file_id = ${fileId})
+        AND NOT EXISTS (SELECT 1 FROM dm_channels dc WHERE dc.icon_file_id = ${fileId})
         THEN true
         ELSE false
       END as "isOrphaned"

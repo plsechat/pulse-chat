@@ -1,55 +1,35 @@
 import http from 'http';
+import {
+  consumeRateLimit,
+  rateLimitKey,
+  type RateLimitConfig
+} from './rate-limit-core';
 
-type RateLimitConfig = {
-  windowMs: number;
-  maxRequests: number;
-};
-
-const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
-
-const buckets = new Map<string, { count: number; resetAt: number }>();
-
-const cleanupInterval = setInterval(() => {
-  const now = Date.now();
-  for (const [key, bucket] of buckets) {
-    if (now > bucket.resetAt) {
-      buckets.delete(key);
-    }
-  }
-}, 60_000);
-
-cleanupInterval.unref();
-
+/**
+ * Fixed-window per-client limiter for the HTTP routes. Buckets are
+ * keyed on `ip:pathname` (query string ignored) via `rate-limit-core`;
+ * pass `key` to bucket on something else (a webhook id, a route prefix
+ * whose path tail varies per resource).
+ *
+ * Returns false after writing the 429 so the caller just `return`s.
+ *
+ * The export surface of THIS module is fixed by the test preload
+ * (`__tests__/mock-modules.ts` replaces it so suites never 429): the
+ * limit configs and the bucket store live in `rate-limit-core`, which
+ * is what new code should import.
+ */
 function checkRateLimit(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  config: RateLimitConfig
+  config: RateLimitConfig,
+  key: string = rateLimitKey(req)
 ): boolean {
-  // Only trust proxy headers when explicitly configured (matches get-ws-info.ts)
-  const proxyIp = TRUST_PROXY
-    ? ((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-       (req.headers['x-real-ip'] as string))
-    : undefined;
+  const result = consumeRateLimit(key, config);
 
-  const ip = proxyIp || req.socket.remoteAddress || 'unknown';
-
-  const key = `${ip}:${req.url}`;
-  const now = Date.now();
-
-  let bucket = buckets.get(key);
-
-  if (!bucket || now > bucket.resetAt) {
-    bucket = { count: 0, resetAt: now + config.windowMs };
-    buckets.set(key, bucket);
-  }
-
-  bucket.count++;
-
-  if (bucket.count > config.maxRequests) {
-    const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
+  if (!result.allowed) {
     res.writeHead(429, {
       'Content-Type': 'application/json',
-      'Retry-After': String(retryAfter)
+      'Retry-After': String(result.retryAfterSec)
     });
     res.end(
       JSON.stringify({
@@ -62,30 +42,4 @@ function checkRateLimit(
   return true;
 }
 
-// Optional env overrides. Defaults are the shipped behavior; the knobs
-// exist for operators behind shared NATs (many users, one IP) and for
-// test rigs (the E2E suite logs in per-test and would exhaust the
-// default budget immediately).
-const envInt = (name: string, fallback: number): number => {
-  const raw = process.env[name]?.trim();
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const authRateLimit: RateLimitConfig = {
-  windowMs: envInt('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
-  maxRequests: envInt('AUTH_RATE_LIMIT_MAX', 10)
-};
-
-const federationRateLimit: RateLimitConfig = {
-  windowMs: 60 * 1000,
-  maxRequests: 60
-};
-
-const uploadRateLimit: RateLimitConfig = {
-  windowMs: 60 * 1000,
-  maxRequests: 30
-};
-
-export { checkRateLimit, authRateLimit, federationRateLimit, uploadRateLimit };
+export { checkRateLimit };

@@ -11,9 +11,9 @@ import { protectedProcedure } from '../../utils/trpc';
 const updatePasswordRoute = protectedProcedure
   .input(
     z.object({
-      currentPassword: z.string().min(4).max(128),
-      newPassword: z.string().min(4).max(128),
-      confirmNewPassword: z.string().min(4).max(128)
+      currentPassword: z.string().min(1).max(128),
+      newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+      confirmNewPassword: z.string().min(8, 'Password must be at least 8 characters').max(128)
     })
   )
   .mutation(async ({ ctx, input }) => {

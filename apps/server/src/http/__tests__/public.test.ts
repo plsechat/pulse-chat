@@ -6,6 +6,7 @@ import path from 'path';
 import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
 import { loadCrons } from '../../crons';
+import { getOrphanedFileIds, isFileOrphaned } from '../../db/queries/files';
 import {
   channels,
   dmChannels,
@@ -13,12 +14,64 @@ import {
   dmMessages,
   files,
   messageFiles,
-  messages
+  messages,
+  webhooks
 } from '../../db/schema';
-import { fileExists } from '../../utils/file-manager';
 import { dmFileSalt, generateFileToken } from '../../helpers/files-crypto';
 import { PUBLIC_PATH } from '../../helpers/paths';
-import { fileManager } from '../../utils/file-manager';
+import { fileExists, fileManager } from '../../utils/file-manager';
+
+const PUBLIC_CSP = "default-src 'none'; sandbox";
+
+/**
+ * Seed a stored file directly (disk + files row + message_files link in
+ * channel 1) with an arbitrary name/MIME. The /upload denylist now
+ * refuses scriptable extensions, but files stored BEFORE the denylist
+ * grew are exactly the threat /public must neutralise, so the serve
+ * tests bypass intake.
+ */
+const seedStoredFile = async ({
+  name,
+  originalName,
+  mimeType,
+  content
+}: {
+  name: string;
+  originalName: string;
+  mimeType: string;
+  content: string;
+}) => {
+  const now = Date.now();
+
+  await fs.writeFile(path.join(PUBLIC_PATH, name), content);
+
+  const [dbFile] = await tdb
+    .insert(files)
+    .values({
+      name,
+      originalName,
+      md5: `md5-${name}`,
+      userId: 1,
+      size: Buffer.byteLength(content),
+      mimeType,
+      extension: path.extname(name),
+      createdAt: now
+    })
+    .returning();
+
+  const [message] = await tdb
+    .insert(messages)
+    .values({ userId: 1, channelId: 1, content: 'seeded', createdAt: now })
+    .returning();
+
+  await tdb.insert(messageFiles).values({
+    messageId: message!.id,
+    fileId: dbFile!.id,
+    createdAt: now
+  });
+
+  return dbFile!;
+};
 
 const upload = async (file: File, token: string) => {
   const uploadResponse = await uploadFile(file, token);
@@ -152,19 +205,250 @@ describe('/public', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Content-Type')).toInclude('text/plain');
+    // text/* is not on the inline allowlist: served as a download with a
+    // neutral type so the stored Content-Type can never render.
+    expect(response.headers.get('Content-Type')).toBe(
+      'application/octet-stream'
+    );
     expect(response.headers.get('Content-Length')).toBe(
       dbFile!.size.toString()
     );
     // Content-Disposition carries the real (original) filename for
     // download, not the random stored name.
     expect(response.headers.get('Content-Disposition')).toBe(
-      `inline; filename="${dbFile!.originalName}"`
+      `attachment; filename="${dbFile!.originalName}"`
     );
+    expect(response.headers.get('Content-Security-Policy')).toBe(PUBLIC_CSP);
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
 
     const responseText = await response.text();
 
     expect(responseText).toBe(file!.content);
+  });
+
+  test('stored .shtml and .ts files are served as octet-stream attachments under a sandboxing CSP', async () => {
+    const now = Date.now();
+    const seeded = [
+      await seedStoredFile({
+        name: `page-${now}.shtml`,
+        originalName: 'page.shtml',
+        mimeType: 'text/html;charset=utf-8',
+        content: '<script src="/public/x.ts"></script>'
+      }),
+      await seedStoredFile({
+        name: `script-${now}.ts`,
+        originalName: 'script.ts',
+        mimeType: 'text/javascript;charset=utf-8',
+        content:
+          'fetch("/steal?" + localStorage.getItem("pulse:auth:access_token"))'
+      }),
+      await seedStoredFile({
+        name: `vector-${now}.svg`,
+        originalName: 'vector.svg',
+        mimeType: 'image/svg+xml',
+        content: '<svg onload="alert(1)"/>'
+      })
+    ];
+
+    try {
+      for (const dbFile of seeded) {
+        const response = await fetch(
+          `${testsBaseUrl}/public/${encodeURIComponent(dbFile.name)}`
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe(
+          'application/octet-stream'
+        );
+        expect(response.headers.get('Content-Disposition')).toBe(
+          `attachment; filename="${dbFile.originalName}"`
+        );
+        expect(response.headers.get('Content-Security-Policy')).toBe(
+          PUBLIC_CSP
+        );
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      }
+    } finally {
+      for (const dbFile of seeded) {
+        await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+      }
+    }
+  });
+
+  test('images, video, audio and pdf stay inline with their real type, still under the CSP', async () => {
+    const now = Date.now();
+    const seeded = [
+      await seedStoredFile({
+        name: `pic-${now}.png`,
+        originalName: 'pic.png',
+        mimeType: 'image/png',
+        content: 'png-bytes'
+      }),
+      await seedStoredFile({
+        name: `clip-${now}.mp4`,
+        originalName: 'clip.mp4',
+        mimeType: 'video/mp4',
+        content: 'mp4-bytes'
+      }),
+      await seedStoredFile({
+        name: `song-${now}.mp3`,
+        originalName: 'song.mp3',
+        mimeType: 'audio/mpeg',
+        content: 'mp3-bytes'
+      }),
+      await seedStoredFile({
+        name: `doc-${now}.pdf`,
+        originalName: 'doc.pdf',
+        mimeType: 'application/pdf',
+        content: 'pdf-bytes'
+      })
+    ];
+
+    try {
+      for (const dbFile of seeded) {
+        const response = await fetch(
+          `${testsBaseUrl}/public/${encodeURIComponent(dbFile.name)}`
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe(dbFile.mimeType);
+        expect(response.headers.get('Content-Disposition')).toBe(
+          `inline; filename="${dbFile.originalName}"`
+        );
+        expect(response.headers.get('Content-Security-Policy')).toBe(
+          PUBLIC_CSP
+        );
+      }
+    } finally {
+      for (const dbFile of seeded) {
+        await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+      }
+    }
+  });
+
+  test('a non-ASCII original name gets an RFC 5987 filename* instead of a 500', async () => {
+    const dbFile = await seedStoredFile({
+      name: `unicode-${Date.now()}.png`,
+      originalName: 'Ünïcödé 画像.png',
+      mimeType: 'image/png',
+      content: 'png-bytes'
+    });
+
+    try {
+      const response = await fetch(
+        `${testsBaseUrl}/public/${encodeURIComponent(dbFile.name)}`
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Disposition')).toBe(
+        `inline; filename="_n_c_d_ __.png"; filename*=UTF-8''${encodeURIComponent(dbFile.originalName)}`
+      );
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+    }
+  });
+
+  test('malformed percent-encoding in the path is a 400, not a 500', async () => {
+    const response = await fetch(`${testsBaseUrl}/public/%E0`);
+
+    expect(response.status).toBe(400);
+
+    const data = (await response.json()) as { error: string };
+
+    expect(data).toHaveProperty('error', 'Bad request');
+    // Error responses carry the CSP too.
+    expect(response.headers.get('Content-Security-Policy')).toBe(PUBLIC_CSP);
+  });
+
+  test('a file referenced only by a webhook avatar is not orphaned and is served', async () => {
+    const now = Date.now();
+    const name = `webhook-avatar-${now}.png`;
+
+    await fs.writeFile(path.join(PUBLIC_PATH, name), 'png-bytes');
+
+    const [dbFile] = await tdb
+      .insert(files)
+      .values({
+        name,
+        originalName: 'avatar.png',
+        md5: `md5-${name}`,
+        userId: 1,
+        size: 9,
+        mimeType: 'image/png',
+        extension: '.png',
+        createdAt: now
+      })
+      .returning();
+
+    try {
+      // Unreferenced: orphaned (and 404 on /public).
+      expect(await isFileOrphaned(dbFile!.id)).toBe(true);
+
+      await tdb.insert(webhooks).values({
+        name: 'Avatar hook',
+        channelId: 1,
+        token: `hook-${now}`,
+        avatarFileId: dbFile!.id,
+        createdBy: 1,
+        serverId: 1,
+        createdAt: now
+      });
+
+      expect(await isFileOrphaned(dbFile!.id)).toBe(false);
+      expect(await getOrphanedFileIds()).not.toContain(dbFile!.id);
+
+      const response = await fetch(
+        `${testsBaseUrl}/public/${encodeURIComponent(name)}`
+      );
+
+      expect(response.status).toBe(200);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, name), { force: true });
+    }
+  });
+
+  test('a file referenced only by a group-DM icon is not orphaned and is served', async () => {
+    const now = Date.now();
+    const name = `dm-icon-${now}.png`;
+
+    await fs.writeFile(path.join(PUBLIC_PATH, name), 'png-bytes');
+
+    const [dbFile] = await tdb
+      .insert(files)
+      .values({
+        name,
+        originalName: 'icon.png',
+        md5: `md5-${name}`,
+        userId: 1,
+        size: 9,
+        mimeType: 'image/png',
+        extension: '.png',
+        createdAt: now
+      })
+      .returning();
+
+    try {
+      expect(await isFileOrphaned(dbFile!.id)).toBe(true);
+
+      await tdb.insert(dmChannels).values({
+        name: 'Group with icon',
+        ownerId: 1,
+        iconFileId: dbFile!.id,
+        isGroup: true,
+        createdAt: now
+      });
+
+      expect(await isFileOrphaned(dbFile!.id)).toBe(false);
+      expect(await getOrphanedFileIds()).not.toContain(dbFile!.id);
+
+      const response = await fetch(
+        `${testsBaseUrl}/public/${encodeURIComponent(name)}`
+      );
+
+      expect(response.status).toBe(200);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, name), { force: true });
+    }
   });
 
   test('should return 404 when file not found in database', async () => {
@@ -466,7 +750,9 @@ describe('/public', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Content-Type')).toInclude('text/plain');
+    expect(response.headers.get('Content-Type')).toBe(
+      'application/octet-stream'
+    );
 
     const responseText = await response.text();
 

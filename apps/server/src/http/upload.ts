@@ -8,20 +8,87 @@ import { logger } from '../logger';
 import { fileManager } from '../utils/file-manager';
 import { resolveAuthenticatedUser } from '../utils/resolve-auth';
 
+// Defense in depth only. The real protection against a stored upload
+// executing on the app origin is in /public (http/public.ts): every
+// response there carries a sandboxing CSP, and only image/video/audio/
+// pdf types are served inline — everything else is an
+// application/octet-stream attachment. This list keeps the obviously
+// scriptable/renderable types (as Bun.file(...).type maps them) out of
+// storage in the first place.
 const BLOCKED_EXTENSIONS = new Set([
-  '.html', '.htm', '.xhtml', '.xml', '.svg',
-  '.php', '.jsp', '.asp', '.aspx', '.cgi',
-  '.exe', '.bat', '.cmd', '.sh', '.ps1',
-  '.msi', '.dll', '.com', '.scr', '.pif',
-  '.js', '.mjs', '.vbs', '.wsf', '.hta'
+  '.html',
+  '.htm',
+  '.shtml',
+  '.shtm',
+  '.xhtml',
+  '.xht',
+  '.xhtm',
+  '.xml',
+  '.xsl',
+  '.xslt',
+  '.mathml',
+  '.xul',
+  '.rss',
+  '.atom',
+  '.svg',
+  '.svgz',
+  '.webmanifest',
+  '.php',
+  '.jsp',
+  '.asp',
+  '.aspx',
+  '.cgi',
+  '.exe',
+  '.bat',
+  '.cmd',
+  '.sh',
+  '.ps1',
+  '.msi',
+  '.dll',
+  '.com',
+  '.scr',
+  '.pif',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.jsx',
+  '.ts',
+  '.tsx',
+  '.es',
+  '.htc',
+  '.vbs',
+  '.wsf',
+  '.hta'
 ]);
 
 const zHeaders = z.object({
   [UploadHeaders.TOKEN]: z.string(),
   [UploadHeaders.ORIGINAL_NAME]: z.string(),
-  [UploadHeaders.CONTENT_LENGTH]: z.string().transform((val) => Number(val)),
+  // A malformed Content-Length used to become NaN and sail past the
+  // size comparison; now it is a 400 like any other bad header.
+  [UploadHeaders.CONTENT_LENGTH]: z.coerce.number().int().nonnegative(),
   [UploadHeaders.ENCRYPTED]: z.string().optional()
 });
+
+const QUOTA_MESSAGES = {
+  user: 'User storage limit exceeded',
+  server: 'Server storage limit exceeded.'
+} as const;
+
+/** Drain the request body, then answer — avoids resetting the client
+ * mid-upload for a verdict we can give from the headers alone. */
+const rejectAfterDrain = (
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  status: number,
+  error: string
+) => {
+  req.resume();
+  req.on('end', () => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error }));
+  });
+};
 
 const uploadFileRouteHandler = async (
   req: http.IncomingMessage,
@@ -41,7 +108,9 @@ const uploadFileRouteHandler = async (
   const isEncrypted = parsedHeaders[UploadHeaders.ENCRYPTED] === 'true';
 
   // Authenticate via standard token or federation token (both are validated)
-  const federationToken = req.headers['x-federation-token'] as string | undefined;
+  const federationToken = req.headers['x-federation-token'] as
+    | string
+    | undefined;
   const auth = await resolveAuthenticatedUser({
     accessToken: token,
     federationToken
@@ -66,41 +135,42 @@ const uploadFileRouteHandler = async (
   }
 
   if (contentLength > server.storageUploadMaxFileSize) {
-    req.resume();
-    req.on('end', () => {
-      res.writeHead(413, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error: `File ${originalName} exceeds the maximum allowed size`
-        })
-      );
-    });
-
+    rejectAfterDrain(
+      req,
+      res,
+      413,
+      `File ${originalName} exceeds the maximum allowed size`
+    );
     return;
   }
 
   const ext = path.extname(originalName).toLowerCase();
   if (BLOCKED_EXTENSIONS.has(ext)) {
-    req.resume();
-    req.on('end', () => {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({ error: `File type ${ext} is not allowed` })
-      );
-    });
-
+    rejectAfterDrain(req, res, 400, `File type ${ext} is not allowed`);
     return;
   }
 
   if (!server.storageUploadEnabled) {
-    req.resume();
-    req.on('end', () => {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({ error: 'File uploads are disabled on this server' })
-      );
-    });
+    rejectAfterDrain(req, res, 403, 'File uploads are disabled on this server');
+    return;
+  }
 
+  // The declared length is a claim, but a truthful client over its
+  // quota gets its answer here instead of after streaming 100 MB into
+  // a temp area that saveFile would then refuse. The streamed byte count
+  // below and saveFile's own check remain the hard stops.
+  if (contentLength === 0) {
+    rejectAfterDrain(req, res, 400, 'Empty files cannot be uploaded');
+    return;
+  }
+
+  const quotaViolation = await fileManager.getStorageViolation(
+    user.id,
+    contentLength
+  );
+
+  if (quotaViolation) {
+    rejectAfterDrain(req, res, 413, QUOTA_MESSAGES[quotaViolation]);
     return;
   }
 
@@ -139,6 +209,16 @@ const uploadFileRouteHandler = async (
 
   fileStream.on('finish', async () => {
     if (exceeded || res.headersSent) return;
+
+    // Chunked uploads can declare 0 and still send bytes, or declare a
+    // length and send nothing: the stream is the truth.
+    if (bytesReceived === 0) {
+      fs.unlink(safePath, () => {});
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Empty files cannot be uploaded' }));
+      return;
+    }
+
     try {
       const tempFile = await fileManager.addTemporaryFile({
         originalName,

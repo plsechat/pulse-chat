@@ -5,14 +5,15 @@ import { db } from '../../db';
 import { channels, webhooks } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { assertWebhookAvatarFile } from './create';
 
 const updateWebhookRoute = protectedProcedure
   .input(
     z.object({
-      webhookId: z.number(),
+      webhookId: z.number().int().positive(),
       name: z.string().min(1).max(80).optional(),
-      channelId: z.number().optional(),
-      avatarFileId: z.number().nullable().optional()
+      channelId: z.number().int().positive().optional(),
+      avatarFileId: z.number().int().positive().nullable().optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -38,6 +39,11 @@ const updateWebhookRoute = protectedProcedure
         code: 'NOT_FOUND',
         message: 'Channel not found'
       });
+    }
+
+    // `null` clears the avatar; a number must be the caller's own image.
+    if (typeof input.avatarFileId === 'number') {
+      await assertWebhookAvatarFile(input.avatarFileId, ctx.userId);
     }
 
     const updates: Record<string, unknown> = { updatedAt: Date.now() };

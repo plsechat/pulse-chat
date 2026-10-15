@@ -35,39 +35,35 @@ const registerRemoteInstanceUrl = (
   remoteInstanceBaseUrls.set(instanceDomain, baseUrl.replace(/\/+$/, ''));
 };
 
+/**
+ * Absolute `/public/<name>` URL on the instance that owns the file: the
+ * active federated instance when one is given, otherwise the home server.
+ */
+const getPublicFileUrl = (
+  name: string,
+  instanceDomain?: string,
+  accessToken?: string
+) => {
+  const base = instanceDomain
+    ? (remoteInstanceBaseUrls.get(instanceDomain) ??
+      `${instanceDomain.includes('localhost') ? 'http' : 'https'}://${instanceDomain}`)
+    : getUrlFromServer();
+  let url = `${base}/public/${name}`;
+  if (accessToken) url += `?accessToken=${accessToken}`;
+  return encodeURI(url);
+};
+
 const getFileUrl = (
   file: (TFileRef & { _accessToken?: string }) | undefined | null,
   instanceDomain?: string
 ) => {
   if (!file) return '';
-
-  // If on a remote federated server, resolve URL to remote instance
-  if (instanceDomain) {
-    const base =
-      remoteInstanceBaseUrls.get(instanceDomain) ??
-      `${instanceDomain.includes('localhost') ? 'http' : 'https'}://${instanceDomain}`;
-    let baseUrl = `${base}/public/${file.name}`;
-
-    if (file._accessToken) {
-      baseUrl += `?accessToken=${file._accessToken}`;
-    }
-
-    return encodeURI(baseUrl);
-  }
-
-  const url = getUrlFromServer();
-
-  let baseUrl = `${url}/public/${file.name}`;
-
-  if (file._accessToken) {
-    baseUrl += `?accessToken=${file._accessToken}`;
-  }
-
-  return encodeURI(baseUrl);
+  return getPublicFileUrl(file.name, instanceDomain, file._accessToken);
 };
 
 export {
   getFileUrl,
+  getPublicFileUrl,
   getHostFromServer,
   getUrlFromServer,
   registerRemoteInstanceUrl

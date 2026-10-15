@@ -255,4 +255,39 @@ describe('/interface', () => {
 
     expect(response.status).toBe(404);
   });
+
+  test('a sibling directory sharing the interface path prefix is not served', async () => {
+    // INTERFACE_PATH is versioned (data/interface/<ver>); a bare
+    // startsWith(basePath) check let data/interface/<ver>-rc1 through.
+    const siblingDir = `${testInterfacePath}-rc1`;
+    const leakFile = path.join(siblingDir, 'leak.txt');
+
+    fs.mkdirSync(siblingDir, { recursive: true });
+    fs.writeFileSync(leakFile, 'should never be served');
+
+    try {
+      const traversal = `../${path.basename(testInterfacePath)}-rc1/leak.txt`;
+      const response = await fetch(
+        `${testsBaseUrl}/${encodeURIComponent(traversal)}`
+      );
+
+      expect(response.status).toBe(403);
+
+      const data = await response.json();
+
+      expect(data).toHaveProperty('error', 'Forbidden');
+    } finally {
+      fs.rmSync(siblingDir, { recursive: true, force: true });
+    }
+  });
+
+  test('malformed percent-encoding is a 400, not a 500', async () => {
+    const response = await fetch(`${testsBaseUrl}/%E0`);
+
+    expect(response.status).toBe(400);
+
+    const data = await response.json();
+
+    expect(data).toHaveProperty('error', 'Bad request');
+  });
 });

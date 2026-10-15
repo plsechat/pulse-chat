@@ -28,7 +28,7 @@ test('register a new account through the UI and land in the app', async ({
     .getByPlaceholder('How others will see you')
     .fill(`UiReg${stamp}`);
   await page.getByPlaceholder('you@example.com').fill(`uireg-${stamp}@e2e.local`);
-  await page.getByPlaceholder('At least 4 characters').fill('e2e-password-1234');
+  await page.getByPlaceholder('At least 8 characters').fill('e2e-password-1234');
   await page.getByRole('button', { name: 'Create Account' }).click();
 
   // A freshly registered non-operator lands in the authenticated shell

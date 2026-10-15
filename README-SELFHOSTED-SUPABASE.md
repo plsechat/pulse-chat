@@ -254,6 +254,7 @@ Configure `/etc/caddy/Caddyfile`:
 
 ```
 your-domain.com {
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
     handle /auth/v1/* {
         reverse_proxy localhost:8000
     }
@@ -262,6 +263,8 @@ your-domain.com {
     }
 }
 ```
+
+Pulse sends `Strict-Transport-Security` itself once it knows the request came in over HTTPS (`TRUST_PROXY=true` with the proxy's `X-Forwarded-Proto`, or `PUBLIC_URL=https://…`). The `header` line above adds the same policy on the `/auth/v1/*` path, which never reaches Pulse. Only enable HSTS once the domain is served over HTTPS for good — browsers remember it for a year.
 
 ```bash
 sudo systemctl restart caddy
@@ -281,6 +284,10 @@ Create `/etc/nginx/sites-available/pulse`:
 ```nginx
 server {
     server_name your-domain.com;
+
+    # Pulse emits HSTS itself for its own routes (it sees X-Forwarded-Proto
+    # via TRUST_PROXY); this covers /auth/v1/ too. HTTPS-only domains only.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     location /auth/v1/ {
         proxy_pass http://127.0.0.1:8000;

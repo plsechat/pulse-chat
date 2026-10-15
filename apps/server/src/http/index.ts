@@ -1,8 +1,13 @@
+import { UploadHeaders } from '@pulse/shared';
 import chalk from 'chalk';
 import http from 'http';
 import z from 'zod';
 import { config } from '../config';
-import { getWsInfo } from '../helpers/get-ws-info';
+import {
+  getClientIp,
+  getWsInfo,
+  resolvePublicOrigin
+} from '../helpers/get-ws-info';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
 import { newRequestId, withLogContext } from '../utils/log-context';
@@ -41,18 +46,57 @@ import { provisionRouteHandler } from './provision-user';
 import { refreshRouteHandler } from './refresh';
 import { oidcCallbackRouteHandler, oidcStartRouteHandler } from './oidc';
 import { publicRouteHandler } from './public';
+import { checkRateLimit } from './rate-limit';
 import {
   authRateLimit,
-  checkRateLimit,
   federationRateLimit,
-  uploadRateLimit
-} from './rate-limit';
+  federationReadRateLimit,
+  publicRateLimit,
+  uploadRateLimit,
+  webhookIdRateLimit,
+  webhookRateLimit
+} from './rate-limit-core';
 import { registerRouteHandler } from './register';
 import { uploadFileRouteHandler } from './upload';
 import { HttpValidationError } from './utils';
 import { webhookRouteHandler } from './webhook';
 
 // this http server implementation is temporary and will be moved to bun server later when things are more stable
+
+// Every header the browser client sets on a cross-origin call (federated
+// uploads carry the full UploadHeaders set, incl. x-file-encrypted) plus
+// the bearer/federation/correlation headers. Built from the shared enum
+// so a new upload header cannot silently fail the preflight again.
+const CORS_ALLOW_HEADERS = Array.from(
+  new Set([
+    'content-type',
+    'authorization',
+    'x-federation-token',
+    'x-pulse-request-id',
+    ...Object.values(UploadHeaders)
+  ])
+).join(', ');
+
+// 'unsafe-eval' is not needed: the only eval in the built client is
+// protobufjs' try/catch-guarded `eval("require")` probe, which fails
+// closed. Fonts are self-hosted, so font-src stays 'self'.
+const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
+const PERMISSIONS_POLICY =
+  'camera=(self), microphone=(self), display-capture=(self), geolocation=()';
+
+// One year, subdomains included. Only sent when the request is known to
+// have arrived over TLS (PUBLIC_URL / trusted x-forwarded-proto / a TLS
+// socket) — on a plain-http deployment it would pin browsers to an
+// origin that does not exist.
+const STRICT_TRANSPORT_SECURITY = 'max-age=31536000; includeSubDomains';
+
+// Webhook ids are int4 primary keys; anything wider is a 404, not a
+// Postgres out-of-range 500. The token capture stops at `?`/`#` so a
+// query string is never swallowed into the token.
+const WEBHOOK_PATH = /^\/webhooks\/(\d{1,10})\/([^/?#]+)(?:[?#].*)?$/;
+const MAX_WEBHOOK_ID = 2_147_483_647;
 
 const createHttpServer = async (port: number = config.server.port) => {
   return new Promise<http.Server>((resolve) => {
@@ -80,26 +124,30 @@ const createHttpServer = async (port: number = config.server.port) => {
       req: http.IncomingMessage,
       res: http.ServerResponse
     ) {
+      const publicOrigin = resolvePublicOrigin(req);
+
+      // The allow-origin value depends on the Origin header, so caches
+      // must key on it. Credentials are never allowed: auth is a bearer
+      // token / x-token header, and the only cookie (OIDC state) is
+      // scoped to its own path.
+      res.setHeader('Vary', 'Origin');
       const origin = req.headers.origin;
       if (origin) {
-        const allowed = await isAllowedOrigin(origin, req.headers.host);
+        const allowed = await isAllowedOrigin(origin, publicOrigin.host);
         if (allowed) {
           res.setHeader('Access-Control-Allow-Origin', origin);
-          res.setHeader('Access-Control-Allow-Credentials', 'true');
         }
       }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, x-token, x-file-name, x-file-type, x-federation-token, content-length'
-      );
+      res.setHeader('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-      res.setHeader(
-        'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-      );
+      res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+      res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
+      if (publicOrigin.proto === 'https') {
+        res.setHeader('Strict-Transport-Security', STRICT_TRANSPORT_SECURITY);
+      }
 
       const info = getWsInfo(undefined, req);
 
@@ -132,6 +180,7 @@ const createHttpServer = async (port: number = config.server.port) => {
 
         // Federation HTTP API
         if (req.method === 'GET' && req.url === '/federation/info') {
+          if (!checkRateLimit(req, res, federationReadRateLimit)) return;
           return await federationInfoHandler(req, res);
         }
 
@@ -149,6 +198,7 @@ const createHttpServer = async (port: number = config.server.port) => {
           req.method === 'GET' &&
           req.url?.startsWith('/federation/servers')
         ) {
+          if (!checkRateLimit(req, res, federationReadRateLimit)) return;
           return await federationServersHandler(req, res);
         }
 
@@ -294,22 +344,59 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await oidcCallbackRouteHandler(req, res);
         }
 
-        if (
-          req.method === 'POST' &&
-          req.url?.match(/^\/webhooks\/(\d+)\/(.+)$/)
-        ) {
-          const match = req.url.match(/^\/webhooks\/(\d+)\/(.+)$/);
-          if (match) {
-            return await webhookRouteHandler(
+        if (req.method === 'POST' && req.url?.startsWith('/webhooks/')) {
+          const match = req.url.match(WEBHOOK_PATH);
+          const webhookId = match ? Number.parseInt(match[1]!, 10) : NaN;
+
+          if (!match || webhookId > MAX_WEBHOOK_ID) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Webhook not found' }));
+            return;
+          }
+
+          // Two budgets: per source address for this webhook (token
+          // guessing / floods from one host) and per webhook id across
+          // every source (what one integration may inject). Neither key
+          // includes the token, so a wrong guess shares the bucket.
+          const ip = getClientIp(req);
+          if (
+            !checkRateLimit(
               req,
               res,
-              parseInt(match[1]!),
-              match[2]!
-            );
+              webhookRateLimit,
+              `${ip}:/webhooks/${webhookId}`
+            )
+          ) {
+            return;
           }
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              webhookIdRateLimit,
+              `webhook-id:${webhookId}`
+            )
+          ) {
+            return;
+          }
+
+          return await webhookRouteHandler(req, res, webhookId, match[2]!);
         }
 
         if (req.method === 'GET' && req.url?.startsWith('/public')) {
+          // One bucket per source for the whole prefix: the file name
+          // varies per request, so an `ip:pathname` key would never
+          // accumulate.
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              publicRateLimit,
+              `${getClientIp(req)}:/public`
+            )
+          ) {
+            return;
+          }
           return await publicRouteHandler(req, res);
         }
 

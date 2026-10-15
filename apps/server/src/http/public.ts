@@ -11,18 +11,79 @@ import { dmFileSalt, verifyFileToken } from '../helpers/files-crypto';
 import { PUBLIC_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 
+/**
+ * Served on EVERY /public response, overriding the app-wide policy set
+ * in http/index.ts. Uploads are user-controlled bytes on the app
+ * origin: without this, a stored document rendered inline (any type the
+ * denylist in upload.ts missed, or a stale pre-denylist upload) could run
+ * script with access to the SPA's localStorage tokens. `sandbox` gives
+ * the document an opaque origin and no script; `default-src 'none'`
+ * covers anything the sandbox flag alone would not.
+ */
+const PUBLIC_FILE_CSP = "default-src 'none'; sandbox";
+
+/**
+ * Only types a browser can render without a script engine are served
+ * inline; everything else is an application/octet-stream download so the
+ * stored Content-Type is never a vector. SVG is image/* but can carry
+ * script, so it is excluded.
+ */
+const isInlineSafe = (mimeType: string): boolean => {
+  const type = mimeType.split(';')[0]!.trim().toLowerCase();
+
+  if (type === 'image/svg+xml') return false;
+
+  return (
+    type.startsWith('image/') ||
+    type.startsWith('video/') ||
+    type.startsWith('audio/') ||
+    type === 'application/pdf'
+  );
+};
+
+/**
+ * RFC 6266 Content-Disposition. Node refuses header values outside
+ * latin1, so a non-ASCII original name gets an ASCII fallback plus the
+ * RFC 5987 `filename*` form that browsers prefer.
+ */
+const contentDisposition = (type: 'inline' | 'attachment', name: string) => {
+  const clean = name.replace(/[\r\n"\\]/g, '');
+  const asciiOnly = /^[\x20-\x7e]*$/.test(clean);
+
+  if (asciiOnly) {
+    return `${type}; filename="${clean}"`;
+  }
+
+  const fallback = clean.replace(/[^\x20-\x7e]/g, '_');
+
+  return `${type}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(clean)}`;
+};
+
 const publicRouteHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
+  res.setHeader('Content-Security-Policy', PUBLIC_FILE_CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
   if (!req.url) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Bad request' }));
     return;
   }
 
-  const url = new URL(req.url!, `http://${req.headers.host}`);
-  const fileName = decodeURIComponent(path.basename(url.pathname));
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  let fileName: string;
+
+  try {
+    fileName = decodeURIComponent(path.basename(url.pathname));
+  } catch {
+    // Malformed percent-encoding is a client error, not a 500.
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Bad request' }));
+    return;
+  }
 
   const [dbFile] = await db
     .select()
@@ -104,14 +165,15 @@ const publicRouteHandler = async (
 
   const fileStream = fs.createReadStream(filePath);
 
-  const isSvg = dbFile.mimeType === 'image/svg+xml';
-  const disposition = isSvg ? 'attachment' : 'inline';
+  const inline = isInlineSafe(dbFile.mimeType);
 
   res.writeHead(200, {
-    'Content-Type': dbFile.mimeType,
+    'Content-Type': inline ? dbFile.mimeType : 'application/octet-stream',
     'Content-Length': dbFile.size,
-    'Content-Disposition': `${disposition}; filename="${dbFile.originalName.replace(/[\r\n"\\]/g, '')}"`,
-    'X-Content-Type-Options': 'nosniff'
+    'Content-Disposition': contentDisposition(
+      inline ? 'inline' : 'attachment',
+      dbFile.originalName
+    )
   });
 
   fileStream.pipe(res);

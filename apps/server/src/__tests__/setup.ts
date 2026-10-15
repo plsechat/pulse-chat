@@ -68,11 +68,15 @@ const drainFireAndForgetQueues = () =>
     drainQueue(dmMessageMetadataQueue)
   ]);
 
+// TEST_HTTP_PORT lets several suites run side by side on one machine
+// (each against its own DATABASE_URL); CI and the default local run use 9999.
+const TEST_HTTP_PORT = Number(process.env.TEST_HTTP_PORT ?? 9999);
+
 beforeAll(async () => {
-  await createHttpServer(9999);
+  await createHttpServer(TEST_HTTP_PORT);
   await loadMediasoup();
 
-  testsBaseUrl = 'http://localhost:9999';
+  testsBaseUrl = `http://localhost:${TEST_HTTP_PORT}`;
 });
 
 // ── Between-test reset hardening ─────────────────────────────────────

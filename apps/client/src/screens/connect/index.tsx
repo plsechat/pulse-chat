@@ -522,7 +522,7 @@ const Connect = memo(() => {
                       <Input
                         {...registerForm.r('password')}
                         type="password"
-                        placeholder="At least 4 characters"
+                        placeholder="At least 8 characters"
                         onEnter={onRegisterClick}
                         className="h-10"
                       />

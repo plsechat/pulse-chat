@@ -131,7 +131,11 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 | `OIDC_REDIRECT_URI` | optional | Overrides the auto-derived `<pulse-url>/auth/oidc/callback` |
 | `GOOGLE_OAUTH_ENABLED` / `DISCORD_OAUTH_ENABLED` / `FACEBOOK_OAUTH_ENABLED` / `TWITCH_OAUTH_ENABLED` | `AUTH_BACKEND=supabase` | Toggle each Supabase-mediated social provider |
 | `GIPHY_API_KEY` | optional | Enables GIF search in the composer |
-| `TRUST_PROXY` | behind a reverse proxy | Trust `X-Forwarded-*` headers for client IP / protocol |
+| `TRUST_PROXY` | behind a reverse proxy | Trust `X-Forwarded-*` headers for client IP / protocol. The client address is the **rightmost** `X-Forwarded-For` hop (the one your proxy appended); invalid values fall back to the socket address. |
+| `TRUST_PROXY_HEADER` | optional | `cf-connecting-ip` or `x-real-ip`: trust that single header for the client address instead of `X-Forwarded-For`. Only set it when your proxy is guaranteed to OVERWRITE that header (Cloudflare, or nginx with `proxy_set_header X-Real-IP $remote_addr`); a proxy that merely forwards it lets clients spoof their address. |
+| `PUBLIC_URL` | optional | The origin clients reach Pulse on (e.g. `https://pulse.example.com`). Wins over `Host` / `X-Forwarded-*` when deriving redirect URIs, cookie flags and HSTS; set it when Pulse cannot see the public scheme (no `TRUST_PROXY`, TLS terminated elsewhere). HSTS is sent only when the resolved scheme is `https`. |
+| `WS_MAX_CONNECTIONS_PER_IP` / `WS_MAX_CONNECTIONS_PER_USER` | optional | Open WebSocket caps — default `20` per client address and `10` per account; the socket over the cap is closed with code `1008`. Raise the per-IP cap behind a shared NAT. |
+| `WS_CONNECTION_PARAMS_TIMEOUT_MS` | optional | A socket that sends no connection params within this window is closed (default `10000` ms). |
 | `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_MS` | optional | Per-IP budget for the auth endpoints — default 10 requests per 15 minutes (`900000` ms). Raise `AUTH_RATE_LIMIT_MAX` behind a shared NAT. |
 | `DEBUG_LOGGING` | optional | Write JSON debug events to `logs/debug.log` under the data directory (`DEBUG=true` / `DEBUG=1` is accepted as a backward-compatible alias) |
 | `DEBUG_LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_FILES` | optional | Rotation limits for `debug.log` (used with `DEBUG_LOGGING`) |

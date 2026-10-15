@@ -1,6 +1,12 @@
 import type { TServerInfo } from '@pulse/shared';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { testsBaseUrl } from '../../__tests__/setup';
+import { authBackend } from '../../utils/auth';
+
+// Social OAuth providers are advertised only under AUTH_BACKEND=supabase.
+// The preloaded auth mock reports `local`; tests flip it where needed.
+const BACKEND = authBackend as { kind: string };
+const ORIGINAL_KIND = BACKEND.kind;
 
 describe('/info', () => {
   const enableOidc = () => {
@@ -20,6 +26,7 @@ describe('/info', () => {
     delete process.env.OIDC_SECRET;
     delete process.env.AUTH_SECRET;
     globalThis.__disabledRegistrationMethods = undefined;
+    BACKEND.kind = ORIGINAL_KIND;
   });
 
   test('passwordRegistrationEnabled is true by default', async () => {
@@ -41,6 +48,7 @@ describe('/info', () => {
   test('passwordLoginEnabled is false in SSO-only mode (password registration off + provider advertised)', async () => {
     globalThis.__disabledRegistrationMethods = ['password'];
     process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    BACKEND.kind = 'supabase';
     const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
     expect(data.passwordLoginEnabled).toBe(false);
   });
@@ -74,6 +82,7 @@ describe('/info', () => {
 
   test('built-in providers carry a name and a label', async () => {
     process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    BACKEND.kind = 'supabase';
 
     const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
 
@@ -81,6 +90,20 @@ describe('/info', () => {
       name: 'google',
       label: 'Google'
     });
+  });
+
+  test('social providers are NOT advertised under AUTH_BACKEND=local, and password login stays enabled', async () => {
+    // Under the local backend there is no Supabase client to run the
+    // flow: the toggle is dead and must neither show a button nor count
+    // as an SSO provider for the SSO-only derivation.
+    process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    globalThis.__disabledRegistrationMethods = ['password'];
+    BACKEND.kind = 'local';
+
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+
+    expect((data.enabledAuthProviders ?? []).some((p) => p.name === 'google')).toBe(false);
+    expect(data.passwordLoginEnabled).toBe(true);
   });
 
   test('native OIDC provider is advertised with kind and custom label', async () => {

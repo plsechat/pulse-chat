@@ -26,7 +26,7 @@ global.console.debug = noop;
 mock.module('../config', () => ({
   config: {
     server: {
-      port: 9999,
+      port: Number(process.env.TEST_HTTP_PORT ?? 9999),
       debug: false,
       debugLogMaxSizeMb: 200,
       debugLogMaxFiles: 10,
@@ -71,11 +71,11 @@ mock.module('../logger', () => ({
 }));
 
 // ── Mock rate limiter (disable rate limiting during tests) ──
+// `http/rate-limit` exports only `checkRateLimit` (the configs live in
+// rate-limit-core.ts, which is real in tests). Keep this surface in sync:
+// bun fails module linking for any named import the mock lacks.
 mock.module('../http/rate-limit', () => ({
-  checkRateLimit: () => true,
-  authRateLimit: { windowMs: 900000, maxRequests: Infinity },
-  federationRateLimit: { windowMs: 60000, maxRequests: Infinity },
-  uploadRateLimit: { windowMs: 60000, maxRequests: Infinity }
+  checkRateLimit: () => true
 }));
 
 // ── Mock env (allows tests to toggle REGISTRATION_DISABLED dynamically) ──

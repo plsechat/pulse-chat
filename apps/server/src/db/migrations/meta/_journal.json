@@ -211,6 +211,13 @@
       "when": 1792095112074,
       "tag": "0029_strip_manage_updates_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792102705339,
+      "tag": "0030_normalize_local_auth_emails",
+      "breakpoints": true
     }
   ]
 }

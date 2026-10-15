@@ -3,6 +3,13 @@ import { eq } from 'drizzle-orm';
 import { login } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { invites, settings, userRoles, users } from '../../db/schema';
+import { authBackend } from '../../utils/auth';
+
+// Social OAuth providers only count under AUTH_BACKEND=supabase (there is
+// no Supabase client to run the flow under `local`). The preloaded auth
+// mock reports `local`; flip it for the SSO-only cases.
+const BACKEND = authBackend as { kind: string };
+const ORIGINAL_KIND = BACKEND.kind;
 
 describe('/login', () => {
   test('should successfully login with valid credentials', async () => {
@@ -269,11 +276,13 @@ describe('/login in SSO-only mode', () => {
   afterEach(() => {
     globalThis.__disabledRegistrationMethods = undefined;
     delete process.env.GOOGLE_OAUTH_ENABLED;
+    BACKEND.kind = ORIGINAL_KIND;
   });
 
   test('rejects password login when password registration is off and a provider is advertised', async () => {
     globalThis.__disabledRegistrationMethods = ['password'];
     process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    BACKEND.kind = 'supabase';
 
     const response = await login('testowner@pulse.local', 'password123');
 
@@ -286,6 +295,7 @@ describe('/login in SSO-only mode', () => {
   test('a valid invite is a break-glass for password login in SSO-only mode', async () => {
     globalThis.__disabledRegistrationMethods = ['password'];
     process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    BACKEND.kind = 'supabase';
 
     const tdb = getTestDb();
     await tdb.insert(invites).values({
@@ -319,6 +329,7 @@ describe('/login in SSO-only mode', () => {
   test('an invalid invite does NOT bypass the SSO-only gate', async () => {
     globalThis.__disabledRegistrationMethods = ['password'];
     process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    BACKEND.kind = 'supabase';
 
     const response = await login(
       'testowner@pulse.local',
@@ -335,6 +346,24 @@ describe('/login in SSO-only mode', () => {
     globalThis.__disabledRegistrationMethods = ['password'];
 
     const response = await login('testowner@pulse.local', 'password123');
+
+    expect(response.status).toBe(200);
+  });
+
+  test('a social provider toggled under AUTH_BACKEND=local does not count as an SSO provider', async () => {
+    // GOOGLE_OAUTH_ENABLED under the local backend is a dead switch: no
+    // button can complete a login, so it must not lock password login.
+    globalThis.__disabledRegistrationMethods = ['password'];
+    process.env.GOOGLE_OAUTH_ENABLED = 'true';
+    BACKEND.kind = 'local';
+
+    const response = await login('testowner@pulse.local', 'password123');
+
+    expect(response.status).toBe(200);
+  });
+
+  test('/login lower-cases and trims the e-mail', async () => {
+    const response = await login('  TestOwner@Pulse.LOCAL ', 'password123');
 
     expect(response.status).toBe(200);
   });
