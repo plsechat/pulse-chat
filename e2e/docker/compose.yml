@@ -73,7 +73,14 @@ services:
       # Derived SSO-only mode: password self-registration off + one
       # advertised provider => passwordLoginEnabled=false
       REGISTRATION_PASSWORD_ENABLED: "false"
-      GOOGLE_OAUTH_ENABLED: "true"
+      # Native OIDC provider (works under the local auth backend; social
+      # OAuth toggles need AUTH_BACKEND=supabase and are ignored otherwise).
+      # Only the advertisement is exercised here — nothing dials the issuer.
+      OIDC_OAUTH_ENABLED: "true"
+      OIDC_ISSUER: "https://idp.e2e.invalid"
+      OIDC_CLIENT_ID: "pulse-e2e"
+      OIDC_SECRET: "pulse-e2e-client-secret"
+      OIDC_LABEL: "Example SSO"
     depends_on:
       db-sso:
         condition: service_healthy
