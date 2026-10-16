@@ -155,6 +155,26 @@ const initialState: IServerState = {
   previewMeta: undefined
 };
 
+/**
+ * Drop the parts of ownVoiceState that only exist for the duration of one
+ * voice session. The server seeds every join from its own defaults (voice
+ * runtime addUser), so webcam/screen-share and the moderator overrides are
+ * always false on the SFU after a rejoin — if the client kept them, the
+ * sidebar buttons would run split-brain (share icon lit with nothing
+ * flowing, a stale "muted by a moderator" refusal on the mic). micMuted and
+ * soundMuted are user preferences the client sends with the join request,
+ * so they deliberately survive.
+ */
+const clearSessionVoiceFlags = (state: IServerState) => {
+  state.ownVoiceState = {
+    ...state.ownVoiceState,
+    webcamEnabled: false,
+    sharingScreen: false,
+    serverMuted: false,
+    serverDeafened: false
+  };
+};
+
 export const serverSlice = createSlice({
   name: 'server',
   initialState,
@@ -518,6 +538,9 @@ export const serverSlice = createSlice({
       action: PayloadAction<number | undefined>
     ) => {
       state.currentVoiceChannelId = action.payload;
+      if (action.payload === undefined) {
+        clearSessionVoiceFlags(state);
+      }
       // Capture the channel's globally-unique publicId at join time (while the
       // owning server's channels are loaded). It's preserved across server
       // switches, so the voice-active highlight matches by publicId, not the
@@ -663,6 +686,7 @@ export const serverSlice = createSlice({
             state.currentVoiceServerId = undefined;
             state.currentVoiceChannelPublicId = undefined;
             state.currentVoiceServerPublicId = undefined;
+            clearSessionVoiceFlags(state);
           }
         }
       }
