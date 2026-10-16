@@ -2,6 +2,7 @@ import { CronJob } from 'cron';
 import { escalateStaleReports } from '../db/queries/reports';
 import { logger } from '../logger';
 import { CRON_LOCK_IDS, tryWithAdvisoryLock } from './advisory-lock';
+import { cleanupExpiredAuthSessions } from './cleanup-auth-sessions';
 import { cleanupEmptyThreads } from './cleanup-empty-threads';
 import { cleanupFiles } from './cleanup-files';
 import { cleanupOrphanVoiceUsers } from './cleanup-orphan-voice';
@@ -119,6 +120,16 @@ const loadCrons = () => {
     CRON_TIMES.EVERY_DAY,
     pruneExpiredLogs,
     CRON_LOCK_IDS.LOG_RETENTION
+  );
+
+  // Local-auth session rows outlive their refresh token's 30 days only
+  // until this sweep; revoked-but-unexpired rows stay because reuse
+  // detection needs them. Daily plus boot, same reasoning as retention.
+  scheduleCron(
+    'cleanup-auth-sessions',
+    CRON_TIMES.EVERY_DAY,
+    cleanupExpiredAuthSessions,
+    CRON_LOCK_IDS.CLEANUP_AUTH_SESSIONS
   );
 };
 

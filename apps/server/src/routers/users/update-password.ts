@@ -87,6 +87,16 @@ const updatePasswordRoute = protectedProcedure
       );
     }
 
+    // A changed password signs every OTHER device out: whoever held the
+    // old one must not keep a session. The caller's own family stays
+    // (identified by the access token's family claim); with no claim —
+    // an OIDC session changing the account password — nothing is
+    // spared, and the OIDC session is not a family so it survives
+    // anyway. Local backend only; supabase has no session store here.
+    await authBackend.revokeAllSessions?.(user.supabaseId, {
+      exceptFamilyId: ctx.authSessionId
+    });
+
     enqueueActivityLog({
       type: ActivityLogType.USER_UPDATED_PASSWORD,
       userId: ctx.user.id

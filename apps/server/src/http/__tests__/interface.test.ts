@@ -281,6 +281,27 @@ describe('/interface', () => {
     }
   });
 
+  test('hashed assets are immutable, index.html is always revalidated, the rest is cached a day', async () => {
+    const asset = await fetch(`${testsBaseUrl}/assets/test.js`);
+
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get('Cache-Control')).toBe(
+      'public, max-age=31536000, immutable'
+    );
+
+    for (const url of [`${testsBaseUrl}/`, `${testsBaseUrl}/index.html`]) {
+      const document = await fetch(url);
+
+      expect(document.status).toBe(200);
+      expect(document.headers.get('Cache-Control')).toBe('no-cache');
+    }
+
+    const other = await fetch(`${testsBaseUrl}/CHANGELOG`);
+
+    expect(other.status).toBe(200);
+    expect(other.headers.get('Cache-Control')).toBe('public, max-age=86400');
+  });
+
   test('malformed percent-encoding is a 400, not a 500', async () => {
     const response = await fetch(`${testsBaseUrl}/%E0`);
 

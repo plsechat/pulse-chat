@@ -1,5 +1,6 @@
 import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishUser } from '../../db/publishers';
 import { getServerById, removeServerMember } from '../../db/queries/servers';
 import { eventBus } from '../../plugins/event-bus';
@@ -29,6 +30,8 @@ const leaveServerRoute = protectedProcedure
     // Membership, roles and channel overrides go together (see
     // removeServerMember).
     await removeServerMember(input.serverId, ctx.userId);
+    // The attachment links they still hold must stop resolving.
+    await rotateFileAccessTokens({ serverId: input.serverId });
 
     // This connection must not keep acting in the server it just left:
     // with the active server unset every permission check denies until

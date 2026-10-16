@@ -28,6 +28,13 @@ export type Context = {
   user: TUser;
   userId: number;
   accessToken: string;
+  /**
+   * Session family (`sid`) of the local-backend access token this
+   * connection authenticated with; undefined for OIDC, federation and
+   * supabase tokens. Lets a password change spare the caller's own
+   * device when it revokes every other session.
+   */
+  authSessionId?: string;
   activeServerId: number | undefined;
   previewServerId: number | undefined;
   currentVoiceChannelId: number | undefined;

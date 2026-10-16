@@ -9,13 +9,14 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { SignJWT } from 'jose';
+import { decodeJwt, SignJWT } from 'jose';
 import { createTestUser } from '../../__tests__/fixtures';
 import { getTestDb } from '../../__tests__/mock-db';
 import { testsBaseUrl } from '../../__tests__/setup';
-import { users } from '../../db/schema';
+import { localAuthSessions, users } from '../../db/schema';
 import { authBackend } from '../../utils/auth';
-import { localAuthBackend } from '../../utils/auth/local';
+import { localAuthBackend, REFRESH_REUSE_GRACE_MS } from '../../utils/auth/local';
+import { _resetAll } from '../rate-limit-core';
 
 const AUTH_SECRET = 'test-refresh-secret-at-least-32-chars-long!!';
 
@@ -50,6 +51,9 @@ describe('POST /auth/refresh', () => {
   beforeEach(() => {
     prevSecret = process.env.AUTH_SECRET;
     process.env.AUTH_SECRET = AUTH_SECRET;
+    // /auth/refresh shares the per-IP auth budget (10 per window); the
+    // file sends more than that from 127.0.0.1.
+    _resetAll();
   });
 
   afterEach(() => {
@@ -121,6 +125,28 @@ describe('POST /auth/refresh', () => {
 
     const res = await refresh(expired);
     expect(res.status).toBe(401);
+  });
+
+  test('rejects a refresh token that was already rotated (reuse) and kills the current pair', async () => {
+    useLocalRefresh();
+    const { session } = await signUp('reuse');
+
+    const first = await refresh(session.refresh_token);
+    expect(first.status).toBe(200);
+    const current = (await first.json()) as { accessToken: string; refreshToken: string };
+
+    // Past the two-tabs race window the old token is a replay.
+    await getTestDb()
+      .update(localAuthSessions)
+      .set({ revokedAt: Date.now() - REFRESH_REUSE_GRACE_MS - 1000 })
+      .where(eq(localAuthSessions.id, decodeJwt(session.refresh_token).jti!));
+
+    const replay = await refresh(session.refresh_token);
+    expect(replay.status).toBe(401);
+
+    // Whoever holds the rotated pair is signed out too.
+    expect((await refresh(current.refreshToken)).status).toBe(401);
+    expect((await localAuthBackend.getUser(current.accessToken)).data.user).toBeNull();
   });
 
   test('rejects an access token presented as a refresh token', async () => {

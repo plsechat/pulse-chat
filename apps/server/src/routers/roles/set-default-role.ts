@@ -2,6 +2,7 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishRole } from '../../db/publishers';
 import { getDefaultRoleForServer, getRole } from '../../db/queries/roles';
 import { roles } from '../../db/schema';
@@ -60,6 +61,11 @@ const setDefaultRoleRoute = serverProcedure(Permission.MANAGE_ROLES)
         .set({ isDefault: true })
         .where(eq(roles.id, newDefaultRole.id));
     });
+
+    // Every member holds the default role: swapping it can take a
+    // private channel away from all of them at once, so re-key every
+    // private channel's attachment URLs in this server.
+    await rotateFileAccessTokens({ serverId: ctx.activeServerId });
 
     await Promise.all([
       invalidateAllPermissionCaches(),

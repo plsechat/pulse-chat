@@ -121,7 +121,7 @@ Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-u
 | Variable | Required when | What it does |
 |---|---|---|
 | `AUTH_BACKEND` | always (defaults inferred) | `local` or `supabase`. Defaults to `supabase` if `SUPABASE_URL` is set, else `local`. |
-| `AUTH_SECRET` | `AUTH_BACKEND=local` | ≥32 random chars; HS256 signing key for session tokens. **Rotating invalidates every session.** |
+| `AUTH_SECRET` | `AUTH_BACKEND=local` | ≥32 random chars; HS256 signing key for session tokens. Access tokens live 15 minutes and renew silently from a 30-day refresh token. Logging out or changing the password revokes the session server-side (a password change keeps the current device signed in). **Rotating the secret still invalidates every session.** |
 | `DATABASE_URL` | always | Full Postgres connection string |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | `AUTH_BACKEND=supabase` | Managed or self-hosted Supabase Auth |
 | `SUPABASE_PUBLIC_URL` | `AUTH_BACKEND=supabase` when `SUPABASE_URL` is an internal hostname | Browser-facing Supabase URL handed to the client via `/info`. Falls back to `SUPABASE_URL`; the bundled compose sets it from `SITE_URL`. |
@@ -184,6 +184,8 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 | federation | `allowUserFederatableServers` | `false` | `true` lets any server owner mark their server federatable; otherwise only the instance owner can |
 
 Upload limits (max file size, per-user quota, overflow action) are server settings edited in the admin UI, not `config.ini` keys.
+
+Attachment links in private channels and DMs are signed and expire after 24 hours; the client refreshes them whenever it loads messages, so a copied link stops working once its window passes. Removing someone's access to a private channel (kick, ban, leaving, a role or permission change, or flipping the channel private) rotates that channel's signing key, so links they still hold stop resolving at once. Files in public channels and profile media (avatars, emojis, logos) are served without a token and cached by the browser indefinitely under their immutable names.
 
 > [!IMPORTANT]
 > **Voice ports.** Every voice participant gets two WebRTC transports (send + receive), and each transport binds one UDP port **and** one TCP port from `rtcMinPort`–`rtcMaxPort`. The range is shared by every voice channel and DM call on the instance, so the default 21-port range caps the instance at roughly 10 concurrent voice participants in total; widen the range (plus the Docker mapping and firewall rules) for more. Open the range for both UDP and TCP — UDP is preferred, TCP is the fallback. Pulse runs no STUN/TURN relay: clients must reach `PUBLIC_IP` on those ports directly. See [docs/voice.md](docs/voice.md#networking) for details.

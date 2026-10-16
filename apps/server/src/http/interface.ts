@@ -5,6 +5,27 @@ import { INTERFACE_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 import { IS_DEVELOPMENT, IS_TEST } from '../utils/env';
 
+/**
+ * Vite writes a content hash into every `/assets/*` name, so those
+ * bytes never change under a given URL and can be cached forever; the
+ * document that references them must always be revalidated or a client
+ * keeps loading a bundle the server no longer ships. Everything else
+ * under the interface root (fonts, favicons, manifest) is unhashed but
+ * rarely changes: a day is long enough to stop the re-fetch on every
+ * load and short enough that a redesign lands without a hard refresh.
+ */
+const cacheControlFor = (cleanSubPath: string): string => {
+  if (cleanSubPath.startsWith('assets/')) {
+    return 'public, max-age=31536000, immutable';
+  }
+
+  if (cleanSubPath === 'index.html') {
+    return 'no-cache';
+  }
+
+  return 'public, max-age=86400';
+};
+
 // Cache the "is the interface dir populated?" check so we don't stat
 // the directory on every request. Resolved once on first request.
 let _hasInterfaceFiles: boolean | undefined;
@@ -82,7 +103,8 @@ const interfaceRouteHandler = (
   fileStream.on('open', () => {
     res.writeHead(200, {
       'Content-Type': file.type,
-      'Content-Length': file.size
+      'Content-Length': file.size,
+      'Cache-Control': cacheControlFor(cleanSubPath)
     });
     fileStream.pipe(res);
   });

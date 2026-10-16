@@ -2,6 +2,7 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishUser } from '../../db/publishers';
 import { roles, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
@@ -81,6 +82,9 @@ const removeRoleRoute = serverProcedure(Permission.MANAGE_USERS)
 
     ctx.invalidatePermissionCache();
     invalidatePermissionCacheForUser(input.userId);
+    // The role may have been what let them see a private channel:
+    // re-key every private channel's attachment URLs in this server.
+    await rotateFileAccessTokens({ serverId: ctx.activeServerId });
     publishUser(input.userId, 'update');
 
     enqueueActivityLog({

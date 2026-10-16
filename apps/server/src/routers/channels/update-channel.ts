@@ -2,6 +2,7 @@ import { ActivityLogType, ChannelType, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishChannel } from '../../db/publishers';
 import { isServerOwner } from '../../db/queries/servers';
 import { channels } from '../../db/schema';
@@ -26,7 +27,12 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
     // server (or none at all) is NOT_FOUND, never a crash on the update
     // result.
     const [channel] = await db
-      .select({ id: channels.id, type: channels.type, e2ee: channels.e2ee })
+      .select({
+        id: channels.id,
+        type: channels.type,
+        e2ee: channels.e2ee,
+        private: channels.private
+      })
       .from(channels)
       .where(
         and(
@@ -79,6 +85,16 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
     });
 
     if (input.private !== undefined) invalidateAllPermissionCaches();
+
+    // Who may see the channel just changed: every attachment URL minted
+    // under the old visibility is re-keyed (see rotateFileAccessTokens).
+    if (input.private !== undefined && input.private !== channel.private) {
+      await rotateFileAccessTokens({
+        serverId: ctx.activeServerId,
+        channelId: channel.id
+      });
+    }
+
     publishChannel(updatedChannel.id, 'update');
     enqueueActivityLog({
       type: ActivityLogType.UPDATED_CHANNEL,

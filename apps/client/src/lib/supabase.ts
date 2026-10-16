@@ -1,3 +1,5 @@
+import { getUrlFromServer } from '@/helpers/get-file-url';
+import { isTokenExpiringWithin } from '@/lib/token-expiry';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let supabase: SupabaseClient | undefined;
@@ -29,6 +31,37 @@ if (buildTimeUrl && buildTimeKey) {
 // initialized for social login.
 const LOCAL_TOKEN_KEY = 'pulse:auth:access_token';
 const LOCAL_REFRESH_KEY = 'pulse:auth:refresh_token';
+
+/**
+ * A local-backend access token lives 15 minutes; one this close to its
+ * end is renewed BEFORE it is handed out, so a request never leaves with
+ * a token that expires in flight.
+ */
+const ACCESS_TOKEN_RENEW_WINDOW_MS = 60_000;
+
+/**
+ * The stored pair, or null. `isLocal` tells a refreshable local-backend
+ * session (distinct refresh token) from a native-OIDC one, which stores
+ * the same token in both slots and has no refresh or logout call.
+ */
+const readLocalSession = (): {
+  accessToken: string;
+  refreshToken: string | null;
+  isLocal: boolean;
+} | null => {
+  try {
+    const accessToken = localStorage.getItem(LOCAL_TOKEN_KEY);
+    if (!accessToken) return null;
+    const refreshToken = localStorage.getItem(LOCAL_REFRESH_KEY);
+    return {
+      accessToken,
+      refreshToken,
+      isLocal: !!refreshToken && refreshToken !== accessToken
+    };
+  } catch {
+    return null;
+  }
+};
 
 const storeLocalSession = (accessToken: string, refreshToken: string): void => {
   try {
@@ -72,7 +105,29 @@ const setOidcSession = async (accessToken: string): Promise<void> => {
   storeLocalSession(accessToken, accessToken);
 };
 
+/**
+ * Sign out. For a local-backend session the server is told first so the
+ * refresh token (and every access token of that session) dies there
+ * too — clearing storage alone would leave a copied refresh token valid
+ * for 30 days. Fire-and-forget with `keepalive` so a sign-out followed
+ * by navigation still lands; a failure is not worth blocking the UI
+ * over, the tokens are gone from this browser either way.
+ */
 const clearSession = async (): Promise<void> => {
+  const stored = readLocalSession();
+  if (stored?.isLocal && stored.refreshToken) {
+    try {
+      void fetch(`${getUrlFromServer()}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: stored.refreshToken }),
+        keepalive: true
+      }).catch(() => undefined);
+    } catch {
+      // fetch itself can throw synchronously in odd environments.
+    }
+  }
+
   clearLocalSession();
   if (supabase) {
     await supabase.auth.signOut({ scope: 'local' });
@@ -92,19 +147,27 @@ const clearSession = async (): Promise<void> => {
  * network errors leave it intact so a flaky connection can't log the
  * user out.
  */
-const refreshLocalSession = async (
+let refreshInFlight: Promise<string | null> | null = null;
+
+const refreshLocalSession = (serverUrl: string): Promise<string | null> => {
+  // One refresh at a time: the connection params, the reconnect loop and
+  // an upload can all ask for a token in the same tick. Each refresh
+  // retires the token it was given, so two concurrent ones would race
+  // for the same refresh token and one of them would be a reuse.
+  if (!refreshInFlight) {
+    refreshInFlight = performLocalRefresh(serverUrl).finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+};
+
+const performLocalRefresh = async (
   serverUrl: string
 ): Promise<string | null> => {
-  let accessToken: string | null = null;
-  let refreshToken: string | null = null;
-  try {
-    accessToken = localStorage.getItem(LOCAL_TOKEN_KEY);
-    refreshToken = localStorage.getItem(LOCAL_REFRESH_KEY);
-  } catch {
-    return null;
-  }
-
-  if (!refreshToken || refreshToken === accessToken) return null;
+  const stored = readLocalSession();
+  if (!stored?.isLocal || !stored.refreshToken) return null;
+  const refreshToken = stored.refreshToken;
 
   try {
     const res = await fetch(`${serverUrl}/auth/refresh`, {
@@ -133,14 +196,26 @@ const refreshLocalSession = async (
   }
 };
 
+/**
+ * The access token to send right now. A locally-held token (local
+ * backend, or an OIDC session) wins over the supabase client so OIDC
+ * works in supabase-backend deployments too. A local-backend token that
+ * is about to expire is renewed first; when that fails on a network
+ * error the stale token is returned and the server decides (a 401 from
+ * the refresh route has already cleared the session, so null then).
+ */
 const getAccessToken = async (): Promise<string | null> => {
-  // A locally-held token (local backend, or an OIDC session) wins over the
-  // supabase client so OIDC works in supabase-backend deployments too.
-  try {
-    const local = localStorage.getItem(LOCAL_TOKEN_KEY);
-    if (local) return local;
-  } catch {
-    // fall through to supabase
+  const stored = readLocalSession();
+  if (stored) {
+    if (
+      stored.isLocal &&
+      isTokenExpiringWithin(stored.accessToken, ACCESS_TOKEN_RENEW_WINDOW_MS)
+    ) {
+      const renewed = await refreshLocalSession(getUrlFromServer());
+      if (renewed) return renewed;
+      return readLocalSession()?.accessToken ?? null;
+    }
+    return stored.accessToken;
   }
   if (supabase) {
     const { data } = await supabase.auth.getSession();

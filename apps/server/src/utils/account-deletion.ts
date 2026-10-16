@@ -1,6 +1,7 @@
 import { ActivityLogType, DisconnectCode } from '@pulse/shared';
 import { eq, or } from 'drizzle-orm';
 import { db } from '../db';
+import { rotateFileAccessTokensForUser } from '../db/mutations/channels';
 import { publishUser } from '../db/publishers';
 import {
   activityLog,
@@ -94,6 +95,10 @@ const executeAccountDeletion = async (
   // a real auth id, so the login path can never map back to this row.
   const tombstoneAuthId = `deleted:${user.publicId}`;
   const tombstoneName = `Deleted User ${user.publicId.slice(0, 6)}`;
+
+  // Before the memberships go (the lookup runs on them): the attachment
+  // links this account still holds must stop resolving.
+  await rotateFileAccessTokensForUser(targetUserId);
 
   await db.transaction(async (tx) => {
     await tx

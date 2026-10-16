@@ -1,6 +1,10 @@
 import { ActivityLogType, DisconnectCode, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
+import {
+  rotateFileAccessTokens,
+  rotateFileAccessTokensForUser
+} from '../db/mutations/channels';
 import { publishUser } from '../db/publishers';
 import {
   getServerById,
@@ -54,6 +58,8 @@ const kickFromServer = async (opts: {
   }
 
   await removeServerMember(opts.serverId, opts.targetUserId);
+  // The attachment links they still hold must stop resolving.
+  await rotateFileAccessTokens({ serverId: opts.serverId });
 
   // Include the globally-unique publicId so clients can scope the event —
   // the numeric serverId collides across federated instances.
@@ -128,6 +134,10 @@ const banServerMember = async (opts: {
   // by this user (across any of their tabs / WS connections) is
   // rejected without a DB round-trip.
   markBanned(opts.targetUserId);
+
+  // A ban is instance-wide: the attachment links they hold from ANY
+  // server they belong to must stop resolving, not only this one's.
+  await rotateFileAccessTokensForUser(opts.targetUserId);
 
   // Two events: a global 'update' so co-members across every shared server
   // see the banned flag flip (e.g. for "this user is banned" indicators),

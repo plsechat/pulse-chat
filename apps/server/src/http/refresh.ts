@@ -14,7 +14,9 @@ const zBody = z.object({
  * token pair. Local-backend only: supabase-mode clients refresh through
  * supabase-js (`autoRefreshToken: true`) and never call this; OIDC
  * sessions have no refresh token (users re-authenticate via their IdP
- * when the 7-day session token expires).
+ * when the 7-day session token expires). The client calls it before
+ * its 15-minute access token runs out; a reused refresh token is a
+ * 401 like any other invalid one (see utils/auth/local.ts).
  *
  * Failures are a plain 401/403 (not HttpValidationError) — the caller
  * is the silent-refresh path in the client, not a form.

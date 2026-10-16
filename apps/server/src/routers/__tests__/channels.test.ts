@@ -837,6 +837,47 @@ describe('channels router', () => {
     expect(isNewTokenValid).toBe(true);
   });
 
+  test('flipping private either way re-keys the channel; other updates do not', async () => {
+    const { caller } = await initTest();
+    const initial = (await channelRow(1)).fileAccessToken;
+
+    await caller.channels.update({ channelId: 1, name: 'renamed' });
+    expect((await channelRow(1)).fileAccessToken).toBe(initial);
+
+    await caller.channels.update({ channelId: 1, private: true });
+    const afterPrivate = (await channelRow(1)).fileAccessToken;
+    expect(afterPrivate).not.toBe(initial);
+
+    // Re-sending the same flag is not a flip.
+    await caller.channels.update({ channelId: 1, private: true, topic: 't' });
+    expect((await channelRow(1)).fileAccessToken).toBe(afterPrivate);
+
+    await caller.channels.update({ channelId: 1, private: false });
+    expect((await channelRow(1)).fileAccessToken).not.toBe(afterPrivate);
+  });
+
+  test('setting or dropping a permission override re-keys that channel only', async () => {
+    const { caller } = await initTest();
+    const other = await createEmptyTextChannel('untouched');
+
+    await caller.channels.update({ channelId: 1, private: true });
+    const before = (await channelRow(1)).fileAccessToken;
+    const otherBefore = (await channelRow(other.id)).fileAccessToken;
+
+    await caller.channels.updatePermissions({
+      channelId: 1,
+      roleId: 3,
+      permissions: [ChannelPermission.VIEW_CHANNEL]
+    });
+    const afterSet = (await channelRow(1)).fileAccessToken;
+    expect(afterSet).not.toBe(before);
+
+    await caller.channels.deletePermissions({ channelId: 1, roleId: 3 });
+    expect((await channelRow(1)).fileAccessToken).not.toBe(afterSet);
+
+    expect((await channelRow(other.id)).fileAccessToken).toBe(otherBefore);
+  });
+
   test('should allow rotating token for both public and private channels', async () => {
     const { caller } = await initTest();
 

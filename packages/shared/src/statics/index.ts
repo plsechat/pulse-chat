@@ -150,4 +150,9 @@ export enum DisconnectCode {
   /** The account was self-deleted — the client signs out and must not
    *  reconnect (the auth identity no longer exists). */
   ACCOUNT_DELETED = 40003,
+  /** The session family behind this connection was revoked (logout from
+   *  another tab, a password change on another device, or refresh-token
+   *  reuse). The client clears its stored session and shows the login
+   *  screen instead of reconnecting. */
+  SESSION_REVOKED = 40004,
 }

@@ -1,5 +1,5 @@
 import { ChannelType, type TFile, type TTempFile } from '@pulse/shared';
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import path from 'path';
@@ -7,6 +7,8 @@ import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
 import { loadCrons } from '../../crons';
 import { ORPHAN_GRACE_MS } from '../../crons/cleanup-files';
+import { removeFile } from '../../db/mutations/files';
+import * as filesQueries from '../../db/queries/files';
 import { getOrphanedFileIds, isFileOrphaned } from '../../db/queries/files';
 import {
   channels,
@@ -18,11 +20,23 @@ import {
   messages,
   webhooks
 } from '../../db/schema';
-import { dmFileSalt, generateFileToken } from '../../helpers/files-crypto';
+import {
+  dmFileSalt,
+  FILE_TOKEN_MAX_TTL_MS,
+  generateFileToken
+} from '../../helpers/files-crypto';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { fileExists, fileManager } from '../../utils/file-manager';
 
 const PUBLIC_CSP = "default-src 'none'; sandbox";
+const CACHE_PUBLIC = 'public, max-age=31536000, immutable';
+const CACHE_PRIVATE = 'private, max-age=43200';
+
+// The memo test spies on a query export; restore so later tests (and
+// files) see the real function.
+afterEach(() => {
+  mock.restore();
+});
 
 /**
  * Seed a stored file directly (disk + files row + message_files link in
@@ -965,6 +979,315 @@ describe('/public', () => {
     } finally {
       await fs.rm(path.join(PUBLIC_PATH, fileName), { force: true });
     }
+  });
+
+  /**
+   * A private channel in server 1 with one attachment sent by the owner.
+   * Returns everything the token tests need: the file row, the channel
+   * salt and the caller.
+   */
+  const seedPrivateAttachment = async () => {
+    const { token } = await setup();
+    const { caller } = await initTest();
+
+    const channelId = await caller.channels.add({
+      name: 'Private Channel',
+      categoryId: 1,
+      type: ChannelType.TEXT,
+      serverId: 1
+    });
+
+    await caller.channels.update({ channelId, private: true });
+
+    const tempFile = await upload(
+      new File(['Private file content'], 'private-file.txt', {
+        type: 'text/plain'
+      }),
+      token
+    );
+
+    const messageId = await caller.messages.send({
+      content: 'Message with private file',
+      channelId,
+      files: [tempFile.id]
+    });
+
+    const dbFile = (await getFileByMessageId(messageId))!;
+    const [channel] = await tdb
+      .select()
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1);
+
+    return { caller, channelId, dbFile, salt: channel!.fileAccessToken };
+  };
+
+  const fileUrl = (name: string, accessToken?: string) =>
+    `${testsBaseUrl}/public/${encodeURIComponent(name)}` +
+    (accessToken ? `?accessToken=${accessToken}` : '');
+
+  test('an expired private-channel token is refused; a live one is served with a private cache policy', async () => {
+    const { dbFile, salt } = await seedPrivateAttachment();
+
+    const expired = generateFileToken(
+      dbFile.id,
+      salt,
+      Date.now() - FILE_TOKEN_MAX_TTL_MS - 1
+    );
+    const refused = await fetch(fileUrl(dbFile.name, expired));
+
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get('Content-Security-Policy')).toBe(PUBLIC_CSP);
+    expect(refused.headers.get('Accept-Ranges')).toBe('bytes');
+
+    const live = generateFileToken(dbFile.id, salt);
+    const served = await fetch(fileUrl(dbFile.name, live));
+
+    expect(served.status).toBe(200);
+    expect(served.headers.get('Cache-Control')).toBe(CACHE_PRIVATE);
+    expect(served.headers.get('ETag')).toBe(`"${dbFile.name}"`);
+    expect(served.headers.get('Accept-Ranges')).toBe('bytes');
+    expect(await served.text()).toBe('Private file content');
+  });
+
+  test('a public file is served immutable with an ETag and revalidates to an empty 304', async () => {
+    const dbFile = await seedStoredFile({
+      name: `cached-${Date.now()}.png`,
+      originalName: 'cached.png',
+      mimeType: 'image/png',
+      content: 'png-bytes'
+    });
+
+    try {
+      const first = await fetch(fileUrl(dbFile.name));
+
+      expect(first.status).toBe(200);
+      expect(first.headers.get('Cache-Control')).toBe(CACHE_PUBLIC);
+      expect(first.headers.get('ETag')).toBe(`"${dbFile.name}"`);
+      expect(first.headers.get('Accept-Ranges')).toBe('bytes');
+      expect(await first.text()).toBe('png-bytes');
+
+      const revalidated = await fetch(fileUrl(dbFile.name), {
+        headers: { 'If-None-Match': `"${dbFile.name}"` }
+      });
+
+      expect(revalidated.status).toBe(304);
+      expect(await revalidated.text()).toBe('');
+      expect(revalidated.headers.get('ETag')).toBe(`"${dbFile.name}"`);
+      expect(revalidated.headers.get('Cache-Control')).toBe(CACHE_PUBLIC);
+      expect(revalidated.headers.get('Content-Security-Policy')).toBe(
+        PUBLIC_CSP
+      );
+      expect(revalidated.headers.get('X-Content-Type-Options')).toBe(
+        'nosniff'
+      );
+      expect(revalidated.headers.get('Content-Disposition')).toBe(
+        'inline; filename="cached.png"'
+      );
+
+      // A tag for some other representation is not a match.
+      const other = await fetch(fileUrl(dbFile.name), {
+        headers: { 'If-None-Match': '"something-else"' }
+      });
+
+      expect(other.status).toBe(200);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+    }
+  });
+
+  test('a private file revalidates to 304 only with a valid token', async () => {
+    const { dbFile, salt } = await seedPrivateAttachment();
+    const live = generateFileToken(dbFile.id, salt);
+
+    const withToken = await fetch(fileUrl(dbFile.name, live), {
+      headers: { 'If-None-Match': `"${dbFile.name}"` }
+    });
+
+    expect(withToken.status).toBe(304);
+
+    const withoutToken = await fetch(fileUrl(dbFile.name), {
+      headers: { 'If-None-Match': `"${dbFile.name}"` }
+    });
+
+    expect(withoutToken.status).toBe(403);
+  });
+
+  test('Range requests get the exact slice, a suffix, a clamp, a 416 or the whole file', async () => {
+    const content = '0123456789abcdefghij';
+    const dbFile = await seedStoredFile({
+      name: `clip-${Date.now()}.mp4`,
+      originalName: 'clip.mp4',
+      mimeType: 'video/mp4',
+      content
+    });
+
+    const ranged = (range: string) =>
+      fetch(fileUrl(dbFile.name), { headers: { Range: range } });
+
+    try {
+      const head = await ranged('bytes=0-4');
+
+      expect(head.status).toBe(206);
+      expect(head.headers.get('Content-Range')).toBe('bytes 0-4/20');
+      expect(head.headers.get('Content-Length')).toBe('5');
+      expect(head.headers.get('Content-Type')).toBe('video/mp4');
+      expect(head.headers.get('Content-Disposition')).toBe(
+        'inline; filename="clip.mp4"'
+      );
+      expect(head.headers.get('Content-Security-Policy')).toBe(PUBLIC_CSP);
+      expect(head.headers.get('Cache-Control')).toBe(CACHE_PUBLIC);
+      expect(await head.text()).toBe('01234');
+
+      const open = await ranged('bytes=15-');
+
+      expect(open.status).toBe(206);
+      expect(open.headers.get('Content-Range')).toBe('bytes 15-19/20');
+      expect(await open.text()).toBe('fghij');
+
+      const suffix = await ranged('bytes=-5');
+
+      expect(suffix.status).toBe(206);
+      expect(suffix.headers.get('Content-Range')).toBe('bytes 15-19/20');
+      expect(await suffix.text()).toBe('fghij');
+
+      const clamped = await ranged('bytes=5-100');
+
+      expect(clamped.status).toBe(206);
+      expect(clamped.headers.get('Content-Range')).toBe('bytes 5-19/20');
+      expect(await clamped.text()).toBe('56789abcdefghij');
+
+      const past = await ranged('bytes=20-');
+
+      expect(past.status).toBe(416);
+      expect(past.headers.get('Content-Range')).toBe('bytes */20');
+      expect(past.headers.get('Content-Security-Policy')).toBe(PUBLIC_CSP);
+      expect(past.headers.get('Content-Disposition')).toBe(
+        'inline; filename="clip.mp4"'
+      );
+
+      const inverted = await ranged('bytes=9-3');
+
+      expect(inverted.status).toBe(416);
+
+      const emptySuffix = await ranged('bytes=-0');
+
+      expect(emptySuffix.status).toBe(416);
+
+      for (const ignored of ['bytes=0-2,4-5', 'bytes=abc', 'items=0-4']) {
+        const whole = await ranged(ignored);
+
+        expect(whole.status).toBe(200);
+        expect(whole.headers.get('Content-Range')).toBeNull();
+        expect(whole.headers.get('Content-Length')).toBe('20');
+        expect(await whole.text()).toBe(content);
+      }
+
+      // If-Range naming a different entity: the partial copy is not
+      // ours, so the whole file goes out.
+      const staleIfRange = await fetch(fileUrl(dbFile.name), {
+        headers: { Range: 'bytes=0-4', 'If-Range': '"someone-else"' }
+      });
+
+      expect(staleIfRange.status).toBe(200);
+      expect(await staleIfRange.text()).toBe(content);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+    }
+  });
+
+  test('a private attachment honours Range with a valid token and refuses it without', async () => {
+    const { dbFile, salt } = await seedPrivateAttachment();
+    const live = generateFileToken(dbFile.id, salt);
+
+    const slice = await fetch(fileUrl(dbFile.name, live), {
+      headers: { Range: 'bytes=0-6' }
+    });
+
+    expect(slice.status).toBe(206);
+    expect(slice.headers.get('Cache-Control')).toBe(CACHE_PRIVATE);
+    expect(await slice.text()).toBe('Private');
+
+    const refused = await fetch(fileUrl(dbFile.name), {
+      headers: { Range: 'bytes=0-6' }
+    });
+
+    expect(refused.status).toBe(403);
+  });
+
+  test('the association is memoised per file; removeFile drops the entry', async () => {
+    const dbFile = await seedStoredFile({
+      name: `memo-${Date.now()}.png`,
+      originalName: 'memo.png',
+      mimeType: 'image/png',
+      content: 'png-bytes'
+    });
+    const orphanCheck = spyOn(filesQueries, 'isFileOrphaned');
+
+    try {
+      expect((await fetch(fileUrl(dbFile.name))).status).toBe(200);
+      expect(orphanCheck).toHaveBeenCalledTimes(1);
+
+      // Second hit: the files row, orphan check and link lookups are
+      // all skipped.
+      expect((await fetch(fileUrl(dbFile.name))).status).toBe(200);
+      expect(orphanCheck).toHaveBeenCalledTimes(1);
+
+      await removeFile(dbFile.id);
+
+      // Without invalidation the stale entry would reach the disk check
+      // and answer "not found on disk"; a dropped entry misses the
+      // files row first.
+      const gone = await fetch(fileUrl(dbFile.name));
+
+      expect(gone.status).toBe(404);
+      expect(await gone.json()).toEqual({ error: 'File not found' });
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+    }
+  });
+
+  test('a memoised channel attachment is refused as soon as its channel is gone', async () => {
+    const dbFile = await seedStoredFile({
+      name: `doomed-${Date.now()}.png`,
+      originalName: 'doomed.png',
+      mimeType: 'image/png',
+      content: 'png-bytes'
+    });
+
+    try {
+      expect((await fetch(fileUrl(dbFile.name))).status).toBe(200);
+
+      const { caller } = await initTest();
+
+      await caller.channels.delete({ channelId: 1 });
+
+      const gone = await fetch(fileUrl(dbFile.name));
+
+      expect(gone.status).toBe(404);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, dbFile.name), { force: true });
+    }
+  });
+
+  test('a salt rotation bites on the next request although the association is memoised', async () => {
+    const { caller, channelId, dbFile, salt } = await seedPrivateAttachment();
+    const before = generateFileToken(dbFile.id, salt);
+
+    expect((await fetch(fileUrl(dbFile.name, before))).status).toBe(200);
+
+    await caller.channels.rotateFileAccessToken({ channelId });
+
+    expect((await fetch(fileUrl(dbFile.name, before))).status).toBe(403);
+
+    const [rotated] = await tdb
+      .select({ fileAccessToken: channels.fileAccessToken })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+      .limit(1);
+    const after = generateFileToken(dbFile.id, rotated!.fileAccessToken);
+
+    expect((await fetch(fileUrl(dbFile.name, after))).status).toBe(200);
   });
 
   test('should allow access to non-message files without token', async () => {

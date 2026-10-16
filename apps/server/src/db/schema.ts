@@ -1363,6 +1363,36 @@ const localAuthUsers = pgTable(
   (t) => [uniqueIndex('local_auth_users_email_idx').on(t.email)]
 );
 
+/**
+ * Local-auth refresh-token sessions — one row per refresh token the
+ * local backend has minted. `id` is the token's `jti`; `familyId` ties a
+ * sign-in and every rotation descended from it together (the access
+ * token carries it as `sid`). A refresh marks its row revoked and
+ * records the child it was `replacedBy`; a reuse of an already-rotated
+ * token outside the race window revokes the whole family. Logout and
+ * password changes revoke families too, so getUser can reject an
+ * access token whose family no longer has a live row. Expired rows are
+ * swept by the cleanup-auth-sessions cron.
+ */
+const localAuthSessions = pgTable(
+  'local_auth_sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => localAuthUsers.id, { onDelete: 'cascade' }),
+    familyId: text('family_id').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
+    revokedAt: bigint('revoked_at', { mode: 'number' }),
+    replacedBy: text('replaced_by')
+  },
+  (t) => [
+    index('local_auth_sessions_user_idx').on(t.userId),
+    index('local_auth_sessions_family_idx').on(t.familyId)
+  ]
+);
+
 export {
   activityLog,
   automodRules,
@@ -1390,6 +1420,7 @@ export {
   friendRequests,
   friendships,
   invites,
+  localAuthSessions,
   localAuthUsers,
   logins,
   messageFiles,

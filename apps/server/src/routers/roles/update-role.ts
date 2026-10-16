@@ -2,6 +2,7 @@ import { ActivityLogType, OWNER_ROLE_ID, Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { syncRolePermissions } from '../../db/mutations/roles';
 import { publishRole } from '../../db/publishers';
 import { getRole } from '../../db/queries/roles';
@@ -66,6 +67,9 @@ const updateRoleRoute = serverProcedure(Permission.MANAGE_ROLES)
     }
 
     invalidateAllPermissionCaches();
+    // A role change can take a private channel away from its holders:
+    // re-key every private channel's attachment URLs in this server.
+    await rotateFileAccessTokens({ serverId: ctx.activeServerId });
     publishRole(updatedRole.id, 'update');
     enqueueActivityLog({
       type: ActivityLogType.UPDATED_ROLE,

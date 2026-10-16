@@ -2,6 +2,7 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { fallbackUsersToDefaultRole } from '../../db/mutations/users';
 import { publishRole } from '../../db/publishers';
 import { getRole } from '../../db/queries/roles';
@@ -46,6 +47,9 @@ const deleteRoleRoute = serverProcedure(Permission.MANAGE_ROLES)
     await db.delete(roles).where(eq(roles.id, role.id));
 
     invalidateAllPermissionCaches();
+    // A role change can take a private channel away from its holders:
+    // re-key every private channel's attachment URLs in this server.
+    await rotateFileAccessTokens({ serverId: ctx.activeServerId });
     publishRole(role.id, 'delete', role.serverId);
     enqueueActivityLog({
       type: ActivityLogType.DELETED_ROLE,

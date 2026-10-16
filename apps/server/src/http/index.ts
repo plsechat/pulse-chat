@@ -42,6 +42,7 @@ import { JsonBodyTooLargeError } from './helpers';
 import { infoRouteHandler } from './info';
 import { interfaceRouteHandler } from './interface';
 import { loginRouteHandler } from './login';
+import { logoutRouteHandler } from './logout';
 import { provisionRouteHandler } from './provision-user';
 import { refreshRouteHandler } from './refresh';
 import { oidcCallbackRouteHandler, oidcStartRouteHandler } from './oidc';
@@ -332,6 +333,11 @@ const createHttpServer = async (port: number = config.server.port) => {
         if (req.method === 'POST' && req.url === '/auth/refresh') {
           if (!checkRateLimit(req, res, authRateLimit)) return;
           return await refreshRouteHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/auth/logout') {
+          if (!checkRateLimit(req, res, authRateLimit)) return;
+          return await logoutRouteHandler(req, res);
         }
 
         if (req.method === 'GET' && req.url?.startsWith('/auth/oidc/start')) {

@@ -10,6 +10,7 @@ import { connectionManager } from '@/lib/connection-manager';
 import { startReconnecting, stopReconnecting, isCurrentlyReconnecting } from '@/lib/reconnect';
 import { DisconnectCode, type AppRouter, type TConnectionParams } from '@pulse/shared';
 import { createTRPCProxyClient, createWSClient, wsLink } from '@trpc/client';
+import { toast } from 'sonner';
 
 let wsClient: ReturnType<typeof createWSClient> | null = null;
 let trpc: ReturnType<typeof createTRPCProxyClient<AppRouter>> | null = null;
@@ -27,7 +28,12 @@ const isCloseEvent = (cause: unknown): cause is CloseEvent =>
 /** Whether a disconnect code means the user cannot reconnect. */
 const isNonRecoverable = (code: number) =>
   code === DisconnectCode.BANNED ||
-  code === DisconnectCode.ACCOUNT_DELETED;
+  code === DisconnectCode.ACCOUNT_DELETED ||
+  code === DisconnectCode.SESSION_REVOKED;
+
+/** Shown when the server ended this session: a logout from another tab,
+ *  a password change on another device, or a replayed refresh token. */
+const SESSION_REVOKED_MESSAGE = 'Signed out on this device.';
 
 const initializeTRPC = (host: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -55,11 +61,26 @@ const initializeTRPC = (host: string) => {
       }
 
       if (isNonRecoverable(code)) {
-        // Kicked/Banned — full teardown, show the Disconnected screen
+        // Banned / deleted / signed out — full teardown, no reconnect.
         fullTeardown();
+
+        if (code === DisconnectCode.SESSION_REVOKED) {
+          // The stored tokens are dead server-side; drop them so the
+          // login screen shows instead of a reconnect loop on a token
+          // the server will keep refusing. clearSession's own logout
+          // call is a harmless repeat.
+          void clearSession();
+          toast.info(SESSION_REVOKED_MESSAGE);
+        }
+
         setDisconnectInfo({
           code,
-          reason: isCloseEvent(cause) ? cause.reason : '',
+          reason:
+            code === DisconnectCode.SESSION_REVOKED
+              ? SESSION_REVOKED_MESSAGE
+              : isCloseEvent(cause)
+                ? cause.reason
+                : '',
           wasClean: isCloseEvent(cause) ? cause.wasClean : false,
           time: new Date()
         });

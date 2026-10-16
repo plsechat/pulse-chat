@@ -2,6 +2,7 @@ import { Permission } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import {
+  createEmptyTextChannel,
   createTestRole,
   createTestServer,
   createTestServerMember,
@@ -10,7 +11,7 @@ import {
 } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { roles, userRoles } from '../../db/schema';
+import { channels, roles, userRoles } from '../../db/schema';
 import { getUserRoles } from '../users/get-user-roles';
 
 const OWNER_ROLE = 1;
@@ -255,6 +256,70 @@ describe('role hierarchy', () => {
     await expect(
       owner.caller.roles.setDefault({ roleId: OWNER_ROLE })
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});
+
+describe('role changes re-key private channels', () => {
+  const saltOf = async (channelId: number) =>
+    (
+      await getTestDb()
+        .select({ fileAccessToken: channels.fileAccessToken })
+        .from(channels)
+        .where(eq(channels.id, channelId))
+    )[0]!.fileAccessToken;
+
+  /** Channel 1 private, plus a public text channel that must stay put. */
+  const seedChannels = async () => {
+    await getTestDb()
+      .update(channels)
+      .set({ private: true })
+      .where(eq(channels.id, 1));
+    const publicChannel = await createEmptyTextChannel('stays-public');
+    return {
+      privateSalt: await saltOf(1),
+      publicId: publicChannel.id,
+      publicSalt: await saltOf(publicChannel.id)
+    };
+  };
+
+  test('roles.update, users.removeRole, roles.setDefault and roles.delete each rotate every private channel of the server', async () => {
+    const { privateSalt, publicId, publicSalt } = await seedChannels();
+    const { caller } = await initTest(1);
+    let last = privateSalt;
+
+    const expectRotated = async () => {
+      const now = await saltOf(1);
+      expect(now).not.toBe(last);
+      last = now;
+      expect(await saltOf(publicId)).toBe(publicSalt);
+    };
+
+    await caller.roles.update({
+      roleId: GUEST_ROLE,
+      name: 'Guest',
+      color: '#123456',
+      permissions: []
+    });
+    await expectRotated();
+
+    await grantTestUserRole(2, GUEST_ROLE);
+    await caller.users.removeRole({ userId: 2, roleId: GUEST_ROLE });
+    await expectRotated();
+
+    await caller.roles.setDefault({ roleId: GUEST_ROLE });
+    await expectRotated();
+
+    const disposable = await createTestRole({ serverId: 1, name: 'Temp' });
+    await caller.roles.delete({ roleId: disposable });
+    await expectRotated();
+  });
+
+  test('users.addRole does not rotate — nobody loses access', async () => {
+    const { privateSalt } = await seedChannels();
+    const { caller } = await initTest(1);
+
+    await caller.users.addRole({ userId: 2, roleId: GUEST_ROLE });
+    expect(await saltOf(1)).toBe(privateSalt);
   });
 });
 

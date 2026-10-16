@@ -1,6 +1,8 @@
 import { ServerEvents } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
+import fs from 'node:fs/promises';
+import path from 'path';
 import {
   createTestServer,
   createTestServerMember,
@@ -8,7 +10,18 @@ import {
 } from '../../__tests__/fixtures';
 import { getCaller, initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { invites, servers, users } from '../../db/schema';
+import { testsBaseUrl } from '../../__tests__/setup';
+import {
+  channels,
+  files,
+  invites,
+  messageFiles,
+  messages,
+  servers,
+  users
+} from '../../db/schema';
+import { generateFileToken } from '../../helpers/files-crypto';
+import { PUBLIC_PATH } from '../../helpers/paths';
 import { appRouter } from '..';
 import { pubsub } from '../../utils/pubsub';
 import { getUserRoles } from '../users/get-user-roles';
@@ -40,6 +53,84 @@ const capturePublishes = () => {
     }
   };
 };
+
+const channelSalt = async (channelId: number) =>
+  (
+    await getTestDb()
+      .select({ fileAccessToken: channels.fileAccessToken })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+  )[0]!.fileAccessToken;
+
+/**
+ * Channel 1 made private with one attachment on disk and in the DB,
+ * plus the signed URL a member would hold for it.
+ */
+const seedPrivateAttachment = async () => {
+  const tdb = getTestDb();
+  const now = Date.now();
+  const name = `kicked-${now}.png`;
+
+  await tdb.update(channels).set({ private: true }).where(eq(channels.id, 1));
+  await fs.writeFile(path.join(PUBLIC_PATH, name), 'png-bytes');
+
+  const [file] = await tdb
+    .insert(files)
+    .values({
+      name,
+      originalName: 'kicked.png',
+      md5: `md5-${name}`,
+      userId: 1,
+      size: 9,
+      mimeType: 'image/png',
+      extension: '.png',
+      createdAt: now
+    })
+    .returning();
+  const [message] = await tdb
+    .insert(messages)
+    .values({ userId: 1, channelId: 1, content: 'seeded', createdAt: now })
+    .returning();
+  await tdb.insert(messageFiles).values({
+    messageId: message!.id,
+    fileId: file!.id,
+    createdAt: now
+  });
+
+  const salt = await channelSalt(1);
+  const url = `${testsBaseUrl}/public/${name}?accessToken=${generateFileToken(file!.id, salt)}`;
+
+  return { name, salt, url };
+};
+
+describe('membership removal re-keys private channels', () => {
+  test('a kicked member\'s attachment links stop resolving', async () => {
+    const { name, salt, url } = await seedPrivateAttachment();
+
+    try {
+      expect((await fetch(url)).status).toBe(200);
+
+      const owner = await initTest(1);
+      await owner.caller.users.kick({ userId: 2, reason: 'bye' });
+
+      expect(await channelSalt(1)).not.toBe(salt);
+      expect((await fetch(url)).status).toBe(403);
+    } finally {
+      await fs.rm(path.join(PUBLIC_PATH, name), { force: true });
+    }
+  });
+
+  test('leaving rotates the private channels of the server left', async () => {
+    const tdb = getTestDb();
+    await tdb.update(channels).set({ private: true }).where(eq(channels.id, 1));
+    const before = await channelSalt(1);
+
+    const { caller } = await initTest(2);
+    await caller.servers.leave({ serverId: 1 });
+
+    expect(await channelSalt(1)).not.toBe(before);
+  });
+});
 
 describe('membership removal strips roles', () => {
   test('a kicked member rejoining by invite holds only the default role', async () => {

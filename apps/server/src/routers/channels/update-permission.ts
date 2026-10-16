@@ -6,6 +6,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishChannelPermissions, publishChannelVisibility } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import {
@@ -103,6 +104,12 @@ const updatePermissionsRoute = protectedProcedure
 
     ctx.invalidatePermissionCache();
     invalidateAllPermissionCaches();
+    // An override can take VIEW_CHANNEL away: re-key the channel's
+    // attachment URLs so whoever just lost it cannot keep using them.
+    await rotateFileAccessTokens({
+      serverId: ctx.activeServerId,
+      channelId: input.channelId
+    });
     publishChannelPermissions(
       await getAffectedUserIdsForChannel(input.channelId)
     );

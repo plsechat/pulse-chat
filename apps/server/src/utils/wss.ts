@@ -45,6 +45,10 @@ import {
   registerPermissionCacheInvalidator,
   unregisterPermissionCacheInvalidator
 } from './permission-cache-registry';
+import {
+  readSessionFamilyId,
+  registerSessionSocket
+} from './session-registry';
 import { setWsStatsProvider } from './ws-stats';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
@@ -144,6 +148,7 @@ const createContext = async ({
 
   let decodedUser;
   let accessToken = params.accessToken;
+  let authSessionId: string | undefined;
 
   if (params.federationToken) {
     // Federation auth path
@@ -187,6 +192,10 @@ const createContext = async ({
       code: 'UNAUTHORIZED',
       message: 'Invalid authentication token'
     });
+
+    // Read the family claim only AFTER getUserByToken verified the
+    // token; a second signature check here would buy nothing.
+    authSessionId = readSessionFamilyId(accessToken);
   }
 
   if (decodedUser?.banned) {
@@ -249,6 +258,23 @@ const createContext = async ({
     accessToken,
     invalidatePermissionCache
   );
+
+  // Sockets of a session family must drop when the family is revoked
+  // (logout elsewhere, password change, refresh-token reuse). The
+  // socket is already in wsMapByToken by the time tRPC builds the
+  // context (createWsServer's connection-params listener runs before
+  // tRPC's); the mock context in unit tests has no socket and skips
+  // this. The unregister is bound to this socket's close so a refreshed
+  // page that reuses the token cannot be unregistered by the old socket.
+  const ownSocket = wsMapByToken.get(accessToken);
+  if (authSessionId !== undefined && ownSocket) {
+    const unregister = registerSessionSocket(
+      decodedUser.id,
+      accessToken,
+      (code, reason) => ownSocket.close(code, reason)
+    );
+    ownSocket.once('close', unregister);
+  }
 
   const _activeServer = { id: undefined as number | undefined };
 
@@ -580,6 +606,7 @@ const createContext = async ({
   return {
     pubsub,
     accessToken,
+    authSessionId,
     user: decodedUser,
     authenticated: isFederated,
     userId: decodedUser.id,
