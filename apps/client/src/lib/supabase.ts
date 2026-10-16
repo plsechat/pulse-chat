@@ -4,6 +4,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let supabase: SupabaseClient | undefined;
 
+/**
+ * Created from the server's /info config (loadApp) — the one source of
+ * truth for which Supabase project, if any, this deployment uses. There
+ * is no build-time fallback: a bundle baked with another project's keys
+ * would otherwise keep that client and silently ignore the server's, and
+ * against an AUTH_BACKEND=local server it would route setSession through
+ * supabase-js, which rejects the server-minted tokens.
+ */
 const initSupabase = (url: string, anonKey: string) => {
   if (supabase) return;
 
@@ -14,14 +22,6 @@ const initSupabase = (url: string, anonKey: string) => {
     }
   });
 };
-
-// Try to init from build-time env vars (fallback for dev)
-const buildTimeUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const buildTimeKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-if (buildTimeUrl && buildTimeKey) {
-  initSupabase(buildTimeUrl, buildTimeKey);
-}
 
 // localStorage-held session. Used for AUTH_BACKEND=local installs AND for
 // native-OIDC sessions (which are PULSE-minted tokens, NOT Supabase JWTs,

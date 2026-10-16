@@ -1,4 +1,8 @@
-import { setActiveView, switchServer } from '@/features/app/actions';
+import {
+  leaveServerContext,
+  setActiveView,
+  switchServer
+} from '@/features/app/actions';
 import {
   useActiveServerId,
   useActiveView,
@@ -29,7 +33,7 @@ const MobileBottomNav = memo(() => {
   const isKeyboardVisible = useKeyboardVisible();
 
   const handleHomeClick = useCallback(() => {
-    setActiveView('home');
+    leaveServerContext();
   }, []);
 
   const handleDiscoverClick = useCallback(() => {
@@ -66,11 +70,23 @@ const MobileBottomNav = memo(() => {
               ? 'text-foreground'
               : 'text-muted-foreground'
           )}
+          // The badge count below is aria-hidden so the name stays
+          // "Home, …" instead of "Home 3 Home" (mirrors the server rail).
+          aria-label={`Home${
+            pendingCount > 0
+              ? `, ${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`
+              : ''
+          }`}
+          aria-current={activeView === 'home' ? 'page' : undefined}
         >
           <div className="relative">
             <Home className="h-5 w-5" />
             {pendingCount > 0 && (
-              <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-0.5 text-[9px] font-bold text-destructive-foreground">
+              <span
+                aria-hidden
+                title={`${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`}
+                className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-0.5 text-[9px] font-bold text-destructive-foreground"
+              >
                 {pendingCount}
               </span>
             )}

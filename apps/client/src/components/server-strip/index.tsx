@@ -2,6 +2,7 @@ import {
   deleteServer,
   leaveFederatedServer,
   leaveServer,
+  leaveServerContext,
   setActiveView,
   switchServer,
   switchToFederatedServer
@@ -56,7 +57,7 @@ import {
 import { useHasAnyVoiceUsers } from '@/features/server/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
-import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
+import { getHomeTRPCClient } from '@/lib/trpc';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { store } from '@/features/store';
 import { serverSliceActions } from '@/features/server/slice';
@@ -97,15 +98,30 @@ const ServerIcon = memo(
     onClick: () => void;
   }) => {
     const firstLetter = server.name.charAt(0).toUpperCase();
+    // Screen readers get the badge state through the name; the badge
+    // elements themselves are hidden so the count is not read twice (or
+    // as a bare "3" floating after the button).
+    const accessibleName = `${server.name}${
+      mentionCount > 0
+        ? `, ${mentionCount} mention${mentionCount === 1 ? '' : 's'}`
+        : hasUnread
+          ? ', unread'
+          : ''
+    }${hasVoiceActivity ? ', voice active' : ''}`;
 
     return (
       <div className="relative flex w-full items-center justify-center group">
-        <div className={cn(
-          'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
-          isActive ? 'h-10' : hasUnread ? 'h-2.5' : 'h-0 group-hover:h-5'
-        )} />
+        <div
+          aria-hidden
+          className={cn(
+            'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
+            isActive ? 'h-10' : hasUnread ? 'h-2.5' : 'h-0 group-hover:h-5'
+          )}
+        />
         <button
           onClick={onClick}
+          aria-label={accessibleName}
+          aria-current={isActive ? 'page' : undefined}
           className={cn(
             'flex h-12 w-12 items-center justify-center rounded-[24px] transition-all duration-150 overflow-hidden outline-none',
             isActive
@@ -126,12 +142,18 @@ const ServerIcon = memo(
           )}
         </button>
         {mentionCount > 0 && !hasVoiceActivity && (
-          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground">
+          <div
+            aria-hidden
+            className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground"
+          >
             {mentionCount > 99 ? '99+' : mentionCount}
           </div>
         )}
         {hasVoiceActivity && (
-          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar">
+          <div
+            aria-hidden
+            className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar"
+          >
             <Volume2 className="h-3 w-3 text-white" />
           </div>
         )}
@@ -170,10 +192,20 @@ const FederatedServerIcon = memo(
         : entry.peerWarning
           ? ` - Degraded: ${entry.peerWarning}`
           : '';
+    const accessibleName = `${entry.server.name} on ${entry.instanceDomain}${
+      mentionCount > 0
+        ? `, ${mentionCount} mention${mentionCount === 1 ? '' : 's'}`
+        : hasUnread
+          ? ', unread'
+          : ''
+    }${hasVoiceActivity ? ', voice active' : ''}${
+      isOffline ? ', disconnected' : isReconnecting ? ', reconnecting' : ''
+    }`;
 
     return (
       <div className="relative flex w-full items-center justify-center group">
         <div
+          aria-hidden
           className={cn(
             'absolute -left-0.5 w-1.5 rounded-full bg-primary transition-all duration-150',
             isActive ? 'h-10' : hasUnread ? 'h-2.5' : 'h-0 group-hover:h-5'
@@ -181,6 +213,8 @@ const FederatedServerIcon = memo(
         />
         <button
           onClick={onClick}
+          aria-label={accessibleName}
+          aria-current={isActive ? 'page' : undefined}
           className={cn(
             'relative flex h-12 w-12 items-center justify-center rounded-[24px] transition-all duration-150 overflow-hidden outline-none',
             isActive
@@ -206,6 +240,7 @@ const FederatedServerIcon = memo(
             collides with the mention / voice badge below. */}
         {entry.peerWarning && (
           <div
+            aria-hidden
             className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 border-2 border-sidebar pointer-events-none"
             title={`Degraded: ${entry.peerWarning}`}
           >
@@ -213,16 +248,23 @@ const FederatedServerIcon = memo(
           </div>
         )}
         {hasVoiceActivity ? (
-          <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar">
+          <div
+            aria-hidden
+            className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar"
+          >
             <Volume2 className="h-3 w-3 text-white" />
           </div>
         ) : mentionCount > 0 ? (
-          <div className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground">
+          <div
+            aria-hidden
+            className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground"
+          >
             {mentionCount > 99 ? '99+' : mentionCount}
           </div>
         ) : (
           /* Federation badge — color indicates connection status */
           <div
+            aria-hidden
             className={cn(
               'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-sidebar text-[8px] font-bold text-white pointer-events-none',
               isOffline
@@ -307,7 +349,7 @@ const ServerStrip = memo(() => {
   const [serverNotifLevel, setServerNotifLevel] = useState('default');
 
   const handleHomeClick = useCallback(() => {
-    setActiveView('home');
+    leaveServerContext();
   }, []);
 
   const handleDiscoverClick = useCallback(() => {
@@ -359,7 +401,9 @@ const ServerStrip = memo(() => {
   const handleMarkAsRead = useCallback(
     async (serverId: number) => {
       try {
-        const trpc = getTRPCClient();
+        // Rail entries are HOME servers: their ids and notification
+        // settings live on the home instance whatever server is in focus.
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.notifications.markServerAsRead.mutate({ serverId });
         // Optimistically reset server-level unread and mention counts
@@ -401,7 +445,7 @@ const ServerStrip = memo(() => {
   const handleToggleMute = useCallback(
     async (serverId: number, muted: boolean) => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.notifications.setServerMute.mutate({ serverId, muted });
         setServerMuted(muted);
@@ -415,7 +459,7 @@ const ServerStrip = memo(() => {
   const handleSetNotificationLevel = useCallback(
     async (serverId: number, level: string) => {
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.notifications.setServerNotificationLevel.mutate({
           serverId,
@@ -433,7 +477,7 @@ const ServerStrip = memo(() => {
     async (open: boolean, serverId: number) => {
       if (open) {
         try {
-          const trpc = getTRPCClient();
+          const trpc = getHomeTRPCClient();
           if (!trpc) return;
           const settings = await trpc.notifications.getServerSettings.query({
             serverId
@@ -470,7 +514,7 @@ const ServerStrip = memo(() => {
       store.dispatch(appSliceActions.reorderJoinedServers(reorderedIds));
 
       try {
-        const trpc = getTRPCClient();
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
         await trpc.servers.reorder.mutate({ serverIds: reorderedIds });
       } catch (err) {
@@ -503,6 +547,18 @@ const ServerStrip = memo(() => {
                   : 'bg-secondary text-muted-foreground hover:bg-primary/20 hover:text-primary hover:rounded-xl'
               )}
               title="Home"
+              // The badge counts below are aria-hidden so the name stays
+              // "Home, …" instead of "Home 3 1".
+              aria-label={`Home${
+                totalDmUnreadCount > 0
+                  ? `, ${totalDmUnreadCount} unread DM${totalDmUnreadCount === 1 ? '' : 's'}`
+                  : ''
+              }${
+                pendingCount > 0
+                  ? `, ${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`
+                  : ''
+              }`}
+              aria-current={activeView === 'home' ? 'page' : undefined}
             >
               <Home className="h-6 w-6" />
               {/*
@@ -516,6 +572,7 @@ const ServerStrip = memo(() => {
               */}
               {totalDmUnreadCount > 0 && (
                 <span
+                  aria-hidden
                   title={`${totalDmUnreadCount} unread DM${totalDmUnreadCount === 1 ? '' : 's'}`}
                   className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive border-2 border-sidebar px-1 text-[10px] font-bold text-destructive-foreground"
                 >
@@ -524,6 +581,7 @@ const ServerStrip = memo(() => {
               )}
               {pendingCount > 0 && (
                 <span
+                  aria-hidden
                   title={`${pendingCount} pending friend request${pendingCount === 1 ? '' : 's'}`}
                   // Amber, not bg-primary — when the home button is the
                   // active view it's already painted in primary, and a

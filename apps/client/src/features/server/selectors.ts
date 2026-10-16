@@ -51,13 +51,16 @@ export const isOwnUserOwnerSelector = createSelector(
   (ownUserRoles) => ownUserRoles.some((role) => role.id === OWNER_ROLE_ID)
 );
 
-export const userRolesSelector = createSelector(
+// Keyed by id: a plain createSelector memoises only the LAST (state, id)
+// pair, so with several rows mounted every store update handed each one
+// a fresh array and re-rendered the whole table on unrelated dispatches.
+export const userRolesSelector = createCachedSelector(
   [rolesSelector, userByIdSelector],
   (roles, user) => {
     if (!user?.roleIds) return [];
     return roles.filter((role) => user.roleIds.includes(role.id));
   }
-);
+)((_: IRootState, userId: number) => userId);
 
 export const userDisplayRoleSelector = createCachedSelector(
   [rolesSelector, userByIdSelector],
@@ -92,7 +95,7 @@ export const typingUsersByChannelIdSelector = createCachedSelector(
   }
 )((_, channelId: number) => channelId);
 
-export const voiceUsersByChannelIdSelector = createSelector(
+export const voiceUsersByChannelIdSelector = createCachedSelector(
   [usersSelector, voiceChannelStateSelector],
   (users, voiceState) => {
     const voiceUsers: TVoiceUser[] = [];
@@ -113,7 +116,7 @@ export const voiceUsersByChannelIdSelector = createSelector(
 
     return voiceUsers;
   }
-);
+)((_: IRootState, channelId: number) => channelId);
 
 export const ownVoiceUserSelector = createSelector(
   [

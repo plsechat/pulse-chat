@@ -43,9 +43,13 @@ function getPendingMap(
  * the user's choice (true = accept/verify, false = block/cancel).
  *
  * Multiple concurrent calls for the same peer in the same store
- * collapse into one modal — they all await the same Promise.
+ * collapse into one modal — they all await the same Promise. The
+ * pending entry is registered synchronously, before any store read:
+ * N decrypts failing in the same tick all reach this function before
+ * the first one's `await` resumes, and only the registration order
+ * decides whether they share a modal or each open their own.
  */
-export async function presentIdentityChange(
+export function presentIdentityChange(
   userId: number,
   newIdentityPublicKey: string,
   store: SignalProtocolStore
@@ -54,6 +58,20 @@ export async function presentIdentityChange(
   const existing = map.get(userId);
   if (existing) return existing;
 
+  const pending = openIdentityChangeDialog(userId, newIdentityPublicKey, store);
+  map.set(userId, pending);
+  // Clear the entry however it settles so the next change for this peer
+  // gets a fresh modal; the rejection (if any) still reaches the caller
+  // through `pending` itself.
+  void pending.finally(() => map.delete(userId)).catch(() => undefined);
+  return pending;
+}
+
+async function openIdentityChangeDialog(
+  userId: number,
+  newIdentityPublicKey: string,
+  store: SignalProtocolStore
+): Promise<boolean> {
   const previous = await store.getVerifiedIdentity(userId);
 
   // Pre-compute the local identity inputs needed for safety-number
@@ -66,7 +84,7 @@ export async function presentIdentityChange(
   const { store: reduxStore } = await import('@/features/store');
   const localUserId = reduxStore.getState().server.ownUserId ?? null;
 
-  const pending = new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve) => {
     openDialog(Dialog.IDENTITY_CHANGED, {
       userId,
       newIdentityKey: newIdentityPublicKey,
@@ -105,10 +123,6 @@ export async function presentIdentityChange(
       }
     });
   });
-
-  map.set(userId, pending);
-  pending.finally(() => map.delete(userId));
-  return pending;
 }
 
 export class UntrustedIdentityError extends Error {

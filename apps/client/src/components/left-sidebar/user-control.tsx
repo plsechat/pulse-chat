@@ -27,8 +27,9 @@ import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
-import { getTRPCClient } from '@/lib/trpc';
+import { requireHomeTRPCClient } from '@/lib/not-connected-error';
 import { ChannelPermission, UserStatus } from '@pulse/shared';
 import {
   ChevronUp,
@@ -39,6 +40,7 @@ import {
   Settings
 } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
+import { toast } from 'sonner';
 import { ServerScreen } from '../server-screens/screens';
 import { Button } from '../ui/button';
 import { UserAvatar } from '../user-avatar';
@@ -74,11 +76,20 @@ const UserControl = memo(() => {
     openServerScreen(ServerScreen.USER_SETTINGS);
   }, []);
 
-  const handleStatusChange = useCallback(async (status: (typeof statusOptions)[number]) => {
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    await trpc.users.setStatus.mutate({ status });
-  }, []);
+  // Presence and custom status belong to the HOME account: while a
+  // federated server is active the ambient client would set them on the
+  // remote shadow user instead, and a rejected call used to surface as
+  // nothing but an unhandled rejection.
+  const handleStatusChange = useCallback(
+    async (status: (typeof statusOptions)[number]) => {
+      try {
+        await requireHomeTRPCClient().users.setStatus.mutate({ status });
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update status'));
+      }
+    },
+    []
+  );
 
   const openCustomStatusDialog = useCallback(() => {
     setCustomStatusDraft(ownPublicUser?.customStatus ?? '');
@@ -93,14 +104,16 @@ const UserControl = memo(() => {
       emoji: string | null,
       expiresInMinutes: number | null
     ) => {
-      const trpc = getTRPCClient();
-      if (!trpc) return;
-      await trpc.users.setCustomStatus.mutate({
-        customStatus,
-        emoji,
-        expiresInMinutes
-      });
-      setCustomStatusDialogOpen(false);
+      try {
+        await requireHomeTRPCClient().users.setCustomStatus.mutate({
+          customStatus,
+          emoji,
+          expiresInMinutes
+        });
+        setCustomStatusDialogOpen(false);
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update custom status'));
+      }
     },
     []
   );

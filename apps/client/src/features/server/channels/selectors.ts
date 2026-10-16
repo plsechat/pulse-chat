@@ -28,9 +28,6 @@ export const currentVoiceServerPublicIdSelector = (state: IRootState) =>
   state.server.currentVoiceServerPublicId;
 
 
-export const channelsReadStatesSelector = (state: IRootState) =>
-  state.server.readStatesMap;
-
 export const channelReadStateByIdSelector = (
   state: IRootState,
   channelId: number
@@ -40,9 +37,6 @@ export const channelMentionCountByIdSelector = (
   state: IRootState,
   channelId: number
 ) => state.server.mentionStatesMap[channelId] ?? 0;
-
-export const hasAnyUnreadSelector = (state: IRootState) =>
-  Object.values(state.server.readStatesMap).some((count) => (count ?? 0) > 0);
 
 export const lastReadMessageIdSelector = (
   state: IRootState,

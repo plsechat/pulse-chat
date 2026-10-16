@@ -5,8 +5,7 @@ import type { IRootState } from '../store';
 import { useChannelById, useChannelPermissionsById } from './channels/hooks';
 import {
   channelMentionCountByIdSelector,
-  channelReadStateByIdSelector,
-  hasAnyUnreadSelector
+  channelReadStateByIdSelector
 } from './channels/selectors';
 import { hasAnyVoiceUsersSelector } from './voice/selectors';
 import {
@@ -166,8 +165,5 @@ export const useMentionCount = (channelId: number) =>
   useSelector((state: IRootState) =>
     channelMentionCountByIdSelector(state, channelId)
   );
-
-/** @pendingBatch B7 — wired into the tab/dock badge total in B7 (A7-11) */
-export const useHasAnyUnread = () => useSelector(hasAnyUnreadSelector);
 
 export const useHasAnyVoiceUsers = () => useSelector(hasAnyVoiceUsersSelector);

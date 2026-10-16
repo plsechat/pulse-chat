@@ -185,6 +185,33 @@ export const serverSlice = createSlice({
         info: state.info
       });
     },
+    /**
+     * Drop the active server's snapshot (channels, roles, read states,
+     * messages, roster …) while keeping the connection fields and the
+     * user's own voice session. Used when leaving a federated server's
+     * context for the home view: the remote snapshot otherwise stayed
+     * live — its unread counts in the tab title, its ids under every
+     * ambient call — while nothing on screen referred to it. Voice is
+     * kept because it is only ended by an explicit leave; the roster map
+     * goes with the snapshot exactly as it does on a server switch.
+     */
+    resetStateKeepVoice: (state) => {
+      Object.assign(state, {
+        ...initialState,
+        info: state.info,
+        loadingInfo: state.loadingInfo,
+        connected: state.connected,
+        reconnecting: state.reconnecting,
+        reconnectAttempt: state.reconnectAttempt,
+        disconnectInfo: state.disconnectInfo,
+        currentVoiceChannelId: state.currentVoiceChannelId,
+        currentVoiceServerId: state.currentVoiceServerId,
+        currentVoiceChannelPublicId: state.currentVoiceChannelPublicId,
+        currentVoiceServerPublicId: state.currentVoiceServerPublicId,
+        ownVoiceState: state.ownVoiceState,
+        pinnedCard: state.pinnedCard
+      });
+    },
     setConnected: (state, action: PayloadAction<boolean>) => {
       state.connected = action.payload;
     },

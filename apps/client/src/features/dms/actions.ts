@@ -12,6 +12,12 @@ import type { E2EEPlaintext } from '@/lib/e2ee/types';
 import { patchFilesWithE2eeMetadata, setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import {
+  LocalStorageKey,
+  removeLocalStorageItem,
+  setLocalStorageItem
+} from '@/helpers/storage';
+import { requireHomeTRPCClient } from '@/lib/not-connected-error';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
@@ -47,8 +53,21 @@ const markDmChannelAsRead = (dmChannelId: number) => {
 export const addOrUpdateDmChannel = (channel: TJoinedDmChannel) =>
   store.dispatch(dmsSliceActions.addOrUpdateChannel(channel));
 
-export const setSelectedDmChannelId = (channelId: number | undefined) =>
-  store.dispatch(dmsSliceActions.setSelectedChannelId(channelId));
+/**
+ * Redux `dms.selectedChannelId` is the single source of truth for which
+ * DM is open (HomeView renders from it; addDmMessages reads it to decide
+ * whether a message is on screen). The localStorage mirror is what
+ * restores the DM after a reload, so it is written here — alongside the
+ * dispatch — rather than by whichever component happened to select.
+ */
+export const setSelectedDmChannelId = (channelId: number | undefined) => {
+  if (channelId === undefined) {
+    removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  } else {
+    setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(channelId));
+  }
+  return store.dispatch(dmsSliceActions.setSelectedChannelId(channelId));
+};
 
 /**
  * Open a DM in the home view from anywhere in the app. Used by:
@@ -56,19 +75,17 @@ export const setSelectedDmChannelId = (channelId: number | undefined) =>
  *  - The "Create Group DM" dialog after creation
  *  - The IncomingCallModal accept handler
  *
- * HomeView owns the local-component state that picks which DM to
- * render, so a Redux update alone won't switch views — the
- * `dm-navigate` app event is the bridge.
+ * The selection itself is Redux state (HomeView renders from it); the
+ * `dm-navigate` app event only flips HomeView's Friends/DM tab.
  */
 export const navigateToDm = async (dmChannelId: number) => {
-  const { setLocalStorageItem, LocalStorageKey } = await import(
-    '@/helpers/storage'
-  );
   setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
-  setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(dmChannelId));
+  setSelectedDmChannelId(dmChannelId);
   emitAppEvent('dm-navigate', { dmChannelId });
-  const { setActiveView } = await import('../app/actions');
-  setActiveView('home');
+  // Jumping to a DM is a jump home: a federated server left in focus
+  // would keep routing home-view calls to the peer.
+  const { leaveServerContext } = await import('../app/actions');
+  leaveServerContext();
 };
 
 export const addDmMessages = async (
@@ -705,8 +722,7 @@ export const sendDmMessage = async (
    */
   forwardedFrom?: { sourceKind: 'channel' | 'dm'; sourceId: number }
 ) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   const state = store.getState();
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   const recipientUserId = getDmRecipientUserId(dmChannelId);
@@ -775,8 +791,7 @@ export const sendDmMessage = async (
 };
 
 export const editDmMessage = async (messageId: number, content: string) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
 
   const state = store.getState();
 
@@ -842,24 +857,57 @@ export const editDmMessage = async (messageId: number, content: string) => {
 };
 
 export const deleteDmMessageAction = async (messageId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.deleteMessage.mutate({ messageId });
 };
 
-export const removeDmChannel = (dmChannelId: number) =>
-  store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
+export const removeDmChannel = (dmChannelId: number) => {
+  // The reducer clears selectedChannelId when it matches; mirror that in
+  // storage or a reload would reopen a DM that no longer exists.
+  if (store.getState().dms.selectedChannelId === dmChannelId) {
+    removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  }
+  return store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
+};
+
+/**
+ * DM_MEMBER_REMOVE. When WE are the removed member the channel is gone
+ * for us: drop it (messages, typing state and the selection go with it)
+ * and say so — until now the only trace was the conversation vanishing
+ * on the next refetch. Anyone else leaving keeps the channel; the
+ * refetch picks up the new member list and we rotate our sender key so
+ * the leaver cannot read on with the cached one.
+ */
+export const handleDmMemberRemoved = async (
+  dmChannelId: number,
+  removedUserId: number
+) => {
+  const state = store.getState();
+  if (removedUserId === homeOwnUserIdSelector(state)) {
+    const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+    const name =
+      channel?.name ||
+      channel?.members
+        .filter((m) => m.id !== removedUserId)
+        .map((m) => m.name)
+        .join(', ') ||
+      'the conversation';
+    removeDmChannel(dmChannelId);
+    toast.info(`You were removed from ${name}`);
+    return;
+  }
+  await fetchDmChannels();
+  await syncDmGroupSenderKeysOnMemberRemove(dmChannelId, removedUserId);
+};
 
 export const deleteDmChannel = async (dmChannelId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.deleteChannel.mutate({ dmChannelId });
   removeDmChannel(dmChannelId);
 };
 
 export const leaveDmChannel = async (dmChannelId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.leave.mutate({ dmChannelId });
   // Server publishes DM_CHANNEL_DELETE to the leaver, but drop the
   // channel synchronously here too so the toast lands on a UI that
@@ -869,8 +917,7 @@ export const leaveDmChannel = async (dmChannelId: number) => {
 };
 
 export const enableDmEncryption = async (dmChannelId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.enableEncryption.mutate({ dmChannelId });
   // Refresh local state so `channel.e2ee` flips to true immediately.
   // Without this we'd rely on the DM_CHANNEL_UPDATE pubsub round-trip,
@@ -979,8 +1026,7 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
     }
   }
 
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return undefined;
+  const trpc = requireHomeTRPCClient();
   const result = await trpc.dms.voiceJoin.mutate({
     dmChannelId,
     state: { micMuted: false, soundMuted: false }
@@ -994,8 +1040,7 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
 };
 
 export const leaveDmVoiceCall = async () => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.voiceLeave.mutate();
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(undefined));
   setCurrentVoiceChannelId(undefined);

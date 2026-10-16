@@ -31,7 +31,15 @@ const getLocalStorageItemAsJSON = <T>(
   const item = localStorage.getItem(key);
 
   if (item) {
-    return JSON.parse(item) as T;
+    try {
+      return JSON.parse(item) as T;
+    } catch {
+      // Corrupt or truncated value (quota hit mid-write, manual edit).
+      // Several callers run at module evaluation, so throwing here kept
+      // React from mounting at all; fall back and drop the bad value so
+      // the next write starts clean.
+      localStorage.removeItem(key);
+    }
   }
 
   return defaultValue;

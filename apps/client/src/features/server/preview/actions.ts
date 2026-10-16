@@ -1,4 +1,7 @@
-import { setActiveView } from '@/features/app/actions';
+import {
+  setActiveInstanceDomain,
+  setActiveView
+} from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { requestTextInput } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -89,7 +92,7 @@ export const startServerPreview = async (target: {
     // (route tRPC calls to the home instance) and the preview's dbId must
     // be the active one so stale-server guards can't misfire. Not
     // persisted — a reload restores the last REAL server.
-    store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+    setActiveInstanceDomain(null);
     store.dispatch(appSliceActions.setActiveServerId(data.serverDbId));
     setActiveView('server');
 

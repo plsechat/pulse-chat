@@ -4,11 +4,12 @@ import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
 import { MobileHeader } from '@/components/mobile-header';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
-import { useDmChannels } from '@/features/dms/hooks';
+import { useDmChannels, useSelectedDmChannelId } from '@/features/dms/hooks';
+import { useSelector } from 'react-redux';
+import type { IRootState } from '@/features/store';
 import {
   getLocalStorageItem,
   LocalStorageKey,
-  removeLocalStorageItem,
   setLocalStorageItem
 } from '@/helpers/storage';
 import { useIsMobile } from '@/hooks/use-is-mobile';
@@ -34,12 +35,15 @@ function getSavedDmChannelId(): number | undefined {
 }
 
 const HomeView = memo(() => {
-  const savedTab = getSavedHomeTab();
-  const savedDmId = getSavedDmChannelId();
-  const [activeTab, setActiveTab] = useState<THomeTab>(savedTab);
-  const [localSelectedDmChannelId, setLocalSelectedDmChannelId] = useState<
-    number | undefined
-  >(savedTab === 'dm' ? savedDmId : undefined);
+  // Redux `dms.selectedChannelId` is the one source of truth for the open
+  // DM (addDmMessages reads it to tell "on screen" from "unread"); the
+  // slice seeds it from storage, and the setSelectedDmChannelId action
+  // keeps the storage mirror current.
+  const selectedDmChannelId = useSelectedDmChannelId();
+  const dmChannelsLoaded = useSelector(
+    (state: IRootState) => state.dms.channelsLoaded
+  );
+  const [activeTab, setActiveTab] = useState<THomeTab>(getSavedHomeTab);
   const [showCreateGroupDm, setShowCreateGroupDm] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   // Reuse the server view's RIGHT_SIDEBAR_STATE storage key so toggling
@@ -65,24 +69,23 @@ const HomeView = memo(() => {
     });
   }, []);
 
-  // Sync saved DM channel to Redux on mount so incoming messages
-  // know the user is viewing this DM (prevents false unread badges)
+  // The slice seeds the selection on first load; after a sign-out reset
+  // Redux is empty again while storage still names the DM, so re-seed
+  // once on mount in that case.
   useEffect(() => {
-    if (localSelectedDmChannelId) {
-      setSelectedDmChannelId(localSelectedDmChannelId);
-    }
-    // Intentionally mount-only: sync initial saved state to Redux once
+    if (selectedDmChannelId !== undefined) return;
+    if (getSavedHomeTab() !== 'dm') return;
+    const saved = getSavedDmChannelId();
+    if (saved !== undefined) setSelectedDmChannelId(saved);
+    // Intentionally mount-only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // External "open this DM" requests — currently emitted by the
-  // IncomingCallModal when the user accepts a call. HomeView owns
-  // the local state that picks the DM, so localStorage alone won't
-  // re-render; this app event is the bridge.
+  // External "open this DM" requests (navigateToDm: popovers, context
+  // menus, the incoming-call accept) select through Redux; this event
+  // only flips the tab, which is view-local state.
   useEffect(() => {
-    return onAppEvent('dm-navigate', ({ dmChannelId }) => {
-      setLocalSelectedDmChannelId(dmChannelId);
-      setSelectedDmChannelId(dmChannelId);
+    return onAppEvent('dm-navigate', () => {
       setActiveTab('dm');
     });
   }, []);
@@ -91,26 +94,24 @@ const HomeView = memo(() => {
   // peer delete pushed via DM_CHANNEL_DELETE, leave-group, or being
   // removed from a group), bounce back to Friends. Without this the
   // <DmConversation> would keep rendering against a non-existent channel
-  // and trigger FORBIDDEN polls for the now-deleted channel.
+  // and trigger FORBIDDEN polls for the now-deleted channel. Only once
+  // the list has actually loaded — an in-flight fetch is not "missing".
   const dmChannels = useDmChannels();
   useEffect(() => {
     if (
-      localSelectedDmChannelId !== undefined &&
-      !dmChannels.some((c) => c.id === localSelectedDmChannelId)
+      dmChannelsLoaded &&
+      selectedDmChannelId !== undefined &&
+      !dmChannels.some((c) => c.id === selectedDmChannelId)
     ) {
-      setLocalSelectedDmChannelId(undefined);
       setSelectedDmChannelId(undefined);
-      removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
       setActiveTab('friends');
       setLocalStorageItem(LocalStorageKey.HOME_TAB, 'friends');
     }
-  }, [localSelectedDmChannelId, dmChannels]);
+  }, [dmChannelsLoaded, selectedDmChannelId, dmChannels]);
 
   const handleDmSelect = useCallback((dmChannelId: number) => {
-    setLocalSelectedDmChannelId(dmChannelId);
     setSelectedDmChannelId(dmChannelId);
     setActiveTab('dm');
-    setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(dmChannelId));
     setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
     if (isMobile) {
       setIsMobileMenuOpen(false);
@@ -119,9 +120,7 @@ const HomeView = memo(() => {
 
   const handleFriendsClick = () => {
     setActiveTab('friends');
-    setLocalSelectedDmChannelId(undefined);
     setSelectedDmChannelId(undefined);
-    removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
     setLocalStorageItem(LocalStorageKey.HOME_TAB, 'friends');
     if (isMobile) {
       setIsMobileMenuOpen(false);
@@ -177,7 +176,7 @@ const HomeView = memo(() => {
         >
           <HomeSidebar
             activeTab={activeTab}
-            selectedDmChannelId={localSelectedDmChannelId}
+            selectedDmChannelId={selectedDmChannelId}
             onDmSelect={handleDmSelect}
             onFriendsClick={handleFriendsClick}
             onCreateGroupDm={() => setShowCreateGroupDm(true)}
@@ -192,9 +191,9 @@ const HomeView = memo(() => {
         <div className="flex flex-1 flex-col overflow-hidden bg-background md:mt-2 md:rounded-tl-2xl md:ring-1 md:ring-white/[0.045] md:ring-inset">
           {activeTab === 'friends' ? (
             <FriendsPanel onDmSelect={handleDmSelect} />
-          ) : localSelectedDmChannelId ? (
+          ) : selectedDmChannelId ? (
             <DmConversation
-              dmChannelId={localSelectedDmChannelId}
+              dmChannelId={selectedDmChannelId}
               isProfilePanelOpen={isProfilePanelOpen && profilePanelAvailable}
               profilePanelAvailable={profilePanelAvailable}
               onToggleProfilePanel={handleToggleProfilePanel}
@@ -205,10 +204,10 @@ const HomeView = memo(() => {
         </div>
 
         {activeTab === 'dm' &&
-          localSelectedDmChannelId !== undefined &&
+          selectedDmChannelId !== undefined &&
           profilePanelAvailable && (
             <DmProfilePanel
-              dmChannelId={localSelectedDmChannelId}
+              dmChannelId={selectedDmChannelId}
               isOpen={isProfilePanelOpen}
             />
           )}

@@ -36,6 +36,33 @@ type TScrollPositionMap = Record<string, TScrollPositionEntry>;
 const caches = new Map<LocalStorageKey, TScrollPositionMap>();
 const timers = new Map<LocalStorageKey, ReturnType<typeof setTimeout>>();
 
+// Entries are keyed per channel ever visited — across servers left long
+// ago — so the map only grows. Writes re-insert the key (object key order
+// is insertion order), which makes "most recent" the tail; persisting
+// keeps that many and drops the oldest.
+export const MAX_PERSISTED_POSITIONS = 200;
+
+function rememberPosition(
+  storageKey: LocalStorageKey,
+  posKey: string,
+  entry: TScrollPositionEntry
+) {
+  const cache = getCache(storageKey);
+  delete cache[posKey];
+  cache[posKey] = entry;
+}
+
+export function pruneToMostRecent(
+  map: TScrollPositionMap,
+  limit: number
+): TScrollPositionMap {
+  const keys = Object.keys(map);
+  if (keys.length <= limit) return map;
+  const out: TScrollPositionMap = {};
+  for (const k of keys.slice(keys.length - limit)) out[k] = map[k];
+  return out;
+}
+
 function loadStore(storageKey: LocalStorageKey): TScrollPositionMap {
   const raw = getLocalStorageItemAsJSON<
     Record<string, number | TScrollPositionEntry>
@@ -62,7 +89,9 @@ function getCache(storageKey: LocalStorageKey): TScrollPositionMap {
 }
 
 function persistStore(storageKey: LocalStorageKey) {
-  setLocalStorageItemAsJSON(storageKey, getCache(storageKey));
+  const pruned = pruneToMostRecent(getCache(storageKey), MAX_PERSISTED_POSITIONS);
+  caches.set(storageKey, pruned);
+  setLocalStorageItemAsJSON(storageKey, pruned);
 }
 
 function schedulePersist(storageKey: LocalStorageKey) {
@@ -138,10 +167,10 @@ const useChatScroll = ({
     if (!container) return;
 
     container.scrollTop = container.scrollHeight;
-    getCache(storageKey)[posKey] = {
+    rememberPosition(storageKey, posKey, {
       scrollTop: container.scrollTop,
       atBottom: true
-    };
+    });
     schedulePersist(storageKey);
     setIsAtBottom(true);
   }, [posKey, storageKey]);
@@ -155,10 +184,10 @@ const useChatScroll = ({
     // meaningless once scrollHeight grows, but atBottom stays correct
     // because it's relative.
     const atBottom = checkIsAtBottom();
-    getCache(storageKey)[posKey] = {
+    rememberPosition(storageKey, posKey, {
       scrollTop: container.scrollTop,
       atBottom
-    };
+    });
     schedulePersist(storageKey);
 
     setIsAtBottom(atBottom);
@@ -208,10 +237,10 @@ const useChatScroll = ({
     const container = containerRef.current;
     return () => {
       if (container) {
-        getCache(storageKey)[posKey] = {
+        rememberPosition(storageKey, posKey, {
           scrollTop: container.scrollTop,
           atBottom: isNearBottom(container)
-        };
+        });
         // Flush immediately on unmount so it's saved before page unload.
         persistStore(storageKey);
       }
@@ -316,4 +345,22 @@ const useChatScroll = ({
   };
 };
 
-export { useChatScroll };
+/**
+ * Persistence core for unit tests. `reset` drops the module-global
+ * caches and any pending persist timer so one test's state cannot leak
+ * into the next.
+ */
+const __testing = {
+  loadStore,
+  getCache,
+  schedulePersist,
+  persistStore,
+  isNearBottom,
+  reset: () => {
+    for (const timer of timers.values()) clearTimeout(timer);
+    timers.clear();
+    caches.clear();
+  }
+};
+
+export { useChatScroll, __testing };

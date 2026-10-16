@@ -1,6 +1,6 @@
 import type { TPinnedCard } from '@/components/channel-view/voice/hooks/use-pin-card-controller';
 import { leaveDmVoiceCall } from '@/features/dms/actions';
-import { store } from '@/features/store';
+import { store, type IRootState } from '@/features/store';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { type TExternalStream, type TVoiceUserState } from '@pulse/shared';
@@ -18,8 +18,25 @@ import {
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';
 import { SoundType } from '../types';
-import { ownUserIdSelector, userByIdSelector } from '../users/selectors';
+import {
+  homeOwnUserIdSelector,
+  ownUserIdSelector,
+  userByIdSelector
+} from '../users/selectors';
 import { ownVoiceStateSelector } from './selectors';
+
+/**
+ * DM calls live in `voiceMap` next to server voice channels, but their
+ * participant ids are HOME ids while a server channel's are ambient
+ * (remote shadow ids on a federated server). Pick the id the event's
+ * ids are expressed in, or our own join/leave is misread as a peer's.
+ */
+const ownIdForVoiceChannel = (state: IRootState, channelId: number) => {
+  const isDmCall =
+    state.dms.activeCalls[channelId] !== undefined ||
+    state.dms.ownDmCallChannelId === channelId;
+  return isDmCall ? homeOwnUserIdSelector(state) : ownUserIdSelector(state);
+};
 
 export const addUserToVoiceChannel = (
   userId: number,
@@ -28,7 +45,7 @@ export const addUserToVoiceChannel = (
   startedAt?: number
 ): void => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = ownIdForVoiceChannel(state, channelId);
   const currentChannelId = currentVoiceChannelIdSelector(state);
 
   store.dispatch(
@@ -51,7 +68,7 @@ export const removeUserFromVoiceChannel = (
   startedAt?: number
 ): void => {
   const state = store.getState();
-  const ownUserId = ownUserIdSelector(state);
+  const ownUserId = ownIdForVoiceChannel(state, channelId);
   const currentChannelId = currentVoiceChannelIdSelector(state);
 
   store.dispatch(
@@ -123,6 +140,7 @@ export const updateVoiceUserState = (
 ): void => {
   const state = store.getState();
   const prevVoiceState = state.server.voiceMap[channelId]?.users[userId];
+  const ownUserId = ownIdForVoiceChannel(state, channelId);
 
   store.dispatch(
     serverSliceActions.updateVoiceUserState({ userId, channelId, newState })
@@ -133,7 +151,7 @@ export const updateVoiceUserState = (
   // their "muted by a moderator" refusals) read ownVoiceState. Without
   // the mirror the target never learns it was server-muted and the mic
   // button runs split-brain against the SFU.
-  if (userId === ownUserIdSelector(state)) {
+  if (userId === ownUserId) {
     const mirror: Partial<TVoiceUserState> = {};
     if (newState.serverMuted !== undefined) {
       mirror.serverMuted = newState.serverMuted;
@@ -169,7 +187,7 @@ export const updateVoiceUserState = (
     newState.sharingScreen === true &&
     prevVoiceState &&
     !prevVoiceState.sharingScreen &&
-    userId !== ownUserIdSelector(state) &&
+    userId !== ownUserId &&
     channelId === currentVoiceChannelIdSelector(state)
   ) {
     playSound(SoundType.REMOTE_USER_STARTED_SCREENSHARE);
@@ -219,8 +237,14 @@ export const joinVoice = async (
     // Already in a voice channel (server or DM) — leave it first. This
     // is a hop, not a hang-up: only the join cue should play, so the
     // leave is silent (the provider plays the join sound once the new
-    // session is up).
-    await leaveCurrentVoice({ silent: true });
+    // session is up). A DM leave rejects when the home client is gone;
+    // keep this function's contract (undefined + toast) for that case.
+    try {
+      await leaveCurrentVoice({ silent: true });
+    } catch (error) {
+      toast.error(getTrpcError(error, 'Failed to leave the current call'));
+      return undefined;
+    }
   }
 
   const { micMuted, soundMuted } = ownVoiceStateSelector(state);

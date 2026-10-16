@@ -101,10 +101,10 @@ export const ownPublicUserSelector = createSelector(
   (ownUserId, users) => users.find((user) => user.id === ownUserId)
 );
 
-export const userStatusSelector = createSelector(
+export const userStatusSelector = createCachedSelector(
   [userByIdSelector],
   (user) => user?.status ?? UserStatus.OFFLINE
-);
+)((_: IRootState, userId: number) => userId);
 
 export const usernamesSelector = createSelector([usersSelector], (users) => {
   const map: Record<number, string> = {};

@@ -4,6 +4,8 @@ const DEFAULT_ARRAY: never[] = [];
 
 export const dmChannelsSelector = (state: IRootState) => state.dms.channels;
 
+export const selectedDmChannelIdSelector = (state: IRootState) =>
+  state.dms.selectedChannelId;
 
 export const dmMessagesSelector = (
   state: IRootState,

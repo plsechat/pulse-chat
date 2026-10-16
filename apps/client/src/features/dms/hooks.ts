@@ -9,7 +9,8 @@ import {
   dmChannelsSelector,
   dmTypingUsersSelector,
   ownDmCallChannelIdSelector,
-  ringingCallsSelector
+  ringingCallsSelector,
+  selectedDmChannelIdSelector
 } from './selectors';
 
 /**
@@ -34,6 +35,10 @@ export const useDmChannels = () => {
     });
   }, [channels, blocked, ownUserId]);
 };
+
+/** The open DM — Redux is the single source of truth for the selection. */
+export const useSelectedDmChannelId = () =>
+  useSelector(selectedDmChannelIdSelector);
 
 export const useDmActiveCalls = () => useSelector(dmActiveCallsSelector);
 

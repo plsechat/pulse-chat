@@ -153,15 +153,21 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
 
     if (text) {
       try {
-        const trpc = getTRPCClient();
+        // Personal notes are the user's own, kept at HOME — written to
+        // the instance in focus they landed in a federated peer's
+        // database under that peer's user ids. A roster user of a
+        // federated server is addressed by its home-side shadow id.
+        const localId = await resolveLocalUserId();
+        if (localId === null) return;
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
-        await trpc.notes.add.mutate({ targetUserId: userId, content: text });
+        await trpc.notes.add.mutate({ targetUserId: localId, content: text });
         toast.success('Note saved');
       } catch (err) {
         toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
-  }, [userId, user]);
+  }, [resolveLocalUserId, user]);
 
   const handleDisconnectFromVoice = useCallback(async () => {
     try {

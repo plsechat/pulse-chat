@@ -30,6 +30,11 @@ export const useMessages = (channelId: number) => {
   // after a server switch). Without the retry, fetchMessages would no-op
   // once, `inited` would latch, and the pane would stay empty forever.
   const [clientRetryTick, setClientRetryTick] = useState(0);
+  // jumpTo peeks at the loaded window without depending on it: a
+  // `messages` dependency gave loadMore/jumpTo a new identity on every
+  // incoming message, re-running every consumer effect keyed on them.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   const fetchMessages = useCallback(
     async (cursorToFetch: number | null) => {
@@ -50,16 +55,15 @@ export const useMessages = (channelId: number) => {
         mergeMessageAuthors(authors);
 
         const decryptedPage = await decryptChannelMessages(rawPage);
+        // The reducer dedupes by id, so the page goes in as-is.
         const page = [...decryptedPage].reverse();
-        const existingIds = new Set(messages.map((m) => m.id));
-        const filtered = page.filter((m) => !existingIds.has(m.id));
 
         if (cursorToFetch === null) {
-          // initial load (latest page) — append (or replace if you prefer)
-          addMessages(channelId, filtered);
+          // initial load (latest page)
+          addMessages(channelId, page);
         } else {
           // loading older messages -> they must go *before* current list
-          addMessages(channelId, filtered, { prepend: true });
+          addMessages(channelId, page, { prepend: true });
         }
 
         setCursor(nextCursor);
@@ -71,7 +75,7 @@ export const useMessages = (channelId: number) => {
         setLoading(false);
       }
     },
-    [channelId, messages]
+    [channelId]
   );
 
   const loadMore = useCallback(async () => {
@@ -89,7 +93,7 @@ export const useMessages = (channelId: number) => {
    */
   const jumpTo = useCallback(
     async (messageId: number) => {
-      if (messages.some((m) => m.id === messageId)) {
+      if (messagesRef.current.some((m) => m.id === messageId)) {
         finishJump(channelId, messageId);
         return;
       }
@@ -117,7 +121,7 @@ export const useMessages = (channelId: number) => {
         setLoading(false);
       }
     },
-    [channelId, messages]
+    [channelId]
   );
 
   /** Page forward (toward the present) while detached. */

@@ -5,8 +5,13 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import {
+  describeNotificationPermission,
+  getNotificationPermission
+} from '@/features/notifications/desktop-notification';
 import {
   playSoundForPreview,
   SOUND_VARIANTS
@@ -18,7 +23,7 @@ import {
   type SoundCategory
 } from '@/hooks/use-sound-notification-settings';
 import { AlertTriangle, Play } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   SettingRow,
   SettingRowStack,
@@ -88,8 +93,25 @@ const SoundsNotifications = memo(() => {
   );
 
   const [notificationPermission, setNotificationPermission] = useState(
-    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+    getNotificationPermission
   );
+  // The browser can change its answer while this panel is open (the
+  // load-time toast, the site-permission popover); re-read on focus.
+  useEffect(() => {
+    const refresh = () => setNotificationPermission(getNotificationPermission());
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
+  const permissionView = describeNotificationPermission(notificationPermission);
+
+  // "Allow" for a browser that inherited enabled=true from another
+  // device and was never prompted: the switch is already on, so the
+  // toggle path can never ask.
+  const handleRequestPermission = useCallback(async () => {
+    const result = await Notification.requestPermission();
+    setNotificationPermission(result);
+    if (result === 'granted') setDesktopNotificationsEnabled(true);
+  }, [setDesktopNotificationsEnabled]);
 
   const setters = {
     setMessageSoundsEnabled,
@@ -234,16 +256,17 @@ const SoundsNotifications = memo(() => {
       >
         <SettingRow
           label="Enable desktop notifications"
-          description={
-            notificationPermission === 'denied'
-              ? 'Notifications are blocked by your browser.'
-              : 'Alerts for new messages when the tab is not focused.'
-          }
+          description={permissionView.hint}
         >
+          {permissionView.canRequest && settings.desktopNotificationsEnabled && (
+            <Button size="sm" variant="outline" onClick={handleRequestPermission}>
+              Allow
+            </Button>
+          )}
           <Switch
             checked={settings.desktopNotificationsEnabled}
             onCheckedChange={handleDesktopNotificationToggle}
-            disabled={notificationPermission === 'denied'}
+            disabled={permissionView.switchDisabled}
           />
         </SettingRow>
       </SettingsSection>

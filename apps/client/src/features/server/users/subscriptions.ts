@@ -6,7 +6,7 @@ import {
 import { appSliceActions } from '@/features/app/slice';
 import { dmsSliceActions } from '@/features/dms/slice';
 import { updateFriend } from '@/features/friends/actions';
-import { resetServerState } from '@/features/server/actions';
+import { reinitServerSubscriptions, resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
 import {
   distributeSenderKeysToOnlineMember,
@@ -166,6 +166,9 @@ const subscribeToUsers = () => {
           store.dispatch(appSliceActions.setActiveServerId(undefined));
           if (state.app.activeInstanceDomain) {
             setActiveInstanceDomain(null);
+            // The server subs were bound to the peer's client; rebind
+            // them to home or they stay dead until the next switch.
+            reinitServerSubscriptions();
           }
         }
       }

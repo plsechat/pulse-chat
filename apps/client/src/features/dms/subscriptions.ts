@@ -21,9 +21,9 @@ import {
   dmCallUserJoined,
   dmCallUserLeft,
   fetchDmChannels,
+  handleDmMemberRemoved,
   removeDmChannel,
   syncDmGroupSenderKeysOnMemberAdd,
-  syncDmGroupSenderKeysOnMemberRemove,
   updateDmMessage
 } from './actions';
 
@@ -108,16 +108,12 @@ const subscribeToDms = () => {
       // distribute it to the new joiner.
       await syncDmGroupSenderKeysOnMemberAdd(dmChannelId, userId);
     }),
-    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, async (data) => {
+    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, (data) => {
       const { dmChannelId, userId } = data as {
         dmChannelId: number;
         userId: number;
       };
-      await fetchDmChannels();
-      // Forward secrecy: rotate our sender key so the leaver can't
-      // decrypt new messages with the cached old key. If we *are* the
-      // leaver, do nothing — we're out of the channel.
-      await syncDmGroupSenderKeysOnMemberRemove(dmChannelId, userId);
+      return handleDmMemberRemoved(dmChannelId, userId);
     }),
     subscribe(
       'onDmSenderKeyDistribution',

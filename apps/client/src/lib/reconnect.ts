@@ -7,6 +7,7 @@ import {
 } from '@/features/server/actions';
 import { loadFederatedServers } from '@/features/app/actions';
 import { store } from '@/features/store';
+import { isNonRecoverable } from '@/lib/home-socket';
 import { getAccessToken } from '@/lib/supabase';
 import { DisconnectCode } from '@pulse/shared';
 
@@ -17,13 +18,6 @@ const MAX_DELAY_MS = 30000;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let attemptCount = 0;
 let isReconnecting = false;
-
-/** Whether the disconnect code is non-recoverable (banned, the account
- *  no longer exists, or this session was signed out server-side). */
-const isNonRecoverable = (code: number) =>
-  code === DisconnectCode.BANNED ||
-  code === DisconnectCode.ACCOUNT_DELETED ||
-  code === DisconnectCode.SESSION_REVOKED;
 
 /** Exponential backoff with jitter: base * 2^attempt + random jitter, capped. */
 const getDelay = (attempt: number) => {
@@ -140,3 +134,14 @@ const onOnline = () => {
 
 /** Check if we're currently in a reconnection loop. */
 export const isCurrentlyReconnecting = () => isReconnecting;
+
+/** Internals exposed for unit tests only. */
+export const __testing = {
+  getDelay,
+  MAX_ATTEMPTS,
+  BASE_DELAY_MS,
+  MAX_DELAY_MS,
+  /** Whether a retry timer is pending. */
+  hasPendingTimer: () => reconnectTimer !== null,
+  attemptReconnect
+};

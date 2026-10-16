@@ -4,12 +4,36 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import type { TUserPreferences } from '@pulse/shared';
+import {
+  __testing as preferencesSync,
+  flushPreferencesNow,
+  getPendingPreferences,
+  type TPendingPreferences
+} from './preferences-sync';
+
+/**
+ * Overlay queued-but-unsent local changes on the server copy. A change
+ * made while disconnected (or whose request failed) is still queued;
+ * applying the server's older value on top of it would silently revert
+ * what the user just chose, and the queued write would then put it back
+ * a moment later — a visible flicker at best.
+ */
+export const mergePendingPreferences = (
+  server: TUserPreferences,
+  pending: TPendingPreferences
+): TUserPreferences =>
+  preferencesSync.deepMerge(
+    server as unknown as Record<string, unknown>,
+    pending as Record<string, unknown>
+  ) as unknown as TUserPreferences;
 
 /**
  * Write server preferences into localStorage so all existing
- * stores/hooks pick up the server's data immediately.
+ * stores/hooks pick up the server's data immediately, then push any
+ * queued local changes so the server catches up with what was applied.
  */
-export const applyServerPreferences = (prefs: TUserPreferences) => {
+export const applyServerPreferences = (serverPrefs: TUserPreferences) => {
+  const prefs = mergePendingPreferences(serverPrefs, getPendingPreferences());
   setLocalStorageItemAsJSON(
     LocalStorageKey.APPEARANCE_SETTINGS,
     prefs.appearance
@@ -27,4 +51,5 @@ export const applyServerPreferences = (prefs: TUserPreferences) => {
     LocalStorageKey.RIGHT_SIDEBAR_STATE,
     prefs.rightSidebarOpen ? 'true' : 'false'
   );
+  void flushPreferencesNow();
 };

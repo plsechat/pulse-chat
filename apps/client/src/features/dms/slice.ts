@@ -1,3 +1,4 @@
+import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   TJoinedDmChannel,
@@ -22,6 +23,10 @@ export type TDmCallsMap = {
 
 export interface TDmsState {
   channels: TJoinedDmChannel[];
+  // False until the first channel list arrives. HomeView deselects a DM
+  // that is missing from the list; without this gate a reload (list
+  // still in flight) bounced the restored DM straight back to Friends.
+  channelsLoaded: boolean;
   selectedChannelId: number | undefined;
   messagesMap: TDmMessagesMap;
   activeCalls: TDmCallsMap;
@@ -33,9 +38,19 @@ export interface TDmsState {
   ringingCalls: number[];
 }
 
+// The open DM survives a reload: Redux is the source of truth and the
+// setSelectedDmChannelId action mirrors it to storage, so the slice
+// starts from the mirror instead of a component re-syncing it on mount.
+const readPersistedSelection = (): number | undefined => {
+  const saved = getLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  const id = saved ? Number(saved) : Number.NaN;
+  return Number.isFinite(id) ? id : undefined;
+};
+
 const initialState: TDmsState = {
   channels: [],
-  selectedChannelId: undefined,
+  channelsLoaded: false,
+  selectedChannelId: readPersistedSelection(),
   messagesMap: {},
   activeCalls: {},
   ownDmCallChannelId: undefined,
@@ -50,6 +65,7 @@ export const dmsSlice = createSlice({
     resetState: () => initialState,
     setChannels: (state, action: PayloadAction<TJoinedDmChannel[]>) => {
       state.channels = action.payload;
+      state.channelsLoaded = true;
     },
     addOrUpdateChannel: (state, action: PayloadAction<TJoinedDmChannel>) => {
       const idx = state.channels.findIndex(

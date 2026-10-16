@@ -21,7 +21,15 @@ import { getHomeTRPCClient } from '@/lib/trpc';
 import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
 import { toast } from 'sonner';
-import { connect, fetchDeferredServerData, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
+import {
+  beginServerJoin,
+  connect,
+  fetchDeferredServerData,
+  isCurrentServerJoin,
+  joinServer,
+  reinitServerSubscriptions,
+  setInfo
+} from '../server/actions';
 import { startServerPreview } from '../server/preview/actions';
 import { serverSliceActions } from '../server/slice';
 import { store } from '../store';
@@ -73,33 +81,65 @@ export const fetchServerUnreadCounts = async () => {
   }
 };
 
+/**
+ * Whether the server slice currently holds `serverId`'s data. Decided by
+ * the snapshot itself (its publicId) rather than by `activeServerId`:
+ * that id is kept across a context leave so the return path knows where
+ * to go, and a home server can share its numeric id with the federated
+ * server that was in focus before — either way the slice must be
+ * reloaded.
+ */
+const isHomeServerLoaded = (serverId: number) => {
+  const { app, server } = store.getState();
+  if (app.activeInstanceDomain || server.serverId === undefined) return false;
+  const entry = app.joinedServers.find((s) => s.id === serverId);
+  return entry !== undefined && entry.publicId === server.serverId;
+};
+
 export const switchServer = async (
   serverId: number,
   handshakeHash: string
 ) => {
   // Already viewing this server — nothing to do
   const { app } = store.getState();
-  if (
-    app.activeView === 'server' &&
-    app.activeServerId === serverId &&
-    !app.activeInstanceDomain
-  ) {
+  const loaded = isHomeServerLoaded(serverId);
+  if (app.activeView === 'server' && loaded) {
     return;
   }
 
   // Clear federation context so tRPC routes go to home instance
-  store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  setActiveInstanceDomain(null);
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   setActiveView('server');
 
   // If the server data is already loaded (e.g. returning from Home view),
   // skip re-joining — subscriptions and state are already active
-  if (app.activeServerId === serverId && !app.activeInstanceDomain) {
+  if (loaded) {
     return;
   }
 
   // Re-join with the new serverId to load its data
   await joinServer(handshakeHash, serverId);
+};
+
+/**
+ * Leave the server in focus for the home view (DMs, friends). A
+ * federated server's context is dropped with it: routing goes back to
+ * the home instance, the remote snapshot leaves the slice (it fed the
+ * tab title and every ambient id while nothing on screen used it) and
+ * the server-scoped subscriptions rebind to the home client. The user's
+ * voice session survives, and `activeServerId` is kept so the rail
+ * knows which server to re-join on the way back. A home server's
+ * snapshot stays: returning to it is instant and nothing routes wrongly.
+ */
+export const leaveServerContext = () => {
+  const { app } = store.getState();
+  setActiveView('home');
+  if (!app.activeInstanceDomain) return;
+
+  setActiveInstanceDomain(null);
+  store.dispatch(serverSliceActions.resetStateKeepVoice());
+  reinitServerSubscriptions();
 };
 
 export const createServer = async (
@@ -349,7 +389,7 @@ export const resetApp = () => {
   store.dispatch(appSliceActions.setServerUnreadCounts({}));
   store.dispatch(appSliceActions.setServerMentionCounts({}));
   store.dispatch(appSliceActions.setFederatedServers([]));
-  store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  setActiveInstanceDomain(null);
   // Clean up federated unread subscriptions
   for (const [, sub] of federatedUnreadSubs) {
     sub.unsubscribe();
@@ -481,7 +521,13 @@ export const leaveFederatedServer = async (
       await remoteTrpc.servers.leave.mutate({ serverId });
     }
   } catch (error) {
+    // Local cleanup still proceeds — the rail must not keep a server
+    // the user asked to leave — but the remote membership may linger,
+    // so say so instead of pretending the leave was clean.
     console.error('Failed to leave remote server:', error);
+    toast.warning(
+      'Could not notify the remote server; it may still list you as a member'
+    );
   }
 
   // Remove membership from home server (fire-and-forget)
@@ -496,8 +542,7 @@ export const leaveFederatedServer = async (
 
   cleanupFederatedServerEntry(instanceDomain, serverId);
 
-  setActiveView('home');
-  store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  leaveServerContext();
 };
 
 export const switchToFederatedServer = async (
@@ -506,20 +551,23 @@ export const switchToFederatedServer = async (
 ) => {
   const state = store.getState();
 
-  // Already viewing this federated server — nothing to do
-  if (
-    state.app.activeView === 'server' &&
-    state.app.activeServerId === serverId &&
-    state.app.activeInstanceDomain === instanceDomain
-  ) {
-    return;
-  }
-
   const entry = state.app.federatedServers.find(
     (s) => s.instanceDomain === instanceDomain && s.server.id === serverId
   );
 
   if (!entry) return;
+
+  // Already viewing this federated server — nothing to do. The slice
+  // must actually hold it (publicId match): after a context leave or a
+  // reconnect the ids can agree while the snapshot is gone or home's.
+  if (
+    state.app.activeView === 'server' &&
+    state.app.activeServerId === serverId &&
+    state.app.activeInstanceDomain === instanceDomain &&
+    state.server.serverId === entry.server.publicId
+  ) {
+    return;
+  }
 
   // Save previous state for rollback on failure
   const prevServerId = state.app.activeServerId;
@@ -559,10 +607,11 @@ export const switchToFederatedServer = async (
 
   // Set active state optimistically
   store.dispatch(appSliceActions.setActiveServerId(serverId));
-  store.dispatch(appSliceActions.setActiveInstanceDomain(instanceDomain));
+  setActiveInstanceDomain(instanceDomain);
   setActiveView('server');
 
   // Load channel/category/user data from the remote instance
+  const join = beginServerJoin();
   try {
     const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
     if (!remoteTrpc) {
@@ -573,6 +622,10 @@ export const switchToFederatedServer = async (
       handshakeHash: '',
       serverId
     });
+
+    // Superseded by a later join (home or federated) — its response is
+    // the one the user asked for; this one must not overwrite it.
+    if (!isCurrentServerJoin(join)) return;
 
     store.dispatch(serverSliceActions.setInitialData(data));
     // Cache our user id within this federated instance so flows like
@@ -615,13 +668,13 @@ export const switchToFederatedServer = async (
     }
   } catch (error) {
     console.error('Failed to load federated server data:', error);
+    // A later join owns the UI now; rolling back would undo it.
+    if (!isCurrentServerJoin(join)) return;
     toast.error('Failed to connect to federated server');
 
     // Rollback to previous state
     store.dispatch(appSliceActions.setActiveServerId(prevServerId));
-    store.dispatch(
-      appSliceActions.setActiveInstanceDomain(prevInstanceDomain)
-    );
+    setActiveInstanceDomain(prevInstanceDomain);
     setActiveView(prevView);
   }
 };
@@ -796,8 +849,7 @@ export const loadFederatedServers = async () => {
       const s = store.getState();
       if (s.app.activeInstanceDomain === domain) {
         toast.error('Lost connection to federated server');
-        store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-        setActiveView('home');
+        leaveServerContext();
       }
     }
   });

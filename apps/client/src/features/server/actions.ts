@@ -3,8 +3,10 @@ import {
   fetchServerUnreadCounts,
   getSavedActiveServerId,
   getSavedActiveView,
+  setActiveInstanceDomain,
   setActiveServerId,
-  setActiveView
+  setActiveView,
+  switchToFederatedServer
 } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
@@ -24,13 +26,32 @@ import { store } from '../store';
 import { setPluginCommands } from './plugins/actions';
 import { infoSelector } from './selectors';
 import { serverSliceActions } from './slice';
-import { initSubscriptions, subscribeToVoice } from './subscriptions';
+import {
+  initSubscriptions,
+  subscribeToHome,
+  subscribeToVoice
+} from './subscriptions';
 import { type TDisconnectInfo } from './types';
 import { emitAppEvent } from '@/lib/events';
 
 let unsubscribeFromServer: (() => void) | null = null;
+let unsubscribeFromHome: (() => void) | null = null;
 let unsubscribeFromVoice: (() => void) | null = null;
 let currentHandshakeHash: string | null = null;
+
+/**
+ * Generation counter for server joins. Every join (home or federated)
+ * takes a token before its request goes out and applies the response
+ * only if no later join has started since — rapid A→B clicks otherwise
+ * landed on whichever response arrived last, with the other server
+ * highlighted.
+ */
+let joinGeneration = 0;
+
+export const beginServerJoin = () => ++joinGeneration;
+
+export const isCurrentServerJoin = (token: number) =>
+  token === joinGeneration;
 
 export const setConnected = (status: boolean) => {
   store.dispatch(serverSliceActions.setConnected(status));
@@ -72,16 +93,42 @@ export const connect = async () => {
     throw new Error('Failed to fetch server info');
   }
 
+  // What the user was looking at before the socket dropped. A reconnect
+  // rejoins the HOME server first (that is what the home socket serves);
+  // a federated server in focus is re-entered afterwards so the slice,
+  // the routing domain and the subscriptions describe the same instance
+  // again. Left as it was, the slice held home data while every ambient
+  // call still went to the remote with home numeric ids.
+  const { activeInstanceDomain, activeServerId } = state.app;
+
   const host = getHostFromServer();
-  const trpc = await connectToTRPC(host);
+  const trpc = connectToTRPC(host);
 
   const { handshakeHash } = await trpc.others.handshake.query();
 
   currentHandshakeHash = handshakeHash;
 
+  if (activeInstanceDomain) {
+    setActiveInstanceDomain(null);
+  }
+
   // Restore last active server from localStorage
   const savedServerId = getSavedActiveServerId();
   await joinServer(handshakeHash, savedServerId);
+
+  // Home-scoped subscriptions live for the whole home connection: one
+  // set per socket, never per server switch (a re-subscribe round trip
+  // on every switch dropped DM messages, calls and friend events that
+  // arrived in the gap). They must follow the first join: the server
+  // only treats the socket as authenticated once joinServer has run,
+  // and a subscription opened before that is refused as UNAUTHORIZED
+  // and never retried.
+  unsubscribeFromHome?.();
+  unsubscribeFromHome = subscribeToHome();
+
+  if (activeInstanceDomain && activeServerId !== undefined) {
+    await switchToFederatedServer(activeInstanceDomain, activeServerId);
+  }
 };
 
 /**
@@ -121,10 +168,15 @@ export const joinServer = async (
 ) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
+  const join = beginServerJoin();
   const data = await trpc.others.joinServer.query({
     handshakeHash,
     serverId
   });
+
+  // A later join (home or federated) started while this one was in
+  // flight: its response is the one the user asked for, drop this one.
+  if (!isCurrentServerJoin(join)) return;
 
   logDebug('joinServer', data);
 
@@ -200,14 +252,14 @@ export const reinitServerSubscriptions = () => {
 export const getHandshakeHash = () => currentHandshakeHash;
 
 export const disconnectFromServer = () => {
+  // cleanup(true) also wipes every E2EE store (home and per-instance),
+  // so the next user on this browser inherits no keys.
   cleanup(true);
   unsubscribeFromServer?.();
+  unsubscribeFromServer = null;
+  unsubscribeFromHome?.();
+  unsubscribeFromHome = null;
   unsubscribeFromVoice?.();
   unsubscribeFromVoice = null;
   currentHandshakeHash = null;
-
-  // Clear E2EE keys from IndexedDB so the next user doesn't inherit them
-  import('@/lib/e2ee').then(({ signalStore }) =>
-    signalStore.clearAll().catch(() => {})
-  );
 };
