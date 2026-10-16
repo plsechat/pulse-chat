@@ -12,7 +12,7 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const acceptRequestRoute = protectedProcedure
-  .input(z.object({ requestId: z.number() }))
+  .input(z.object({ requestId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     const [request] = await db
       .select()

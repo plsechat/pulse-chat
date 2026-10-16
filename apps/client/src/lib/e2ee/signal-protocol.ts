@@ -1,19 +1,36 @@
-import init, {
-  KeyHelper,
-  SessionBuilder,
-  SessionCipher,
-  SignalProtocolAddress
-} from '@privacyresearch/libsignal-protocol-typescript';
 import { signalStore, type SignalProtocolStore } from './store';
 import type { PreKeyBundle } from './types';
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
-let initialized = false;
+type TLibsignal = typeof import('@privacyresearch/libsignal-protocol-typescript');
 
-async function ensureInitialized(): Promise<void> {
-  if (initialized) return;
-  await init();
-  initialized = true;
+/**
+ * libsignal (with its curve25519 build, ~350 kB) is the one dependency
+ * of this module and every use of it below sits in an async path, so
+ * the library is fetched on first use rather than with the app. This
+ * is the only value import of libsignal in the client — `store.ts`
+ * takes types only — which is what keeps it out of the initial bundle
+ * although `@/lib/e2ee` itself is imported statically all over.
+ *
+ * The promise is cached, not the module, so concurrent first callers
+ * share one load and one `init()`; a failed load is dropped so the next
+ * call retries instead of rejecting forever.
+ */
+let libsignal: Promise<TLibsignal> | null = null;
+
+function loadLibsignal(): Promise<TLibsignal> {
+  if (!libsignal) {
+    libsignal = import('@privacyresearch/libsignal-protocol-typescript')
+      .then(async (mod) => {
+        await mod.default();
+        return mod;
+      })
+      .catch((err) => {
+        libsignal = null;
+        throw err;
+      });
+  }
+  return libsignal;
 }
 
 /**
@@ -24,7 +41,7 @@ export async function generateKeys(
   oneTimePreKeyCount = 100,
   store?: SignalProtocolStore
 ) {
-  await ensureInitialized();
+  const { KeyHelper } = await loadLibsignal();
   const s = store ?? signalStore;
 
   const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
@@ -91,7 +108,7 @@ export async function buildSession(
   bundle: PreKeyBundle,
   store?: SignalProtocolStore
 ): Promise<void> {
-  await ensureInitialized();
+  const { SessionBuilder, SignalProtocolAddress } = await loadLibsignal();
   const s = store ?? signalStore;
 
   const address = new SignalProtocolAddress(String(userId), 1);
@@ -123,6 +140,7 @@ export async function hasSession(
   userId: number,
   store?: SignalProtocolStore
 ): Promise<boolean> {
+  const { SignalProtocolAddress } = await loadLibsignal();
   const s = store ?? signalStore;
   const address = new SignalProtocolAddress(String(userId), 1);
   const session = await s.loadSession(address.toString());
@@ -138,7 +156,7 @@ export async function encryptMessage(
   plaintext: string,
   store?: SignalProtocolStore
 ): Promise<string> {
-  await ensureInitialized();
+  const { SessionCipher, SignalProtocolAddress } = await loadLibsignal();
   const s = store ?? signalStore;
 
   const address = new SignalProtocolAddress(String(userId), 1);
@@ -169,7 +187,7 @@ export async function decryptMessage(
   ciphertextJson: string,
   store?: SignalProtocolStore
 ): Promise<string> {
-  await ensureInitialized();
+  const { SessionCipher, SignalProtocolAddress } = await loadLibsignal();
   const s = store ?? signalStore;
 
   const address = new SignalProtocolAddress(String(userId), 1);
@@ -208,7 +226,7 @@ export async function generateOneTimePreKeys(
   count: number,
   store?: SignalProtocolStore
 ) {
-  await ensureInitialized();
+  const { KeyHelper } = await loadLibsignal();
   const s = store ?? signalStore;
 
   const keys: { keyId: number; publicKey: string }[] = [];
@@ -230,7 +248,7 @@ export async function generateSignedPreKey(
   keyId: number,
   store?: SignalProtocolStore
 ) {
-  await ensureInitialized();
+  const { KeyHelper } = await loadLibsignal();
   const s = store ?? signalStore;
 
   const identityKeyPair = await s.getIdentityKeyPair();

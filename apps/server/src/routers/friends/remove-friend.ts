@@ -12,7 +12,7 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const removeFriendRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     const friends = await areFriends(ctx.userId, input.userId);
 

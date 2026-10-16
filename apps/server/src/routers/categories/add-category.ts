@@ -5,18 +5,15 @@ import { db } from '../../db';
 import { publishCategory } from '../../db/publishers';
 import { categories } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const addCategoryRoute = protectedProcedure
+const addCategoryRoute = serverProcedureFor(Permission.MANAGE_CATEGORIES)
   .input(
     z.object({
-      name: z.string().min(1).max(32),
-      serverId: z.number().int().positive()
+      name: z.string().min(1).max(32)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CATEGORIES, input.serverId);
-
     const [result] = await db
       .select({ maxPos: sql<number>`COALESCE(MAX(${categories.position}), 0)` })
       .from(categories)

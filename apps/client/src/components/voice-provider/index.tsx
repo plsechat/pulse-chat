@@ -14,8 +14,7 @@ import {
   clampScreenResolution,
   StreamKind
 } from '@pulse/shared';
-import { Device } from 'mediasoup-client';
-import type { RtpCapabilities } from 'mediasoup-client/types';
+import type { Device, RtpCapabilities } from 'mediasoup-client/types';
 import {
   createContext,
   memo,
@@ -1138,6 +1137,10 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
 
         routerRtpCapabilities.current = incomingRouterRtpCapabilities;
 
+        // mediasoup-client is only needed once a voice session starts;
+        // the provider itself is mounted for the whole app, so the
+        // library is fetched here, on the first join, not with the app.
+        const { Device } = await import('mediasoup-client');
         const device = new Device();
 
         await device.load({

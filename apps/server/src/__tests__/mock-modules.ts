@@ -40,7 +40,10 @@ mock.module('../config', () => ({
       // the range only matters for tests that flip mode to 'range'.
       worker: {
         mode: 'single-port' as 'single-port' | 'range',
-        port: Number(process.env.TEST_MEDIASOUP_PORT ?? 40000),
+        // Off the production default on purpose: a dev server or the e2e
+        // stack on this machine owns 40000, and every suite would fail at
+        // setup trying to bind it.
+        port: Number(process.env.TEST_MEDIASOUP_PORT ?? 40100),
         rtcMinPort: 40000,
         rtcMaxPort: 40020
       },

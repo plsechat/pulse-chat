@@ -40,8 +40,17 @@ export const addMessages = (
   const state = store.getState();
   const selectedChannelId = selectedChannelIdSelector(state);
   const activeThreadId = activeThreadIdSelector(state);
+  // A window detached from the live tail (jump / paged past the cap)
+  // does not take live messages — see features/message-window.ts.
+  const detached = !!state.server.messageWindowMap[channelId]?.hasNewer;
 
-  store.dispatch(serverSliceActions.addMessages({ channelId, messages, opts }));
+  store.dispatch(
+    serverSliceActions.addMessages({
+      channelId,
+      messages,
+      opts: { ...opts, live: isSubscriptionMessage }
+    })
+  );
 
   messages.forEach((message) => {
     removeTypingUser(channelId, message.userId);
@@ -94,8 +103,10 @@ export const addMessages = (
       );
     }
 
-    if (isViewingChannel && !isFromOwnUser) {
-      // user is viewing this channel - mark messages as read
+    // Viewing the channel marks the message read — unless the window is
+    // detached: the message is not on screen then (it sits beyond the
+    // loaded history) and is only seen after "Jump to Present".
+    if (isViewingChannel && !isFromOwnUser && !detached) {
       const trpc = getTRPCClient();
       if (!trpc) return;
 
@@ -127,6 +138,24 @@ export const bulkDeleteMessages = (
 
 export const purgeChannelMessages = (channelId: number) => {
   store.dispatch(serverSliceActions.purgeChannelMessages({ channelId }));
+};
+
+/** A freshly fetched latest page re-attaches the channel to the tail. */
+export const replaceMessages = (
+  channelId: number,
+  messages: TJoinedMessage[],
+  hasOlder: boolean
+) => {
+  store.dispatch(
+    serverSliceActions.replaceMessages({ channelId, messages, hasOlder })
+  );
+};
+
+export const setMessageWindow = (
+  channelId: number,
+  window: { hasOlder?: boolean; hasNewer?: boolean }
+) => {
+  store.dispatch(serverSliceActions.setMessageWindow({ channelId, ...window }));
 };
 
 export const addTypingUser = (channelId: number, userId: number) => {

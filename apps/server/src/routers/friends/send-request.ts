@@ -14,11 +14,18 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const sendRequestRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     invariant(input.userId !== ctx.userId, {
       code: 'BAD_REQUEST',
       message: 'You cannot send a friend request to yourself'
+    });
+
+    // An unknown id would otherwise surface as a foreign-key error from
+    // the insert; answer like any other missing user.
+    invariant(await getUserById(input.userId), {
+      code: 'NOT_FOUND',
+      message: 'User not found'
     });
 
     const blocked = await isBlockBetween(ctx.userId, input.userId);

@@ -276,7 +276,7 @@ export const loadApp = async () => {
 
   // Initialize Supabase client from server-provided config (supports multi-domain deployment)
   if (info.supabaseUrl && info.supabaseAnonKey) {
-    initSupabase(info.supabaseUrl, info.supabaseAnonKey);
+    await initSupabase(info.supabaseUrl, info.supabaseAnonKey);
   }
 
   // Proactively rotate a local-backend session so a week-old access

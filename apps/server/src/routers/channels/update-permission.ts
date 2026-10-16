@@ -16,18 +16,18 @@ import {
 } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 import { invalidateAllPermissionCaches } from '../../utils/permission-cache-registry';
 
 const allPermissions = Object.values(ChannelPermission);
 
-const updatePermissionsRoute = protectedProcedure
+const updatePermissionsRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(
     z
       .object({
-        channelId: z.number(),
-        userId: z.number().optional(),
-        roleId: z.number().optional(),
+        channelId: z.number().int().positive(),
+        userId: z.number().int().positive().optional(),
+        roleId: z.number().int().positive().optional(),
         isCreate: z.boolean().optional().default(false),
         permissions: z.array(z.enum(ChannelPermission)).default([])
       })
@@ -39,13 +39,6 @@ const updatePermissionsRoute = protectedProcedure
       })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Verify the channel belongs to the caller's active server
     const [channel] = await db
       .select({ id: channels.id })

@@ -74,7 +74,7 @@ import { fullDateTime, groupTimestamp, longDateTime } from '@/helpers/time-forma
 import { format } from 'date-fns';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
-import { Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
+import { ArrowDown, Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import { LocalStorageKey } from '@/helpers/storage';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -105,8 +105,16 @@ const DmConversation = memo(
     profilePanelAvailable,
     onToggleProfilePanel
   }: TDmConversationProps) => {
-  const { messages, loading, fetching, hasMore, loadMore, groupedMessages } =
-    useDmMessages(dmChannelId);
+  const {
+    messages,
+    loading,
+    fetching,
+    hasMore,
+    loadMore,
+    reattach,
+    detached,
+    groupedMessages
+  } = useDmMessages(dmChannelId);
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedDmMessage | null>(null);
   const { containerRef, onScroll, scrollToBottom } = useChatScroll({
@@ -295,7 +303,15 @@ const DmConversation = memo(
     setNewMessage('');
     setReplyingTo(null);
     clearFiles();
-  }, [newMessage, dmChannelId, files, clearFiles, replyingTo, sendTypingSignal, isE2ee, fileKeyMapRef]);
+
+    if (detached) {
+      // Sent from deep in history: the echo lands beyond the detached
+      // window and is not stored there, so rejoin the live tail to
+      // show it.
+      await reattach();
+      requestAnimationFrame(scrollToBottom);
+    }
+  }, [newMessage, dmChannelId, files, clearFiles, replyingTo, sendTypingSignal, isE2ee, fileKeyMapRef, detached, reattach, scrollToBottom]);
 
   const onGifSelect = useCallback(
     async (gifUrl: string) => {
@@ -310,11 +326,15 @@ const DmConversation = memo(
           replyingTo?.id
         );
         setReplyingTo(null);
+        if (detached) {
+          await reattach();
+          requestAnimationFrame(scrollToBottom);
+        }
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [dmChannelId, replyingTo]
+    [dmChannelId, replyingTo, detached, reattach, scrollToBottom]
   );
 
   const onFileInputChange = useCallback(
@@ -419,7 +439,7 @@ const DmConversation = memo(
             const showDateDivider = prevDay !== null && currentDay !== prevDay;
 
             return (
-              <div key={index}>
+              <div key={index} className="message-group-window">
                 {showDateDivider && (
                   <DateDivider timestamp={group[0].createdAt} />
                 )}
@@ -431,6 +451,24 @@ const DmConversation = memo(
               </div>
             );
           })}
+          {detached && (
+            // The loaded window is mid-history (paged up past the
+            // 300-message cap). The DM route has no forward paging, so
+            // the way back to the present is to refetch the latest page.
+            <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
+              <button
+                type="button"
+                onClick={async () => {
+                  await reattach();
+                  requestAnimationFrame(scrollToBottom);
+                }}
+                className="pointer-events-auto flex items-center gap-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-full px-4 py-2 shadow-lg text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ArrowDown className="h-4 w-4" />
+                Jump to Present
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

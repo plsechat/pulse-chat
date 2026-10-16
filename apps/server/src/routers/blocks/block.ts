@@ -1,3 +1,4 @@
+import { getUserById } from '../../db/queries/users';
 import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -18,11 +19,18 @@ import { protectedProcedure } from '../../utils/trpc';
  * the user_blocks edges.
  */
 const blockRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     invariant(input.userId !== ctx.userId, {
       code: 'BAD_REQUEST',
       message: 'You cannot block yourself'
+    });
+
+    // An unknown id would otherwise surface as a foreign-key error from
+    // the insert; answer like any other missing user.
+    invariant(await getUserById(input.userId), {
+      code: 'NOT_FOUND',
+      message: 'User not found'
     });
 
     await addBlock(ctx.userId, input.userId);

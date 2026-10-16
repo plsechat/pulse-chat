@@ -8,12 +8,11 @@ import { getServerById, getServerMemberIds } from '../../db/queries/servers';
 import { servers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { fileManager } from '../../utils/file-manager';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const changeLogoRoute = protectedProcedure
+const changeLogoRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
   .input(
     z.object({
-      serverId: z.number().int().positive(),
       fileId: z.string().max(64).optional()
     })
   )
@@ -24,8 +23,6 @@ const changeLogoRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Server not found'
     });
-
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
 
     if (server.logoId) {
       await removeFile(server.logoId);

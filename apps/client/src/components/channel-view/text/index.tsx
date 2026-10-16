@@ -355,6 +355,14 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     setReplyingTo(null);
     clearFiles();
     startSlowModeCooldown();
+
+    if (detached) {
+      // Sent from deep in history: the echo lands beyond the detached
+      // window and is not stored there, so rejoin the live tail to
+      // show it.
+      await reattach();
+      requestAnimationFrame(scrollToBottom);
+    }
   }, [
     newMessage,
     channelId,
@@ -366,7 +374,10 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     startSlowModeCooldown,
     isE2ee,
     ownUserId,
-    fileKeyMapRef
+    fileKeyMapRef,
+    detached,
+    reattach,
+    scrollToBottom
   ]);
 
   const onFileInputChange = useCallback(
@@ -409,11 +420,15 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         }
         playSound(SoundType.MESSAGE_SENT);
         setReplyingTo(null);
+        if (detached) {
+          await reattach();
+          requestAnimationFrame(scrollToBottom);
+        }
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to send GIF'));
       }
     },
-    [channelId, isE2ee, ownUserId, replyingTo]
+    [channelId, isE2ee, ownUserId, replyingTo, detached, reattach, scrollToBottom]
   );
 
   const onRemoveFileClick = useCallback(
@@ -471,7 +486,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           const showDateDivider = prevDay !== null && currentDay !== prevDay;
 
           return (
-            <div key={index}>
+            <div key={index} className="message-group-window">
               {showDateDivider && <DateDivider timestamp={group[0].createdAt} />}
               {showDivider && <NewMessagesDivider />}
               {group[0].type === 'system' ? (

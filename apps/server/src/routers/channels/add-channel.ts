@@ -8,20 +8,17 @@ import { categories, channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const addChannelRoute = protectedProcedure
+const addChannelRoute = serverProcedureFor(Permission.MANAGE_CHANNELS)
   .input(
     z.object({
       type: z.enum(ChannelType),
       name: z.string().min(1).max(24),
-      categoryId: z.number().int().positive(),
-      serverId: z.number().int().positive()
+      categoryId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS, input.serverId);
-
     // Verify the category belongs to the specified server
     const [category] = await db
       .select({ id: categories.id })

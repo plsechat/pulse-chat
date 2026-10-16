@@ -1,13 +1,7 @@
 import { getPublicUsersForServer } from '../../db/queries/users';
-import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getServerMembersRoute = protectedProcedure.query(async ({ ctx }) => {
-  invariant(ctx.activeServerId, {
-    code: 'BAD_REQUEST',
-    message: 'No active server'
-  });
-
+const getServerMembersRoute = serverProcedure().query(async ({ ctx }) => {
   const publicUsers = await getPublicUsersForServer(ctx.activeServerId);
 
   return publicUsers.map((u) => ({

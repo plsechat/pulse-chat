@@ -662,6 +662,15 @@ body,
   animation: msg-highlight 2.4s ease-in-out forwards;
 }
 
+/* Message groups off-screen skip layout and paint until scrolled near;
+   the intrinsic size stands in for a group that has not rendered yet
+   and `auto` keeps the real size once it has, so scroll metrics stay
+   stable while reading back through a full 300-message window. */
+.message-group-window {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
 /* nameplates — decorative member-row backgrounds. Animated presets get
    an oversized background that drifts slowly sideways; the motion is
    deliberately glacial (a mood, not a spinner) and fully disabled under

@@ -3,12 +3,16 @@ import { getVoiceTRPCClient } from '@/lib/trpc';
 import type { TRemoteUserStreamKinds } from '@/types';
 import { getMediasoupKind, StreamKind } from '@pulse/shared';
 import { TRPCClientError } from '@trpc/client';
-import {
-  type AppData,
-  type Consumer,
-  type Device,
-  type RtpCapabilities,
-  type Transport
+// `import type` (not inline `type` members): under verbatimModuleSyntax
+// an inline-type import survives as a bare side-effect import, which
+// would keep mediasoup-client in the initial bundle although the
+// provider only fetches it on the first voice join.
+import type {
+  AppData,
+  Consumer,
+  Device,
+  RtpCapabilities,
+  Transport
 } from 'mediasoup-client/types';
 import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';

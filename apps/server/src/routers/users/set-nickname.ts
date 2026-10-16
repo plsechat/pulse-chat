@@ -6,10 +6,10 @@ import { getServerMemberIds } from '../../db/queries/servers';
 import { getPublicUserById } from '../../db/queries/users';
 import { serverMembers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 import { enqueueActivityLog } from '../../queues/activity-log';
 
-const setNicknameRoute = protectedProcedure
+const setNicknameRoute = serverProcedure()
   .input(
     z.object({
       nickname: z
@@ -21,11 +21,6 @@ const setNicknameRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const updated = await db
       .update(serverMembers)
       .set({ nickname: input.nickname })
@@ -59,7 +54,7 @@ const setNicknameRoute = protectedProcedure
     }
   });
 
-const setUserNicknameRoute = protectedProcedure
+const setUserNicknameRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
       userId: z.number().int().positive(),
@@ -72,13 +67,6 @@ const setUserNicknameRoute = protectedProcedure
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_USERS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // A non-member updates 0 rows; refuse instead of publishing a
     // nickname for someone who is not in the server.
     const updated = await db

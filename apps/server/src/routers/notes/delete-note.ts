@@ -8,7 +8,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const deleteNoteRoute = protectedProcedure
   .input(
     z.object({
-      noteId: z.number()
+      noteId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {

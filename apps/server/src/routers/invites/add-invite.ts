@@ -10,12 +10,11 @@ import { getServerMemberIds } from '../../db/queries/servers';
 import { invites } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const addInviteRoute = protectedProcedure
+const addInviteRoute = serverProcedureFor(Permission.MANAGE_INVITES)
   .input(
     z.object({
-      serverId: z.number().int().positive(),
       maxUses: z.number().int().min(0).max(100).optional().default(0),
       // 0 / null / absent all mean "never expires" (the client sends 0).
       expiresAt: z
@@ -30,8 +29,6 @@ const addInviteRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_INVITES, input.serverId);
-
     if (input.expiresAt && input.expiresAt <= Date.now()) {
       ctx.throwValidationError('expiresAt', 'Expiry must be in the future');
     }

@@ -12,16 +12,16 @@ import {
 } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 import { invalidateAllPermissionCaches } from '../../utils/permission-cache-registry';
 
-const deletePermissionsRoute = protectedProcedure
+const deletePermissionsRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(
     z
       .object({
-        channelId: z.number(),
-        userId: z.number().optional(),
-        roleId: z.number().optional()
+        channelId: z.number().int().positive(),
+        userId: z.number().int().positive().optional(),
+        roleId: z.number().int().positive().optional()
       })
       .refine((data) => !!(data.userId || data.roleId), {
         message: 'Either userId or roleId must be provided'
@@ -31,13 +31,6 @@ const deletePermissionsRoute = protectedProcedure
       })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Verify the channel belongs to the caller's active server
     const [ch] = await db
       .select({ id: channels.id })

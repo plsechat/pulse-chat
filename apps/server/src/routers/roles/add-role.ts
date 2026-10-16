@@ -1,23 +1,15 @@
 import { ActivityLogType, Permission } from '@pulse/shared';
 import { and, eq, gt, gte, max, sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { publishRole } from '../../db/publishers';
 import { roles } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 import { getRoleCeiling } from './_hierarchy';
 
-const addRoleRoute = protectedProcedure
-  .input(
-    z.object({
-      serverId: z.number().int().positive()
-    })
-  )
-  .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_ROLES, input.serverId);
-
+const addRoleRoute = serverProcedureFor(Permission.MANAGE_ROLES).mutation(
+  async ({ input, ctx }) => {
     const ceiling = await getRoleCeiling(ctx.userId, input.serverId);
 
     // The new role lands directly below the caller's highest role: the
@@ -101,6 +93,7 @@ const addRoleRoute = protectedProcedure
     });
 
     return role.id;
-  });
+  }
+);
 
 export { addRoleRoute };

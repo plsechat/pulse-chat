@@ -7,7 +7,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const getNotesRoute = protectedProcedure
   .input(
     z.object({
-      targetUserId: z.number()
+      targetUserId: z.number().int().positive()
     })
   )
   .query(async ({ ctx, input }) => {

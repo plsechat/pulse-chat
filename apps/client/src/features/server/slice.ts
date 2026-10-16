@@ -20,6 +20,13 @@ import type {
   TVoiceMap,
   TVoiceUserState
 } from '@pulse/shared';
+import {
+  mergeMessageWindow,
+  replaceMessageWindow,
+  windowOrDefault,
+  type TMergeMessagesOpts,
+  type TMessageWindowMap
+} from '../message-window';
 import type {
   TDisconnectInfo,
   TMessagesMap,
@@ -82,6 +89,10 @@ export interface IServerState {
   // talking to the server it was joined on.
   voiceInstanceDomain: string | undefined;
   messagesMap: TMessagesMap;
+  // What lies beyond each edge of the loaded window per channel — see
+  // features/message-window.ts. Lives beside messagesMap and is reset
+  // wherever messagesMap is.
+  messageWindowMap: TMessageWindowMap;
   users: TJoinedPublicUser[];
   roles: TJoinedRole[];
   publicSettings: TPublicServerSettings | undefined;
@@ -142,6 +153,7 @@ const initialState: IServerState = {
   currentVoiceServerPublicId: undefined,
   voiceInstanceDomain: undefined,
   messagesMap: {},
+  messageWindowMap: {},
   users: [],
   roles: [],
   publicSettings: undefined,
@@ -307,6 +319,7 @@ export const serverSlice = createSlice({
       state.emojisLoaded = false;
       // Clear transient state from previous server
       state.messagesMap = {};
+      state.messageWindowMap = {};
       state.typingMap = {};
       state.activeThreadId = undefined;
 
@@ -347,27 +360,59 @@ export const serverSlice = createSlice({
       action: PayloadAction<{
         channelId: number;
         messages: TJoinedMessage[];
-        opts?: { prepend?: boolean };
+        opts?: TMergeMessagesOpts;
       }>
     ) => {
       const { channelId, messages, opts } = action.payload;
-      const existing = state.messagesMap[channelId] ?? [];
-
-      // dedupe: only add new IDs
-      const existingIds = new Set(existing.map((m) => m.id));
-      const filtered = messages.filter((m) => !existingIds.has(m.id));
-
-      let merged: TJoinedMessage[];
-      if (opts?.prepend) {
-        merged = [...filtered, ...existing];
-      } else {
-        merged = [...existing, ...filtered];
-      }
-
-      // store in chronological asc order (oldest → newest)
-      state.messagesMap[channelId] = merged.sort(
-        (a, b) => a.createdAt - b.createdAt
+      // Dedupe, chronological order and the 300-message cap live in
+      // mergeMessageWindow; the window flags it returns say which edge
+      // was trimmed.
+      const result = mergeMessageWindow(
+        state.messagesMap[channelId] ?? [],
+        messages,
+        opts ?? {},
+        state.messageWindowMap[channelId]
       );
+      state.messagesMap[channelId] = result.messages;
+      state.messageWindowMap[channelId] = result.window;
+    },
+    /**
+     * A freshly fetched LATEST page: re-attaches the channel to the live
+     * tail (initial load, "Jump to Present"). See replaceMessageWindow
+     * for what of the existing array survives.
+     */
+    replaceMessages: (
+      state,
+      action: PayloadAction<{
+        channelId: number;
+        messages: TJoinedMessage[];
+        hasOlder: boolean;
+      }>
+    ) => {
+      const { channelId, messages, hasOlder } = action.payload;
+      const result = replaceMessageWindow(
+        state.messagesMap[channelId] ?? [],
+        messages,
+        hasOlder
+      );
+      state.messagesMap[channelId] = result.messages;
+      state.messageWindowMap[channelId] = result.window;
+    },
+    /** Partial update of a channel's window flags (from a page result). */
+    setMessageWindow: (
+      state,
+      action: PayloadAction<{
+        channelId: number;
+        hasOlder?: boolean;
+        hasNewer?: boolean;
+      }>
+    ) => {
+      const { channelId, hasOlder, hasNewer } = action.payload;
+      const current = windowOrDefault(state.messageWindowMap[channelId]);
+      state.messageWindowMap[channelId] = {
+        hasOlder: hasOlder ?? current.hasOlder,
+        hasNewer: hasNewer ?? current.hasNewer
+      };
     },
     updateMessage: (
       state,
@@ -415,9 +460,11 @@ export const serverSlice = createSlice({
       action: PayloadAction<{ channelId: number }>
     ) => {
       state.messagesMap[action.payload.channelId] = [];
+      delete state.messageWindowMap[action.payload.channelId];
     },
     clearAllMessages: (state) => {
       state.messagesMap = {};
+      state.messageWindowMap = {};
     },
     clearTypingUsers: (state, action: PayloadAction<number>) => {
       delete state.typingMap[action.payload];

@@ -308,3 +308,96 @@ describe('useChatScroll restore', () => {
     }
   });
 });
+
+// --- load-more compensation --------------------------------------------
+
+/**
+ * Prepending older rows must keep the row under the viewport where it
+ * is. With the 300-message window, the same prepend can trim rows off
+ * the BOTTOM, so a scrollHeight delta is not the amount the content
+ * above moved; the hook anchors on the oldest row instead. happy-dom
+ * has no layout, so each row's rect is derived from a layout table the
+ * fake loadMore rewrites.
+ */
+describe('useChatScroll load-more compensation', () => {
+  test('anchors on the oldest row, not on the scrollHeight delta', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    // Row top within the content, by row id.
+    const layout: Record<string, number> = { 'msg-10': 0, 'msg-11': 100 };
+    let scrollHeight = 200;
+    let container: HTMLDivElement | null = null;
+    let latest: HookApi | null = null;
+
+    const rectFor = (el: HTMLElement) => {
+      const top = (layout[el.id] ?? 0) - (container?.scrollTop ?? 0);
+      return { top, bottom: top + 100, left: 0, right: 0, width: 0, height: 100, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+    };
+
+    const loadMore = async () => {
+      // One older row lands above; the cap trims the newest off the
+      // bottom: scrollHeight is unchanged although the content above
+      // the anchor grew by 100.
+      const older = document.createElement('div');
+      older.id = 'msg-9';
+      older.getBoundingClientRect = () => rectFor(older);
+      container!.prepend(older);
+      container!.querySelector('#msg-11')?.remove();
+      Object.assign(layout, { 'msg-9': 0, 'msg-10': 100 });
+      delete layout['msg-11'];
+      scrollHeight = 200;
+    };
+
+    const Harness = () => {
+      latest = useChatScroll({
+        posKey: POS,
+        storageKey: KEY,
+        messages: [10, 11],
+        fetching: false,
+        hasMore: true,
+        loadMore
+      });
+      return createElement('div', {
+        ref: (el: HTMLDivElement | null) => {
+          if (el && el !== container) {
+            Object.defineProperty(el, 'scrollHeight', { get: () => scrollHeight, configurable: true });
+            Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true });
+            el.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 0, width: 0, height: 100, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+            for (const id of ['msg-10', 'msg-11']) {
+              const row = document.createElement('div');
+              row.id = id;
+              row.getBoundingClientRect = () => rectFor(row);
+              el.appendChild(row);
+            }
+            container = el;
+          }
+          latest!.containerRef.current = el;
+        }
+      });
+    };
+
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(createElement(Harness));
+      });
+      await act(async () => {
+        await sleep(260);
+      });
+
+      // Near the top, slightly scrolled: msg-10 is the row in view.
+      container!.scrollTop = 20;
+      await act(async () => {
+        latest!.onScroll();
+        await sleep(0);
+      });
+
+      // The old scrollHeight formula would have left scrollTop at 20
+      // (no height delta) and jumped the reader up by one row.
+      expect(container!.scrollTop).toBe(120);
+      expect(container!.querySelector('#msg-9')).not.toBeNull();
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+});

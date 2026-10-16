@@ -1,27 +1,43 @@
 import { useModViewOpen } from '@/features/app/hooks';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useServerScreenInfo } from '@/features/server-screens/hooks';
+import { LazyFallback } from '@/components/lazy-fallback';
 import { useEscapeKey } from '@/hooks/use-escape-key';
 import { X } from 'lucide-react';
-import { createElement, memo, type ComponentType, type JSX } from 'react';
+import {
+  createElement,
+  lazy,
+  memo,
+  Suspense,
+  type ComponentType,
+  type JSX
+} from 'react';
 import { createPortal } from 'react-dom';
-import { CategorySettings } from './category-settings';
-import { ChannelSettings } from './channel-settings';
 import {
   ServerScreen,
   type TServerScreenBaseProps,
   type TServerScreenPropsMap
 } from './screens';
-import { ServerSettings } from './server-settings';
-import { UserSettings } from './user-settings';
 
+// The settings screens are the largest app code outside the chat
+// surface and none of them is needed to reach the first message, so
+// each loads on first open. The map keeps its static shape so the
+// opener-side typing below still holds per screen.
 const ScreensMap: {
   [K in ServerScreen]: ComponentType<TServerScreenPropsMap[K]>;
 } = {
-  [ServerScreen.SERVER_SETTINGS]: ServerSettings,
-  [ServerScreen.CHANNEL_SETTINGS]: ChannelSettings,
-  [ServerScreen.USER_SETTINGS]: UserSettings,
-  [ServerScreen.CATEGORY_SETTINGS]: CategorySettings
+  [ServerScreen.SERVER_SETTINGS]: lazy(() =>
+    import('./server-settings').then((m) => ({ default: m.ServerSettings }))
+  ),
+  [ServerScreen.CHANNEL_SETTINGS]: lazy(() =>
+    import('./channel-settings').then((m) => ({ default: m.ChannelSettings }))
+  ),
+  [ServerScreen.USER_SETTINGS]: lazy(() =>
+    import('./user-settings').then((m) => ({ default: m.UserSettings }))
+  ),
+  [ServerScreen.CATEGORY_SETTINGS]: lazy(() =>
+    import('./category-settings').then((m) => ({ default: m.CategorySettings }))
+  )
 };
 
 /**
@@ -66,7 +82,7 @@ const ComponentWrapper = ({ children }: TComponentWrapperProps) => {
         >
           <X className="h-5 w-5" />
         </button>
-        {children}
+        <Suspense fallback={<LazyFallback />}>{children}</Suspense>
       </div>
     </>
   );

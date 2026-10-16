@@ -12,10 +12,16 @@ import { PersistentAudioStreams } from '@/components/voice-provider/persistent-a
 import { useAutoAway } from '@/hooks/use-auto-away';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTabNotifications } from '@/hooks/use-tab-notifications';
-import { memo } from 'react';
-import { DiscoverView } from '../discover-view';
+import { LazyFallback } from '@/components/lazy-fallback';
+import { lazy, memo, Suspense } from 'react';
 import { HomeView } from '../home-view';
 import { ServerView } from '../server-view';
+
+// Discover is a destination the user navigates to, never the first
+// screen, so its chunk waits until then.
+const DiscoverView = lazy(() =>
+  import('../discover-view').then((m) => ({ default: m.DiscoverView }))
+);
 
 const MainViewInner = memo(() => {
   const activeView = useActiveView();
@@ -29,7 +35,11 @@ const MainViewInner = memo(() => {
       case 'home':
         return <HomeView />;
       case 'discover':
-        return <DiscoverView />;
+        return (
+          <Suspense fallback={<LazyFallback />}>
+            <DiscoverView />
+          </Suspense>
+        );
       case 'server':
         return <ServerView />;
     }

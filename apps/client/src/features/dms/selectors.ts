@@ -12,6 +12,11 @@ export const dmMessagesSelector = (
   dmChannelId: number
 ) => state.dms.messagesMap[dmChannelId] || DEFAULT_ARRAY;
 
+export const dmMessageWindowSelector = (
+  state: IRootState,
+  dmChannelId: number
+) => state.dms.messageWindowMap[dmChannelId];
+
 
 export const dmActiveCallsSelector = (state: IRootState) =>
   state.dms.activeCalls;

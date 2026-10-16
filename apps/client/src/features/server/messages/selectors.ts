@@ -8,3 +8,8 @@ export const messagesByChannelIdSelector = (
   state: IRootState,
   channelId: number
 ) => state.server.messagesMap[channelId] || DEFAULT_ARRAY;
+
+export const messageWindowByChannelIdSelector = (
+  state: IRootState,
+  channelId: number
+) => state.server.messageWindowMap[channelId];

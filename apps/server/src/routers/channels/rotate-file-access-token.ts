@@ -6,22 +6,15 @@ import { db } from '../../db';
 import { channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const rotateFileAccessTokenRoute = protectedProcedure
+const rotateFileAccessTokenRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(
     z.object({
-      channelId: z.number()
+      channelId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [channel] = await db
       .select()
       .from(channels)

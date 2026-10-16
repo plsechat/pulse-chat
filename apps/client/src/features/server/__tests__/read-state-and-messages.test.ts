@@ -87,3 +87,89 @@ describe('addMessages', () => {
     expect(s.messagesMap[1].map((m) => m.id)).toEqual([1, 2, 3]);
   });
 });
+
+// --- the 300-message window (features/message-window.ts, D33) ---------
+
+const page = (from: number, to: number) =>
+  Array.from({ length: to - from + 1 }, (_, i) => msg(from + i));
+
+describe('message window cap', () => {
+  test('after N > 300 appends the array holds 300 and the newest is kept', () => {
+    let s = initial;
+    for (let id = 1; id <= 320; id++) {
+      s = reducer(
+        s,
+        serverSliceActions.addMessages({ channelId: 1, messages: [msg(id)], opts: { live: true } })
+      );
+    }
+    expect(s.messagesMap[1]).toHaveLength(300);
+    expect(s.messagesMap[1][0].id).toBe(21);
+    expect(s.messagesMap[1][299].id).toBe(320);
+    expect(s.messageWindowMap[1]).toEqual({ hasOlder: true, hasNewer: false });
+  });
+
+  test('prepending past the cap drops the newest and sets hasNewer', () => {
+    let s = reducer(
+      initial,
+      serverSliceActions.replaceMessages({ channelId: 1, messages: page(201, 500), hasOlder: true })
+    );
+    s = reducer(
+      s,
+      serverSliceActions.addMessages({
+        channelId: 1,
+        messages: page(151, 200),
+        opts: { prepend: true }
+      })
+    );
+    expect(s.messagesMap[1]).toHaveLength(300);
+    expect(s.messagesMap[1][0].id).toBe(151);
+    expect(s.messagesMap[1][299].id).toBe(450);
+    expect(s.messageWindowMap[1]).toEqual({ hasOlder: true, hasNewer: true });
+  });
+
+  test('a live message does not grow a detached window', () => {
+    let s = reducer(
+      initial,
+      serverSliceActions.addMessages({ channelId: 1, messages: page(1, 5) })
+    );
+    s = reducer(s, serverSliceActions.setMessageWindow({ channelId: 1, hasNewer: true }));
+    s = reducer(
+      s,
+      serverSliceActions.addMessages({ channelId: 1, messages: [msg(900)], opts: { live: true } })
+    );
+    expect(s.messagesMap[1].map((m) => m.id)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('paging newer to the tail re-attaches; the latest page replaces a detached window', () => {
+    let s = reducer(
+      initial,
+      serverSliceActions.addMessages({ channelId: 1, messages: page(1, 50) })
+    );
+    s = reducer(s, serverSliceActions.setMessageWindow({ channelId: 1, hasNewer: true }));
+    // loadNewer: a page toward the present, then the server says the
+    // window reached the tail (afterCursor null).
+    s = reducer(s, serverSliceActions.addMessages({ channelId: 1, messages: page(51, 100) }));
+    s = reducer(s, serverSliceActions.setMessageWindow({ channelId: 1, hasNewer: false }));
+    expect(s.messagesMap[1]).toHaveLength(100);
+    expect(s.messageWindowMap[1]).toEqual({ hasOlder: true, hasNewer: false });
+
+    // Jump to Present from a detached window: the latest page wins.
+    s = reducer(s, serverSliceActions.setMessageWindow({ channelId: 1, hasNewer: true }));
+    s = reducer(
+      s,
+      serverSliceActions.replaceMessages({ channelId: 1, messages: page(951, 1000), hasOlder: true })
+    );
+    expect(s.messagesMap[1].map((m) => m.id)).toEqual(page(951, 1000).map((m) => m.id));
+    expect(s.messageWindowMap[1]).toEqual({ hasOlder: true, hasNewer: false });
+  });
+
+  test('purge, clearAllMessages and setInitialData drop the window flags too', () => {
+    let s = reducer(
+      initial,
+      serverSliceActions.addMessages({ channelId: 1, messages: page(1, 5) })
+    );
+    s = reducer(s, serverSliceActions.setMessageWindow({ channelId: 1, hasNewer: true }));
+    expect(reducer(s, serverSliceActions.purgeChannelMessages({ channelId: 1 })).messageWindowMap[1]).toBeUndefined();
+    expect(reducer(s, serverSliceActions.clearAllMessages()).messageWindowMap).toEqual({});
+  });
+});

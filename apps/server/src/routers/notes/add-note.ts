@@ -1,3 +1,5 @@
+import { invariant } from '../../utils/invariant';
+import { getUserById } from '../../db/queries/users';
 import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -7,11 +9,18 @@ import { protectedProcedure } from '../../utils/trpc';
 const addNoteRoute = protectedProcedure
   .input(
     z.object({
-      targetUserId: z.number(),
+      targetUserId: z.number().int().positive(),
       content: z.string().min(1).max(2000)
     })
   )
   .mutation(async ({ ctx, input }) => {
+    // An unknown id would otherwise surface as a foreign-key error from
+    // the insert; answer like any other missing user.
+    invariant(await getUserById(input.targetUserId), {
+      code: 'NOT_FOUND',
+      message: 'User not found'
+    });
+
     const [note] = await db
       .insert(userNotes)
       .values({

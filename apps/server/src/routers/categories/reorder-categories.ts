@@ -6,22 +6,15 @@ import { publishCategory } from '../../db/publishers';
 import { categories } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const reorderCategoriesRoute = protectedProcedure
+const reorderCategoriesRoute = serverProcedure(Permission.MANAGE_CATEGORIES)
   .input(
     z.object({
       categoryIds: z.array(z.number().int().positive()).max(200)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     invariant(new Set(input.categoryIds).size === input.categoryIds.length, {
       code: 'BAD_REQUEST',
       message: 'categoryIds contains duplicates'

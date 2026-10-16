@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { channels, messageFiles, messages } from '../../db/schema';
+import { messageFiles, messages } from '../../db/schema';
 import { getInvokerCtxFromTrpcCtx } from '../../helpers/get-invoker-ctx-from-trpc-ctx';
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
 import { parseCommandArgs } from '../../helpers/parse-command-args';
@@ -29,7 +29,7 @@ import {
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
-import { serverProcedure } from '../../utils/procedures';
+import { channelProcedure } from '../../utils/procedures';
 import { resolveForwardSource } from '../../utils/forward-source';
 
 /**
@@ -39,10 +39,15 @@ import { resolveForwardSource } from '../../utils/forward-source';
 const MAX_FILES_PER_MESSAGE = 10;
 const MAX_TEMP_FILE_ID_LENGTH = 64;
 
-const sendMessageRoute = serverProcedure()
+// Preview 'permit': a preview session holds no SEND_MESSAGES anywhere,
+// so the channel permission refuses it like any other outsider. Both
+// the channel-level and the server-level SEND_MESSAGES are required.
+const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
+  preview: 'permit',
+  serverPermission: Permission.SEND_MESSAGES
+})
   .input(
     z.object({
-      channelId: z.number().int().positive(),
       content: z
         .string()
         .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
@@ -67,33 +72,7 @@ const sendMessageRoute = serverProcedure()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    // Permission checks first: previewers and private-channel outsiders
-    // are refused as FORBIDDEN (the channel check already denies
-    // cross-server ids). The scoped load below is the row the handler
-    // works from; it reads as NOT_FOUND only for ids the check let past.
-    await Promise.all([
-      ctx.needsPermission(Permission.SEND_MESSAGES),
-      ctx.needsChannelPermission(
-        input.channelId,
-        ChannelPermission.SEND_MESSAGES
-      )
-    ]);
-
-    const [channel] = await db
-      .select()
-      .from(channels)
-      .where(
-        and(
-          eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId)
-        )
-      )
-      .limit(1);
-
-    invariant(channel, {
-      code: 'NOT_FOUND',
-      message: 'Channel not found'
-    });
+    const { channel } = ctx;
 
     // An automod timeout locks the member out of sending in this server
     // until the deadline (MANAGE_USERS bypasses).
@@ -219,7 +198,7 @@ const sendMessageRoute = serverProcedure()
       }
 
       const enablePlugins = await pluginManager.commandsEnabledForServer(
-        ctx.activeServerId
+        channel.serverId
       );
 
       if (enablePlugins) {

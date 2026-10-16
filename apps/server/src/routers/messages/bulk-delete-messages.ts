@@ -7,18 +7,16 @@ import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { channels, messageFiles, messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
 
-const bulkDeleteMessagesRoute = protectedProcedure
+const bulkDeleteMessagesRoute = serverProcedure(Permission.MANAGE_MESSAGES)
   .input(
     z.object({
       messageIds: z.array(z.number().int().positive()).min(1).max(100)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_MESSAGES);
-
     // Join channels so we only return messages in the caller's active server.
     // Without this filter, MANAGE_MESSAGES in server A could bulk-delete from
     // any channel in server B.
@@ -29,7 +27,7 @@ const bulkDeleteMessagesRoute = protectedProcedure
       .where(
         and(
           inArray(messages.id, input.messageIds),
-          eq(channels.serverId, ctx.activeServerId!)
+          eq(channels.serverId, ctx.activeServerId)
         )
       );
 

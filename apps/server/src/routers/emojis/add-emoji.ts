@@ -6,12 +6,11 @@ import { getUniqueEmojiName } from '../../db/queries/emojis';
 import { emojis } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { fileManager } from '../../utils/file-manager';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const addEmojiRoute = protectedProcedure
+const addEmojiRoute = serverProcedureFor(Permission.MANAGE_EMOJIS)
   .input(
     z.object({
-      serverId: z.number().int().positive(),
       emojis: z
         .array(
           z.object({
@@ -24,8 +23,6 @@ const addEmojiRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_EMOJIS, input.serverId);
-
     for (const data of input.emojis) {
       const newFile = await fileManager.saveFile(data.fileId, ctx.userId);
       const uniqueEmojiName = await getUniqueEmojiName(data.name);

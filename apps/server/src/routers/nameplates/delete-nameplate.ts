@@ -6,22 +6,15 @@ import { removeFile } from '../../db/mutations/files';
 import { publishUser } from '../../db/publishers';
 import { nameplates, users } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteNameplateRoute = protectedProcedure
+const deleteNameplateRoute = serverProcedure(Permission.MANAGE_EMOJIS)
   .input(
     z.object({
       id: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_EMOJIS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [removedNameplate] = await db
       .delete(nameplates)
       .where(

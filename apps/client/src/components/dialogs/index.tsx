@@ -1,30 +1,37 @@
 import { closeDialogs } from '@/features/dialogs/actions';
 import { useDialogInfo } from '@/features/dialogs/hooks';
-import { createElement, memo, type ComponentType } from 'react';
+import { createElement, lazy, memo, Suspense, type ComponentType } from 'react';
 import { AssignRoleDialog } from './assign-role';
 import ConfirmActionDialog from './confirm-action';
 import { CreateCategoryDialog } from './create-category';
 import { CreateChannelDialog } from './create-channel';
-import { CreateInviteDialog } from './create-invite-dialog';
 import { CreateServerDialog } from './create-server';
 import { Dialog } from './dialogs';
 import IdentityChangedDialog from './identity-changed';
-import { PluginCommandsDialog } from './plugin-commands';
-import { PluginLogsDialog } from './plugin-logs';
-import { PluginSettingsDialog } from './plugin-settings';
 import { TextInputDialog } from './text-input';
 import type { TDialogBaseProps, TDialogPropsMap } from './types';
 
+// The plugin dialogs are admin-only surfaces with their own form and
+// log machinery, and the invite dialog carries the date picker; none
+// is part of the first paint, so each loads on first open.
 const DialogsMap: { [K in Dialog]: ComponentType<TDialogPropsMap[K]> } = {
   [Dialog.CONFIRM_ACTION]: ConfirmActionDialog,
   [Dialog.CREATE_CHANNEL]: CreateChannelDialog,
   [Dialog.TEXT_INPUT]: TextInputDialog,
   [Dialog.ASSIGN_ROLE]: AssignRoleDialog,
-  [Dialog.CREATE_INVITE]: CreateInviteDialog,
+  [Dialog.CREATE_INVITE]: lazy(() =>
+    import('./create-invite-dialog').then((m) => ({ default: m.CreateInviteDialog }))
+  ),
   [Dialog.CREATE_CATEGORY]: CreateCategoryDialog,
-  [Dialog.PLUGIN_LOGS]: PluginLogsDialog,
-  [Dialog.PLUGIN_COMMANDS]: PluginCommandsDialog,
-  [Dialog.PLUGIN_SETTINGS]: PluginSettingsDialog,
+  [Dialog.PLUGIN_LOGS]: lazy(() =>
+    import('./plugin-logs').then((m) => ({ default: m.PluginLogsDialog }))
+  ),
+  [Dialog.PLUGIN_COMMANDS]: lazy(() =>
+    import('./plugin-commands').then((m) => ({ default: m.PluginCommandsDialog }))
+  ),
+  [Dialog.PLUGIN_SETTINGS]: lazy(() =>
+    import('./plugin-settings').then((m) => ({ default: m.PluginSettingsDialog }))
+  ),
   [Dialog.CREATE_SERVER]: CreateServerDialog,
   [Dialog.IDENTITY_CHANGED]: IdentityChangedDialog
 };
@@ -49,11 +56,18 @@ const DialogsProvider = memo(() => {
 
   const realIsOpen = isOpen && !closing;
 
-  return renderDialog(openDialog, {
-    ...props,
-    isOpen: realIsOpen,
-    close: closeDialogs
-  });
+  // A lazy dialog's chunk resolves before anything is on screen; the
+  // dialog simply opens a beat later, so there is nothing to show
+  // meanwhile.
+  return (
+    <Suspense fallback={null}>
+      {renderDialog(openDialog, {
+        ...props,
+        isOpen: realIsOpen,
+        close: closeDialogs
+      })}
+    </Suspense>
+  );
 });
 
 export { DialogsProvider };

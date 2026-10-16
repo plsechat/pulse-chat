@@ -1,6 +1,6 @@
 import { getUrlFromServer } from '@/helpers/get-file-url';
 import { isTokenExpiringWithin } from '@/lib/token-expiry';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 let supabase: SupabaseClient | undefined;
 
@@ -11,8 +11,17 @@ let supabase: SupabaseClient | undefined;
  * would otherwise keep that client and silently ignore the server's, and
  * against an AUTH_BACKEND=local server it would route setSession through
  * supabase-js, which rejects the server-minted tokens.
+ *
+ * supabase-js is fetched here rather than with the app: an
+ * AUTH_BACKEND=local deployment never needs it, and a supabase one
+ * only knows it does once /info has answered. loadApp awaits this
+ * before anything reads the session, so the client is in place by the
+ * time it is consulted.
  */
-const initSupabase = (url: string, anonKey: string) => {
+const initSupabase = async (url: string, anonKey: string) => {
+  if (supabase) return;
+
+  const { createClient } = await import('@supabase/supabase-js');
   if (supabase) return;
 
   supabase = createClient(url, anonKey, {

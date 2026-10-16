@@ -1,20 +1,13 @@
 import { Permission } from '@pulse/shared';
-import { z } from 'zod';
 import { getRolesForServer } from '../../db/queries/roles';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const getRolesRouter = protectedProcedure
-  .input(
-    z.object({
-      serverId: z.number()
-    })
-  )
-  .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_ROLES, input.serverId);
-
+const getRolesRouter = serverProcedureFor(Permission.MANAGE_ROLES).query(
+  async ({ input }) => {
     const roles = await getRolesForServer(input.serverId);
 
     return roles;
-  });
+  }
+);
 
 export { getRolesRouter };

@@ -18,12 +18,11 @@ import {
 import { servers } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const updateSettingsRoute = protectedProcedure
+const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
   .input(
     z.object({
-      serverId: z.number().int().positive(),
       name: z.string().min(2).max(24).optional(),
       description: z.string().max(128).optional(),
       password: z.string().min(1).max(32).optional().nullable(),
@@ -44,8 +43,6 @@ const updateSettingsRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Server not found'
     });
-
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
 
     // "Federatable" is owner-controlled and instance-gated, unlike the
     // rest of these MANAGE_SETTINGS fields: only the server OWNER may

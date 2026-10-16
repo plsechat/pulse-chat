@@ -6,7 +6,7 @@ import {
   ServerEvents
 } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
@@ -21,7 +21,7 @@ import {
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
-import { serverProcedure } from '../../utils/procedures';
+import { channelProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
 import {
   copyParentOverrides,
@@ -33,10 +33,14 @@ import {
   resolveForumTagIds
 } from './_shared';
 
-const createForumPostRoute = serverProcedure(Permission.SEND_MESSAGES)
+// Channel-level SEND_MESSAGES (implies VIEW) on the forum itself — the
+// server-level flag alone says nothing about a private forum.
+const createForumPostRoute = channelProcedure(
+  ChannelPermission.SEND_MESSAGES,
+  { serverPermission: Permission.SEND_MESSAGES }
+)
   .input(
     z.object({
-      channelId: z.number().int().positive(),
       title: z.string().min(1).max(200),
       // Same plaintext budget as an ordinary message in the thread.
       content: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH),
@@ -51,28 +55,11 @@ const createForumPostRoute = serverProcedure(Permission.SEND_MESSAGES)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    // Verify the channel exists, is a FORUM type, and is in the active server
-    const [forumChannel] = await db
-      .select()
-      .from(channels)
-      .where(
-        and(
-          eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId)
-        )
-      )
-      .limit(1);
+    const forumChannel = ctx.channel;
 
-    if (!forumChannel || forumChannel.type !== ChannelType.FORUM) {
+    if (forumChannel.type !== ChannelType.FORUM) {
       return ctx.throwValidationError('channelId', 'Forum channel not found');
     }
-
-    // Channel-level check (implies VIEW): the server-level SEND_MESSAGES
-    // the builder verified says nothing about a private forum.
-    await ctx.needsChannelPermission(
-      forumChannel.id,
-      ChannelPermission.SEND_MESSAGES
-    );
 
     // The opening post is plaintext by construction; it cannot live in
     // an encrypted thread, and an encrypted forum has no way to carry it.

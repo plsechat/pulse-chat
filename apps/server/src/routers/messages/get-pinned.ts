@@ -6,39 +6,18 @@ import {
   type TMessageReplyPreview
 } from '@pulse/shared';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { getReactionsForMessageIds } from '../../db/queries/messages';
-import { channels, files, messageFiles, messages } from '../../db/schema';
+import { files, messageFiles, messages } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
-import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const getPinnedMessagesRoute = protectedProcedure
-  .input(
-    z.object({
-      channelId: z.number().int().positive()
-    })
-  )
-  .query(async ({ ctx, input }) => {
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
-    const [channel] = await db
-      .select({
-        private: channels.private,
-        fileAccessToken: channels.fileAccessToken
-      })
-      .from(channels)
-      .where(eq(channels.id, input.channelId))
-      .limit(1);
-
-    invariant(channel, {
-      code: 'NOT_FOUND',
-      message: 'Channel not found'
-    });
+// Preview 'permit': pins are part of what a read-only preview may read.
+const getPinnedMessagesRoute = channelProcedure(
+  ChannelPermission.VIEW_CHANNEL,
+  { preview: 'permit' }
+).query(async ({ ctx, input }) => {
+    const { channel } = ctx;
 
     const rows: TMessage[] = await db
       .select()

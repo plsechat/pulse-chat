@@ -7,6 +7,13 @@ import type {
   TVoiceUserState,
   UserStatus
 } from '@pulse/shared';
+import {
+  mergeMessageWindow,
+  replaceMessageWindow,
+  windowOrDefault,
+  type TMergeMessagesOpts,
+  type TMessageWindowMap
+} from '../message-window';
 
 export type TDmMessagesMap = {
   [dmChannelId: number]: TJoinedDmMessage[];
@@ -29,6 +36,9 @@ export interface TDmsState {
   channelsLoaded: boolean;
   selectedChannelId: number | undefined;
   messagesMap: TDmMessagesMap;
+  // What lies beyond each edge of the loaded window per DM — see
+  // features/message-window.ts. Reset wherever messagesMap is.
+  messageWindowMap: TMessageWindowMap;
   activeCalls: TDmCallsMap;
   ownDmCallChannelId: number | undefined;
   dmTypingMap: Record<number, number[]>;
@@ -52,6 +62,7 @@ const initialState: TDmsState = {
   channelsLoaded: false,
   selectedChannelId: readPersistedSelection(),
   messagesMap: {},
+  messageWindowMap: {},
   activeCalls: {},
   ownDmCallChannelId: undefined,
   dmTypingMap: {},
@@ -83,6 +94,7 @@ export const dmsSlice = createSlice({
         state.selectedChannelId = undefined;
       }
       delete state.messagesMap[action.payload];
+      delete state.messageWindowMap[action.payload];
       delete state.dmTypingMap[action.payload];
       // Its call goes with the channel: no runtime survives the row.
       delete state.activeCalls[action.payload];
@@ -149,25 +161,60 @@ export const dmsSlice = createSlice({
       action: PayloadAction<{
         dmChannelId: number;
         messages: TJoinedDmMessage[];
-        opts?: { prepend?: boolean };
+        opts?: TMergeMessagesOpts;
       }>
     ) => {
       const { dmChannelId, messages, opts } = action.payload;
-      const existing = state.messagesMap[dmChannelId] ?? [];
-
-      const existingIds = new Set(existing.map((m) => m.id));
-      const filtered = messages.filter((m) => !existingIds.has(m.id));
-
-      let merged: TJoinedDmMessage[];
-      if (opts?.prepend) {
-        merged = [...filtered, ...existing];
-      } else {
-        merged = [...existing, ...filtered];
-      }
-
-      state.messagesMap[dmChannelId] = merged.sort(
-        (a, b) => a.createdAt - b.createdAt
+      // Dedupe, chronological order and the 300-message cap live in
+      // mergeMessageWindow (shared with the channel slice).
+      const result = mergeMessageWindow(
+        state.messagesMap[dmChannelId] ?? [],
+        messages,
+        opts ?? {},
+        state.messageWindowMap[dmChannelId]
       );
+      state.messagesMap[dmChannelId] = result.messages;
+      state.messageWindowMap[dmChannelId] = result.window;
+    },
+    /** A freshly fetched LATEST page: re-attaches the DM to the live tail. */
+    replaceMessages: (
+      state,
+      action: PayloadAction<{
+        dmChannelId: number;
+        messages: TJoinedDmMessage[];
+        hasOlder: boolean;
+      }>
+    ) => {
+      const { dmChannelId, messages, hasOlder } = action.payload;
+      const result = replaceMessageWindow(
+        state.messagesMap[dmChannelId] ?? [],
+        messages,
+        hasOlder
+      );
+      state.messagesMap[dmChannelId] = result.messages;
+      state.messageWindowMap[dmChannelId] = result.window;
+    },
+    setMessageWindow: (
+      state,
+      action: PayloadAction<{
+        dmChannelId: number;
+        hasOlder?: boolean;
+        hasNewer?: boolean;
+      }>
+    ) => {
+      const { dmChannelId, hasOlder, hasNewer } = action.payload;
+      const current = windowOrDefault(state.messageWindowMap[dmChannelId]);
+      state.messageWindowMap[dmChannelId] = {
+        hasOlder: hasOlder ?? current.hasOlder,
+        hasNewer: hasNewer ?? current.hasNewer
+      };
+    },
+    purgeChannelMessages: (
+      state,
+      action: PayloadAction<{ dmChannelId: number }>
+    ) => {
+      state.messagesMap[action.payload.dmChannelId] = [];
+      delete state.messageWindowMap[action.payload.dmChannelId];
     },
     updateMessage: (
       state,

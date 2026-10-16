@@ -128,8 +128,16 @@ export const addDmMessages = async (
       // and they should still get the notification.
       const isViewingThisChannel =
         state.app.activeView === 'home' && selectedId === dmChannelId;
+      // On screen but paged far into history (window detached from the
+      // live tail, see features/message-window.ts): the message is not
+      // visible, so it counts as unread — no sound while the user is in
+      // the conversation, but no read marker either until they jump to
+      // the present.
+      const detached = !!state.dms.messageWindowMap[dmChannelId]?.hasNewer;
 
-      if (!isViewingThisChannel) {
+      if (isViewingThisChannel && detached) {
+        store.dispatch(dmsSliceActions.incrementChannelUnread(dmChannelId));
+      } else if (!isViewingThisChannel) {
         playSound(SoundType.MESSAGE_RECEIVED);
 
         const senderChannel = state.dms.channels.find((c) =>
@@ -152,7 +160,13 @@ export const addDmMessages = async (
       }
     }
   }
-  store.dispatch(dmsSliceActions.addMessages({ dmChannelId, messages, opts }));
+  store.dispatch(
+    dmsSliceActions.addMessages({
+      dmChannelId,
+      messages,
+      opts: { ...opts, live: isSubscription }
+    })
+  );
 
   // Update the channel's lastMessage so the sidebar snippet stays current
   if (isSubscription && messages.length > 0) {
@@ -292,9 +306,14 @@ export const getOrCreateDmChannel = async (
   }
 };
 
+/**
+ * Page toward the past from `cursor` (the oldest loaded createdAt).
+ * The reducer trims the newest end past the cap and flags the window
+ * detached itself; only what lies above the page is recorded here.
+ */
 export const fetchDmMessages = async (
   dmChannelId: number,
-  cursor?: number | null
+  cursor: number
 ) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return undefined;
@@ -303,15 +322,50 @@ export const fetchDmMessages = async (
 
     // Decrypt any E2EE messages
     const decryptedMessages = await decryptDmMessages(result.messages);
-    addDmMessages(dmChannelId, decryptedMessages, { prepend: !!cursor });
-
-    // Clear unread badge when fetching the first page (user opened the channel)
-    if (!cursor) {
-      store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
-      markDmChannelAsRead(dmChannelId);
-    }
+    await addDmMessages(dmChannelId, decryptedMessages, { prepend: true });
+    store.dispatch(
+      dmsSliceActions.setMessageWindow({
+        dmChannelId,
+        hasOlder: result.nextCursor != null
+      })
+    );
 
     return result.nextCursor;
+  } catch (err) {
+    console.error('Failed to fetch DM messages:', err);
+  }
+};
+
+/**
+ * Fetch the LATEST page and attach the window to the live tail — on
+ * opening the DM and on "Jump to Present". The page is fetched before
+ * anything is dropped so the pane never flashes empty; while it is in
+ * flight the window is marked attached so a live message landing
+ * meanwhile is kept and survives the replace. Opening the conversation
+ * is what clears its unread badge.
+ */
+export const fetchLatestDmMessages = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  if (store.getState().dms.messageWindowMap[dmChannelId]?.hasNewer) {
+    store.dispatch(
+      dmsSliceActions.setMessageWindow({ dmChannelId, hasNewer: false })
+    );
+  }
+  try {
+    const result = await trpc.dms.getMessages.query({ dmChannelId });
+
+    const decryptedMessages = await decryptDmMessages(result.messages);
+    store.dispatch(
+      dmsSliceActions.replaceMessages({
+        dmChannelId,
+        messages: decryptedMessages,
+        hasOlder: result.nextCursor != null
+      })
+    );
+
+    store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+    markDmChannelAsRead(dmChannelId);
   } catch (err) {
     console.error('Failed to fetch DM messages:', err);
   }

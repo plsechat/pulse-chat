@@ -165,6 +165,7 @@ bun run knip          # unused files / exports / dependencies
 For backend changes that add or modify operational features, add a unit test.
 
 - Test files live alongside the code they test (e.g. `src/routers/__tests__/`)
+- Authorization is declared, not hand-rolled: build tRPC routes on the procedure builders in `apps/server/src/utils/procedures.ts` and pick the one that matches the route's input — `serverProcedure(permission?)` when the route acts in the connection's active server (then filter every fetch-by-id by `ctx.activeServerId`), `channelProcedure(channelPermission?, { preview?, serverPermission? })` when the input names a `channelId` (the channel is loaded, scoped to the active server and handed over as `ctx.channel`), `serverProcedureFor(permission)` when the input names a `serverId` (the permission is evaluated in that server), and `instanceOwnerProcedure` for operator-only surfaces. A route built on a builder cannot forget its check; a bare `protectedProcedure` is for self-scoped routes only (own user, DM membership, friendship).
 - Schema changes go through `cd apps/server && bun run db:gen`, then hand-patch the generated SQL to be idempotent (`IF NOT EXISTS` / `DO $$ … EXCEPTION` guards). CI applies every migration twice and fails if the second pass errors.
 - If a unit test would require heavy mocking to be meaningful, restructure the code so it can be tested cleanly through its interfaces
 - If you're unsure how to approach this, discuss it with a maintainer before investing time

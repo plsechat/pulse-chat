@@ -73,6 +73,32 @@ jobs:
           fi
           rm -f "$output_file"
 
+  # Production build + bundle size gate. The app once shipped as a
+  # single 5.4 MB chunk; the budgets in scripts/check-bundle-size.ts
+  # (largest chunk, initial JavaScript) fail the PR that drags a lazy
+  # screen or a vendor library back into the first paint.
+  client-build:
+    name: Client build & bundle size
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build client
+        working-directory: apps/client
+        run: bun run build
+
+      - name: Bundle size gate
+        working-directory: apps/client
+        run: bun run check-bundle-size
+
   # Catch non-idempotent migrations at PR time. Drizzle's migration
   # tracking is kept, so in production each migration runs once — but
   # the house rule is that every committed SQL file must also be

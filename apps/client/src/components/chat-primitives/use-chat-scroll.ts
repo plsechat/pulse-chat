@@ -120,6 +120,20 @@ function isNearBottom(container: HTMLElement): boolean {
   );
 }
 
+// Message rows carry `id="msg-<id>"` (channels) / `id="dm-msg-<id>"`
+// (DMs) — the same anchors the jump engine scrolls to. The first match
+// in document order is the oldest loaded row.
+const MESSAGE_ROW_SELECTOR = '[id^="msg-"],[id^="dm-msg-"]';
+
+/** `el`'s top edge relative to the top of `container`'s content. */
+function offsetWithin(el: HTMLElement, container: HTMLElement): number {
+  return (
+    el.getBoundingClientRect().top -
+    container.getBoundingClientRect().top +
+    container.scrollTop
+  );
+}
+
 type TUseChatScrollProps = {
   posKey: string;
   storageKey: LocalStorageKey;
@@ -193,9 +207,21 @@ const useChatScroll = ({
     setIsAtBottom(atBottom);
 
     if (container.scrollTop <= 50 && hasMore) {
+      // Keep the row under the viewport where it is while older
+      // messages land above it. Measured against the oldest message row
+      // rather than scrollHeight: the 300-message cap trims rows off
+      // the BOTTOM on the same prepend, so a height delta would also
+      // count what was removed below the fold and land short.
+      const anchor = container.querySelector<HTMLElement>(MESSAGE_ROW_SELECTOR);
+      const anchorTop = anchor ? offsetWithin(anchor, container) : null;
       const prevScrollHeight = container.scrollHeight;
 
       loadMore().then(() => {
+        const sameAnchor = anchor?.isConnected ? anchor : null;
+        if (sameAnchor && anchorTop !== null) {
+          container.scrollTop += offsetWithin(sameAnchor, container) - anchorTop;
+          return;
+        }
         const newScrollHeight = container.scrollHeight;
         container.scrollTop =
           newScrollHeight - prevScrollHeight + container.scrollTop;

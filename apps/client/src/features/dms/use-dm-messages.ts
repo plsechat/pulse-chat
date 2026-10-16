@@ -1,56 +1,76 @@
 import type { IRootState } from '@/features/store';
+import { windowOrDefault } from '@/features/message-window';
 import type { TJoinedDmMessage } from '@pulse/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { fetchDmMessages } from './actions';
-import { dmMessagesSelector } from './selectors';
+import { fetchDmMessages, fetchLatestDmMessages } from './actions';
+import { dmMessagesSelector, dmMessageWindowSelector } from './selectors';
 
+/**
+ * DM twin of features/server/messages/hooks useMessages. Both window
+ * edges come from the store (features/message-window): paging up past
+ * the 300-message cap trims the newest end and detaches the window
+ * from the live tail. The DM route has no forward (`after`) paging, so
+ * the only way back is `reattach` — refetch the latest page — which
+ * the conversation's "Jump to Present" pill drives.
+ */
 export const useDmMessages = (dmChannelId: number) => {
   const messages = useSelector((state: IRootState) =>
     dmMessagesSelector(state, dmChannelId)
   );
+  const window = useSelector((state: IRootState) =>
+    dmMessageWindowSelector(state, dmChannelId)
+  );
+  const { hasOlder, hasNewer } = windowOrDefault(window);
   const inited = useRef(false);
   const [fetching, setFetching] = useState(false);
   const [loading, setLoading] = useState(messages.length === 0);
-  const [cursor, setCursor] = useState<number | null>(null);
-  const [hasMore, setHasMore] = useState(true);
+  // Cursors derive from the loaded window (not from the last page
+  // result) because the cap may have dropped what that result pointed
+  // at; the ref keeps loadMore's identity stable across live messages.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
-  const fetchPage = useCallback(
-    async (cursorToFetch: number | null) => {
-      setFetching(true);
-      try {
-        const nextCursor = await fetchDmMessages(
-          dmChannelId,
-          cursorToFetch
-        );
-        setCursor(nextCursor ?? null);
-        setHasMore(nextCursor != null);
-      } finally {
-        setFetching(false);
-        setLoading(false);
-      }
-    },
-    [dmChannelId]
-  );
+  const fetchLatest = useCallback(async () => {
+    setFetching(true);
+    try {
+      await fetchLatestDmMessages(dmChannelId);
+    } finally {
+      setFetching(false);
+      setLoading(false);
+    }
+  }, [dmChannelId]);
 
   const loadMore = useCallback(async () => {
-    if (fetching || !hasMore) return;
-    await fetchPage(cursor);
-  }, [fetching, hasMore, cursor, fetchPage]);
+    if (fetching || !hasOlder) return;
+
+    const oldest = messagesRef.current[0];
+    if (!oldest) return;
+
+    setFetching(true);
+    try {
+      await fetchDmMessages(dmChannelId, oldest.createdAt);
+    } finally {
+      setFetching(false);
+    }
+  }, [fetching, hasOlder, dmChannelId]);
+
+  const reattach = useCallback(async () => {
+    if (fetching) return;
+    await fetchLatest();
+  }, [fetching, fetchLatest]);
 
   // Reset when dmChannelId changes so messages are fetched for the new channel
   useEffect(() => {
     inited.current = false;
     setLoading(true);
-    setCursor(null);
-    setHasMore(true);
   }, [dmChannelId]);
 
   useEffect(() => {
     if (inited.current) return;
-    fetchPage(null);
+    void fetchLatest();
     inited.current = true;
-  }, [fetchPage]);
+  }, [fetchLatest]);
 
   const groupedMessages = useMemo(() => {
     const grouped = messages.reduce((acc, message) => {
@@ -85,8 +105,10 @@ export const useDmMessages = (dmChannelId: number) => {
     messages,
     loading,
     fetching,
-    hasMore,
+    hasMore: hasOlder,
     loadMore,
+    reattach,
+    detached: hasNewer,
     groupedMessages
   };
 };

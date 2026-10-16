@@ -14,22 +14,19 @@ import {
   users
 } from '../../db/schema';
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const getThreadsRoute = protectedProcedure
+// Preview 'permit': the thread list of a public forum is part of what a
+// read-only preview may read (like the messages themselves).
+const getThreadsRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
+  preview: 'permit'
+})
   .input(
     z.object({
-      channelId: z.number().int().positive(),
       includeArchived: z.boolean().optional().default(false)
     })
   )
-  .query(async ({ ctx, input }) => {
-    // Verify the caller has access to the parent channel
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
+  .query(async ({ input }) => {
     const conditions = [
       eq(channels.parentChannelId, input.channelId),
       eq(channels.type, ChannelType.THREAD)

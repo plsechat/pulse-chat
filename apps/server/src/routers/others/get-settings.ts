@@ -1,20 +1,12 @@
 import { Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { files, servers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const getSettingsRoute = protectedProcedure
-  .input(
-    z.object({
-      serverId: z.number().int().positive()
-    })
-  )
-  .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
-
+const getSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS).query(
+  async ({ input }) => {
     const [server] = await db
       .select()
       .from(servers)
@@ -51,6 +43,7 @@ const getSettingsRoute = protectedProcedure
       federatable: server.federatable,
       logo: logo ?? null
     };
-  });
+  }
+);
 
 export { getSettingsRoute };

@@ -9,16 +9,13 @@ import { getMessageInActiveServer } from '../../db/queries/messages';
 import { messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteMessageRoute = protectedProcedure
+// No server permission up front: authors may delete their own messages;
+// everyone else needs MANAGE_MESSAGES (checked once the row is loaded).
+const deleteMessageRoute = serverProcedure()
   .input(z.object({ messageId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const targetMessage = await getMessageInActiveServer(
       input.messageId,
       ctx.activeServerId

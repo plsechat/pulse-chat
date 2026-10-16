@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check-bundle-size": "bun scripts/check-bundle-size.ts",
     "lint": "eslint ./src --ext ts,tsx",
     "lint:fix": "eslint ./src --ext ts,tsx --report-unused-disable-directives --fix",
     "check-types": "tsc --noEmit --project tsconfig.app.json",

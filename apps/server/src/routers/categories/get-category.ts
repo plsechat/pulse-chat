@@ -4,22 +4,15 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { categories } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getCategoryRoute = protectedProcedure
+const getCategoryRoute = serverProcedure(Permission.MANAGE_CATEGORIES)
   .input(
     z.object({
-      categoryId: z.number().min(1)
+      categoryId: z.number().int().positive()
     })
   )
   .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Scope to the caller's active server so MANAGE_CATEGORIES in server A
     // can't read categories belonging to server B.
     const [category] = await db

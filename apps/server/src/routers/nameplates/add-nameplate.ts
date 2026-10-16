@@ -4,14 +4,14 @@ import { db } from '../../db';
 import { nameplates } from '../../db/schema';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
 /**
  * Upload a custom nameplate pack for the active server. Gated on
  * MANAGE_EMOJIS — the asset-expression admin permission family that
  * custom emojis use.
  */
-const addNameplateRoute = protectedProcedure
+const addNameplateRoute = serverProcedure(Permission.MANAGE_EMOJIS)
   .input(
     z.object({
       name: z.string().min(1).max(32),
@@ -19,13 +19,6 @@ const addNameplateRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_EMOJIS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const tempFile = await fileManager.getTemporaryFile(input.tempFileId);
 
     invariant(tempFile, {

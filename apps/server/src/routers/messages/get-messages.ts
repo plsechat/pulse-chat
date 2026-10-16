@@ -28,15 +28,18 @@ import {
 } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
 import { invariant } from '../../utils/invariant';
+import { channelProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
 
 const MAX_MESSAGES_LIMIT = 100;
 
-const getMessagesRoute = protectedProcedure
+// Preview 'permit': a read-only preview session (servers.preview) reads
+// the previewed server's public channels through this route.
+const getMessagesRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
+  preview: 'permit'
+})
   .input(
     z.object({
-      channelId: z.number().int().positive(),
       cursor: z.number().int().nullish(),
       // Jump-to-message support: `aroundId` returns a window of messages
       // centered on that message id; `after` pages FORWARD (ascending)
@@ -57,33 +60,12 @@ const getMessagesRoute = protectedProcedure
   )
   .meta({ infinite: true })
   .query(async ({ ctx, input }) => {
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
     const { channelId, cursor, limit } = input;
-
-    const [channel] = await db
-      .select({
-        private: channels.private,
-        fileAccessToken: channels.fileAccessToken,
-        serverId: channels.serverId
-      })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .limit(1);
-
-    invariant(channel, {
-      code: 'NOT_FOUND',
-      message: 'Channel not found'
-    });
+    const { channel } = ctx;
 
     // Read-only preview session (servers.preview) fetching from the
     // previewed server: serve messages, but never touch read state.
-    const isPreview =
-      ctx.previewServerId !== undefined &&
-      channel.serverId === ctx.previewServerId;
+    const { isPreview } = ctx;
 
     let rows: TMessage[];
     let nextCursor: number | null = null;

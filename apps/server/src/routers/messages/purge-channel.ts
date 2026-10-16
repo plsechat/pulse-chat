@@ -6,10 +6,10 @@ import { removeFile } from '../../db/mutations/files';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { channels, messageFiles, messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
 
-const purgeChannelRoute = protectedProcedure
+const purgeChannelRoute = serverProcedure(Permission.MANAGE_MESSAGES)
   .input(
     z.object({
       channelId: z.number().int().positive(),
@@ -17,8 +17,6 @@ const purgeChannelRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_MESSAGES);
-
     // Scope the channel lookup to the caller's active server. Without this,
     // MANAGE_MESSAGES in server A could purge any channel in server B.
     const [channel] = await db
@@ -27,7 +25,7 @@ const purgeChannelRoute = protectedProcedure
       .where(
         and(
           eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId!)
+          eq(channels.serverId, ctx.activeServerId)
         )
       )
       .limit(1);

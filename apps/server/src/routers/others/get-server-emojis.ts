@@ -1,13 +1,7 @@
 import { getEmojis } from '../../db/queries/emojis';
-import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getServerEmojisRoute = protectedProcedure.query(async ({ ctx }) => {
-  invariant(ctx.activeServerId, {
-    code: 'BAD_REQUEST',
-    message: 'No active server'
-  });
-
+const getServerEmojisRoute = serverProcedure().query(async ({ ctx }) => {
   const emojis = await getEmojis(ctx.activeServerId);
 
   // Strip creator user data — not needed for emoji display

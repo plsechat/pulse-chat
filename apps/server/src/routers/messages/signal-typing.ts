@@ -1,12 +1,6 @@
 import { ChannelPermission, ServerEvents, TYPING_MS } from '@pulse/shared';
-import { and, eq } from 'drizzle-orm';
-import { z } from 'zod';
-import { db } from '../../db';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { channels } from '../../db/schema';
-import { invariant } from '../../utils/invariant';
-import { refuseInPreview } from '../../utils/preview-guard';
-import { serverProcedure } from '../../utils/procedures';
+import { channelProcedure } from '../../utils/procedures';
 
 /**
  * Per-(user, channel) floor between accepted typing signals. The client
@@ -52,42 +46,12 @@ const isTypingSignalRateLimited = (
   return false;
 };
 
-const signalTypingRoute = serverProcedure()
-  .input(
-    z.object({
-      channelId: z.number().int().positive()
-    })
-  )
-  .mutation(async ({ input, ctx }) => {
-    // Previewers are invisible to members — no typing fan-out. Checked
-    // before the scope lookup so a previewer gets the read-only reason
-    // rather than "not found".
-    await refuseInPreview(ctx, input.channelId);
-
-    // Scope to the active server: a channel elsewhere reads as
-    // nonexistent, so the fan-out can't be pointed at channels (and
-    // their viewer sets) in servers the caller is not active in.
-    const [channel] = await db
-      .select({ id: channels.id })
-      .from(channels)
-      .where(
-        and(
-          eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId)
-        )
-      )
-      .limit(1);
-
-    invariant(channel, {
-      code: 'NOT_FOUND',
-      message: 'Channel not found'
-    });
-
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.SEND_MESSAGES
-    );
-
+// Scoped to the active server (a channel elsewhere reads as nonexistent,
+// so the fan-out can't be pointed at other servers' viewer sets) and
+// refused in preview: previewers are invisible to members.
+const signalTypingRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
+  preview: 'refuse'
+}).mutation(async ({ input, ctx }) => {
     if (isTypingSignalRateLimited(ctx.userId, input.channelId)) {
       return;
     }
