@@ -20,9 +20,11 @@ import {
   federationFriendRequestHandler,
   federationGetPreKeyBundleHandler,
   federationInfoHandler,
+  federationKeyRotationHandler,
   federationReportUserHandler,
   federationRequestHandler,
   federationServersHandler,
+  federationUnpeerHandler,
   federationUserInfoHandler
 } from './federation';
 import { federationChannelSenderKeyNotifyHandler } from './federation-channel-sender-key';
@@ -195,10 +197,10 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await federationAcceptHandler(req, res);
         }
 
-        if (
-          req.method === 'GET' &&
-          req.url?.startsWith('/federation/servers')
-        ) {
+        // Signed like every other peer route; the per-IP brake stays as
+        // the pre-auth flood guard (the per-peer budget applies after
+        // the signature verifies).
+        if (req.method === 'POST' && req.url === '/federation/servers') {
           if (!checkRateLimit(req, res, federationReadRateLimit)) return;
           return await federationServersHandler(req, res);
         }
@@ -313,6 +315,16 @@ const createHttpServer = async (port: number = config.server.port) => {
         if (req.method === 'POST' && req.url === '/federation/report-user') {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationReportUserHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/unpeer') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationUnpeerHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/key-rotation') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationKeyRotationHandler(req, res);
         }
 
         if (req.method === 'POST' && req.url === '/login') {

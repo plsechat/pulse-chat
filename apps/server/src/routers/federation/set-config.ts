@@ -13,6 +13,7 @@ import {
   generateFederationKeys,
   getLocalKeys
 } from '../../utils/federation';
+import { relayUnpeer } from '../../utils/federation-unpeer-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { instanceOwnerProcedure } from '../../utils/procedures';
 
@@ -55,8 +56,16 @@ const setConfigRoute = instanceOwnerProcedure
         // Clean up when disabling federation: delete keys, instances, and shadow users
         logger.info('[federation/setConfig] disabling — cleaning up federation data');
 
-        // Delete shadow users for each instance first (FK constraint)
+        // Tell every active peer first — this needs the keys and rows
+        // that the steps below delete.
         const instances = await db.select().from(federationInstances);
+        for (const instance of instances) {
+          if (instance.status === 'active') {
+            await relayUnpeer(instance.domain, 'removed');
+          }
+        }
+
+        // Delete shadow users for each instance first (FK constraint)
         for (const instance of instances) {
           await deleteShadowUsersByInstance(instance.id);
           logger.info('[federation/setConfig] deleted shadow users for instance %d (%s)', instance.id, instance.domain);

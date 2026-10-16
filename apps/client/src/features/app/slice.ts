@@ -15,6 +15,11 @@ export type TFederatedServerEntry = {
    *  redistribute can target each instance's chains under the right
    *  author id without re-fetching joinServer. */
   ownUserId?: number;
+  /** The home instance's last relay failure against this peer (for
+   *  example `unsupported:/federation/...` from an older peer). Shown
+   *  as a warning badge on the rail entry; absent when the pairing is
+   *  healthy. */
+  peerWarning?: string;
 };
 
 export interface TAppState {

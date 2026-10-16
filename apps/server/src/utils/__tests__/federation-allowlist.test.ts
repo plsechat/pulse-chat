@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   _resetCacheForTests,
   ipv4ToInt,
+  ipv6ToBigInt,
+  isAllowedPrivateIp,
   isAllowedPrivateIpv4,
-  parseCidr
+  isAllowedPrivateIpv6,
+  parseCidr,
+  parseCidr6
 } from '../federation-allowlist';
 
 describe('federation-allowlist', () => {
@@ -132,6 +136,89 @@ describe('federation-allowlist', () => {
       // first call parses, second call uses cache — both should return true.
       expect(isAllowedPrivateIpv4('192.168.1.1')).toBe(true);
       expect(isAllowedPrivateIpv4('192.168.1.2')).toBe(true);
+    });
+  });
+
+  describe('ipv6ToBigInt', () => {
+    test('expands compressed, full and IPv4-mapped forms', () => {
+      expect(ipv6ToBigInt('::1')).toBe(1n);
+      expect(ipv6ToBigInt('::')).toBe(0n);
+      expect(ipv6ToBigInt('fd00::1')).toBe((0xfd00n << 112n) | 1n);
+      expect(ipv6ToBigInt('2001:0db8:0000:0000:0000:0000:0000:0001')).toBe(
+        (0x2001n << 112n) | (0x0db8n << 96n) | 1n
+      );
+      expect(ipv6ToBigInt('::ffff:10.0.0.5')).toBe((0xffffn << 32n) | 0x0a000005n);
+      expect(ipv6ToBigInt('fe80::1%en0')).toBe((0xfe80n << 112n) | 1n);
+    });
+
+    test('rejects anything that is not an IPv6 address', () => {
+      expect(ipv6ToBigInt('10.0.0.1')).toBeNull();
+      expect(ipv6ToBigInt('fd00:::1')).toBeNull();
+      expect(ipv6ToBigInt('fd00::1::2')).toBeNull();
+      expect(ipv6ToBigInt('gggg::1')).toBeNull();
+      expect(ipv6ToBigInt('')).toBeNull();
+    });
+  });
+
+  describe('parseCidr6', () => {
+    test('parses ULA, loopback and the whole space', () => {
+      expect(parseCidr6('fd00::/8')).toEqual({
+        network: 0xfdn << 120n,
+        mask: 0xffn << 120n
+      });
+      expect(parseCidr6('::1/128')).toEqual({
+        network: 1n,
+        mask: (1n << 128n) - 1n
+      });
+      expect(parseCidr6('::/0')).toEqual({ network: 0n, mask: 0n });
+    });
+
+    test('normalizes host bits and rejects malformed entries', () => {
+      expect(parseCidr6('fd12:3456::abcd/16')).toEqual({
+        network: 0xfd12n << 112n,
+        mask: 0xffffn << 112n
+      });
+      expect(parseCidr6('fd00::')).toBeNull();
+      expect(parseCidr6('fd00::/129')).toBeNull();
+      expect(parseCidr6('fd00::/x')).toBeNull();
+      expect(parseCidr6('10.0.0.0/8')).toBeNull();
+    });
+  });
+
+  describe('isAllowedPrivateIpv6 / isAllowedPrivateIp', () => {
+    test('v6 entries match v6 addresses only', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = 'fd00::/8,192.168.0.0/16';
+      _resetCacheForTests();
+      expect(isAllowedPrivateIpv6('fd00::1')).toBe(true);
+      expect(isAllowedPrivateIpv6('fdab:1234::9')).toBe(true);
+      expect(isAllowedPrivateIpv6('fc00::1')).toBe(false);
+      expect(isAllowedPrivateIpv6('fe80::1')).toBe(false);
+      expect(isAllowedPrivateIpv6('::1')).toBe(false);
+      expect(isAllowedPrivateIp('fd00::1')).toBe(true);
+      expect(isAllowedPrivateIp('192.168.3.4')).toBe(true);
+      expect(isAllowedPrivateIp('10.0.0.1')).toBe(false);
+    });
+
+    test('::1 is admitted by a listed 127.0.0.0/8', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '127.0.0.0/8';
+      _resetCacheForTests();
+      expect(isAllowedPrivateIpv6('::1')).toBe(true);
+      expect(isAllowedPrivateIpv6('::2')).toBe(false);
+    });
+
+    test('an IPv4-mapped address is matched against the v4 entries', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '10.0.0.0/8';
+      _resetCacheForTests();
+      expect(isAllowedPrivateIpv6('::ffff:10.1.2.3')).toBe(true);
+      expect(isAllowedPrivateIpv6('::ffff:a01:203')).toBe(true);
+      expect(isAllowedPrivateIpv6('::ffff:192.168.1.1')).toBe(false);
+    });
+
+    test('invalid v6 entries are skipped, valid ones around them still apply', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = 'fd00::/200,fe80::/10';
+      _resetCacheForTests();
+      expect(isAllowedPrivateIpv6('fd00::1')).toBe(false);
+      expect(isAllowedPrivateIpv6('fe80::1')).toBe(true);
     });
   });
 });

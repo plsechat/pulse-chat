@@ -5,7 +5,7 @@ import { db } from '../../db';
 import { areFriends } from '../../db/queries/friends';
 import { getUserById } from '../../db/queries/users';
 import { federationInstances, friendships } from '../../db/schema';
-import { relayToInstance } from '../../utils/federation';
+import { enqueueRelay } from '../../utils/federation-outbox';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
@@ -60,7 +60,7 @@ const removeFriendRoute = protectedProcedure
               removedFriend.federatedPublicId
             );
           } else {
-            relayToInstance(instance.domain, '/federation/friend-remove', {
+            enqueueRelay(instance.domain, '/federation/friend-remove', {
               fromPublicId: remover.publicId,
               toPublicId: removedFriend.federatedPublicId
             }).catch((err) =>

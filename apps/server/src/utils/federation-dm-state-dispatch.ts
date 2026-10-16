@@ -3,9 +3,8 @@
  * changes (currently `e2ee`, future-extensible) to peer instances.
  *
  * Called from DM mutations after the local DB write succeeds; a
- * failed relay is logged and does not roll back the local write
- * (best-effort federation, same as existing dm-relay and the Phase D
- * dispatchers).
+ * failed relay is queued in the federation outbox and does not roll
+ * back the local write (same as dm-relay and the Phase D dispatchers).
  *
  * Symmetry with `federation-dm-group-dispatch.ts`:
  *   - Group DMs use `federationGroupId` for channel identity
@@ -24,7 +23,7 @@ import {
   users
 } from '../db/schema';
 import { logger } from '../logger';
-import { relayToInstance } from './federation';
+import { enqueueRelay } from './federation-outbox';
 
 type StateChanges = {
   e2ee?: boolean;
@@ -133,7 +132,7 @@ async function relayFederatedDmChannelStateUpdate(
       for (const instanceId of federatedInstanceIds) {
         const domain = domainById.get(instanceId);
         if (!domain) continue;
-        relayToInstance(domain, '/federation/dm-channel-state-update', {
+        enqueueRelay(domain, '/federation/dm-channel-state-update', {
           federationGroupId,
           ...changes
         }).catch((err) =>
@@ -157,7 +156,7 @@ async function relayFederatedDmChannelStateUpdate(
     const peerDomain = domainById.get(peerMember.federatedInstanceId);
     if (!peerDomain) return;
 
-    relayToInstance(peerDomain, '/federation/dm-channel-state-update', {
+    enqueueRelay(peerDomain, '/federation/dm-channel-state-update', {
       fromPublicId,
       toPublicId: peerMember.federatedPublicId,
       ...changes

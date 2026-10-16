@@ -105,10 +105,28 @@ const federationRateLimit: RateLimitConfig = {
   maxRequests: 60
 };
 
-/** Unauthenticated federation reads (`/federation/info`, `/federation/servers`). */
+/** Unauthenticated federation reads (`/federation/info`) and the IP brake on `/federation/servers`. */
 const federationReadRateLimit: RateLimitConfig = {
   windowMs: 60 * 1000,
   maxRequests: 60
+};
+
+/**
+ * Per VERIFIED peer (`peer:<class>:<domain>`, see
+ * http/federation-helpers.ts): the budget one pairing gets across every
+ * signed route, independent of the address it arrives from. Sized above
+ * the per-IP brake so a peer on its own address never hits it before the
+ * IP limiter does, but low enough that one peer cannot keep the loop busy.
+ */
+const federationPeerRateLimit: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 300
+};
+
+/** `/federation/dm-relay` only — the route a peer's users can drive at will. */
+const federationPeerDmRelayRateLimit: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 120
 };
 
 const uploadRateLimit: RateLimitConfig = {
@@ -143,6 +161,8 @@ export {
   _resetAll,
   authRateLimit,
   consumeRateLimit,
+  federationPeerDmRelayRateLimit,
+  federationPeerRateLimit,
   federationRateLimit,
   federationReadRateLimit,
   MAX_BUCKETS,

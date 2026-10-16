@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import dns from 'dns/promises';
 import { _resetCacheForTests } from '../federation-allowlist';
-import { getFederationProtocol, validateFederationUrl } from '../validate-url';
+import {
+  getFederationProtocol,
+  resolveFederationUrl,
+  validateFederationUrl
+} from '../validate-url';
 
 /**
  * Unit tests for validateFederationUrl. No DB / network — `dns/promises`
@@ -181,6 +185,26 @@ describe('validateFederationUrl', () => {
     await expect(validateFederationUrl('https://v6only.example.com')).resolves.toBeDefined();
   });
 
+  // ─── pinned address ─────────────────────────────────────────────────────
+  test('pins the first A record, preferring v4 over v6', async () => {
+    resolve4Spy.mockResolvedValue(['203.0.113.1', '203.0.113.2']);
+    resolve6Spy.mockResolvedValue(['2606:4700::1']);
+
+    const resolved = await resolveFederationUrl('https://example.com/x');
+    expect(resolved.pinnedIp).toBe('203.0.113.1');
+    expect(resolved.pinnedFamily).toBe(4);
+    expect(resolved.url.href).toBe('https://example.com/x');
+  });
+
+  test('an empty answer set fails closed', async () => {
+    resolve4Spy.mockResolvedValue([]);
+    resolve6Spy.mockResolvedValue([]);
+
+    await expect(validateFederationUrl('https://empty.example.com')).rejects.toThrow(
+      'Could not resolve hostname'
+    );
+  });
+
   test('localhost hostname is rejected via DNS resolution to 127.0.0.1', async () => {
     // 'localhost' is not literally in the IP regexes (it's a hostname), but
     // the DNS resolution path catches it.
@@ -210,14 +234,101 @@ describe('validateFederationUrl', () => {
       _resetCacheForTests();
     });
 
-    test('IPv4 literal in allowlisted CIDR is accepted', async () => {
+    test('IPv4 literal in allowlisted CIDR is accepted without a DNS lookup', async () => {
       process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.1.0/24';
       _resetCacheForTests();
-      resolve4Spy.mockResolvedValue(['192.168.1.50']);
-      resolve6Spy.mockRejectedValue(new Error('ENODATA'));
+      // The runtime resolver answers ENOTFOUND for a numeric host — the
+      // literal must never reach it.
+      resolve4Spy.mockRejectedValue(new Error('ENOTFOUND'));
+      resolve6Spy.mockRejectedValue(new Error('ENOTFOUND'));
 
-      const url = await validateFederationUrl('http://192.168.1.50/');
+      const url = await validateFederationUrl('http://192.168.1.50:3000/x');
       expect(url.hostname).toBe('192.168.1.50');
+      expect(resolve4Spy).not.toHaveBeenCalled();
+      expect(resolve6Spy).not.toHaveBeenCalled();
+    });
+
+    test('a public IPv4 literal never hits DNS either', async () => {
+      resolve4Spy.mockRejectedValue(new Error('ENOTFOUND'));
+      resolve6Spy.mockRejectedValue(new Error('ENOTFOUND'));
+
+      const resolved = await resolveFederationUrl('https://203.0.113.9/federation/info');
+      expect(resolved.pinnedIp).toBe('203.0.113.9');
+      expect(resolved.pinnedFamily).toBe(4);
+      expect(resolve4Spy).not.toHaveBeenCalled();
+    });
+
+    test('IPv6 literal in an allowlisted v6 CIDR is accepted', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16,fd00::/8';
+      _resetCacheForTests();
+
+      const resolved = await resolveFederationUrl('http://[fd00::1]:3000/x');
+      expect(resolved.url.hostname).toBe('[fd00::1]');
+      expect(resolved.pinnedIp).toBe('fd00::1');
+      expect(resolved.pinnedFamily).toBe(6);
+      expect(resolve4Spy).not.toHaveBeenCalled();
+    });
+
+    test('IPv6 literal outside the v6 allowlist is rejected', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = 'fd00::/8';
+      _resetCacheForTests();
+
+      await expect(validateFederationUrl('http://[fe80::1]/')).rejects.toThrow(
+        'Private/internal URLs are not allowed'
+      );
+    });
+
+    test('localhost is accepted when 127.0.0.0/8 is listed (AAAA ::1 rides along)', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '127.0.0.0/8';
+      _resetCacheForTests();
+      resolve4Spy.mockResolvedValue(['127.0.0.1']);
+      resolve6Spy.mockResolvedValue(['::1']);
+
+      const resolved = await resolveFederationUrl('http://localhost:3000/');
+      expect(resolved.url.hostname).toBe('localhost');
+      expect(resolved.pinnedIp).toBe('127.0.0.1');
+    });
+
+    test('[::1] literal is accepted when 127.0.0.0/8 is listed', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '127.0.0.0/8';
+      _resetCacheForTests();
+
+      const resolved = await resolveFederationUrl('http://[::1]:3000/');
+      expect(resolved.pinnedIp).toBe('::1');
+      expect(resolved.pinnedFamily).toBe(6);
+    });
+
+    test('localhost stays rejected when only another range is listed', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '10.0.0.0/8';
+      _resetCacheForTests();
+      resolve4Spy.mockResolvedValue(['127.0.0.1']);
+      resolve6Spy.mockResolvedValue(['::1']);
+
+      await expect(validateFederationUrl('http://localhost:3000/')).rejects.toThrow(
+        'private/internal'
+      );
+    });
+
+    test('an AAAA answer inside an allowlisted v6 range is accepted and pinned when no A record', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = 'fd00::/8';
+      _resetCacheForTests();
+      resolve4Spy.mockRejectedValue(new Error('ENODATA'));
+      resolve6Spy.mockResolvedValue(['fd00:1::5']);
+
+      const resolved = await resolveFederationUrl('https://lan6.example/');
+      expect(resolved.pinnedIp).toBe('fd00:1::5');
+      expect(resolved.pinnedFamily).toBe(6);
+    });
+
+    test('an unresolvable hostname is still rejected with an allowlist set', async () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16,fd00::/8';
+      _resetCacheForTests();
+      resolve4Spy.mockRejectedValue(new Error('ENOTFOUND'));
+      resolve6Spy.mockRejectedValue(new Error('ENOTFOUND'));
+
+      await expect(validateFederationUrl('http://pulse-nx/')).rejects.toThrow(
+        'Could not resolve hostname'
+      );
     });
 
     test('IPv4 literal outside the allowlist is still rejected', async () => {
@@ -324,6 +435,22 @@ describe('validateFederationUrl', () => {
       process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '192.168.0.0/16';
       _resetCacheForTests();
       expect(getFederationProtocol('10.0.0.1')).toBe('https');
+    });
+
+    test('IPv6 literal in allowlist returns http, otherwise https', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = 'fd00::/8';
+      _resetCacheForTests();
+      expect(getFederationProtocol('[fd00::1]')).toBe('http');
+      expect(getFederationProtocol('[fd00::1]:4991')).toBe('http');
+      expect(getFederationProtocol('[fe80::1]:4991')).toBe('https');
+      expect(getFederationProtocol('[2606:4700::1]:4991')).toBe('https');
+    });
+
+    test('[::1] returns http when 127.0.0.0/8 is listed', () => {
+      process.env.FEDERATION_ALLOW_PRIVATE_CIDRS = '127.0.0.0/8';
+      _resetCacheForTests();
+      expect(getFederationProtocol('[::1]:4991')).toBe('http');
+      expect(getFederationProtocol('127.0.0.1:4991')).toBe('http');
     });
 
     test('bare hostname returns http when allowlist is set', () => {

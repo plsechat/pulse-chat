@@ -1,19 +1,17 @@
 import type { TMessageMetadata } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
-import { getLinkPreview } from 'link-preview-js';
 import { db } from '../../db';
 import { messages } from '../../db/schema';
 import { validateFederationUrl } from '../../utils/validate-url';
+import { fetchLinkPreview } from './fetch-link-preview';
 
-type TLinkPreview = Awaited<ReturnType<typeof getLinkPreview>>;
+type TLinkPreview = TMessageMetadata;
 
 /** Fetches one preview; injectable so tests count calls without network. */
 type TLinkPreviewFetcher = (url: string) => Promise<TLinkPreview | undefined>;
 
 /** Most URLs previewed per message — the rest are posted as plain links. */
 const MAX_PREVIEW_URLS_PER_MESSAGE = 5;
-/** Per-URL network budget inside the library. */
-const LINK_PREVIEW_FETCH_TIMEOUT_MS = 5000;
 /** One deadline for the whole message's batch of fetches. */
 const LINK_PREVIEW_DEADLINE_MS = 8000;
 /** Queue job timeout; must stay ABOVE the deadline (see queue index). */
@@ -86,17 +84,10 @@ class PreviewCache {
 
 const metadataCache = new PreviewCache(CACHE_MAX_ENTRIES, CACHE_TTL_MS);
 
-// link-preview-js follows redirects and re-resolves DNS by default. The
-// URL is validated before this runs, but a 302 Location to a private IP
-// would bypass that check, so redirects are refused and execution is
-// bounded. DNS rebinding between validation and the library's connect is
-// a separate hardening item (needs the hardened fetch helper + IP pin).
-const defaultFetcher: TLinkPreviewFetcher = (url) =>
-  getLinkPreview(url, {
-    followRedirects: 'manual',
-    handleRedirects: () => false,
-    timeout: LINK_PREVIEW_FETCH_TIMEOUT_MS
-  });
+// The fetcher dials the address the validator checked (no re-resolve),
+// refuses redirects, caps the body and only parses HTML — see
+// fetch-link-preview.ts.
+const defaultFetcher: TLinkPreviewFetcher = fetchLinkPreview;
 
 /**
  * Candidate URLs for preview: unique, giphy excluded (rendered inline
@@ -176,9 +167,7 @@ export const urlMetadataParser = async (
   // A failed or slow URL only loses its own preview; the others still
   // land (allSettled, not all).
   return results.flatMap((result) =>
-    result.status === 'fulfilled' && result.value
-      ? [result.value as TMessageMetadata]
-      : []
+    result.status === 'fulfilled' && result.value ? [result.value] : []
   );
 };
 

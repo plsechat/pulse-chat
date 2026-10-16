@@ -5,7 +5,7 @@ import { db } from '../../db';
 import { getJoinedFriendRequest } from '../../db/queries/friends';
 import { getUserById } from '../../db/queries/users';
 import { federationInstances, friendRequests, friendships } from '../../db/schema';
-import { relayToInstance } from '../../utils/federation';
+import { enqueueRelay } from '../../utils/federation-outbox';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
@@ -81,7 +81,7 @@ const acceptRequestRoute = protectedProcedure
               sender.federatedPublicId
             );
           } else {
-            relayToInstance(instance.domain, '/federation/friend-accept', {
+            enqueueRelay(instance.domain, '/federation/friend-accept', {
               fromUsername: accepter.name,
               fromPublicId: accepter.publicId,
               fromAvatarFile: accepter.avatar?.name ?? null,

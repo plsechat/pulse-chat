@@ -9,6 +9,7 @@ import {
   generateFederationKeys
 } from '../utils/federation';
 import { _resetBundleFetchRateLimit } from '../utils/bundle-fetch-rate-limit';
+import { _resetAll as _resetRateLimitBuckets } from '../http/rate-limit-core';
 import { getTestDb } from './mock-db';
 import { testsBaseUrl } from './setup';
 
@@ -27,7 +28,14 @@ const PEER_DOMAIN = 'peer.example';
 const TEST_LOCAL_DOMAIN = 'test.local';
 
 type FetchCall = {
+  /**
+   * The request as the peer sees it: `federationFetch` dials the
+   * validated IP and carries the name in `Host`, so this is the URL
+   * with the Host header put back — tests filter by peer domain.
+   */
   url: string;
+  /** The URL actually handed to fetch (pinned address). */
+  dialedUrl: string;
   method: string;
   body: Record<string, unknown>;
   /** Lower-cased request headers. */
@@ -45,13 +53,16 @@ const defaultResponder: FetchResponder = () =>
 /**
  * Replace `globalThis.fetch` with a recording stub for the current test.
  * Every call is captured (URL, method, parsed JSON body, headers) and
- * answered by `respond` (default: 200 `{ ok: true }`). Restored by
- * `mock.restore()`.
+ * answered by `respond` (default: 200 `{ ok: true }`). Requests to the
+ * test HTTP server itself pass through unrecorded, so a handler test can
+ * post to a route while the handler's own outbound calls are stubbed.
+ * Restored by `mock.restore()`.
  */
 function spyOnFetch(respond: FetchResponder = defaultResponder): {
   calls: FetchCall[];
 } {
   const calls: FetchCall[] = [];
+  const realFetch = globalThis.fetch;
   const fakeFetch = mock(
     async (url: string | URL | Request, init?: RequestInit) => {
       const u =
@@ -60,6 +71,9 @@ function spyOnFetch(respond: FetchResponder = defaultResponder): {
           : url instanceof URL
             ? url.toString()
             : url.url;
+      if (u.startsWith(testsBaseUrl)) {
+        return realFetch(url, init);
+      }
       let body: Record<string, unknown> = {};
       if (init?.body) {
         try {
@@ -69,12 +83,22 @@ function spyOnFetch(respond: FetchResponder = defaultResponder): {
         }
       }
       const headers: Record<string, string> = {};
-      if (init?.headers) {
-        const h = init.headers as Record<string, string>;
-        for (const k of Object.keys(h)) headers[k.toLowerCase()] = h[k]!;
+      new Headers(init?.headers).forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
+      let logicalUrl = u;
+      if (headers.host) {
+        try {
+          const parsed = new URL(u);
+          parsed.host = headers.host;
+          logicalUrl = parsed.toString();
+        } catch {
+          // Not a parseable URL — report what was dialled.
+        }
       }
       const call: FetchCall = {
-        url: u,
+        url: logicalUrl,
+        dialedUrl: u,
         method: init?.method ?? 'GET',
         body,
         headers
@@ -128,13 +152,14 @@ type PeerSetup = {
 /**
  * Create the local instance's federation keys plus an active peer row
  * signed with a fresh peer keypair, so `verifyChallenge` accepts
- * requests forged with `postSignedAsPeer`. Resets the jti replay set
- * and the bundle-fetch rate limiter, both module-level state that the
- * between-test TRUNCATE does not touch.
+ * requests forged with `postSignedAsPeer`. Resets the jti replay set,
+ * the bundle-fetch limiter and the per-peer budget buckets — all
+ * module-level state that the between-test TRUNCATE does not touch.
  */
 async function seedPeer(domain: string = PEER_DOMAIN): Promise<PeerSetup> {
   _resetSeenJtis();
   _resetBundleFetchRateLimit();
+  _resetRateLimitBuckets();
   const { publicKey, privateKey } = await generateKeyPair('EdDSA', {
     extractable: true
   });

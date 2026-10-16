@@ -1,11 +1,10 @@
 import { ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
-import { db } from '../../db';
+import { getOrCreatePairChannel } from '../../db/mutations/dms';
 import { isBlockBetween } from '../../db/queries/blocks';
-import { findDmChannelBetween, getDmChannelsForUser } from '../../db/queries/dms';
+import { getDmChannelsForUser } from '../../db/queries/dms';
 import { areFriends } from '../../db/queries/friends';
 import { sharesServerWithFederationAware } from '../../utils/federation-shares-server';
-import { dmChannelMembers, dmChannels } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 import { attachMemberStatus } from './attach-member-status';
@@ -42,45 +41,27 @@ const getOrCreateChannelRoute = protectedProcedure
       });
     }
 
-    // Check if a DM channel already exists
-    const existingChannelId = await findDmChannelBetween(
+    // Upsert on the pair key — a double-click, or a relay from the other
+    // user's instance arriving at the same moment, lands on the same row.
+    const { id: channelId, created } = await getOrCreatePairChannel(
       ctx.userId,
       input.userId
     );
 
-    if (existingChannelId) {
-      const channels = attachMemberStatus(
-        await getDmChannelsForUser(ctx.userId),
-        ctx
-      );
-      return channels.find((c) => c.id === existingChannelId)!;
+    if (created) {
+      // Notify the other user so their DM list updates
+      ctx.pubsub.publishFor(input.userId, ServerEvents.DM_CHANNEL_UPDATE, {
+        dmChannelId: channelId,
+        name: null,
+        iconFileId: null
+      });
     }
-
-    // Create new DM channel
-    const now = Date.now();
-
-    const [channel] = await db
-      .insert(dmChannels)
-      .values({ createdAt: now })
-      .returning();
-
-    await db.insert(dmChannelMembers).values([
-      { dmChannelId: channel!.id, userId: ctx.userId, createdAt: now },
-      { dmChannelId: channel!.id, userId: input.userId, createdAt: now }
-    ]);
-
-    // Notify the other user so their DM list updates
-    ctx.pubsub.publishFor(input.userId, ServerEvents.DM_CHANNEL_UPDATE, {
-      dmChannelId: channel!.id,
-      name: null,
-      iconFileId: null
-    });
 
     const channels = attachMemberStatus(
       await getDmChannelsForUser(ctx.userId),
       ctx
     );
-    return channels.find((c) => c.id === channel!.id)!;
+    return channels.find((c) => c.id === channelId)!;
   });
 
 export { getOrCreateChannelRoute };

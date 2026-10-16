@@ -9,6 +9,7 @@ import { config } from '../../config';
 import { instanceOwnerProcedure } from '../../utils/procedures';
 import { getLocalKeys, signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
+import { peerVersionFrom } from '../../utils/federation-peer-version';
 import { pubsub } from '../../utils/pubsub';
 import {
   getFederationProtocol,
@@ -177,6 +178,9 @@ const addInstanceRoute = instanceOwnerProcedure
         status: 'pending',
         direction: 'outgoing',
         addedBy: ctx.userId,
+        // Advertised version from /federation/info — the compatibility
+        // signal the panel shows next to a degraded pairing.
+        peerVersion: peerVersionFrom(remoteInfo!),
         createdAt: Date.now()
       })
       .returning();
@@ -194,7 +198,12 @@ const addInstanceRoute = instanceOwnerProcedure
         status: instance!.status as 'pending' | 'active' | 'blocked',
         direction: instance!.direction as 'outgoing' | 'incoming' | 'mutual',
         lastSeenAt: instance!.lastSeenAt,
-        createdAt: instance!.createdAt
+        createdAt: instance!.createdAt,
+        peerVersion: instance!.peerVersion,
+        lastError: instance!.lastError,
+        lastErrorAt: instance!.lastErrorAt,
+        pendingOutbox: 0,
+        deadOutbox: 0
       }
     };
   });

@@ -243,7 +243,18 @@ export type TFederationInfo = {
   federationEnabled: boolean;
 };
 
-export type TFederationInstanceSummary = {
+// Compatibility + delivery state of a peer: its advertised version,
+// the last relay failure against it (`unsupported:<path>` when it lacks
+// a route), and the outbox backlog (retrying / dead-lettered rows).
+export type TFederationPeerHealth = {
+  peerVersion: string | null;
+  lastError: string | null;
+  lastErrorAt: number | null;
+  pendingOutbox: number;
+  deadOutbox: number;
+};
+
+export type TFederationInstanceSummary = TFederationPeerHealth & {
   id: number;
   domain: string;
   name: string | null;
@@ -253,13 +264,23 @@ export type TFederationInstanceSummary = {
   createdAt: number;
 };
 
-// Public-facing slice of a federation peer for the discover view.
-// Excludes operator-sensitive metadata (status, direction, createdAt).
-export type TFederationActiveInstance = {
+// Public-facing slice of a federation peer for the discover view and
+// the server rail. Excludes operator-sensitive metadata (status,
+// direction, createdAt).
+export type TFederationActiveInstance = TFederationPeerHealth & {
   id: number;
   domain: string;
   name: string | null;
   lastSeenAt: number | null;
+};
+
+export type TFederationDeadOutboxRow = {
+  id: number;
+  path: string;
+  attempts: number;
+  lastError: string | null;
+  createdAt: number;
+  deadAt: number | null;
 };
 
 export type TFederationConfig = {

@@ -6,6 +6,7 @@ import { deleteShadowUsersByInstance } from '../../db/mutations/federation';
 import { getFederationInstanceById } from '../../db/queries/federation';
 import { federationInstances } from '../../db/schema';
 import { invalidateCorsCache } from '../../http/cors';
+import { relayUnpeer } from '../../utils/federation-unpeer-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { instanceOwnerProcedure } from '../../utils/procedures';
 
@@ -20,10 +21,17 @@ const removeInstanceRoute = instanceOwnerProcedure
     // Look up domain before deleting so we can include it in the event
     const instance = await getFederationInstanceById(input.instanceId);
 
-    // Delete shadow users from this instance
+    // Tell the peer first — once the row is gone we can no longer sign
+    // for its audience or address it.
+    if (instance?.status === 'active') {
+      await relayUnpeer(instance.domain, 'removed');
+    }
+
+    // Delete shadow users from this instance (and the DM channels they
+    // leave behind — see deleteShadowUsersByInstance)
     await deleteShadowUsersByInstance(input.instanceId);
 
-    // Delete the instance record
+    // Delete the instance record (federation_outbox rows cascade)
     await db
       .delete(federationInstances)
       .where(eq(federationInstances.id, input.instanceId));

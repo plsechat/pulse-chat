@@ -16,7 +16,15 @@ const listInstancesRoute = instanceOwnerProcedure.query(async () => {
     status: i.status as 'pending' | 'active' | 'blocked',
     direction: i.direction as 'outgoing' | 'incoming' | 'mutual',
     lastSeenAt: i.lastSeenAt,
-    createdAt: i.createdAt
+    createdAt: i.createdAt,
+    // Compatibility surface: the peer's advertised version, the last
+    // relay failure against it, and the outbox backlog — so the owner
+    // sees a degraded pairing instead of silent 404s.
+    peerVersion: i.peerVersion,
+    lastError: i.lastError,
+    lastErrorAt: i.lastErrorAt,
+    pendingOutbox: i.pendingOutbox,
+    deadOutbox: i.deadOutbox
   }));
 });
 

@@ -29,6 +29,7 @@ import { ServerEvents } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
+import { findDmChannelBetween } from '../db/queries/dms';
 import { dmChannelMembers, dmChannels, users } from '../db/schema';
 import { logger } from '../logger';
 import { pubsub } from '../utils/pubsub';
@@ -38,46 +39,6 @@ import {
   isPeerPublicId,
   jsonResponse
 } from './federation-helpers';
-
-/**
- * Find the 1:1 DM channel between two specific users. Returns the
- * channelId or null. Group channels are excluded — federationGroupId
- * is the addressing model for those.
- */
-async function findOneToOneDmChannel(
-  userIdA: number,
-  userIdB: number
-): Promise<number | null> {
-  const aRows = await db
-    .select({ dmChannelId: dmChannelMembers.dmChannelId })
-    .from(dmChannelMembers)
-    .innerJoin(dmChannels, eq(dmChannels.id, dmChannelMembers.dmChannelId))
-    .where(
-      and(
-        eq(dmChannelMembers.userId, userIdA),
-        eq(dmChannels.isGroup, false)
-      )
-    );
-  if (aRows.length === 0) return null;
-
-  const aSet = new Set(aRows.map((r) => r.dmChannelId));
-
-  const bRows = await db
-    .select({ dmChannelId: dmChannelMembers.dmChannelId })
-    .from(dmChannelMembers)
-    .innerJoin(dmChannels, eq(dmChannels.id, dmChannelMembers.dmChannelId))
-    .where(
-      and(
-        eq(dmChannelMembers.userId, userIdB),
-        eq(dmChannels.isGroup, false)
-      )
-    );
-
-  for (const r of bRows) {
-    if (aSet.has(r.dmChannelId)) return r.dmChannelId;
-  }
-  return null;
-}
 
 const federationDmChannelStateUpdateHandler = async (
   req: http.IncomingMessage,
@@ -152,7 +113,9 @@ const federationDmChannelStateUpdateHandler = async (
       return signedJsonResponse(res, 200, { ignored: 'unknown_sender' }, fromDomain);
     }
 
-    mirrorChannelId = await findOneToOneDmChannel(localUser.id, shadowUser.id);
+    // Pair-key lookup — the same key the relay path creates the mirror
+    // under, so state lands on the one canonical channel for the pair.
+    mirrorChannelId = await findDmChannelBetween(localUser.id, shadowUser.id);
   }
 
   if (mirrorChannelId === null) {

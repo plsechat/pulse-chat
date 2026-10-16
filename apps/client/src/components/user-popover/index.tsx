@@ -255,7 +255,6 @@ const UserPopover = memo(
     if (!trpc) return userId;
     const result = await trpc.federation.ensureShadowUser.mutate({
       instanceDomain: activeInstanceDomain,
-      remoteUserId: userId,
       username: user.name,
       remotePublicId: user.publicId
     });

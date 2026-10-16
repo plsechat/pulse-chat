@@ -9,16 +9,101 @@ import {
   channels,
   dmChannelMembers,
   dmMessages,
+  federationInstances,
   messages,
   reports,
   serverMembers,
+  servers,
   users
 } from '../../db/schema';
+import { logger } from '../../logger';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { enqueueRelay } from '../../utils/federation-outbox';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const REPORT_REASONS = ['illegal', 'spam', 'harassment', 'other'] as const;
+
+/** Caps on what crosses to the peer — the local row keeps the full copy. */
+const RELAY_MAX_DETAILS = 1000;
+const RELAY_MAX_EXCERPT = 1000;
+
+/**
+ * A report against a federated (shadow) user also goes to that user's
+ * home instance: the home is the only party that can act on the
+ * account, and the local row only reaches this instance's moderators.
+ * Queued through the federation outbox, so a home that is down still
+ * gets it; the local report is created regardless.
+ */
+const relayReportToHome = async (args: {
+  targetUserId: number;
+  reporterId: number;
+  serverId: number | null;
+  kind: 'message' | 'dm_message' | 'user';
+  reason: (typeof REPORT_REASONS)[number];
+  details: string | null;
+  contentSnapshot: string | null;
+}): Promise<void> => {
+  try {
+    const [target] = await db
+      .select({
+        isFederated: users.isFederated,
+        federatedInstanceId: users.federatedInstanceId,
+        federatedPublicId: users.federatedPublicId
+      })
+      .from(users)
+      .where(eq(users.id, args.targetUserId))
+      .limit(1);
+    if (
+      !target?.isFederated ||
+      !target.federatedInstanceId ||
+      !target.federatedPublicId
+    ) {
+      return;
+    }
+
+    const [instance] = await db
+      .select({ domain: federationInstances.domain })
+      .from(federationInstances)
+      .where(
+        and(
+          eq(federationInstances.id, target.federatedInstanceId),
+          eq(federationInstances.status, 'active')
+        )
+      )
+      .limit(1);
+    if (!instance) return;
+
+    const [reporter] = await db
+      .select({ publicId: users.publicId })
+      .from(users)
+      .where(eq(users.id, args.reporterId))
+      .limit(1);
+    if (!reporter?.publicId) return;
+
+    let serverPublicId: string | null = null;
+    if (args.serverId !== null) {
+      const [server] = await db
+        .select({ publicId: servers.publicId })
+        .from(servers)
+        .where(eq(servers.id, args.serverId))
+        .limit(1);
+      serverPublicId = server?.publicId ?? null;
+    }
+
+    await enqueueRelay(instance.domain, '/federation/report-user', {
+      subjectPublicId: target.federatedPublicId,
+      reporterPublicId: reporter.publicId,
+      serverPublicId,
+      kind: args.kind,
+      reason: args.reason,
+      details: args.details?.slice(0, RELAY_MAX_DETAILS) ?? null,
+      messageExcerpt: args.contentSnapshot?.slice(0, RELAY_MAX_EXCERPT) ?? null
+    });
+  } catch (err) {
+    logger.error('[reports/create] federated report relay failed: %o', err);
+  }
+};
 
 /** True when the two users share at least one server or DM channel. */
 const sharesContextWith = async (
@@ -268,6 +353,18 @@ const createReportRoute = protectedProcedure
         reason: input.reason,
         reportedBy: ctx.userId
       }
+    });
+
+    // Not awaited: the peer round-trip must not delay the reporter's
+    // confirmation, and the helper never rejects.
+    void relayReportToHome({
+      targetUserId,
+      reporterId: ctx.userId,
+      serverId,
+      kind: input.kind,
+      reason: input.reason,
+      details: input.details ?? null,
+      contentSnapshot
     });
   });
 

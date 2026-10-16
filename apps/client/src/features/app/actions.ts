@@ -371,7 +371,12 @@ export const joinFederatedServer = async (
     // guessing the protocol from the domain string.
     registerRemoteInstanceUrl(instanceDomain, remoteUrl);
     // Connect to remote instance
-    connectionManager.connectRemote(instanceDomain, remoteUrl, federationToken);
+    connectionManager.connectRemote(
+      instanceDomain,
+      remoteUrl,
+      federationToken,
+      tokenExpiresAt
+    );
     console.log('[joinFederatedServer] connected, getting remote tRPC client...');
 
     const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
@@ -452,12 +457,7 @@ export const cleanupFederatedServerEntry = (
     .app.federatedServers.filter((s) => s.instanceDomain === instanceDomain);
 
   if (remaining.length === 0) {
-    // Clean up unread subscription for this instance
-    const sub = federatedUnreadSubs.get(instanceDomain);
-    if (sub) {
-      sub.unsubscribe();
-      federatedUnreadSubs.delete(instanceDomain);
-    }
+    teardownFederatedUnreadSubscription(instanceDomain);
     store.dispatch(appSliceActions.clearFederatedCountsForInstance(instanceDomain));
     connectionManager.disconnectRemote(instanceDomain);
     store.dispatch(
@@ -529,42 +529,28 @@ export const switchToFederatedServer = async (
     connStatus === 'disconnected' ||
     !connectionManager.getConnection(instanceDomain)
   ) {
+    // A new socket means a new tRPC client: a subscription held on the
+    // old one is dead, so drop it and let the 'connected' status event
+    // re-create it on the new client.
+    teardownFederatedUnreadSubscription(instanceDomain);
     connectionManager.reconnectRemote(
       instanceDomain,
       entry.remoteUrl,
-      entry.federationToken
+      entry.federationToken,
+      entry.tokenExpiresAt
     );
   } else if (!connectionManager.isConnected(instanceDomain)) {
     connectionManager.connectRemote(
       instanceDomain,
       entry.remoteUrl,
-      entry.federationToken
+      entry.federationToken,
+      entry.tokenExpiresAt
     );
   }
 
   // Refresh token if close to expiry (within 1 hour)
   if (entry.tokenExpiresAt - Date.now() < 60 * 60 * 1000) {
-    try {
-      const trpc = getHomeTRPCClient();
-      if (!trpc) return;
-      const { token, expiresAt } =
-        await trpc.federation.requestToken.mutate({
-          targetDomain: instanceDomain
-        });
-
-      store.dispatch(
-        appSliceActions.updateFederatedToken({
-          instanceDomain,
-          token,
-          expiresAt
-        })
-      );
-
-      connectionManager.updateToken(instanceDomain, token);
-      saveFederatedServers();
-    } catch (error) {
-      console.error('Failed to refresh federation token:', error);
-    }
+    await refreshFederationToken(instanceDomain);
   }
 
   // Set active state optimistically
@@ -683,6 +669,54 @@ export const removeServerEntryByPublicId = (serverPublicId: string) => {
 // Track federated unread count subscriptions so we can clean up
 const federatedUnreadSubs = new Map<string, { unsubscribe: () => void }>();
 
+/**
+ * Drop the unread subscription for an instance. Every path that loses
+ * the connection (permanent close, max reconnects, explicit disconnect,
+ * a socket replaced by reconnectRemote) goes through here — a stale
+ * handle left in the map made setupFederatedUnreadSubscriptions skip
+ * the instance forever, so the badge froze after the first drop.
+ */
+const teardownFederatedUnreadSubscription = (instanceDomain: string) => {
+  const sub = federatedUnreadSubs.get(instanceDomain);
+  if (!sub) return;
+  sub.unsubscribe();
+  federatedUnreadSubs.delete(instanceDomain);
+};
+
+/**
+ * Mint a fresh federation token at the home instance and store it on
+ * the entry, in localStorage and on the live connection. Used on a
+ * near-expiry switch, by the connection manager when a peer bounces an
+ * expired token, and proactively before a reconnect. Null when the home
+ * client is gone or refused.
+ */
+const refreshFederationToken = async (
+  instanceDomain: string
+): Promise<{ token: string; expiresAt: number } | null> => {
+  try {
+    const trpc = getHomeTRPCClient();
+    if (!trpc) return null;
+    const { token, expiresAt } = await trpc.federation.requestToken.mutate({
+      targetDomain: instanceDomain
+    });
+
+    store.dispatch(
+      appSliceActions.updateFederatedToken({
+        instanceDomain,
+        token,
+        expiresAt
+      })
+    );
+
+    connectionManager.updateToken(instanceDomain, token, expiresAt);
+    saveFederatedServers();
+    return { token, expiresAt };
+  } catch (error) {
+    console.error('Failed to refresh federation token:', error);
+    return null;
+  }
+};
+
 const setupFederatedUnreadSubscriptions = (instanceDomain: string) => {
   // Avoid duplicate subscriptions for the same instance
   if (federatedUnreadSubs.has(instanceDomain)) return;
@@ -726,6 +760,10 @@ const setupFederatedUnreadSubscriptions = (instanceDomain: string) => {
 };
 
 export const loadFederatedServers = async () => {
+  // The manager re-mints through the home client when a peer bounces an
+  // expired token or one is about to expire (idempotent — last wins).
+  connectionManager.setTokenRefreshHandler(refreshFederationToken);
+
   // Register connection status handler (idempotent — last handler wins)
   connectionManager.setStatusChangeHandler((domain, status) => {
     store.dispatch(
@@ -735,8 +773,16 @@ export const loadFederatedServers = async () => {
       })
     );
 
+    // The unread subscription follows the socket: (re)created on every
+    // open, dropped on every loss, so a connection that comes back
+    // after a token re-mint or a peer restart gets its badge back.
+    if (status === 'connected') {
+      setupFederatedUnreadSubscriptions(domain);
+    }
+
     // When a federated connection is permanently lost, fall back to home
     if (status === 'disconnected') {
+      teardownFederatedUnreadSubscription(domain);
       const s = store.getState();
       if (s.app.activeInstanceDomain === domain) {
         toast.error('Lost connection to federated server');
@@ -765,6 +811,18 @@ export const loadFederatedServers = async () => {
     const savedLogoMap = new Map(
       (saved ?? []).map((e) => [`${e.instanceDomain}:${e.server.id}`, e.server.logo])
     );
+
+    // Peer health from the home instance: a peer our home cannot relay
+    // to (older version, unreachable) gets a warning badge on its rail
+    // entry. Best-effort — the list is cosmetic here.
+    const peerWarnings = new Map<string, string>();
+    try {
+      for (const inst of await trpc.federation.listActiveInstances.query()) {
+        if (inst.lastError) peerWarnings.set(inst.domain, inst.lastError);
+      }
+    } catch (err) {
+      console.error('[federation] listActiveInstances failed:', err);
+    }
 
     const entries: TFederatedServerEntry[] = [];
     for (const m of memberships) {
@@ -796,7 +854,8 @@ export const loadFederatedServers = async () => {
             logo: savedLogoMap.get(`${m.instanceDomain}:${m.remoteServerId}`) ?? null
           },
           federationToken: token,
-          tokenExpiresAt: expiresAt
+          tokenExpiresAt: expiresAt,
+          peerWarning: peerWarnings.get(m.instanceDomain)
         });
       } catch (err) {
         console.error(
@@ -818,7 +877,8 @@ export const loadFederatedServers = async () => {
       connectionManager.connectRemote(
         entry.instanceDomain,
         entry.remoteUrl,
-        entry.federationToken
+        entry.federationToken,
+        entry.tokenExpiresAt
       );
       setupFederatedUnreadSubscriptions(entry.instanceDomain);
     }

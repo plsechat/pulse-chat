@@ -12,17 +12,20 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { decodeJwt } from 'jose';
+import { randomUUIDv7 } from 'bun';
+import { decodeJwt, importJWK, SignJWT } from 'jose';
 import { sql } from 'drizzle-orm';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
+import { federationSeenJti } from '../../db/schema';
 import {
   _challengeInternals,
   _resetSeenJtis,
   generateFederationKeys,
   getLocalKeys,
   signChallenge,
-  verifyChallenge
+  verifyChallenge,
+  type LocalKeys
 } from '../federation';
 
 const LOCAL_DOMAIN = 'test.local';
@@ -198,6 +201,107 @@ describe('verifyChallenge rejection paths', () => {
       otherPublicKeyStr
     );
     expect(ok).toBe(false);
+  });
+});
+
+/** A challenge over `payload` with explicit timing, signed with `keys`. */
+const challengeWith = async (
+  keys: LocalKeys,
+  payload: unknown,
+  timing: { iat: number; exp: number }
+): Promise<string> =>
+  new SignJWT({ sha256: await _challengeInternals.payloadDigest(payload) })
+    .setProtectedHeader({ alg: 'EdDSA' })
+    .setIssuer(LOCAL_DOMAIN)
+    .setAudience(LOCAL_DOMAIN)
+    .setJti(randomUUIDv7())
+    .setIssuedAt(timing.iat)
+    .setExpirationTime(timing.exp)
+    .sign(await importJWK(keys.privateKey, 'EdDSA'));
+
+describe('clock tolerance', () => {
+  test('a signature 30 s past its exp is accepted', async () => {
+    await setup();
+    const keys = (await getLocalKeys())!;
+    const payload = { fromDomain: LOCAL_DOMAIN };
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sig = await challengeWith(keys, payload, { iat: nowSec - 330, exp: nowSec - 30 });
+
+    expect(
+      await verifyChallenge(sig, payload, LOCAL_DOMAIN, JSON.stringify(keys.publicKey))
+    ).toBe(true);
+  });
+
+  test('a signature 2 min past its exp is rejected', async () => {
+    await setup();
+    const keys = (await getLocalKeys())!;
+    const payload = { fromDomain: LOCAL_DOMAIN };
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sig = await challengeWith(keys, payload, { iat: nowSec - 420, exp: nowSec - 120 });
+
+    expect(
+      await verifyChallenge(sig, payload, LOCAL_DOMAIN, JSON.stringify(keys.publicKey))
+    ).toBe(false);
+  });
+});
+
+describe('replay protection survives a restart', () => {
+  test('a jti is still rejected after the in-memory set is cleared', async () => {
+    await setup();
+    const payload = { fromDomain: LOCAL_DOMAIN };
+    const sig = await signChallenge(payload, LOCAL_DOMAIN);
+    const keys = (await getLocalKeys())!;
+    const publicKeyStr = JSON.stringify(keys.publicKey);
+
+    expect(await verifyChallenge(sig, payload, LOCAL_DOMAIN, publicKeyStr)).toBe(true);
+
+    // The accepted jti is persisted with a retention past the exp.
+    const { jti, exp } = decodeJwt(sig);
+    const rows = await getTestDb()
+      .select()
+      .from(federationSeenJti);
+    expect(rows.map((r) => r.jti)).toEqual([jti!]);
+    expect(rows[0]!.expiresAt).toBe(exp! * 1000 + _challengeInternals.CLOCK_TOLERANCE_MS);
+
+    // "Restart": the process-memory fast path is gone, the table decides.
+    _resetSeenJtis();
+    expect(await verifyChallenge(sig, payload, LOCAL_DOMAIN, publicKeyStr)).toBe(false);
+  });
+
+  test('a failed signature never consumes the jti', async () => {
+    await setup();
+    const payload = { fromDomain: LOCAL_DOMAIN };
+    const sig = await signChallenge(payload, LOCAL_DOMAIN);
+    const keys = (await getLocalKeys())!;
+    const publicKeyStr = JSON.stringify(keys.publicKey);
+
+    // Wrong body first (digest mismatch after a good signature check)…
+    expect(
+      await verifyChallenge(sig, { fromDomain: 'other' }, LOCAL_DOMAIN, publicKeyStr)
+    ).toBe(false);
+    expect(await getTestDb().select().from(federationSeenJti)).toHaveLength(0);
+
+    // …then the genuine request still goes through once.
+    expect(await verifyChallenge(sig, payload, LOCAL_DOMAIN, publicKeyStr)).toBe(true);
+  });
+});
+
+describe('candidate key list (peer rotation grace)', () => {
+  test('verifies against the previous key when the current one fails, in order', async () => {
+    await setup();
+    const payload = { fromDomain: LOCAL_DOMAIN };
+    const sig = await signChallenge(payload, LOCAL_DOMAIN);
+    const oldKeys = (await getLocalKeys())!;
+    const oldPublic = JSON.stringify(oldKeys.publicKey);
+
+    const tdb = getTestDb();
+    await tdb.execute(sql`DELETE FROM federation_keys`);
+    await generateFederationKeys();
+    const newPublic = JSON.stringify((await getLocalKeys())!.publicKey);
+
+    expect(await verifyChallenge(sig, payload, LOCAL_DOMAIN, [newPublic])).toBe(false);
+    expect(await verifyChallenge(sig, payload, LOCAL_DOMAIN, [])).toBe(false);
+    expect(await verifyChallenge(sig, payload, LOCAL_DOMAIN, [newPublic, oldPublic])).toBe(true);
   });
 });
 

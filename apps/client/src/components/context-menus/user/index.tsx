@@ -103,7 +103,6 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     if (!trpc) return null;
     const result = await trpc.federation.ensureShadowUser.mutate({
       instanceDomain: activeInstanceDomain,
-      remoteUserId: userId,
       username: user.name,
       remotePublicId: user.publicId
     });

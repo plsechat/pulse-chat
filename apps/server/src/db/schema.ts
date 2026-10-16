@@ -316,9 +316,12 @@ const users = pgTable(
     index('users_last_login_idx').on(t.lastLoginAt),
     index('users_federated_idx').on(t.isFederated),
     index('users_federated_instance_idx').on(t.federatedInstanceId),
-    uniqueIndex('users_federated_identity_idx').on(
+    // A shadow is identified by its home instance + the publicId its home
+    // issued; federated_username is informational only (a peer may rename
+    // or renumber, and two users can share a display name).
+    uniqueIndex('users_federated_public_identity_idx').on(
       t.federatedInstanceId,
-      t.federatedUsername
+      t.federatedPublicId
     ),
     uniqueIndex('users_public_id_idx').on(t.publicId),
     index('users_federated_public_id_idx').on(t.federatedPublicId)
@@ -805,12 +808,20 @@ const dmChannels = pgTable(
     // look up the local mirror by this column. Null for same-
     // instance groups and all 1:1 DMs.
     federationGroupId: text('federation_group_id'),
+    // Canonical identity of a 1:1 pair, identical on every instance that
+    // mirrors it: the two members' stable identities sorted and joined
+    // with '|' (`local:<publicId>` / `federated:<domain>:<publicId>`).
+    // Creation upserts on it, so two first messages crossing in flight
+    // (or a relay retried by the outbox) cannot mint two channels for
+    // the same pair. Null for groups.
+    pairKey: text('pair_key'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
     index('dm_channels_federation_group_id_idx').on(t.federationGroupId),
-    index('dm_channels_icon_file_idx').on(t.iconFileId)
+    index('dm_channels_icon_file_idx').on(t.iconFileId),
+    uniqueIndex('dm_channels_pair_key_idx').on(t.pairKey)
   ]
 );
 
@@ -863,11 +874,16 @@ const dmMessages = pgTable(
     ),
     forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' })
+    updatedAt: bigint('updated_at', { mode: 'number' }),
+    // Set on messages that arrived over /federation/dm-relay: the
+    // sender's per-relay id, unique so a relay the peer's outbox retries
+    // lands once. Null for local messages.
+    federationRelayId: text('federation_relay_id')
   },
   (t) => [
     index('dm_messages_user_idx').on(t.userId),
     index('dm_messages_channel_idx').on(t.dmChannelId),
+    uniqueIndex('dm_messages_federation_relay_id_idx').on(t.federationRelayId),
     index('dm_messages_created_idx').on(t.createdAt),
     index('dm_messages_channel_created_idx').on(t.dmChannelId, t.createdAt),
     index('dm_messages_pinned_idx').on(t.pinned),
@@ -1128,6 +1144,10 @@ const reports = pgTable(
       onDelete: 'set null'
     }),
     resolvedAt: bigint('resolved_at', { mode: 'number' }),
+    /** Null for reports filed here; `federated:<domain>` when a peer
+     *  forwarded a report about one of our users over
+     *  /federation/report-user. */
+    source: text('source'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull()
   },
   (t) => [
@@ -1142,7 +1162,12 @@ const federationKeys = pgTable('federation_keys', {
   id: serial('id').primaryKey(),
   publicKey: text('public_key').notNull(),
   privateKey: text('private_key').notNull(),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  // Key rotation: the newest row with retired_at NULL signs; a retired
+  // row still verifies incoming signatures until its grace window
+  // (24 h after retired_at) has passed, so peers that have not yet
+  // applied the rotation are not cut off mid-way.
+  retiredAt: bigint('retired_at', { mode: 'number' })
 });
 
 const federationInstances = pgTable(
@@ -1158,6 +1183,19 @@ const federationInstances = pgTable(
       onDelete: 'set null'
     }),
     lastSeenAt: bigint('last_seen_at', { mode: 'number' }),
+    // Compatibility signal: the peer's advertised version (from its
+    // /federation/info at pairing, refreshed when it talks to us) and
+    // the last relay failure we saw from it (`unsupported:<path>` for a
+    // 404 from an older peer, else the status/error), so the UI can mark
+    // a pairing as degraded instead of failing silently.
+    peerVersion: text('peer_version'),
+    lastError: text('last_error'),
+    lastErrorAt: bigint('last_error_at', { mode: 'number' }),
+    // Key rotation grace: when a peer announces a new key, its previous
+    // one stays accepted for 24 h from key_rotated_at so relays the peer
+    // signed just before (or queued in its outbox) still verify.
+    previousPublicKey: text('previous_public_key'),
+    keyRotatedAt: bigint('key_rotated_at', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -1165,6 +1203,50 @@ const federationInstances = pgTable(
     uniqueIndex('federation_instances_domain_idx').on(t.domain),
     index('federation_instances_status_idx').on(t.status)
   ]
+);
+
+/**
+ * Durable outbox for outbound federation relays. A relay is inserted
+ * here and attempted at once; on failure it stays with a backoff
+ * schedule and the outbox cron retries it per peer in order, so a peer
+ * that is restarting receives the friend request / DM / kick / key
+ * distribution it would otherwise have lost. Rows are deleted on
+ * success; `dead_at` marks a row that exhausted its attempts (or hit
+ * a 404 from an older peer) and is shown to the instance owner.
+ */
+const federationOutbox = pgTable(
+  'federation_outbox',
+  {
+    id: serial('id').primaryKey(),
+    instanceId: integer('instance_id')
+      .notNull()
+      .references(() => federationInstances.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    payload: jsonb('payload').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: bigint('next_attempt_at', { mode: 'number' }).notNull(),
+    lastError: text('last_error'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    deadAt: bigint('dead_at', { mode: 'number' })
+  },
+  (t) => [
+    index('federation_outbox_due_idx').on(t.deadAt, t.nextAttemptAt),
+    index('federation_outbox_instance_idx').on(t.instanceId)
+  ]
+);
+
+/**
+ * Replay protection for signed federation challenges that survives a
+ * restart: every accepted jti is inserted here (ON CONFLICT DO NOTHING
+ * is the atomic "seen?" check) and pruned once its TTL has passed.
+ */
+const federationSeenJti = pgTable(
+  'federation_seen_jti',
+  {
+    jti: text('jti').primaryKey(),
+    expiresAt: bigint('expires_at', { mode: 'number' }).notNull()
+  },
+  (t) => [index('federation_seen_jti_expires_idx').on(t.expiresAt)]
 );
 
 const userFederatedServers = pgTable(
@@ -1413,6 +1495,8 @@ export {
   emojis,
   federationInstances,
   federationKeys,
+  federationOutbox,
+  federationSeenJti,
   userFederatedServers,
   files,
   forumPostTags,

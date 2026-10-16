@@ -75,7 +75,7 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Compass, Home, Plus, Volume2 } from 'lucide-react';
+import { AlertTriangle, Compass, Home, Plus, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { TServerSummary } from '@pulse/shared';
@@ -167,7 +167,9 @@ const FederatedServerIcon = memo(
       ? ' - Disconnected'
       : isReconnecting
         ? ' - Reconnecting...'
-        : '';
+        : entry.peerWarning
+          ? ` - Degraded: ${entry.peerWarning}`
+          : '';
 
     return (
       <div className="relative flex w-full items-center justify-center group">
@@ -199,6 +201,17 @@ const FederatedServerIcon = memo(
             <span className="text-lg font-semibold">{firstLetter}</span>
           )}
         </button>
+        {/* Peer-health warning: our home instance cannot relay to this
+            peer (older version, unreachable). Top corner so it never
+            collides with the mention / voice badge below. */}
+        {entry.peerWarning && (
+          <div
+            className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 border-2 border-sidebar pointer-events-none"
+            title={`Degraded: ${entry.peerWarning}`}
+          >
+            <AlertTriangle className="h-2.5 w-2.5 text-white" />
+          </div>
+        )}
         {hasVoiceActivity ? (
           <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 border-2 border-sidebar">
             <Volume2 className="h-3 w-3 text-white" />

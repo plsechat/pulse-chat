@@ -35,7 +35,10 @@ import {
   users
 } from '../db/schema';
 import { config } from '../config';
-import { findOrCreateShadowUserByPublicId } from '../db/mutations/federation';
+import {
+  findOrCreateShadowUserByPublicId,
+  verifyRemoteUserAttestation
+} from '../db/mutations/federation';
 import { logger } from '../logger';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { pubsub } from '../utils/pubsub';
@@ -62,20 +65,6 @@ type IncomingFederatedMember = {
 };
 
 /**
- * Resolve a member descriptor to a local user id. Three cases:
- *   1. Member's instanceDomain == our domain → find the local user
- *      by publicId. Must already exist.
- *   2. Member's instanceDomain == requesting peer's domain → use
- *      `findOrCreateShadowUser` against that peer's instance row.
- *   3. Member's instanceDomain is neither ours nor the requester's
- *      → look up the third instance in our federationInstances
- *      table; if active, create a shadow against it. If we don't
- *      know the instance, return null (best-effort: this member
- *      simply won't appear in our local mirror; messages routed
- *      through them will fall back to the requesting peer being
- *      able to see them).
- */
-/**
  * Validate and bound one wire member descriptor. Structural fields
  * (publicId, instanceDomain) are rejected when malformed; the display
  * name is truncated and falls back to the publicId when missing.
@@ -95,6 +84,21 @@ function sanitizeIncomingMember(
   };
 }
 
+/**
+ * Resolve a member descriptor to a local user id. Three cases:
+ *   1. Member's instanceDomain == our domain → find the local user
+ *      by publicId. Must already exist.
+ *   2. Member's instanceDomain == requesting peer's domain → shadow
+ *      against that peer's instance row, with the name the peer sent
+ *      (it is that user's home, so its word is authoritative).
+ *   3. Member's instanceDomain is neither ours nor the requester's
+ *      → the announcing peer is NOT that user's home and cannot vouch
+ *      for them: ask the third instance itself (signed user-info) and
+ *      take ITS name. Unknown, inactive or unreachable instance, or a
+ *      user it does not know → null (best-effort: this member simply
+ *      won't appear in our local mirror, and dm-relay drops their
+ *      messages as a non-member).
+ */
 async function resolveMemberToLocalUserId(
   member: IncomingFederatedMember,
   requesterInstanceId: number,
@@ -109,29 +113,45 @@ async function resolveMemberToLocalUserId(
     return localUser?.id ?? null;
   }
 
-  let instanceId: number;
   if (member.instanceDomain === requesterDomain) {
-    instanceId = requesterInstanceId;
-  } else {
-    const [otherInstance] = await db
-      .select({ id: federationInstances.id, status: federationInstances.status })
-      .from(federationInstances)
-      .where(eq(federationInstances.domain, member.instanceDomain))
-      .limit(1);
-    if (!otherInstance || otherInstance.status !== 'active') {
-      logger.warn(
-        '[dm-group-create] skipping member from unfederated peer %s',
-        sanitizeForLog(member.instanceDomain)
-      );
-      return null;
-    }
-    instanceId = otherInstance.id;
+    const shadow = await findOrCreateShadowUserByPublicId(
+      requesterInstanceId,
+      member.publicId,
+      member.name
+    );
+    return shadow.id;
+  }
+
+  const [otherInstance] = await db
+    .select({ id: federationInstances.id, status: federationInstances.status })
+    .from(federationInstances)
+    .where(eq(federationInstances.domain, member.instanceDomain))
+    .limit(1);
+  if (!otherInstance || otherInstance.status !== 'active') {
+    logger.warn(
+      '[dm-group-create] skipping member from unfederated peer %s',
+      sanitizeForLog(member.instanceDomain)
+    );
+    return null;
+  }
+
+  const attested = await verifyRemoteUserAttestation(
+    member.instanceDomain,
+    member.publicId
+  );
+  if (!attested) {
+    logger.warn(
+      '[dm-group-create] %s did not attest member %s — skipping',
+      sanitizeForLog(member.instanceDomain),
+      sanitizeForLog(member.publicId)
+    );
+    return null;
   }
 
   const shadow = await findOrCreateShadowUserByPublicId(
-    instanceId,
+    otherInstance.id,
     member.publicId,
-    member.name
+    attested.name
   );
   return shadow.id;
 }

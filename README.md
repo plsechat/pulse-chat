@@ -128,7 +128,7 @@ Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-u
 | `PUBLIC_IP` | production behind NAT | Public IP for WebRTC ICE candidates |
 | `REGISTRATION_DISABLED` | optional | Lock down registration instance-wide (all methods; invites still work) |
 | `REGISTRATION_PASSWORD_ENABLED` / `REGISTRATION_OIDC_ENABLED` / `REGISTRATION_SOCIAL_ENABLED` | optional | Per-method signup switches (default `true`). Set to `false` to disable that method's self-registration; a valid invite still bypasses it. For OIDC-only signups, set the password + social ones to `false`. |
-| `FEDERATION_ALLOW_PRIVATE_CIDRS` | optional | Comma-separated IPv4 CIDRs to allow as federation peers (e.g. `192.168.1.0/24`). Default: all RFC1918 / loopback / link-local blocked. |
+| `FEDERATION_ALLOW_PRIVATE_CIDRS` | optional | Comma-separated IPv4 and IPv6 CIDRs to allow as federation peers (e.g. `192.168.1.0/24,fd00::/8`). Default: all RFC1918 / ULA / loopback / link-local blocked. Listing `127.0.0.0/8` also admits `::1`, so `localhost` peers work without a separate v6 entry. Allowlisted IP-literal and bare-hostname peers are dialled over plain HTTP. |
 | `OIDC_OAUTH_ENABLED` | optional | Set `true` to enable native OpenID Connect SSO (works under either auth backend). See [Single Sign-On (OIDC)](#single-sign-on-oidc). |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_SECRET` | `OIDC_OAUTH_ENABLED=true` | Your IdP's issuer URL and client credentials. Endpoints are discovered at `<issuer>/.well-known/openid-configuration`. |
 | `OIDC_LABEL` | optional | Login-button text (default `Single Sign-On`) |

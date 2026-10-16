@@ -1,4 +1,5 @@
 import { MAX_MESSAGE_WIRE_LENGTH, ServerEvents } from '@pulse/shared';
+import { randomUUIDv7 } from 'bun';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -7,8 +8,8 @@ import { getDmChannelMemberIds, getDmMessage } from '../../db/queries/dms';
 import { getUserById } from '../../db/queries/users';
 import { dmChannels, dmMessageFiles, dmMessages, federationInstances } from '../../db/schema';
 import { enqueueProcessDmMetadata } from '../../queues/dm-message-metadata';
-import { relayToInstance } from '../../utils/federation';
 import { getFederationGroupId } from '../../utils/federation-dm-group-dispatch';
+import { enqueueRelay } from '../../utils/federation-outbox';
 import { invariant } from '../../utils/invariant';
 import { fileManager } from '../../utils/file-manager';
 import { logger } from '../../logger';
@@ -197,7 +198,11 @@ const sendMessageRoute = protectedProcedure
                 member.federatedPublicId
               );
             } else {
-              relayToInstance(instance.domain, '/federation/dm-relay', {
+              enqueueRelay(instance.domain, '/federation/dm-relay', {
+                // The outbox delivers at-least-once; the receiver
+                // de-duplicates on this id (dm_messages.federation_relay_id)
+                // so a retried relay never lands the message twice.
+                relayId: randomUUIDv7(),
                 fromUsername: sender.name,
                 fromPublicId: sender.publicId,
                 fromAvatarFile: sender.avatar?.name ?? null,

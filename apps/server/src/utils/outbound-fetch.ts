@@ -30,7 +30,14 @@ interface OutboundResponse {
   json: <T>() => Promise<T>;
 }
 
-async function readBodyWithCap(
+/**
+ * Drain a response body through the streaming reader, failing as soon as
+ * the running total passes `maxBytes` — so a hostile or runaway upstream
+ * costs at most the cap in memory, never the whole body. Shared by the
+ * trusted-upstream wrapper below, `federationFetch` and the link-preview
+ * fetcher.
+ */
+export async function readBodyWithCap(
   response: Response,
   maxBytes: number
 ): Promise<Uint8Array> {

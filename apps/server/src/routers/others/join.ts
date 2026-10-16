@@ -39,6 +39,7 @@ import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueLogin } from '../../queues/logins';
+import { relayPresenceConnected } from '../../utils/federation-user-info-dispatch';
 import { invariant } from '../../utils/invariant';
 import { publicProcedure } from '../../utils/trpc';
 
@@ -73,7 +74,23 @@ const joinServerRoute = publicProcedure
     }
 
     ctx.authenticated = true;
+    // Captured before the socket registers: a re-join on an already
+    // registered socket (server switch) must not count as a connect.
+    const socketsBefore = ctx.getUserWs(ctx.user.id)?.size ?? 0;
     ctx.setWsUserId(ctx.user.id);
+
+    // Presence to peers that hold a shadow of this user — only for the
+    // FIRST live socket of a local account, and only when the socket is
+    // actually registered (a test caller has none). Federated users'
+    // presence is their home's to announce.
+    if (
+      config.federation.enabled &&
+      !ctx.user.isFederated &&
+      socketsBefore === 0 &&
+      ctx.getUserWs(ctx.user.id)?.size === 1
+    ) {
+      relayPresenceConnected(ctx.user.id, ctx.getStatusById(ctx.user.id));
+    }
 
     // Find the user's joined servers
     const userServers = await getServersByUserId(ctx.user.id);

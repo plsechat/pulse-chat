@@ -6,7 +6,7 @@ import { isBlockBetween } from '../../db/queries/blocks';
 import { areFriends, getJoinedFriendRequest } from '../../db/queries/friends';
 import { getUserById } from '../../db/queries/users';
 import { federationInstances, friendRequests } from '../../db/schema';
-import { relayToInstance } from '../../utils/federation';
+import { enqueueRelay } from '../../utils/federation-outbox';
 import { sharesServerWithFederationAware } from '../../utils/federation-shares-server';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
@@ -133,7 +133,7 @@ const sendRequestRoute = protectedProcedure
               receiver.federatedPublicId
             );
           } else {
-            relayToInstance(instance.domain, '/federation/friend-request', {
+            enqueueRelay(instance.domain, '/federation/friend-request', {
               fromUsername: sender.name,
               fromPublicId: sender.publicId,
               fromAvatarFile: sender.avatar?.name ?? null,

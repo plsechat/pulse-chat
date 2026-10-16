@@ -12,21 +12,27 @@ import { getJoinedRoute } from './get-joined';
 import { joinRemoteRoute } from './join-remote';
 import { leaveRemoteRoute } from './leave-remote';
 import { listActiveInstancesRoute } from './list-active-instances';
+import { listDeadOutboxRoute } from './list-dead-outbox';
 import { listInstancesRoute } from './list-instances';
 import { removeInstanceRoute } from './remove-instance';
 import { requestTokenRoute } from './request-token';
+import { retryOutboxRoute } from './retry-outbox';
+import { rotateKeysRoute } from './rotate-keys';
 import { setConfigRoute } from './set-config';
 
 export const federationRouter = t.router({
   getConfig: getConfigRoute,
   setConfig: setConfigRoute,
   generateKeys: generateKeysRoute,
+  rotateKeys: rotateKeysRoute,
   listInstances: listInstancesRoute,
   listActiveInstances: listActiveInstancesRoute,
   addInstance: addInstanceRoute,
   acceptInstance: acceptInstanceRoute,
   removeInstance: removeInstanceRoute,
   blockInstance: blockInstanceRoute,
+  retryOutbox: retryOutboxRoute,
+  listDeadOutbox: listDeadOutboxRoute,
   requestToken: requestTokenRoute,
   discoverRemote: discoverRemoteRoute,
   joinRemote: joinRemoteRoute,

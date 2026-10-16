@@ -6,9 +6,12 @@ import { cleanupExpiredAuthSessions } from './cleanup-auth-sessions';
 import { cleanupEmptyThreads } from './cleanup-empty-threads';
 import { cleanupFiles } from './cleanup-files';
 import { cleanupOrphanVoiceUsers } from './cleanup-orphan-voice';
+import { drainOutboxTick } from './federation-outbox';
+import { pruneFederationReplayState } from './federation-seen-jti';
 import { pruneExpiredLogs } from './retention';
 
 enum CRON_TIMES {
+  EVERY_30_SECONDS = '*/30 * * * * *',
   EVERY_MINUTE = '* * * * *',
   EVERY_5_MINUTES = '*/5 * * * *',
   EVERY_15_MINUTES = '*/15 * * * *',
@@ -130,6 +133,30 @@ const loadCrons = () => {
     CRON_TIMES.EVERY_DAY,
     cleanupExpiredAuthSessions,
     CRON_LOCK_IDS.CLEANUP_AUTH_SESSIONS
+  );
+
+  // Federation outbox: queued relays to peers that were down or
+  // rate-limited. 30 s matches the first backoff step, so a relay that
+  // failed inline is retried as soon as it becomes due; the lock keeps
+  // a slow tick (peer at the request timeout) from overlapping the
+  // next one. No-op per tick when federation is off or nothing is due.
+  scheduleCron(
+    'federation-outbox',
+    CRON_TIMES.EVERY_30_SECONDS,
+    drainOutboxTick,
+    CRON_LOCK_IDS.FEDERATION_OUTBOX
+  );
+
+  // Federation replay cache + retired signing keys: a jti row protects
+  // nothing once its signature can no longer verify (6 min), so 15 min
+  // keeps the table at roughly one busy quarter-hour of relays; retired
+  // keys leave after their 24 h grace. Both DELETEs hit indexed
+  // predicates, so a tick with nothing to do is cheap.
+  scheduleCron(
+    'federation-seen-jti',
+    CRON_TIMES.EVERY_15_MINUTES,
+    pruneFederationReplayState,
+    CRON_LOCK_IDS.FEDERATION_SEEN_JTI
   );
 };
 

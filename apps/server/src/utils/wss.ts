@@ -25,6 +25,7 @@ import {
 import { eq } from 'drizzle-orm';
 import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
+import { config } from '../config';
 import { db } from '../db';
 import { findOrCreateShadowUser, syncShadowUserProfile } from '../db/mutations/federation';
 import { getAllChannelUserPermissions } from '../db/queries/channels';
@@ -40,7 +41,8 @@ import { enqueueActivityLog } from '../queues/activity-log';
 import { appRouter } from '../routers';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { VoiceRuntime } from '../runtimes/voice';
-import { verifyFederationToken } from './federation';
+import { verifyFederationToken, verifyFederationTokenDetailed } from './federation';
+import { schedulePresenceOffline } from './federation-user-info-dispatch';
 import {
   registerPermissionCacheInvalidator,
   unregisterPermissionCacheInvalidator
@@ -153,15 +155,22 @@ const createContext = async ({
   if (params.federationToken) {
     // Federation auth path
     logger.debug('[wss/createContext] federation auth path, token length=%d', params.federationToken.length);
-    const fedResult = await verifyFederationToken(params.federationToken);
+    const fedResult = await verifyFederationTokenDetailed(params.federationToken);
     logger.debug('[wss/createContext] federation token verification result=%o',
-      fedResult ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : null);
+      fedResult.ok ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : fedResult);
 
-    if (!fedResult) {
-      res.close(DisconnectCode.FEDERATION_REJECTED, 'Invalid federation token');
+    if (!fedResult.ok) {
+      // An expired token gets its own code: the client re-mints at home
+      // and reconnects. Everything else is a peer-level rejection the
+      // client must not retry against.
+      if (fedResult.reason === 'expired') {
+        res.close(DisconnectCode.FEDERATION_TOKEN_EXPIRED, 'Federation token expired');
+      } else {
+        res.close(DisconnectCode.FEDERATION_REJECTED, 'Invalid federation token');
+      }
     }
 
-    invariant(fedResult, {
+    invariant(fedResult.ok, {
       code: 'UNAUTHORIZED',
       message: 'Invalid federation token'
     });
@@ -818,6 +827,13 @@ const createWsServer = async (server: http.Server) => {
         // Always clean up user state, even if voice cleanup failed
         usersIpMap.delete(user.id);
         userStatusOverrides.delete(user.id);
+
+        // Peers holding a shadow of this local user learn they went
+        // offline — debounced, so a page refresh does not flicker. A
+        // shadow's presence is its home instance's to announce.
+        if (config.federation.enabled && !user.isFederated) {
+          schedulePresenceOffline(user.id, () => hasLiveWsConnection(user.id));
+        }
 
         try {
           // Scope USER_LEAVE to everyone with a presence interest —

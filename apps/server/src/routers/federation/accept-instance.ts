@@ -5,12 +5,10 @@ import { db } from '../../db';
 import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
 import { instanceOwnerProcedure } from '../../utils/procedures';
-import { signChallenge } from '../../utils/federation';
-import { federationFetch } from '../../utils/federation-fetch';
-import { getFederationProtocol } from '../../utils/validate-url';
+import { enqueueRelay } from '../../utils/federation-outbox';
+import { fetchPeerVersion } from '../../utils/federation-peer-version';
 import { pubsub } from '../../utils/pubsub';
 import { invalidateCorsCache } from '../../http/cors';
-import { logger } from '../../logger';
 
 const acceptInstanceRoute = instanceOwnerProcedure
   .input(
@@ -34,48 +32,28 @@ const acceptInstanceRoute = instanceOwnerProcedure
       ctx.throwValidationError('instanceId', 'Instance is blocked');
     }
 
+    // The peer's advertised version, captured while we are talking to
+    // it anyway; null when /federation/info is unreachable right now.
+    const peerVersion = await fetchPeerVersion(instance!.domain);
+
     // Update local record to active + mutual
     await db
       .update(federationInstances)
       .set({
         status: 'active',
         direction: 'mutual',
+        ...(peerVersion !== null ? { peerVersion } : {}),
         updatedAt: Date.now()
       })
       .where(eq(federationInstances.id, input.instanceId));
 
-    // Notify remote instance (retry once on failure, fire-and-forget)
-    const notifyRemote = async (attempt: number) => {
-      try {
-        const protocol = getFederationProtocol(instance!.domain);
-        const bodyToSign = { domain: config.federation.domain };
-        const signature = await signChallenge(bodyToSign, instance!.domain);
-
-        const res = await federationFetch(`${protocol}://${instance!.domain}/federation/accept`, {
-          method: 'POST',
-          signal: AbortSignal.timeout(10_000),
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...bodyToSign,
-            signature
-          })
-        });
-
-        if (!res.ok && attempt < 2) {
-          logger.warn('Remote instance returned %d on acceptance notification (attempt %d)', res.status, attempt);
-          await Bun.sleep(2000);
-          return notifyRemote(attempt + 1);
-        }
-      } catch (error) {
-        logger.error('Failed to notify remote instance of acceptance (attempt %d):', attempt, error);
-        if (attempt < 2) {
-          await Bun.sleep(2000);
-          return notifyRemote(attempt + 1);
-        }
-      }
-    };
-    notifyRemote(1).catch((err) => {
-      logger.debug('[federation/accept] notifyRemote final failure swallowed: %o', err);
+    // Tell the peer. Through the outbox (the row is active now, so it
+    // queues): a peer mid-restart gets the acceptance when it is back
+    // instead of staying pending on its side forever. The body names us
+    // as `domain` like it always did; the relay adds `fromDomain` and
+    // the receiver verifies the whole signed body.
+    void enqueueRelay(instance!.domain, '/federation/accept', {
+      domain: config.federation.domain
     });
 
     invalidateCorsCache();

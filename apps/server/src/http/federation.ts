@@ -3,20 +3,36 @@ import {
   MAX_MESSAGE_WIRE_LENGTH,
   ServerEvents
 } from '@pulse/shared';
-import { and, eq, count, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import http from 'http';
 import { db } from '../db';
 import {
+  dmChannelMembers,
+  dmChannels,
+  dmMessages,
   federationInstances,
-  servers,
-  serverMembers,
-  users,
   files,
+  friendRequests,
+  friendships,
+  reports,
+  serverMembers,
+  servers,
   userIdentityKeys,
-  userSignedPreKeys,
-  userOneTimePreKeys
+  userOneTimePreKeys,
+  users,
+  userSignedPreKeys
 } from '../db/schema';
-import { getFirstServer } from '../db/queries/servers';
+import { isBlockBetween } from '../db/queries/blocks';
+import { findDmChannelBetween, getDmMessage } from '../db/queries/dms';
+import { areFriends, getJoinedFriendRequest } from '../db/queries/friends';
+import { getFirstServer, sharesServerWith } from '../db/queries/servers';
+import { getOrCreatePairChannel } from '../db/mutations/dms';
+import {
+  deleteShadowUsersByInstance,
+  findOrCreateShadowUserByPublicId,
+  syncShadowUserAvatar
+} from '../db/mutations/federation';
 import { config } from '../config';
 import {
   getLocalKeys,
@@ -24,64 +40,45 @@ import {
   verifyChallenge
 } from '../utils/federation';
 import { _tryConsumeBundleFetchToken } from '../utils/bundle-fetch-rate-limit';
+import { federationFetch } from '../utils/federation-fetch';
+import { fetchPeerVersion, peerVersionFrom } from '../utils/federation-peer-version';
 import { SERVER_VERSION } from '../utils/env';
+import { pubsub } from '../utils/pubsub';
+import { getFederationProtocol, validateFederationUrl } from '../utils/validate-url';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
-import { alias } from 'drizzle-orm/pg-core';
-import { findOrCreateShadowUser, syncShadowUserAvatar } from '../db/mutations/federation';
 import { invalidateCorsCache } from './cors';
-import { pubsub } from '../utils/pubsub';
-import { federationFetch } from '../utils/federation-fetch';
-import { getFederationProtocol, validateFederationUrl } from '../utils/validate-url';
 import {
+  authorizeFederationRequest,
   isPeerDomain,
+  isPeerPublicId,
+  isPeerPublicKey,
+  jsonResponse,
   MAX_PEER_NAME_LENGTH,
-  MAX_PEER_PUBLIC_KEY_LENGTH,
+  MAX_PEER_REPORT_TEXT_LENGTH,
   MAX_PEER_SERVER_NAME_LENGTH,
+  parseBody,
+  peerFileName,
+  peerInteger,
   peerString
 } from './federation-helpers';
 
-const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
+/**
+ * Unapproved incoming peering requests waiting in the owner's list. The
+ * request route is unauthenticated by nature (the key arrives in the
+ * body), so without a ceiling anyone with wildcard DNS could fill the
+ * approval list with junk rows.
+ */
+const MAX_PENDING_INCOMING_REQUESTS = 50;
 
-function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
-    if (contentLength > MAX_BODY_SIZE) {
-      req.resume();
-      reject(new Error('Request body too large'));
-      return;
-    }
+/** `relayId` is a uuidv7 (36 chars); bound it like any other peer id. */
+const MAX_RELAY_ID_LENGTH = 64;
 
-    const chunks: Buffer[] = [];
-    let totalSize = 0;
-    req.on('data', (chunk: Buffer) => {
-      totalSize += chunk.length;
-      if (totalSize > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error('Request body too large'));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>);
-      } catch {
-        reject(new Error('Invalid JSON'));
-      }
-    });
-    req.on('error', reject);
-  });
-}
+/** Report enums as the local reports.create route validates them. */
+const REPORT_KINDS = new Set(['message', 'dm_message', 'user']);
+const REPORT_REASONS = new Set(['illegal', 'spam', 'harassment', 'other']);
 
-function jsonResponse(
-  res: http.ServerResponse,
-  status: number,
-  data: unknown
-) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(data));
-}
+const MAX_PEER_USER_ID = 2 ** 31 - 1;
 
 // GET /federation/info — Public instance info
 const federationInfoHandler = async (
@@ -106,20 +103,38 @@ const federationInfoHandler = async (
   jsonResponse(res, 200, info);
 };
 
-const isOkpJwk = (publicKey: string): boolean => {
+/**
+ * Independently fetch what `domain` advertises at /federation/info. Null
+ * when it cannot be reached or does not answer 2xx — the caller decides
+ * whether that is a refusal (peering) or a retry (key rotation).
+ */
+const fetchPeerInfo = async (
+  domain: string
+): Promise<Partial<TFederationInfo> | null> => {
   try {
-    const parsed = JSON.parse(publicKey) as unknown;
-    return (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      (parsed as { kty?: unknown }).kty === 'OKP'
+    const protocol = getFederationProtocol(domain);
+    const validatedUrl = await validateFederationUrl(
+      `${protocol}://${domain}/federation/info`
     );
-  } catch {
-    return false;
+    const infoRes = await federationFetch(validatedUrl.href, {
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!infoRes.ok) return null;
+    return (await infoRes.json()) as Partial<TFederationInfo>;
+  } catch (err) {
+    logger.warn(
+      '[federation] could not fetch /federation/info from %s: %s',
+      sanitizeForLog(domain),
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
   }
 };
 
-// POST /federation/request — Receive federation request from remote instance
+// POST /federation/request — Receive federation request from remote instance.
+// Unauthenticated by design: the key arrives in the body and is proven by
+// (1) the signature over the body and (2) the same key being served at the
+// claimed domain's /federation/info. Everything stored is bounded.
 const federationRequestHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
@@ -130,13 +145,13 @@ const federationRequestHandler = async (
 
   const body = await parseBody(req);
   const { domain, name, publicKey, signature } = body as {
-    domain: string;
-    name: string;
-    publicKey: string;
-    signature: string;
+    domain: unknown;
+    name: unknown;
+    publicKey: unknown;
+    signature: unknown;
   };
 
-  if (!domain || !publicKey || !signature) {
+  if (!domain || !publicKey || typeof signature !== 'string') {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -149,11 +164,7 @@ const federationRequestHandler = async (
 
   // The key is stored verbatim and parsed on every signature check;
   // bound it and require the one shape we ever verify with (Ed25519 OKP).
-  if (
-    typeof publicKey !== 'string' ||
-    publicKey.length > MAX_PEER_PUBLIC_KEY_LENGTH ||
-    !isOkpJwk(publicKey)
-  ) {
+  if (!isPeerPublicKey(publicKey)) {
     return jsonResponse(res, 400, { error: 'Invalid public key' });
   }
 
@@ -174,62 +185,86 @@ const federationRequestHandler = async (
     return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
 
-  // Reverse verification: independently fetch the public key from the claimed
-  // domain's /federation/info endpoint. This prevents domain spoofing — an
-  // attacker can't claim "victim.com" because we verify the key at that URL.
-  try {
-    const protocol = getFederationProtocol(domain);
-    const federationInfoUrl = `${protocol}://${domain}/federation/info`;
-    const validatedUrl = await validateFederationUrl(federationInfoUrl);
-    const infoRes = await federationFetch(validatedUrl.href, {
-      signal: AbortSignal.timeout(10_000)
-    });
-
-    if (!infoRes.ok) {
-      return jsonResponse(res, 400, { error: 'Could not verify domain ownership' });
-    }
-
-    const remoteInfo = (await infoRes.json()) as { publicKey?: string };
-    if (!remoteInfo.publicKey || remoteInfo.publicKey !== publicKey) {
-      logger.warn(
-        '[federation/request] Public key mismatch for domain %s — possible spoofing attempt',
-        sanitizeForLog(domain)
-      );
-      return jsonResponse(res, 401, {
-        error: 'Public key does not match the key served by the claimed domain'
-      });
-    }
-  } catch (err) {
-    logger.error('[federation/request] Failed to verify domain %s:', sanitizeForLog(domain), err);
-    return jsonResponse(res, 400, {
-      error: 'Could not verify domain ownership — unable to reach the claimed domain'
-    });
-  }
-
-  // Check if already exists
   const [existing] = await db
     .select()
     .from(federationInstances)
     .where(eq(federationInstances.domain, domain))
     .limit(1);
 
-  if (existing) {
-    if (existing.status === 'blocked') {
-      return jsonResponse(res, 403, { error: 'Instance is blocked' });
-    }
+  if (existing?.status === 'blocked') {
+    return jsonResponse(res, 403, { error: 'Instance is blocked' });
+  }
 
-    // Update existing record
+  if (!existing) {
+    const [row] = await db
+      .select({ pending: count() })
+      .from(federationInstances)
+      .where(
+        and(
+          eq(federationInstances.status, 'pending'),
+          eq(federationInstances.direction, 'incoming')
+        )
+      );
+    if ((row?.pending ?? 0) >= MAX_PENDING_INCOMING_REQUESTS) {
+      logger.warn(
+        '[federation/request] refusing %s — %d incoming requests already pending',
+        sanitizeForLog(domain),
+        row?.pending ?? 0
+      );
+      res.writeHead(429, {
+        'Content-Type': 'application/json',
+        'Retry-After': '3600'
+      });
+      res.end(
+        JSON.stringify({ error: 'Too many pending federation requests' })
+      );
+      return;
+    }
+  }
+
+  // Reverse verification: independently fetch the public key from the claimed
+  // domain's /federation/info endpoint. This prevents domain spoofing — an
+  // attacker can't claim "victim.com" because we verify the key at that URL.
+  const remoteInfo = await fetchPeerInfo(domain);
+  if (!remoteInfo) {
+    return jsonResponse(res, 400, {
+      error: 'Could not verify domain ownership — unable to reach the claimed domain'
+    });
+  }
+  if (!remoteInfo.publicKey || remoteInfo.publicKey !== publicKey) {
+    logger.warn(
+      '[federation/request] Public key mismatch for domain %s — possible spoofing attempt',
+      sanitizeForLog(domain)
+    );
+    return jsonResponse(res, 401, {
+      error: 'Public key does not match the key served by the claimed domain'
+    });
+  }
+  // The peer's advertised release, captured while we hold its /info anyway.
+  const peerVersion = peerVersionFrom(remoteInfo);
+
+  if (existing) {
+    const now = Date.now();
+    const status = existing.direction === 'outgoing' ? 'active' : existing.status;
+    // A re-request with a different key is a re-pin proven by the
+    // reverse fetch; keep the old key verifying for the grace window so
+    // relays the peer signed just before are not refused.
+    const keyChanged = !!existing.publicKey && existing.publicKey !== publicKey;
+
     await db
       .update(federationInstances)
       .set({
         name: storedName,
         publicKey,
+        ...(keyChanged
+          ? { previousPublicKey: existing.publicKey, keyRotatedAt: now }
+          : {}),
+        ...(peerVersion !== null ? { peerVersion } : {}),
         direction:
           existing.direction === 'outgoing' ? 'mutual' : existing.direction,
-        status:
-          existing.direction === 'outgoing' ? 'active' : existing.status,
-        lastSeenAt: Date.now(),
-        updatedAt: Date.now()
+        status,
+        lastSeenAt: now,
+        updatedAt: now
       })
       .where(eq(federationInstances.id, existing.id));
 
@@ -237,15 +272,9 @@ const federationRequestHandler = async (
       invalidateCorsCache();
     }
 
-    pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {
-      domain,
-      status: existing.direction === 'outgoing' ? 'active' : existing.status
-    });
+    pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, { domain, status });
 
-    return jsonResponse(res, 200, {
-      success: true,
-      status: existing.direction === 'outgoing' ? 'active' : existing.status
-    });
+    return jsonResponse(res, 200, { success: true, status });
   }
 
   // Create new incoming request
@@ -253,6 +282,7 @@ const federationRequestHandler = async (
     domain,
     name: storedName,
     publicKey,
+    peerVersion,
     status: 'pending',
     direction: 'incoming',
     createdAt: Date.now()
@@ -266,37 +296,25 @@ const federationRequestHandler = async (
   jsonResponse(res, 200, { success: true, status: 'pending' });
 };
 
-// POST /federation/accept — Remote instance confirms mutual federation
+// POST /federation/accept — Remote instance confirms mutual federation.
+// The sender's row is still `pending` on our side when WE initiated the
+// pairing, so the prologue admits pending rows; an incoming request the
+// local owner has not approved is refused below.
 const federationAcceptHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res, {
+    statuses: ['active', 'pending'],
+    fallbackSenderField: 'domain'
+  });
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
 
-  const body = await parseBody(req);
-  const { domain, signature } = body as {
-    domain: string;
-    signature: string;
-  };
-
-  if (!domain || !signature) {
-    return jsonResponse(res, 400, { error: 'Missing required fields' });
-  }
-
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(eq(federationInstances.domain, domain))
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 404, { error: 'Instance not found' });
-  }
-
-  if (instance.status === 'blocked') {
-    return jsonResponse(res, 403, { error: 'Instance is blocked' });
+  // `domain` is the sender naming itself; it must be the peer whose key
+  // just verified the body.
+  if (signedBody.domain !== undefined && signedBody.domain !== fromDomain) {
+    return jsonResponse(res, 400, { error: 'domain does not match the signer' });
   }
 
   // Only auto-activate if the local admin initiated this connection (outgoing)
@@ -308,22 +326,16 @@ const federationAcceptHandler = async (
     });
   }
 
-  // Sender signed { domain } and we look the publicKey up by that domain.
-  const isValid = await verifyChallenge(
-    signature,
-    { domain },
-    domain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
+  // Best effort: the peer is reachable right now (it just called us), so
+  // record which release it runs for the compatibility badge.
+  const peerVersion = await fetchPeerVersion(fromDomain);
 
   await db
     .update(federationInstances)
     .set({
       status: 'active',
       direction: 'mutual',
+      ...(peerVersion !== null ? { peerVersion } : {}),
       lastSeenAt: Date.now(),
       updatedAt: Date.now()
     })
@@ -332,44 +344,23 @@ const federationAcceptHandler = async (
   invalidateCorsCache();
 
   pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {
-    domain,
+    domain: fromDomain,
     status: 'active'
   });
 
   jsonResponse(res, 200, { success: true });
 };
 
-// GET /federation/servers — List federatable servers (instance-to-instance)
+// POST /federation/servers — List federatable servers (instance-to-instance).
+// Signed like every other route: the list (member counts, password
+// flags) is for peers, not for anyone who knows a peer's domain.
 const federationServersHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
-
-  const url = new URL(req.url || '', `http://${req.headers.host}`);
-  const requesterDomain = url.searchParams.get('requesterDomain');
-
-  if (!requesterDomain) {
-    return jsonResponse(res, 400, { error: 'Missing requesterDomain' });
-  }
-
-  // Verify requester is an active federated instance
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, requesterDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
-  }
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { fromDomain } = auth;
 
   const logoFiles = alias(files, 'logoFiles');
 
@@ -386,88 +377,55 @@ const federationServersHandler = async (
     .leftJoin(logoFiles, eq(servers.logoId, logoFiles.id))
     .where(eq(servers.federatable, true));
 
-  // Get member counts
-  const serverList = await Promise.all(
-    federatableServers.map(async (s) => {
-      const [result] = await db
-        .select({ memberCount: count() })
-        .from(serverMembers)
-        .where(eq(serverMembers.serverId, s.id));
+  // One grouped count for every listed server instead of a query each.
+  const memberCounts = new Map<number, number>();
+  if (federatableServers.length > 0) {
+    const counts = await db
+      .select({ serverId: serverMembers.serverId, memberCount: count() })
+      .from(serverMembers)
+      .where(
+        inArray(
+          serverMembers.serverId,
+          federatableServers.map((s) => s.id)
+        )
+      )
+      .groupBy(serverMembers.serverId);
+    for (const row of counts) memberCounts.set(row.serverId, row.memberCount);
+  }
 
-      return {
-        publicId: s.publicId,
-        name: s.name,
-        description: s.description,
-        logo: s.logo,
-        memberCount: result?.memberCount || 0,
-        federatable: true as const,
-        hasPassword: !!s.password
-      };
-    })
-  );
+  const serverList = federatableServers.map((s) => ({
+    publicId: s.publicId,
+    name: s.name,
+    description: s.description,
+    logo: s.logo,
+    memberCount: memberCounts.get(s.id) ?? 0,
+    federatable: true as const,
+    hasPassword: !!s.password
+  }));
 
-  jsonResponse(res, 200, { servers: serverList });
+  return signedJsonResponse(res, 200, { servers: serverList }, fromDomain);
 };
 
-// POST /federation/user-info — Remote instance fetches user profile
+// POST /federation/user-info — a peer fetches one of OUR users' profile.
+// publicId only: serial ids are guessable and would let a peer walk every
+// local profile. Only users homed here are answered — this reply is the
+// home instance vouching for the user (verifyRemoteUserAttestation), so
+// it is signed and never covers shadows of a third instance.
 const federationUserInfoHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { signedBody, fromDomain } = auth;
+
+  const publicId = signedBody.publicId;
+  if (!isPeerPublicId(publicId)) {
+    return jsonResponse(res, 400, { error: 'Missing publicId' });
   }
 
-  const body = await parseBody(req);
-  const { userId, publicId, fromDomain, signature } = body as {
-    userId?: number;
-    publicId?: string;
-    fromDomain?: string;
-    signature: string;
-  };
-
-  if ((!userId && !publicId) || !fromDomain || !signature) {
-    return jsonResponse(res, 400, { error: 'Missing required fields (publicId or userId, fromDomain, signature)' });
-  }
-
-  // Look up the claimed source instance and verify ONLY against its pubkey.
-  // The previous "iterate all active instances and accept any match" pattern
-  // let any peer's signature satisfy any peer's request — fixed 2026-05-02.
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 401, { error: 'Unknown or inactive instance' });
-  }
-
-  // Sender signed { publicId, fromDomain }. userId is in the body but
-  // wasn't part of the signed shape historically; we keep it that way
-  // so signatures don't break if a peer omits it.
-  const isValid = await verifyChallenge(
-    signature,
-    { publicId, fromDomain },
-    fromDomain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
-
-  const logoFiles = alias(files, 'avatarFiles');
+  const avatarFiles = alias(files, 'avatarFiles');
   const bannerFiles = alias(files, 'bannerFiles');
-
-  // Prefer publicId lookup, fall back to numeric userId for backwards compat
-  const whereClause = publicId
-    ? eq(users.publicId, publicId)
-    : eq(users.id, userId!);
 
   const [user] = await db
     .select({
@@ -475,110 +433,95 @@ const federationUserInfoHandler = async (
       bio: users.bio,
       bannerColor: users.bannerColor,
       customStatus: users.customStatus,
-      avatar: logoFiles,
+      avatar: avatarFiles,
       banner: bannerFiles,
       createdAt: users.createdAt
     })
     .from(users)
-    .leftJoin(logoFiles, eq(users.avatarId, logoFiles.id))
+    .leftJoin(avatarFiles, eq(users.avatarId, avatarFiles.id))
     .leftJoin(bannerFiles, eq(users.bannerId, bannerFiles.id))
-    .where(whereClause)
+    .where(and(eq(users.publicId, publicId), eq(users.isFederated, false)))
     .limit(1);
 
   if (!user) {
     return jsonResponse(res, 404, { error: 'User not found' });
   }
 
-  jsonResponse(res, 200, user);
+  return signedJsonResponse(res, 200, user, fromDomain);
 };
 
-// POST /federation/friend-request — Forward friend request to remote user
+/**
+ * The sender's user as every social/DM relay describes it. The numeric
+ * id is informational only (never a lookup key); the avatar file name is
+ * interpolated into a `/public/` URL on the peer, so it is a bare file
+ * name or nothing.
+ */
+const relaySender = (signedBody: Record<string, unknown>) => ({
+  fromUsername: peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH),
+  fromPublicId: signedBody.fromPublicId,
+  fromUserId: peerInteger(signedBody.fromUserId, { min: 1, max: MAX_PEER_USER_ID }),
+  fromAvatarFile: peerFileName(signedBody.fromAvatarFile)
+});
+
+/** A user whose home is this instance, by publicId. */
+const findLocalUserByPublicId = async (
+  publicId: string
+): Promise<{ id: number } | undefined> => {
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.publicId, publicId), eq(users.isFederated, false)))
+    .limit(1);
+  return user;
+};
+
+// POST /federation/friend-request — Forward friend request to local user
 const federationFriendRequestHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
 
-  const body = await parseBody(req);
-  const { signature, ...signedBody } = body as Record<string, unknown> & {
-    signature: string;
-  };
-  const fromDomain = signedBody.fromDomain as string;
-  // Becomes the shadow user's display name — cap like a local name.
-  const fromUsername = peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH);
-  const fromPublicId = signedBody.fromPublicId as string;
-  const fromUserId = signedBody.fromUserId as number | undefined;
-  const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
-  const toPublicId = signedBody.toPublicId as string;
+  const { fromUsername, fromPublicId, fromUserId, fromAvatarFile } =
+    relaySender(signedBody);
+  const toPublicId = signedBody.toPublicId;
 
-  if (!fromDomain || !fromUsername || !signature) {
+  if (!fromUsername) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
-
-  // Require UUIDs — reject requests without them to prevent impersonation
-  if (!fromPublicId || !toPublicId) {
+  // Require ids — reject requests without them to prevent impersonation
+  if (!isPeerPublicId(fromPublicId) || !isPeerPublicId(toPublicId)) {
     return jsonResponse(res, 400, { error: 'fromPublicId and toPublicId are required' });
   }
 
-  // Verify signature from the sending instance
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
-  }
-
-  // Receive-side: signedBody is the full wire body minus `signature`,
-  // which exactly matches what relayToInstance signed (payload +
-  // fromDomain). Canonicalization handles key-order on both sides.
-  const isValid = await verifyChallenge(
-    signature,
-    signedBody,
-    fromDomain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
-
-  // Find local target user by publicId only — no name fallback
-  const [targetUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.publicId, toPublicId))
-    .limit(1);
-
+  // 200-ignore an unknown target: the sender already shows the request
+  // as sent, and a status code must not reveal who exists here.
+  const targetUser = await findLocalUserByPublicId(toPublicId);
   if (!targetUser) {
-    return jsonResponse(res, 404, { error: 'User not found' });
+    return jsonResponse(res, 200, { ignored: 'unknown_recipient' });
   }
 
-  // Create/find shadow user for the sender (identified by UUID)
-  const shadowUser = await findOrCreateShadowUser(
+  const shadowUser = await findOrCreateShadowUserByPublicId(
     instance.id,
-    fromUserId ?? 0,
+    fromPublicId,
     fromUsername,
-    undefined,
-    fromPublicId
+    fromUserId
   );
 
-  // Sync avatar from remote instance (fire-and-forget)
   if (fromAvatarFile) {
     const protocol = getFederationProtocol(fromDomain);
     syncShadowUserAvatar(shadowUser.id, `${protocol}://${fromDomain}/public/${fromAvatarFile}`);
   }
 
-  // Import friend request creation dynamically to avoid circular dependencies
-  const { friendRequests } = await import('../db/schema');
+  // Same rule as a local request: a block in either direction means the
+  // request never lands and never rings. 200 so the peer's outbox does
+  // not retry, and so the block is not disclosed.
+  if (await isBlockBetween(shadowUser.id, targetUser.id)) {
+    return jsonResponse(res, 200, { ignored: 'blocked' });
+  }
+
   await db.insert(friendRequests).values({
     senderId: shadowUser.id,
     receiverId: targetUser.id,
@@ -586,12 +529,7 @@ const federationFriendRequestHandler = async (
     createdAt: Date.now()
   }).onConflictDoNothing();
 
-  // Publish event to local user so they see the request in real-time
-  const { getJoinedFriendRequest } = await import('../db/queries/friends');
-  const { pubsub } = await import('../utils/pubsub');
-  const { ServerEvents } = await import('@pulse/shared');
-
-  // Find the request we just created
+  // Find the request we just created (or the one a retry already made)
   const [newRequest] = await db
     .select()
     .from(friendRequests)
@@ -623,84 +561,39 @@ const federationFriendAcceptHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
 
-  const body = await parseBody(req);
-  const { signature, ...signedBody } = body as Record<string, unknown> & {
-    signature: string;
-  };
-  const fromDomain = signedBody.fromDomain as string;
-  // Becomes the shadow user's display name — cap like a local name.
-  const fromUsername = peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH);
-  const fromPublicId = signedBody.fromPublicId as string;
-  const fromUserId = signedBody.fromUserId as number | undefined;
-  const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
-  const toPublicId = signedBody.toPublicId as string;
+  const { fromUsername, fromPublicId, fromUserId, fromAvatarFile } =
+    relaySender(signedBody);
+  const toPublicId = signedBody.toPublicId;
 
-  if (!fromDomain || !fromUsername || !signature) {
+  if (!fromUsername) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
-
-  // Require UUIDs — reject requests without them to prevent impersonation
-  if (!fromPublicId || !toPublicId) {
+  if (!isPeerPublicId(fromPublicId) || !isPeerPublicId(toPublicId)) {
     return jsonResponse(res, 400, { error: 'fromPublicId and toPublicId are required' });
   }
 
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
+  const localUser = await findLocalUserByPublicId(toPublicId);
+  if (!localUser) {
+    return jsonResponse(res, 200, { ignored: 'unknown_recipient' });
   }
 
-  const isValid = await verifyChallenge(
-    signature,
-    signedBody,
-    fromDomain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
-
-  // Find shadow user for the accepter (identified by UUID)
-  const shadowUser = await findOrCreateShadowUser(
+  const shadowUser = await findOrCreateShadowUserByPublicId(
     instance.id,
-    fromUserId ?? 0,
+    fromPublicId,
     fromUsername,
-    undefined,
-    fromPublicId
+    fromUserId
   );
 
-  // Sync avatar from remote instance (fire-and-forget)
   if (fromAvatarFile) {
     const protocol = getFederationProtocol(fromDomain);
     syncShadowUserAvatar(shadowUser.id, `${protocol}://${fromDomain}/public/${fromAvatarFile}`);
   }
 
-  // Find local user by publicId only — no name fallback
-  const [localUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.publicId, toPublicId))
-    .limit(1);
-
-  if (!localUser) {
-    return jsonResponse(res, 404, { error: 'Local user not found' });
-  }
-
   // Find the pending friend request from localUser -> shadowUser
-  const { friendRequests, friendships } = await import('../db/schema');
   const [pendingRequest] = await db
     .select()
     .from(friendRequests)
@@ -714,26 +607,24 @@ const federationFriendAcceptHandler = async (
     .limit(1);
 
   if (!pendingRequest) {
-    return jsonResponse(res, 404, { error: 'No pending friend request found' });
+    // Already accepted (peer retry) or never sent — nothing to do, and
+    // a retry would not change that.
+    return jsonResponse(res, 200, { ignored: 'no_pending_request' });
   }
 
-  // Accept the request
   await db
     .update(friendRequests)
     .set({ status: 'accepted', updatedAt: Date.now() })
     .where(eq(friendRequests.id, pendingRequest.id));
 
-  // Create friendship record
-  await db.insert(friendships).values({
-    userId: pendingRequest.senderId,
-    friendId: pendingRequest.receiverId,
-    createdAt: Date.now()
-  });
-
-  // Publish events to local user
-  const { getJoinedFriendRequest } = await import('../db/queries/friends');
-  const { pubsub } = await import('../utils/pubsub');
-  const { ServerEvents } = await import('@pulse/shared');
+  await db
+    .insert(friendships)
+    .values({
+      userId: pendingRequest.senderId,
+      friendId: pendingRequest.receiverId,
+      createdAt: Date.now()
+    })
+    .onConflictDoNothing();
 
   const joined = await getJoinedFriendRequest(pendingRequest.id);
   if (joined) {
@@ -752,53 +643,19 @@ const federationFriendRemoveHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { instance, signedBody } = auth;
 
-  const body = await parseBody(req);
-  const { signature, ...signedBody } = body as Record<string, unknown> & {
-    signature: string;
-  };
-  const fromDomain = signedBody.fromDomain as string;
-  const fromPublicId = signedBody.fromPublicId as string;
-  const toPublicId = signedBody.toPublicId as string;
+  const fromPublicId = signedBody.fromPublicId;
+  const toPublicId = signedBody.toPublicId;
 
-  if (!fromDomain || !signature) {
-    return jsonResponse(res, 400, { error: 'Missing required fields' });
-  }
-
-  // Require UUIDs — reject requests without them to prevent impersonation
-  if (!fromPublicId || !toPublicId) {
+  if (!isPeerPublicId(fromPublicId) || !isPeerPublicId(toPublicId)) {
     return jsonResponse(res, 400, { error: 'fromPublicId and toPublicId are required' });
   }
 
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
-  }
-
-  const isValid = await verifyChallenge(
-    signature,
-    signedBody,
-    fromDomain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
-
-  // Find shadow user by federatedPublicId only — no name fallback
+  // The shadow must be homed on the AUTHENTICATED instance — a peer can
+  // only end friendships on behalf of its own users.
   const [shadowUser] = await db
     .select({ id: users.id })
     .from(users)
@@ -810,30 +667,16 @@ const federationFriendRemoveHandler = async (
       )
     )
     .limit(1);
+  const localUser = await findLocalUserByPublicId(toPublicId);
 
-  if (!shadowUser) {
-    return jsonResponse(res, 404, { error: 'Shadow user not found' });
+  if (!shadowUser || !localUser) {
+    return jsonResponse(res, 200, { ignored: 'unknown_user' });
   }
-
-  // Find local user by publicId only — no name fallback
-  const [localUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.publicId, toPublicId))
-    .limit(1);
-
-  if (!localUser) {
-    return jsonResponse(res, 404, { error: 'Local user not found' });
-  }
-
-  // Delete friendship in both directions
-  const { friendships } = await import('../db/schema');
-  const { or: drizzleOr } = await import('drizzle-orm');
 
   await db
     .delete(friendships)
     .where(
-      drizzleOr(
+      or(
         and(
           eq(friendships.userId, shadowUser.id),
           eq(friendships.friendId, localUser.id)
@@ -845,12 +688,10 @@ const federationFriendRemoveHandler = async (
       )
     );
 
-  // Publish event to local user
-  const { pubsub } = await import('../utils/pubsub');
-  const { ServerEvents } = await import('@pulse/shared');
-
-  const payload = { userId: shadowUser.id, friendId: localUser.id };
-  pubsub.publishFor(localUser.id, ServerEvents.FRIEND_REMOVED, payload);
+  pubsub.publishFor(localUser.id, ServerEvents.FRIEND_REMOVED, {
+    userId: shadowUser.id,
+    friendId: localUser.id
+  });
 
   jsonResponse(res, 200, { success: true });
 };
@@ -860,21 +701,14 @@ const federationDmRelayHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res, { limit: 'dmRelay' });
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
 
-  const body = await parseBody(req);
-  const { signature, ...signedBody } = body as Record<string, unknown> & {
-    signature: string;
-  };
-  const fromDomain = signedBody.fromDomain as string;
-  // Becomes the shadow user's display name — cap like a local name.
-  const fromUsername = peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH);
-  const fromPublicId = signedBody.fromPublicId as string;
-  const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
-  const toPublicId = signedBody.toPublicId as string;
-  const content = signedBody.content as string;
+  const { fromUsername, fromPublicId, fromUserId, fromAvatarFile } =
+    relaySender(signedBody);
+  const toPublicId = signedBody.toPublicId;
+  const content = signedBody.content;
   // Phase D / D1 — when set, `content` is base64-encoded Signal
   // ciphertext (PreKeyMessage on first contact, regular message
   // afterwards). The receiving instance never decrypts; it just
@@ -885,21 +719,23 @@ const federationDmRelayHandler = async (
   const isE2ee = signedBody.e2ee === true;
   // Phase D / D2 — populated for group DMs that span instances. The
   // receiving instance looks up its local mirror by this ID instead
-  // of `findDmChannelBetween` (which is hardcoded to 1:1). Null /
-  // undefined for 1:1 DMs and same-instance groups.
-  const federationGroupId =
-    typeof signedBody.federationGroupId === 'string'
-      ? signedBody.federationGroupId
-      : null;
+  // of the pair key (which is 1:1 only). Null / undefined for 1:1 DMs
+  // and same-instance groups.
+  const federationGroupId = isPeerPublicId(signedBody.federationGroupId)
+    ? signedBody.federationGroupId
+    : null;
   // Forward attribution from the peer — a display-name snapshot only
   // (never a user id; see the id-collision convention). Peer-asserted,
   // so bound it like every other peer-supplied string.
   const forwardedFromName =
-    typeof signedBody.forwardedFromName === 'string'
-      ? signedBody.forwardedFromName.slice(0, 100)
-      : null;
+    peerString(signedBody.forwardedFromName, MAX_PEER_SERVER_NAME_LENGTH) ?? null;
+  // The sender's per-relay id. Its outbox delivers at least once: a
+  // relay whose ack was lost is sent again with the same id, and the
+  // unique index on dm_messages.federation_relay_id lands it once.
+  // Older senders omit it and insert normally.
+  const relayId = peerString(signedBody.relayId, MAX_RELAY_ID_LENGTH) || null;
 
-  if (!fromDomain || !fromUsername || !content || !signature) {
+  if (!fromUsername || !content) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -909,113 +745,99 @@ const federationDmRelayHandler = async (
     return jsonResponse(res, 400, { error: 'Message too long' });
   }
 
-  // Require UUIDs — reject requests without them to prevent impersonation
-  if (!fromPublicId || !toPublicId) {
+  // Require ids — reject requests without them to prevent impersonation
+  if (!isPeerPublicId(fromPublicId) || !isPeerPublicId(toPublicId)) {
     return jsonResponse(res, 400, { error: 'fromPublicId and toPublicId are required' });
   }
 
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
+  // 200-ignore an unknown recipient: permanent, so the peer's outbox
+  // must not retry, and existence is not disclosed by status code.
+  const localUser = await findLocalUserByPublicId(toPublicId);
+  if (!localUser) {
+    return jsonResponse(res, 200, { ignored: 'unknown_recipient' });
   }
 
-  const isValid = await verifyChallenge(
-    signature,
-    signedBody,
-    fromDomain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
-
-  const fromUserId = (signedBody.fromUserId as number) ?? 0;
-
-  // Find or create shadow user for the sender (identified by UUID)
-  const shadowUser = await findOrCreateShadowUser(
+  const shadowUser = await findOrCreateShadowUserByPublicId(
     instance.id,
-    fromUserId,
+    fromPublicId,
     fromUsername,
-    undefined,
-    fromPublicId
+    fromUserId
   );
 
-  // Sync avatar from remote instance (fire-and-forget)
   if (fromAvatarFile) {
     const protocol = getFederationProtocol(fromDomain);
     syncShadowUserAvatar(shadowUser.id, `${protocol}://${fromDomain}/public/${fromAvatarFile}`);
   }
 
-  // Find local target user by publicId only — no name fallback
-  const [localUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.publicId, toPublicId))
-    .limit(1);
-
-  if (!localUser) {
-    return jsonResponse(res, 404, { error: 'Local user not found' });
+  // The signature proves the PEER sent this, not that our user wants it.
+  // A block in either direction drops the message silently — 200 so the
+  // sender's outbox does not retry and the block is not disclosed.
+  if (await isBlockBetween(shadowUser.id, localUser.id)) {
+    return jsonResponse(res, 200, { ignored: 'blocked' });
   }
 
-  // Find or create DM channel between shadow user and local user.
-  // Phase D / D2 — for group DMs the sender includes a
-  // `federationGroupId` and we look up the local mirror channel by
-  // that column instead of `findDmChannelBetween` (which is
-  // hardcoded to 1:1 and would otherwise route group messages into
-  // a brand-new 1:1 channel).
-  const { findDmChannelBetween, getDmMessage } = await import('../db/queries/dms');
-  const { dmChannels, dmChannelMembers, dmMessages } = await import('../db/schema');
+  let dmChannelId: number;
+  let channelCreated = false;
 
-  let dmChannelId: number | null = null;
   if (federationGroupId) {
+    // The peer must announce the group via /federation/dm-group-create
+    // before relaying messages. That announcement is queued ahead of
+    // the message in the peer's outbox, so a missing mirror is a
+    // retryable ordering gap (409), never a 404 — a 404 would make the
+    // peer dead-letter the message as "route unsupported".
     const [mirror] = await db
       .select({ id: dmChannels.id })
       .from(dmChannels)
       .where(eq(dmChannels.federationGroupId, federationGroupId))
       .limit(1);
-    dmChannelId = mirror?.id ?? null;
-    if (!dmChannelId) {
-      // The peer must announce the group via /federation/dm-group-
-      // create before relaying messages. If we never received that
-      // announcement (or it was lost), refuse the message rather
-      // than silently routing into a wrong 1:1 channel.
-      return jsonResponse(res, 404, {
+    if (!mirror) {
+      return jsonResponse(res, 409, {
         error: 'Group mirror not found — was the group announced first?'
       });
     }
+    // Only a current member may post: a user the peer removed from the
+    // group (or never attested into our mirror) still knows the id.
+    const [membership] = await db
+      .select({ userId: dmChannelMembers.userId })
+      .from(dmChannelMembers)
+      .where(
+        and(
+          eq(dmChannelMembers.dmChannelId, mirror.id),
+          eq(dmChannelMembers.userId, shadowUser.id)
+        )
+      )
+      .limit(1);
+    if (!membership) {
+      return jsonResponse(res, 200, { ignored: 'not_member' });
+    }
+    dmChannelId = mirror.id;
   } else {
-    dmChannelId = await findDmChannelBetween(shadowUser.id, localUser.id);
+    const existing = await findDmChannelBetween(shadowUser.id, localUser.id);
+    if (existing !== null) {
+      dmChannelId = existing;
+    } else {
+      // First contact is held to the same rule as a local user opening a
+      // DM: friends, or a shared server. The shadow has real
+      // server_members rows here, so the plain local query is the truth.
+      const permitted =
+        (await areFriends(shadowUser.id, localUser.id)) ||
+        (await sharesServerWith(shadowUser.id, localUser.id));
+      if (!permitted) {
+        return jsonResponse(res, 200, { ignored: 'not_permitted' });
+      }
+      // Upsert on the pair key: two first messages crossing between the
+      // instances (or a local click racing the relay) land on one row,
+      // with the e2ee flag taken from the envelope only on creation.
+      const pair = await getOrCreatePairChannel(shadowUser.id, localUser.id, {
+        e2ee: isE2ee
+      });
+      dmChannelId = pair.id;
+      channelCreated = pair.created;
+    }
   }
 
   let channelE2eeFlipped = false;
-
-  let channelCreated = false;
-
-  if (!dmChannelId) {
-    // New 1:1 channel — initialise its e2ee flag from the incoming envelope.
-    const [newChannel] = await db
-      .insert(dmChannels)
-      .values({ createdAt: Date.now(), e2ee: isE2ee })
-      .returning();
-
-    dmChannelId = newChannel!.id;
-    channelCreated = true;
-
-    await db.insert(dmChannelMembers).values([
-      { dmChannelId: dmChannelId, userId: shadowUser.id, createdAt: Date.now() },
-      { dmChannelId: dmChannelId, userId: localUser.id, createdAt: Date.now() }
-    ]);
-  } else if (isE2ee) {
+  if (!channelCreated && isE2ee) {
     // Existing channel that's still flagged plaintext on this side
     // (e.g. previous messages were plaintext). The remote sender just
     // upgraded their side via `enableEncryption` — auto-upgrade ours
@@ -1037,19 +859,6 @@ const federationDmRelayHandler = async (
     }
   }
 
-  // Insert message
-  const [message] = await db
-    .insert(dmMessages)
-    .values({
-      dmChannelId,
-      userId: shadowUser.id,
-      content,
-      e2ee: isE2ee,
-      forwardedFromName,
-      createdAt: Date.now()
-    })
-    .returning();
-
   // Notify the recipient about a brand-new channel BEFORE the message
   // event — the client's unread/lastMessage reducers silently no-op for
   // channels missing from its list, so a first DM from a new federated
@@ -1066,72 +875,248 @@ const federationDmRelayHandler = async (
     });
   }
 
-  // Publish event to local user
-  const joined = await getDmMessage(message!.id);
-  if (joined) {
-    const { pubsub } = await import('../utils/pubsub');
-    const { ServerEvents } = await import('@pulse/shared');
+  const [message] = await db
+    .insert(dmMessages)
+    .values({
+      dmChannelId,
+      userId: shadowUser.id,
+      content,
+      e2ee: isE2ee,
+      forwardedFromName,
+      federationRelayId: relayId,
+      createdAt: Date.now()
+    })
+    .onConflictDoNothing({ target: dmMessages.federationRelayId })
+    .returning({ id: dmMessages.id });
 
+  if (!message) {
+    // Already delivered: the peer is retrying a relay whose ack it
+    // lost. Acknowledge the existing row and do not ring again.
+    const [delivered] = await db
+      .select({ id: dmMessages.id })
+      .from(dmMessages)
+      .where(eq(dmMessages.federationRelayId, relayId!))
+      .limit(1);
+    return jsonResponse(res, 200, {
+      success: true,
+      duplicate: true,
+      messageId: delivered?.id ?? null
+    });
+  }
+
+  const joined = await getDmMessage(message.id);
+  if (joined) {
     pubsub.publishFor(localUser.id, ServerEvents.DM_NEW_MESSAGE, joined);
   }
 
-  jsonResponse(res, 200, { success: true });
+  jsonResponse(res, 200, { success: true, messageId: message.id });
 };
 
-// POST /federation/report-user — Report a federated user to their home instance
+// POST /federation/report-user — a peer forwards a report about one of
+// OUR users (filed on the peer against the user's shadow there). The
+// report lands in the instance queue with its origin recorded, because
+// this instance is the only party that can act on the account.
+//
+// Wire body (signed): { subjectPublicId, reporterPublicId,
+//   serverPublicId: string | null, kind, reason, details: string | null,
+//   messageExcerpt: string | null }
 const federationReportUserHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
 
-  const body = await parseBody(req);
-  const { signature, ...signedBody } = body as Record<string, unknown> & {
-    signature: string;
-  };
-  const fromDomain = signedBody.fromDomain as string;
-  const username = peerString(signedBody.username, MAX_PEER_NAME_LENGTH);
-  const reason = peerString(signedBody.reason, 512);
+  const subjectPublicId = signedBody.subjectPublicId;
+  const reporterPublicId = signedBody.reporterPublicId;
+  const kind = signedBody.kind;
+  const reason = signedBody.reason;
+  const serverPublicId = isPeerPublicId(signedBody.serverPublicId)
+    ? signedBody.serverPublicId
+    : null;
+  const details = peerString(signedBody.details, MAX_PEER_REPORT_TEXT_LENGTH) || null;
+  const messageExcerpt =
+    peerString(signedBody.messageExcerpt, MAX_PEER_REPORT_TEXT_LENGTH) || null;
 
-  if (!fromDomain || !username || !reason || !signature) {
+  if (!isPeerPublicId(subjectPublicId) || !isPeerPublicId(reporterPublicId)) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
-
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
+  if (typeof kind !== 'string' || !REPORT_KINDS.has(kind)) {
+    return jsonResponse(res, 400, { error: 'Invalid kind' });
+  }
+  if (typeof reason !== 'string' || !REPORT_REASONS.has(reason)) {
+    return jsonResponse(res, 400, { error: 'Invalid reason' });
   }
 
-  const isValid = await verifyChallenge(
-    signature,
-    signedBody,
-    fromDomain,
-    instance.publicKey
+  // The subject must be one of OUR users. 200-ignore unknowns and
+  // shadows — a report about a third instance's user is not ours to
+  // act on, and a status code must not reveal who exists here.
+  const subject = await findLocalUserByPublicId(subjectPublicId);
+  if (!subject) {
+    return jsonResponse(res, 200, { ignored: 'unknown_subject' });
+  }
+
+  // reports.reporter_id is NOT NULL: the reporter is the peer's user,
+  // represented here by their shadow (minted nameless if we have never
+  // seen them — the queue shows the publicId placeholder).
+  const reporter = await findOrCreateShadowUserByPublicId(
+    instance.id,
+    reporterPublicId,
+    ''
   );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
-  }
+
+  // The peer server the report was filed on has no row here; keep the
+  // reference in the free-text details for the instance admin.
+  const context = serverPublicId
+    ? `Reported on ${fromDomain}, server ${serverPublicId}.`
+    : `Reported on ${fromDomain}.`;
+
+  const [row] = await db
+    .insert(reports)
+    .values({
+      kind,
+      targetUserId: subject.id,
+      reporterId: reporter.id,
+      reason,
+      details: details ? `${details}\n\n${context}` : context,
+      // The excerpt is what the reporter saw on the peer — attested by
+      // them, not something this instance can re-read.
+      contentSnapshot: messageExcerpt,
+      snapshotAttested: messageExcerpt !== null,
+      audience: 'instance',
+      status: 'open',
+      source: `federated:${fromDomain}`,
+      createdAt: Date.now()
+    })
+    .returning({ id: reports.id });
 
   logger.info(
-    'Federation report received from %s for user %s: %s',
+    '[federation/report-user] report %d from %s about user %d (%s/%s)',
+    row!.id,
     sanitizeForLog(fromDomain),
-    sanitizeForLog(username),
-    sanitizeForLog(reason)
+    subject.id,
+    kind,
+    reason
+  );
+
+  jsonResponse(res, 200, { success: true, reportId: row!.id });
+};
+
+// POST /federation/unpeer — the peer ended the pairing on its side
+// (removed or blocked us, or switched federation off). Mirror it: the
+// row goes to `blocked` so nothing is relayed to a peer that will 403
+// it, and the shadows (with the DM channels that only existed for
+// them) are swept exactly as a local removal would. Idempotent: a row
+// that is already blocked just answers 200.
+const federationUnpeerHandler = async (
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+) => {
+  const auth = await authorizeFederationRequest(req, res, {
+    statuses: ['active', 'pending', 'blocked']
+  });
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
+
+  const reason = signedBody.reason;
+  if (reason !== 'removed' && reason !== 'blocked') {
+    return jsonResponse(res, 400, { error: 'Invalid reason' });
+  }
+
+  if (instance.status === 'blocked') {
+    return jsonResponse(res, 200, { success: true, alreadyBlocked: true });
+  }
+
+  await db
+    .update(federationInstances)
+    .set({ status: 'blocked', updatedAt: Date.now() })
+    .where(eq(federationInstances.id, instance.id));
+
+  const swept = await deleteShadowUsersByInstance(instance.id);
+  invalidateCorsCache();
+
+  pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {
+    domain: fromDomain,
+    status: 'blocked'
+  });
+
+  logger.info(
+    '[federation/unpeer] %s ended the pairing (%s): %d shadows, %d channels removed',
+    sanitizeForLog(fromDomain),
+    reason,
+    swept.deletedUsers,
+    swept.deletedChannels
   );
 
   jsonResponse(res, 200, { success: true });
+};
+
+// POST /federation/key-rotation — the peer replaced its signing key.
+// Signed with the key we have pinned (the prologue accepts the current
+// key, and the previous one inside the grace window), so the request
+// itself proves the old key's holder; the new key is then confirmed by
+// an independent fetch of the peer's /federation/info — a stolen old
+// key alone cannot move the pin to an attacker's key. The old key keeps
+// verifying for 24 h (peerVerificationKeys) so relays the peer signed
+// before switching are not refused.
+const federationKeyRotationHandler = async (
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+) => {
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { instance, signedBody, fromDomain } = auth;
+
+  const newPublicKey = signedBody.newPublicKey;
+  const rotatedAt = peerInteger(signedBody.rotatedAt, {
+    min: 0,
+    max: Number.MAX_SAFE_INTEGER
+  });
+  if (!isPeerPublicKey(newPublicKey) || rotatedAt === undefined) {
+    return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+
+  if (instance.publicKey === newPublicKey) {
+    // The peer's outbox retried a push we already applied.
+    return jsonResponse(res, 200, { applied: false });
+  }
+
+  const remoteInfo = await fetchPeerInfo(fromDomain);
+  if (!remoteInfo) {
+    // Retryable: the peer's outbox tries again once it is reachable.
+    return jsonResponse(res, 502, {
+      error: 'Could not confirm the new key at the peer'
+    });
+  }
+  if (remoteInfo.publicKey !== newPublicKey) {
+    logger.warn(
+      '[federation/key-rotation] %s announced a key it does not advertise — refused',
+      sanitizeForLog(fromDomain)
+    );
+    return jsonResponse(res, 403, {
+      error: 'Announced key does not match the key served by the peer'
+    });
+  }
+
+  await db
+    .update(federationInstances)
+    .set({
+      previousPublicKey: instance.publicKey,
+      publicKey: newPublicKey,
+      keyRotatedAt: Date.now(),
+      lastSeenAt: Date.now(),
+      updatedAt: Date.now()
+    })
+    .where(eq(federationInstances.id, instance.id));
+
+  logger.info(
+    '[federation/key-rotation] re-pinned %s (peer rotated at %d)',
+    sanitizeForLog(fromDomain),
+    rotatedAt
+  );
+
+  jsonResponse(res, 200, { applied: true });
 };
 
 // POST /federation/get-prekey-bundle — return a signed pre-key bundle
@@ -1149,44 +1134,13 @@ const federationGetPreKeyBundleHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
 ) => {
-  if (!config.federation.enabled) {
-    return jsonResponse(res, 403, { error: 'Federation not enabled' });
-  }
+  const auth = await authorizeFederationRequest(req, res);
+  if (!auth) return;
+  const { signedBody, fromDomain } = auth;
 
-  const body = await parseBody(req);
-  const { signature, ...signedBody } = body as Record<string, unknown> & {
-    signature: string;
-  };
-  const fromDomain = signedBody.fromDomain as string;
-  const targetPublicId = signedBody.targetPublicId as string;
-
-  if (!fromDomain || !targetPublicId || !signature) {
+  const targetPublicId = signedBody.targetPublicId;
+  if (!isPeerPublicId(targetPublicId)) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
-  }
-
-  const [instance] = await db
-    .select()
-    .from(federationInstances)
-    .where(
-      and(
-        eq(federationInstances.domain, fromDomain),
-        eq(federationInstances.status, 'active')
-      )
-    )
-    .limit(1);
-
-  if (!instance || !instance.publicKey) {
-    return jsonResponse(res, 403, { error: 'Not a trusted instance' });
-  }
-
-  const isValid = await verifyChallenge(
-    signature,
-    signedBody,
-    fromDomain,
-    instance.publicKey
-  );
-  if (!isValid) {
-    return jsonResponse(res, 401, { error: 'Invalid signature' });
   }
 
   // Per-publicId rate limit (DoS / OTPK-pool-drain protection).
@@ -1280,8 +1234,10 @@ export {
   federationFriendRequestHandler,
   federationGetPreKeyBundleHandler,
   federationInfoHandler,
+  federationKeyRotationHandler,
   federationReportUserHandler,
   federationRequestHandler,
   federationServersHandler,
+  federationUnpeerHandler,
   federationUserInfoHandler
 };

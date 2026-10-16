@@ -1,9 +1,9 @@
 /**
  * Phase D / D2 — server-side dispatchers that relay group DM
  * lifecycle events to peer instances. Called from `dms/*` mutations
- * after the local DB write succeeds; a failed relay is logged and
- * does not roll back the local write (best-effort federation, same
- * as existing dm-relay).
+ * after the local DB write succeeds; a failed relay is queued in the
+ * federation outbox and does not roll back the local write (same as
+ * dm-relay).
  *
  * Each helper resolves the set of peer instances involved (one per
  * unique `federatedInstanceId` among the channel's members) and
@@ -27,7 +27,7 @@ import {
 } from '../db/schema';
 import { config } from '../config';
 import { logger } from '../logger';
-import { relayToInstance } from './federation';
+import { enqueueRelay } from './federation-outbox';
 
 type FederatedMember = {
   publicId: string;
@@ -208,7 +208,7 @@ async function announceFederatedGroupCreate(
     }
 
     for (const peerDomain of peerDomains) {
-      relayToInstance(peerDomain, '/federation/dm-group-create', {
+      enqueueRelay(peerDomain, '/federation/dm-group-create', {
         federationGroupId: channel.federationGroupId,
         name: channel.name,
         ownerPublicId: ownerMember.publicId,
@@ -278,7 +278,7 @@ async function announceFederatedGroupAddMember(
     if (peerDomains.size === 0) return;
 
     for (const peerDomain of peerDomains) {
-      relayToInstance(peerDomain, '/federation/dm-group-add-member', {
+      enqueueRelay(peerDomain, '/federation/dm-group-add-member', {
         federationGroupId: channel.federationGroupId,
         addedMember: {
           publicId: addedPublicId,
@@ -330,7 +330,7 @@ async function announceFederatedGroupRemoveMember(
     void removedUserId;
 
     for (const peerDomain of peerDomains) {
-      relayToInstance(peerDomain, '/federation/dm-group-remove-member', {
+      enqueueRelay(peerDomain, '/federation/dm-group-remove-member', {
         federationGroupId: channel.federationGroupId,
         removedPublicId
       }).catch((err) =>
@@ -391,7 +391,7 @@ async function relayFederatedSkdm(args: {
     .limit(1);
   if (!instance || instance.status !== 'active') return;
 
-  await relayToInstance(instance.domain, '/federation/dm-sender-key', {
+  await enqueueRelay(instance.domain, '/federation/dm-sender-key', {
     federationGroupId: args.federationGroupId,
     senderKeyId: args.senderKeyId,
     fromPublicId: fromUser.publicId,
@@ -540,7 +540,7 @@ async function relayFederatedIdentityRotation(args: {
   }
 
   for (const peerDomain of activePeerDomains) {
-    relayToInstance(peerDomain, '/federation/identity-rotation-broadcast', {
+    enqueueRelay(peerDomain, '/federation/identity-rotation-broadcast', {
       fromPublicId: rotating.publicId,
       newIdentityPublicKey: args.newIdentityPublicKey
     }).catch((err) =>

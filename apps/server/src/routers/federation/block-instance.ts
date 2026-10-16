@@ -6,6 +6,7 @@ import { deleteShadowUsersByInstance } from '../../db/mutations/federation';
 import { getFederationInstanceById } from '../../db/queries/federation';
 import { federationInstances } from '../../db/schema';
 import { invalidateCorsCache } from '../../http/cors';
+import { relayUnpeer } from '../../utils/federation-unpeer-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { instanceOwnerProcedure } from '../../utils/procedures';
 
@@ -20,7 +21,14 @@ const blockInstanceRoute = instanceOwnerProcedure
     // Look up domain before blocking so we can include it in the event
     const instance = await getFederationInstanceById(input.instanceId);
 
-    // Delete shadow users from this instance
+    // Tell the peer while the pairing is still active — a blocked row
+    // no longer signs for it.
+    if (instance?.status === 'active') {
+      await relayUnpeer(instance.domain, 'blocked');
+    }
+
+    // Delete shadow users from this instance (and the DM channels they
+    // leave behind — see deleteShadowUsersByInstance)
     await deleteShadowUsersByInstance(input.instanceId);
 
     // Update status to blocked
