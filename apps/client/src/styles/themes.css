@@ -5,6 +5,64 @@
    dark selector in index.css.
    ============================================================ */
 
+/* ── Onyx ── pure-black OLED canvas, teal accents ────────────── */
+/* Backgrounds are true #000 so OLED panels switch those pixels off;
+   every raised surface is a near-black step above it (card/popover
+   #0a0a0a, accent #161616) and hairlines are #1f1f1f, bright enough to
+   separate panes on a black canvas. Foreground/muted/chart/highlight
+   tokens derive from .dark; only the primary moves to the lighter teal
+   (#2dd4bf) that keeps contrast on #000. */
+html.onyx {
+  --background: #000000;
+  --foreground: #e4e4e7;
+  --card: #0a0a0a;
+  --card-foreground: #e4e4e7;
+  --popover: #0a0a0a;
+  --popover-foreground: #e4e4e7;
+  --primary: #2dd4bf;
+  --primary-foreground: #042f2e;
+  --secondary: #111111;
+  --secondary-foreground: #d4d4d8;
+  --muted: #0f0f0f;
+  --muted-foreground: #a1a1aa;
+  --accent: #161616;
+  --accent-foreground: #e4e4e7;
+  --destructive: #ef4444;
+  --border: #1f1f1f;
+  --input: #111111;
+  --ring: #2dd4bf;
+  --chart-1: #2dd4bf;
+  --chart-2: #4ade80;
+  --chart-3: #fbbf24;
+  --chart-4: #f472b6;
+  --chart-5: #f87171;
+  --sidebar: #000000;
+  --sidebar-foreground: #e4e4e7;
+  --sidebar-primary: #2dd4bf;
+  --sidebar-primary-foreground: #042f2e;
+  --sidebar-accent: #0a0a0a;
+  --sidebar-accent-foreground: #e4e4e7;
+  --sidebar-border: #1f1f1f;
+  --sidebar-ring: #2dd4bf;
+  --link-color: #2dd4bf;
+  --code-bg: #0a0a0a;
+  --code-border: #1f1f1f;
+  --code-text: #d4d4d8;
+  --code-header-text: #a1a1aa;
+  --code-copy-hover-bg: #1f1f1f;
+  --code-inline-bg: #0f0f0f;
+  --code-inline-text: #5eead4;
+  --scrollbar-thumb: #27272a;
+  --scrollbar-thumb-hover: #3f3f46;
+  --hl-keyword: #c084fc;
+  --hl-string: #86efac;
+  --hl-comment: #52525b;
+  --hl-number: #fdba74;
+  --hl-function: #7dd3fc;
+  --hl-variable: #fca5a5;
+  --hl-symbol: #5eead4;
+}
+
 /* ── Midnight ── deep navy, cool blue accents ───────────────── */
 html.midnight {
   --background: #0b1221;

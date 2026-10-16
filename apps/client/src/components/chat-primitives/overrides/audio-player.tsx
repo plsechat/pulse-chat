@@ -68,6 +68,7 @@ const AudioPlayer = memo(({ src, name }: TAudioPlayerProps) => {
         <button
           type="button"
           onClick={togglePlay}
+          aria-label={playing ? 'Pause' : 'Play'}
           className="flex items-center justify-center h-9 w-9 rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
         >
           {playing ? (

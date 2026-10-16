@@ -9,6 +9,9 @@ export enum LocalStorageKey {
   RECENT_EMOJIS = 'pulse-recent-emojis',
   AUDIO_DRIVER_PROMPT_DISMISSED = 'pulse-audio-driver-prompt-dismissed',
   ACTIVE_SERVER_ID = 'pulse-active-server-id',
+  /** `{ instanceDomain, serverId }` of the federated server in focus —
+   *  kept apart from ACTIVE_SERVER_ID, which is a HOME server id only. */
+  ACTIVE_FEDERATED_SERVER = 'pulse-active-federated-server',
   FEDERATED_SERVERS = 'pulse-federated-servers',
   APPEARANCE_SETTINGS = 'pulse-appearance-settings',
   SERVER_CHANNEL_MAP = 'pulse-server-channel-map',

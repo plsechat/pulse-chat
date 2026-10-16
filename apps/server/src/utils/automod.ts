@@ -10,7 +10,7 @@ import { db } from '../db';
 import { automodRules, channels, messages, serverMembers } from '../db/schema';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { logger } from '../logger';
-import { publishMessage } from '../db/publishers';
+import { publishMessage, publishUser } from '../db/publishers';
 import { invariant } from './invariant';
 
 type TAutomodResult = {
@@ -285,6 +285,9 @@ const postAlert = async (
     .insert(messages)
     .values({
       content: `[Auto-Mod] Rule "${context.ruleName}" blocked a message from <@${context.userId}> in <#${context.channelId}>`,
+      // A system row, not a message the rule's author typed: the client
+      // renders it as a centered notice and never offers edit/reply.
+      type: 'system',
       userId: context.authorId,
       channelId: target.id,
       editable: false,
@@ -368,6 +371,10 @@ const timeoutMember = async (
         eq(serverMembers.userId, userId)
       )
     );
+
+  // Co-members see the timeout chip at once (the scoped update carries
+  // timedOutUntil); the member themselves learns too.
+  await publishUser(userId, 'update', { scopeServerId: serverId });
 };
 
 /**

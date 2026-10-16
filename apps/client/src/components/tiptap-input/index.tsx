@@ -1,4 +1,5 @@
 import { EmojiPicker } from '@/components/emoji-picker';
+import { isCoarsePointer } from '@/hooks/use-is-mobile';
 import { Button } from '@/components/ui/button';
 import { useChannels } from '@/features/server/channels/hooks';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
@@ -271,7 +272,16 @@ const TiptapInput = memo(
           }
 
           if (event.key === 'Enter') {
-            const isMultiline = !!multilineModeRef.current;
+            // Touch-first devices: Enter inserts a newline and the Send
+            // button sends — a soft keyboard has no Shift+Enter, so
+            // Enter-sends made multi-line messages impossible. Only the
+            // composers that offer a multiline mode (and therefore have
+            // a Send button) opt in; the inline editor and the profile
+            // card composer pass no `multilineMode` and keep Enter =
+            // submit, since they have no other way to submit.
+            const isMultiline =
+              !!multilineModeRef.current ||
+              (multilineModeRef.current !== undefined && isCoarsePointer());
 
             // Multiline mode: Shift+Enter sends, plain Enter inserts a
             // newline (which is the inverse of the default). Suggestions
@@ -467,6 +477,7 @@ const TiptapInput = memo(
             size="icon"
             className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
             disabled={disabled}
+            aria-label="Add emoji"
           >
             <Smile className="h-5 w-5" />
           </Button>

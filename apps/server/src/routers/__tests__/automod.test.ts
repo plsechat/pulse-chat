@@ -225,6 +225,7 @@ describe('automod router', () => {
       // Authored by the rule's creator (user 1), never the offender.
       expect(alerts[0]!.userId).toBe(1);
       expect(alerts[0]!.editable).toBe(false);
+      expect(alerts[0]!.type).toBe('system');
       expect(alerts[0]!.content).toContain('no-pineapple');
       expect(alerts[0]!.content).toContain('<@2>');
     });

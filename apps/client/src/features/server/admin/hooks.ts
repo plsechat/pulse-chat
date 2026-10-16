@@ -1,14 +1,15 @@
 import type { IRootState } from '@/features/store';
-import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
-import { useForm } from '@/hooks/use-form';
+import {
+  getTrpcError,
+  parseTrpcErrors,
+  type TTrpcErrors
+} from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import {
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MAX_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
-  STORAGE_QUOTA,
-  StorageOverflowAction,
-  type TDiskMetrics
+  StorageOverflowAction
 } from '@pulse/shared';
 import type {
   TCategory,
@@ -21,11 +22,9 @@ import type {
   TJoinedRole,
   TJoinedUser,
   TLogin,
-  TMessage,
-  TStorageSettings
+  TMessage
 } from '@pulse/server/types';
-import { filesize } from 'filesize';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { onAppEvent } from '@/lib/events';
@@ -53,7 +52,57 @@ function useSubscriptionRefetch<T>(
   }, [value]);
 }
 
-// TODO: review this whole file for optimizations and improvements
+export type TAdminQuery<T> = {
+  data: T | null;
+  loading: boolean;
+  /** Message of the last failed fetch; cleared by the next `refetch`. */
+  error: string | null;
+  refetch: () => Promise<void>;
+};
+
+/**
+ * One fetch state machine for the read-mostly instance panels: `fn` runs
+ * on mount and on every `refetch`, the panel renders a loading card
+ * while the first fetch is in flight and an error row (with Retry) when
+ * it rejects — instead of staying blank forever. A response that lands
+ * after the component unmounted or after a newer fetch started is
+ * dropped, so a slow first request can never overwrite a Retry.
+ *
+ * `fn` must be referentially stable (wrap it in useCallback): a new
+ * identity re-fetches.
+ */
+export const useAdminQuery = <T>(
+  fn: () => Promise<T>,
+  fallbackError = 'Could not load this section'
+): TAdminQuery<T> => {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const seq = useRef(0);
+
+  const refetch = useCallback(async () => {
+    const id = ++seq.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fn();
+      if (id !== seq.current) return;
+      setData(result);
+    } catch (err) {
+      if (id !== seq.current) return;
+      setError(getTrpcError(err, fallbackError));
+    }
+    if (id === seq.current) setLoading(false);
+  }, [fn, fallbackError]);
+
+  // A changed `fn` re-fetches; the sequence guard above drops whatever
+  // the previous call still returns.
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { data, loading, error, refetch };
+};
 
 type TGeneralSettings = {
   name: string;
@@ -63,6 +112,10 @@ type TGeneralSettings = {
   enablePlugins: boolean;
   discoverable: boolean;
   federatable: boolean;
+  storageUploadEnabled: boolean;
+  storageUploadMaxFileSize: number;
+  storageSpaceQuotaByUser: number;
+  storageOverflowAction: StorageOverflowAction;
 };
 
 export const useAdminGeneral = (serverId: number | undefined) => {
@@ -75,7 +128,11 @@ export const useAdminGeneral = (serverId: number | undefined) => {
     allowNewUsers: false,
     enablePlugins: false,
     discoverable: false,
-    federatable: false
+    federatable: false,
+    storageUploadEnabled: true,
+    storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+    storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
+    storageOverflowAction: STORAGE_OVERFLOW_ACTION
   });
   const [logo, setLogo] = useState<TFile | null>(null);
 
@@ -94,7 +151,15 @@ export const useAdminGeneral = (serverId: number | undefined) => {
       allowNewUsers: result.allowNewUsers ?? false,
       enablePlugins: result.enablePlugins ?? false,
       discoverable: result.discoverable ?? false,
-      federatable: result.federatable ?? false
+      federatable: result.federatable ?? false,
+      storageUploadEnabled: result.storageUploadEnabled ?? true,
+      storageUploadMaxFileSize:
+        result.storageUploadMaxFileSize ?? STORAGE_MAX_FILE_SIZE,
+      storageSpaceQuotaByUser:
+        result.storageSpaceQuotaByUser ?? STORAGE_MAX_QUOTA_PER_USER,
+      storageOverflowAction:
+        (result.storageOverflowAction as StorageOverflowAction | null) ??
+        STORAGE_OVERFLOW_ACTION
     });
     setLoading(false);
     setLogo(result.logo);
@@ -114,7 +179,11 @@ export const useAdminGeneral = (serverId: number | undefined) => {
         allowNewUsers: settings.allowNewUsers,
         enablePlugins: settings.enablePlugins,
         discoverable: settings.discoverable,
-        federatable: settings.federatable
+        federatable: settings.federatable,
+        storageUploadEnabled: settings.storageUploadEnabled,
+        storageUploadMaxFileSize: settings.storageUploadMaxFileSize,
+        storageSpaceQuotaByUser: settings.storageSpaceQuotaByUser,
+        storageOverflowAction: settings.storageOverflowAction
       });
       toast.success('Settings updated');
     } catch (error) {
@@ -159,7 +228,7 @@ export type TAdminPlugin = Awaited<
   >
 >['plugins'][number];
 
-/** @pendingBatch B9 — consumer is the plugins settings panel, mounted in B9 (A8-1) */
+/** Instance-wide plugin list (`plugins.get` is instance-owner only). */
 export const useAdminPlugins = () => {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<TTrpcErrors>({});
@@ -369,97 +438,6 @@ export const useAdminRoles = (serverId: number | undefined) => {
     roles,
     refetch: fetchRoles,
     loading
-  };
-};
-
-/** @pendingBatch B9 — consumer is the upload-limits UI restored in B9 (A8-3) */
-export const useAdminStorage = (serverId: number | undefined) => {
-  const [loading, setLoading] = useState(true);
-  const { values, setValues, setTrpcErrors, r, onChange } =
-    useForm<TStorageSettings>({
-      storageOverflowAction: STORAGE_OVERFLOW_ACTION,
-      storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
-      storageUploadEnabled: true,
-      storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
-      storageQuota: STORAGE_QUOTA
-    });
-  const [diskMetrics, setDiskMetrics] = useState<TDiskMetrics | undefined>(
-    undefined
-  );
-
-  const fetchStorageSettings = useCallback(async () => {
-    if (!serverId) return;
-    setLoading(true);
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    const { storageSettings, diskMetrics } =
-      await trpc.others.getStorageSettings.query({ serverId });
-
-    setValues(storageSettings);
-    setDiskMetrics(diskMetrics);
-    setLoading(false);
-  }, [setValues, serverId]);
-
-  const submit = useCallback(async () => {
-    if (!serverId) return;
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      await trpc.others.updateSettings.mutate({
-        serverId,
-        storageUploadEnabled: values.storageUploadEnabled,
-        storageUploadMaxFileSize: values.storageUploadMaxFileSize,
-        storageSpaceQuotaByUser: values.storageSpaceQuotaByUser,
-        storageOverflowAction:
-          values.storageOverflowAction as StorageOverflowAction
-      });
-      toast.success('Storage settings updated');
-    } catch (error) {
-      console.error('Error updating storage settings:', error);
-      setTrpcErrors(error);
-    }
-  }, [values, setTrpcErrors, serverId]);
-
-  const labels = useMemo(() => {
-    return {
-      storageUploadMaxFileSize: filesize(
-        Number(values.storageUploadMaxFileSize ?? 0),
-        {
-          output: 'object',
-          standard: 'jedec'
-        }
-      ),
-      storageSpaceQuotaByUser: filesize(
-        Number(values.storageSpaceQuotaByUser ?? 0),
-        {
-          output: 'object',
-          standard: 'jedec'
-        }
-      ),
-      storageQuota: filesize(Number(values.storageQuota ?? 0), {
-        output: 'object',
-        standard: 'jedec'
-      })
-    };
-  }, [values]);
-
-  useEffect(() => {
-    fetchStorageSettings();
-  }, [fetchStorageSettings]);
-
-  useSubscriptionRefetch((s) => s.server.publicSettings, fetchStorageSettings);
-
-  return {
-    values,
-    labels,
-    refetch: fetchStorageSettings,
-    loading,
-    submit,
-    r,
-    onChange,
-    diskMetrics
   };
 };
 

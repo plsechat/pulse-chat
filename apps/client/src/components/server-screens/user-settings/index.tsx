@@ -2,10 +2,11 @@ import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, Fingerprint, IdCard, LogOut, Monitor, Palette, User, ShieldCheck, Volume2 } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { ChevronLeft, Fingerprint, IdCard, Laptop, LogOut, Monitor, Palette, User, ShieldCheck, Volume2 } from 'lucide-react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
+import { Desktop } from './desktop';
 import { Devices } from './devices';
 import { Encryption } from './encryption';
 import { Profile } from './profile';
@@ -13,7 +14,7 @@ import { Profiles } from './profiles';
 import { SoundsNotifications } from './sounds-notifications';
 import { VerifyIdentity } from './verify-identity';
 
-type Section = 'profile' | 'profiles' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices';
+type Section = 'profile' | 'profiles' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices' | 'desktop';
 
 type NavItem = {
   id: Section;
@@ -24,6 +25,16 @@ type NavItem = {
 type NavCategory = {
   heading: string;
   items: NavItem[];
+};
+
+/**
+ * Tray / startup / change-server live in the Electron shell; the section
+ * only exists when the page runs inside it (capability, not a label).
+ */
+const DESKTOP_NAV_ITEM: NavItem = {
+  id: 'desktop',
+  label: 'Desktop App',
+  icon: <Laptop className="h-4 w-4" />
 };
 
 const NAV_SECTIONS: NavCategory[] = [
@@ -53,7 +64,8 @@ const SECTION_TITLES: Record<Section, string> = {
   'verify-identity': 'Verify Identity',
   appearance: 'Appearance',
   sounds: 'Sounds & Notifications',
-  devices: 'Voice & Video'
+  devices: 'Voice & Video',
+  desktop: 'Desktop App'
 };
 
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
@@ -63,7 +75,8 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   'verify-identity': 'Compare safety numbers with your peers to confirm their encryption keys.',
   appearance: 'Customize how the app looks.',
   sounds: 'Control sound effects and desktop notifications.',
-  devices: 'Configure your audio and video devices.'
+  devices: 'Configure your audio and video devices.',
+  desktop: 'System tray, startup, and which server this app connects to.'
 };
 
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
@@ -73,7 +86,8 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   'verify-identity': VerifyIdentity,
   appearance: Appearance,
   sounds: SoundsNotifications,
-  devices: Devices
+  devices: Devices,
+  desktop: Desktop
 };
 
 export type TUserSettingsProps = TServerScreenBaseProps & {
@@ -87,8 +101,15 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
   );
   // Password management now lives inside My Account (which fetches the
   // auth providers itself and hides the form for SSO-only users), so
-  // the nav needs no async gating.
-  const visibleNavSections = NAV_SECTIONS;
+  // the nav needs no async gating — only the desktop shell adds a tab.
+  const visibleNavSections = useMemo(() => {
+    if (!window.pulseDesktop?.isElectron) return NAV_SECTIONS;
+    return NAV_SECTIONS.map((cat) =>
+      cat.heading === 'App Settings'
+        ? { ...cat, items: [...cat.items, DESKTOP_NAV_ITEM] }
+        : cat
+    );
+  }, []);
 
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
   const renderActive = () => {
@@ -117,7 +138,7 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
     <div className="flex h-full flex-col bg-background text-foreground">
       {/* Mobile top nav */}
       <div className="flex h-14 items-center gap-4 border-b border-border px-4 md:hidden">
-        <Button variant="ghost" size="icon" onClick={close}>
+        <Button variant="ghost" size="icon" onClick={close} aria-label="Back">
           <ChevronLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-lg font-semibold">Settings</h1>
@@ -187,7 +208,7 @@ const UserSettings = memo(({ close, initialSection, initialVerifyPeerId }: TUser
         </aside>
 
         {/* Content panel */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {/* The Profiles editor is two-pane (controls + live preview)
               and needs more room than the single-column forms. */}
           <div

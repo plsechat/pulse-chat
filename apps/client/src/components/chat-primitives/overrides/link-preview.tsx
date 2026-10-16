@@ -29,23 +29,24 @@ const LinkPreview = memo(({ metadata }: TLinkPreviewProps) => {
       className="flex gap-3 max-w-md border border-border rounded-lg overflow-hidden bg-card hover:bg-accent/30 transition-colors group"
     >
       {thumbnail && !imgError && (
-        <ImageContextMenu src={thumbnail}>
-          <img
-            src={thumbnail}
-            alt=""
-            onError={() => setImgError(true)}
-            className="w-20 h-20 object-cover shrink-0"
-            // The anchor wrapping this preview opens on left-click; without
-            // a contextmenu stop it'd race the inner ImageContextMenu and
-            // open the link too. Stop propagation here so right-click stays
-            // a pure context-menu action.
-            onContextMenu={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              if (e.button === 0) return;
-              e.preventDefault();
-            }}
-          />
-        </ImageContextMenu>
+        // The anchor wrapping this preview opens on left-click; without a
+        // contextmenu stop it'd race the inner ImageContextMenu and open
+        // the link too. The stop lives on this (non-semantic) wrapper so
+        // the <img> itself carries no pointer handlers; the menu trigger
+        // on the image runs first, then the bubble is cut here.
+        <span
+          className="flex shrink-0"
+          onContextMenu={(e) => e.stopPropagation()}
+        >
+          <ImageContextMenu src={thumbnail}>
+            <img
+              src={thumbnail}
+              alt=""
+              onError={() => setImgError(true)}
+              className="w-20 h-20 object-cover shrink-0"
+            />
+          </ImageContextMenu>
+        </span>
       )}
       <div className="flex flex-col justify-center py-2 pr-3 min-w-0">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -65,7 +66,7 @@ const LinkPreview = memo(({ metadata }: TLinkPreviewProps) => {
           </span>
         )}
       </div>
-      <div className="flex items-center pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center pr-2 opacity-0 group-hover-or-touch:opacity-100 transition-opacity">
         <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
       </div>
     </a>

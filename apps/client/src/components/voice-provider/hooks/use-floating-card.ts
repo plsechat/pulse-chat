@@ -10,13 +10,32 @@ type TPosition = {
   y: number;
 };
 
+/** Keep `position` inside `parent` for a card of `card`'s size. */
+const clampToParent = (
+  position: TPosition,
+  parent: DOMRect,
+  card: DOMRect
+): TPosition => ({
+  x: Math.max(0, Math.min(position.x, parent.width - card.width)),
+  y: Math.max(0, Math.min(position.y, parent.height - card.height))
+});
+
+/**
+ * Drag + persisted position for the floating pinned card. Pointer
+ * events (mouse, pen and touch alike; the card is `touch-none` so the
+ * browser does not scroll instead). The saved position is clamped to
+ * the current viewport on mount and on resize — a position saved on a
+ * wide desktop window used to put the whole card off-screen on a
+ * narrower one, with no way to reach its controls.
+ */
 export const useFloatingCard = () => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<TPosition | undefined>(
     getLocalStorageItemAsJSON<TPosition>(LocalStorageKey.FLOATING_CARD_POSITION)
   );
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ pointerId: number; offset: TPosition } | null>(
+    null
+  );
 
   useEffect(() => {
     if (position) {
@@ -27,52 +46,64 @@ export const useFloatingCard = () => {
     }
   }, [position]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!cardRef.current) return;
-
-    const rect = cardRef.current.getBoundingClientRect();
-    setIsDragging(true);
-    setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
+  const clampCurrent = useCallback(() => {
+    const card = cardRef.current;
+    const parent = card?.parentElement;
+    if (!card || !parent) return;
+    setPosition((current) => {
+      if (!current) return current;
+      const next = clampToParent(
+        current,
+        parent.getBoundingClientRect(),
+        card.getBoundingClientRect()
+      );
+      return next.x === current.x && next.y === current.y ? current : next;
     });
   }, []);
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging || !cardRef.current) return;
+  // Clamp on mount (the card may be mounted with a stale saved spot)
+  // and whenever the window changes size.
+  useEffect(() => {
+    clampCurrent();
+    window.addEventListener('resize', clampCurrent);
+    return () => window.removeEventListener('resize', clampCurrent);
+  }, [clampCurrent]);
 
-      const parent = cardRef.current.parentElement;
-      if (!parent) return;
-
-      const parentRect = parent.getBoundingClientRect();
-      const cardRect = cardRef.current.getBoundingClientRect();
-
-      let newX = e.clientX - parentRect.left - dragOffset.x;
-      let newY = e.clientY - parentRect.top - dragOffset.y;
-
-      newX = Math.max(0, Math.min(newX, parentRect.width - cardRect.width));
-      newY = Math.max(0, Math.min(newY, parentRect.height - cardRect.height));
-
-      setPosition({ x: newX, y: newY });
-    },
-    [isDragging, dragOffset]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!cardRef.current || e.button !== 0) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: e.pointerId,
+      offset: { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    };
+    cardRef.current.setPointerCapture?.(e.pointerId);
   }, []);
 
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    const card = cardRef.current;
+    const parent = card?.parentElement;
+    if (!drag || drag.pointerId !== e.pointerId || !card || !parent) return;
+
+    const parentRect = parent.getBoundingClientRect();
+    setPosition(
+      clampToParent(
+        {
+          x: e.clientX - parentRect.left - drag.offset.x,
+          y: e.clientY - parentRect.top - drag.offset.y
+        },
+        parentRect,
+        card.getBoundingClientRect()
+      )
+    );
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    dragRef.current = null;
+    cardRef.current?.releasePointerCapture?.(e.pointerId);
+  }, []);
 
   const getStyle = useCallback(() => {
     return {
@@ -89,8 +120,14 @@ export const useFloatingCard = () => {
 
   return {
     cardRef,
-    handleMouseDown,
+    dragHandlers: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+      onPointerCancel: handlePointerUp
+    },
     getStyle,
     resetCard
   };
 };
+

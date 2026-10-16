@@ -192,7 +192,7 @@ const Message = memo(({ message, onReply, compact = false, isFirstInGroup = true
         onClick={selectionMode ? onSelectionClick : undefined}
       >
         {!isFirstInGroup && !compact && (
-          <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity duration-100 select-none">
+          <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover-or-touch:opacity-100 transition-opacity duration-100 select-none">
             {format(new Date(message.createdAt), timeOnly())}
           </time>
         )}

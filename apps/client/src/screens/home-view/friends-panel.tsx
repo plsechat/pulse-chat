@@ -48,15 +48,15 @@ const FriendsPanel = memo(({ onDmSelect }: TFriendsPanelProps) => {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center gap-4 border-b border-border px-4">
-        <span className="font-semibold text-foreground">Friends</span>
-        <div className="flex gap-1">
+      <div className="flex h-12 items-center gap-4 border-b border-border px-4 min-w-0">
+        <span className="font-semibold text-foreground shrink-0">Friends</span>
+        <div className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
           {(['all', 'pending', 'blocked', 'add'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={cn(
-                'rounded-md px-3 py-1 text-sm transition-colors duration-100 capitalize',
+                'rounded-md px-3 py-1 text-sm transition-colors duration-100 capitalize shrink-0 whitespace-nowrap',
                 tab === t
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -210,14 +210,22 @@ const FriendRow = memo(
     // store receives full USER_UPDATE merges, so `user` is live.
     const nameCss = getNameStyleCss(user.nameStyle);
     return (
-      <div className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-muted/50 group">
-        <div className="flex items-center gap-3">
-          <UserAvatar
-            userId={user.id}
-            className="h-9 w-9"
-            showUserPopover
-            homeScope
-          />
+      // The whole row opens the DM — on touch screens the hover-revealed
+      // buttons were the only way in and were invisible. The avatar keeps
+      // its own tap (profile card) by stopping the row click.
+      <div
+        className="flex items-center justify-between rounded-md px-3 py-2 hover:bg-muted/50 group cursor-pointer"
+        onClick={onMessage}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+            <UserAvatar
+              userId={user.id}
+              className="h-9 w-9"
+              showUserPopover
+              homeScope
+            />
+          </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
               <span
@@ -237,12 +245,15 @@ const FriendRow = memo(
             </span>
           </div>
         </div>
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex gap-1 shrink-0 opacity-0 group-hover-or-touch:opacity-100 transition-opacity">
           <Button
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={onMessage}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMessage();
+            }}
             title="Message"
           >
             <MessageSquare className="h-4 w-4" />
@@ -251,7 +262,10 @@ const FriendRow = memo(
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-destructive hover:text-destructive"
-            onClick={onRemove}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
             title="Remove Friend"
           >
             <UserMinus className="h-4 w-4" />

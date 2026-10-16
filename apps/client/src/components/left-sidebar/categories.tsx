@@ -9,7 +9,8 @@ import { getTRPCClient } from '@/lib/trpc';
 import {
   DndContext,
   type DragEndEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors
@@ -112,9 +113,18 @@ const Categories = memo(() => {
   );
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8
+      }
+    }),
+    // Touch: a long press starts the reorder; a plain drag scrolls the
+    // list as the platform expects (PointerSensor alone got cancelled
+    // by the scroll before the distance threshold was met).
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5
       }
     })
   );

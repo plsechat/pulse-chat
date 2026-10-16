@@ -14,7 +14,6 @@ export enum Permission {
   MANAGE_SETTINGS = "MANAGE_SETTINGS",
   MANAGE_USERS = "MANAGE_USERS",
   MANAGE_MESSAGES = "MANAGE_MESSAGES",
-  MANAGE_STORAGE = "MANAGE_STORAGE",
   MANAGE_INVITES = "MANAGE_INVITES",
   MANAGE_PLUGINS = "MANAGE_PLUGINS",
   EXECUTE_PLUGIN_COMMANDS = "EXECUTE_PLUGIN_COMMANDS",
@@ -39,7 +38,6 @@ export const permissionLabels: Record<Permission, string> = {
   [Permission.MANAGE_SETTINGS]: "Manage server settings",
   [Permission.MANAGE_USERS]: "Manage users",
   [Permission.MANAGE_MESSAGES]: "Manage messages",
-  [Permission.MANAGE_STORAGE]: "Manage storage",
   [Permission.MANAGE_INVITES]: "Manage invites",
   [Permission.MANAGE_PLUGINS]: "Manage plugins",
   [Permission.EXECUTE_PLUGIN_COMMANDS]: "Execute plugin commands",
@@ -72,8 +70,6 @@ export const permissionDescriptions: Record<Permission, string> = {
   [Permission.MANAGE_USERS]: "Grants the ability to manage users.",
   [Permission.MANAGE_MESSAGES]:
     "Grants the ability to manage messages from all users by editing or deleting them.",
-  [Permission.MANAGE_STORAGE]:
-    "Grants the ability to manage storage, such as enabling or disabling uploads.",
   [Permission.MANAGE_INVITES]:
     "Grants the ability to create, edit, and delete server invites.",
   [Permission.MANAGE_PLUGINS]: "Grants the ability to manage plugins.",

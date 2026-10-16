@@ -135,6 +135,20 @@ const getDmChannelsForUser = async (
     .from(dmChannels)
     .where(inArray(dmChannels.id, channelIds));
 
+  // Query 2b: group icons — the client renders /public/<name>, so the
+  // id alone (dmChannels.iconFileId) is not enough to show the icon.
+  const iconFileIds = channelRows
+    .map((c) => c.iconFileId)
+    .filter((id): id is number => id !== null);
+  const iconRows =
+    iconFileIds.length > 0
+      ? await db
+          .select({ id: files.id, name: files.name })
+          .from(files)
+          .where(inArray(files.id, iconFileIds))
+      : [];
+  const iconMap = new Map(iconRows.map((f) => [f.id, f]));
+
   // Query 3: Batch-fetch all members for all channels
   const allMemberRows = await db
     .select({
@@ -216,6 +230,10 @@ const getDmChannelsForUser = async (
 
     return {
       ...channel,
+      icon:
+        channel.iconFileId !== null
+          ? (iconMap.get(channel.iconFileId) ?? null)
+          : null,
       members,
       lastMessage: lastMsgMap.get(channel.id) ?? null,
       unreadCount: unreadCountMap.get(channel.id) ?? 0

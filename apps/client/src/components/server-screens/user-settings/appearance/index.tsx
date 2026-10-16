@@ -9,11 +9,12 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import {
+  FONT_SCALE_RANGE,
   useAppearanceSettings,
+  ZOOM_LEVEL_RANGE,
   type MessageSpacing,
   type TimeFormat
 } from '@/hooks/use-appearance-settings';
-import { useIsOwnUserOwner } from '@/features/server/hooks';
 import { Check, Monitor } from 'lucide-react';
 import { memo } from 'react';
 
@@ -115,7 +116,6 @@ const Appearance = memo(() => {
     setTimeFormat,
     setShowFormattingHints
   } = useAppearanceSettings();
-  const isOwner = useIsOwnUserOwner();
 
   return (
     <div className="space-y-8">
@@ -301,54 +301,54 @@ const Appearance = memo(() => {
         </div>
       </div>
 
-      {/* Font Scaling & Zoom — admin only (experimental) */}
-      {isOwner && (
-        <>
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold">Font Scaling</h3>
-              <p className="text-sm text-muted-foreground">
-                Adjust the text size in chat messages.
-              </p>
-            </div>
+      {/* Font Scaling */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Font Scaling</h3>
+          <p className="text-sm text-muted-foreground">
+            Adjust the text size in chat messages.
+          </p>
+        </div>
 
-            <Slider
-              min={80}
-              max={120}
-              step={5}
-              value={[settings.fontScale]}
-              onValueChange={([value]) => setFontScale(value)}
-              rightSlot={
-                <span className="text-sm text-muted-foreground w-10 text-right tabular-nums">
-                  {settings.fontScale}%
-                </span>
-              }
-            />
-          </div>
+        <Slider
+          min={FONT_SCALE_RANGE.min}
+          max={FONT_SCALE_RANGE.max}
+          step={FONT_SCALE_RANGE.step}
+          value={[settings.fontScale]}
+          onValueChange={([value]) => setFontScale(value)}
+          aria-label="Font scale"
+          rightSlot={
+            <span className="text-sm text-muted-foreground w-10 text-right tabular-nums">
+              {settings.fontScale}%
+            </span>
+          }
+        />
+      </div>
 
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold">Zoom Level</h3>
-              <p className="text-sm text-muted-foreground">
-                Scale the entire interface. Best suited for desktop.
-              </p>
-            </div>
+      {/* Zoom */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Zoom Level</h3>
+          <p className="text-sm text-muted-foreground">
+            Scale the entire interface, like browser zoom but saved with
+            your account.
+          </p>
+        </div>
 
-            <Slider
-              min={80}
-              max={120}
-              step={5}
-              value={[settings.zoomLevel]}
-              onValueChange={([value]) => setZoomLevel(value)}
-              rightSlot={
-                <span className="text-sm text-muted-foreground w-10 text-right tabular-nums">
-                  {settings.zoomLevel}%
-                </span>
-              }
-            />
-          </div>
-        </>
-      )}
+        <Slider
+          min={ZOOM_LEVEL_RANGE.min}
+          max={ZOOM_LEVEL_RANGE.max}
+          step={ZOOM_LEVEL_RANGE.step}
+          value={[settings.zoomLevel]}
+          onValueChange={([value]) => setZoomLevel(value)}
+          aria-label="Zoom level"
+          rightSlot={
+            <span className="text-sm text-muted-foreground w-10 text-right tabular-nums">
+              {settings.zoomLevel}%
+            </span>
+          }
+        />
+      </div>
     </div>
   );
 });

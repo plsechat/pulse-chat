@@ -18,6 +18,12 @@ type TDmVoicePanelProps = {
   dmChannelId: number;
 };
 
+/** Phones have no screen capture; the button only produced a failure
+ *  toast there. */
+const canShareScreen = () =>
+  typeof navigator !== 'undefined' &&
+  typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
 // A DM call has no channel permission model (the server skips the
 // per-channel checks for DM voice), so camera and screen share are
 // always available here. Resolving `dmChannelId` against the server's
@@ -83,7 +89,10 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
 
   return (
     <div className="flex flex-col border-b border-border bg-background/50">
-      <div className="h-[40vh] min-h-[200px] relative overflow-hidden">
+      {/* Phones: 40vh of a 915px screen plus the soft keyboard left no
+          room for the conversation; the grid takes a bounded share of
+          the VISIBLE height (--vvh, use-visual-viewport) there. */}
+      <div className="h-[clamp(160px,30*var(--vvh)/100,320px)] md:h-[40vh] md:min-h-[200px] relative overflow-hidden">
         <VoiceGrid pinnedCardId={pinnedCard?.id} className="h-full">
           {cards}
         </VoiceGrid>
@@ -113,28 +122,30 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
           )}
         </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'h-9 w-9 rounded-lg transition-all duration-200',
-            ownVoiceState.sharingScreen
-              ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
-              : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
-          )}
-          onClick={toggleScreenShare}
-          title={
-            ownVoiceState.sharingScreen
-              ? 'Stop screen share'
-              : 'Start screen share'
-          }
-        >
-          {ownVoiceState.sharingScreen ? (
-            <Monitor className="h-4 w-4" />
-          ) : (
-            <MonitorOff className="h-4 w-4" />
-          )}
-        </Button>
+        {canShareScreen() && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-9 w-9 rounded-lg transition-all duration-200',
+              ownVoiceState.sharingScreen
+                ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
+                : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+            )}
+            onClick={toggleScreenShare}
+            title={
+              ownVoiceState.sharingScreen
+                ? 'Stop screen share'
+                : 'Start screen share'
+            }
+          >
+            {ownVoiceState.sharingScreen ? (
+              <Monitor className="h-4 w-4" />
+            ) : (
+              <MonitorOff className="h-4 w-4" />
+            )}
+          </Button>
+        )}
       </div>
     </div>
   );

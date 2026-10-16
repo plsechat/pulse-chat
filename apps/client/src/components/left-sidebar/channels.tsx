@@ -1,4 +1,5 @@
 import { TypingDots } from '@/components/typing-dots';
+import { emitAppEvent } from '@/lib/events';
 import { setSelectedChannelId } from '@/features/server/channels/actions';
 import {
   useChannelById,
@@ -26,7 +27,8 @@ import { cn } from '@/lib/utils';
 import {
   DndContext,
   type DragEndEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors
@@ -239,6 +241,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
     }
 
     setSelectedChannelId(channelId);
+    emitAppEvent('channel-selected', { channelId });
 
     if (channel?.type === ChannelType.VOICE && !isInThisVoice) {
       const response = await joinVoice(channelId);
@@ -322,9 +325,18 @@ const Channels = memo(({ categoryId }: TChannelsProps) => {
   const can = useCan();
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8
+      }
+    }),
+    // Touch: a long press starts the reorder; a plain drag scrolls the
+    // list as the platform expects (PointerSensor alone got cancelled
+    // by the scroll before the distance threshold was met).
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5
       }
     })
   );

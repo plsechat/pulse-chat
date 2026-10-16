@@ -45,6 +45,7 @@ const LinkCard = memo(({ url, onOpen }: TLinkCardProps) => {
           size="sm"
           onClick={onOpen}
           className="flex-shrink-0 ml-2"
+          aria-label={`Open ${domain}`}
         >
           <ExternalLink className="h-4 w-4" />
         </Button>

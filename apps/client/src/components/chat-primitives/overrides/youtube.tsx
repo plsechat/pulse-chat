@@ -24,15 +24,12 @@ const YoutubeOverride = memo(({ videoId }: TYoutubeOverrideProps) => {
           `w-full` collapsed to ~0 width and the library's
           padding-bottom aspect-ratio hack on .yt-lite computed near-0
           height, hiding the player. A pixel width sidesteps the
-          containing-block ambiguity entirely. If this overflows on
-          narrow viewports, the message column's overflow handling
-          is the right place to address it — not here.
+          containing-block ambiguity entirely; the min() caps it to the
+          viewport on phones (the message column cannot shrink an
+          inline-wrapped block itself).
         */}
-        <div className="w-[600px]">
-          <LiteYouTubeEmbed
-            id={videoId}
-            title="What’s new in Material Design for the web (Chrome Dev Summit 2019)"
-          />
+        <div className="w-[min(600px,calc(100vw-5rem))]">
+          <LiteYouTubeEmbed id={videoId} title="YouTube video" />
         </div>
       </ImageContextMenu>
     </OverrideLayout>

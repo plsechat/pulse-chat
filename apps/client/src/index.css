@@ -4,6 +4,46 @@
 
 @custom-variant dark (&:is(.dark *, .onyx *, .midnight *, .sunset *, .rose *, .forest *, .dracula *));
 
+/*
+  Touch screens never hover. Tailwind wraps `hover:` / `group-hover:` in
+  `@media (hover: hover)`, so a control that only appears on hover never
+  appears on a phone. These variants show it on hover where hovering
+  exists and always where it does not — use them for every
+  `opacity-0 group-hover:opacity-100` reveal.
+*/
+@custom-variant hover-or-touch {
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+  @media (hover: none) {
+    @slot;
+  }
+}
+@custom-variant group-hover-or-touch {
+  @media (hover: hover) {
+    &:is(:where(.group):hover *) {
+      @slot;
+    }
+  }
+  @media (hover: none) {
+    @slot;
+  }
+}
+
+/*
+  The app shell's height. `dvh` shrinks for the soft keyboard only where
+  the browser resizes the layout viewport (Chrome with
+  interactive-widget=resizes-content); iOS Safari keeps the layout
+  viewport and only shrinks the VISUAL viewport, so
+  hooks/use-visual-viewport keeps this variable at visualViewport.height
+  while the keyboard is up. Mobile shells size with `h-(--vvh)`.
+*/
+:root {
+  --vvh: 100dvh;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -94,59 +134,6 @@
   --hl-function: #7c3aed;
   --hl-variable: #c2410c;
   --hl-symbol: #0d9488;
-}
-
-.onyx {
-  --background: #08080a;
-  --foreground: #e4e4e7;
-  --card: #161618;
-  --card-foreground: #e4e4e7;
-  /* Overlay surface must sit ABOVE card in the tonal stack */
-  --popover: #0e0e10;
-  --popover-foreground: #e4e4e7;
-  --primary: #2dd4bf;
-  --primary-foreground: #042f2e;
-  --secondary: #141414;
-  --secondary-foreground: #d4d4d8;
-  --muted: #0f0f0f;
-  --muted-foreground: #71717a;
-  --accent: #1f1f22;
-  --accent-foreground: #e4e4e7;
-  --destructive: #ef4444;
-  --border: #1f1f22;
-  --input: #141414;
-  --ring: #2dd4bf;
-  --chart-1: #2dd4bf;
-  --chart-2: #4ade80;
-  --chart-3: #fbbf24;
-  --chart-4: #f472b6;
-  --chart-5: #f87171;
-  /* Canvas tone — panes (background) float ABOVE this */
-  --sidebar: #000000;
-  --sidebar-foreground: #e4e4e7;
-  --sidebar-primary: #2dd4bf;
-  --sidebar-primary-foreground: #042f2e;
-  --sidebar-accent: #0a0a0a;
-  --sidebar-accent-foreground: #e4e4e7;
-  --sidebar-border: #141414;
-  --sidebar-ring: #2dd4bf;
-  --link-color: #2dd4bf;
-  --code-bg: #0a0a0a;
-  --code-border: #1a1a1a;
-  --code-text: #d4d4d8;
-  --code-header-text: #71717a;
-  --code-copy-hover-bg: #1a1a1a;
-  --code-inline-bg: #0f0f0f;
-  --code-inline-text: #2dd4bf;
-  --scrollbar-thumb: #27272a;
-  --scrollbar-thumb-hover: #3f3f46;
-  --hl-keyword: #c084fc;
-  --hl-string: #86efac;
-  --hl-comment: #52525b;
-  --hl-number: #fdba74;
-  --hl-function: #7dd3fc;
-  --hl-variable: #fca5a5;
-  --hl-symbol: #5eead4;
 }
 
 .dark {

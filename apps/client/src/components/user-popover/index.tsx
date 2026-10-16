@@ -1,4 +1,5 @@
 import { setModViewOpen } from '@/features/app/actions';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { ServerScreen } from '@/components/server-screens/screens';
 import { openServerScreen } from '@/features/server-screens/actions';
 import {
@@ -21,7 +22,7 @@ import {
   sendFriendRequest,
   unblockUser
 } from '@/features/friends/actions';
-import { useUserRoles } from '@/features/server/hooks';
+import { useIsInstanceOwner, useUserRoles } from '@/features/server/hooks';
 import {
   useHomeOwnUserId,
   useHomeUserById,
@@ -116,6 +117,10 @@ const UserPopover = memo(
   const friends = useFriends();
   const activeInstanceDomain = useActiveInstanceDomain();
   const activeServerId = useActiveServerId();
+  // From the member drawer a `side="right"` card lands ~half off-screen
+  // on a phone (the popper only shifts along the side axis): open it
+  // below the trigger there, capped to the viewport width.
+  const isMobile = useIsMobile();
   const isOwnUser = homeScope
     ? userId === homeOwnUserId
     : !activeInstanceDomain && userId === ownUserId;
@@ -138,6 +143,7 @@ const UserPopover = memo(
   );
   const isBlocked = useIsUserBlocked(userId);
   const [reportOpen, setReportOpen] = useState(false);
+  const isInstanceOwner = useIsInstanceOwner();
 
   const handleBlockToggle = useCallback(async () => {
     if (!user) return;
@@ -360,7 +366,11 @@ const UserPopover = memo(
       >
         {children}
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="start" side="right">
+      <PopoverContent
+        className="w-[min(20rem,calc(100vw-1rem))] p-0"
+        align="start"
+        side={isMobile ? 'bottom' : 'right'}
+      >
         {/* === Zone 1: Banner + Avatar + Action Buttons === */}
         <div className="relative">
           {user.banner ? (
@@ -411,6 +421,7 @@ const UserPopover = memo(
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
+                  aria-label="More options"
                   className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
                 >
                   <Ellipsis className="h-4 w-4" />
@@ -466,6 +477,32 @@ const UserPopover = memo(
                       <Flag className="h-4 w-4" />
                       Report User
                     </DropdownMenuItem>
+                    {/* Moderators jump straight to the queues (deep links
+                        into Server Settings) instead of hunting for them. */}
+                    <Protect permission={Permission.VIEW_REPORTS}>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          openServerScreen(ServerScreen.SERVER_SETTINGS, {
+                            initialSection: 'reports'
+                          })
+                        }
+                      >
+                        <Flag className="h-4 w-4" />
+                        View Reports
+                      </DropdownMenuItem>
+                    </Protect>
+                    {isInstanceOwner && !activeInstanceDomain && (
+                      <DropdownMenuItem
+                        onClick={() =>
+                          openServerScreen(ServerScreen.SERVER_SETTINGS, {
+                            initialSection: 'instance-reports'
+                          })
+                        }
+                      >
+                        <Flag className="h-4 w-4" />
+                        Review Queue
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       onClick={handleBlockToggle}
                       variant={isBlocked ? undefined : 'destructive'}
@@ -606,7 +643,9 @@ const UserPopover = memo(
                           })}
                         </span>
                         <button
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                          type="button"
+                          aria-label="Delete note"
+                          className="opacity-0 group-hover-or-touch:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition-all"
                           onClick={() => handleDeleteNote(note.id)}
                         >
                           <X className="h-3 w-3" />

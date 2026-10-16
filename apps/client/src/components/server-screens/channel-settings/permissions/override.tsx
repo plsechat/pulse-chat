@@ -157,6 +157,7 @@ const Override = memo(
               size="icon"
               variant="ghost"
               onClick={onDeleteOverride}
+              aria-label="Remove override"
               className="text-destructive hover:text-destructive"
             >
               <Trash2 className="h-4 w-4" />

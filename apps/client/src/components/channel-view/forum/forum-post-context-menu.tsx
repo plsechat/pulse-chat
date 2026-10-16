@@ -149,7 +149,8 @@ const ForumPostMenu = memo((props: TForumPostMenuProps) => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="absolute top-2 right-2 h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Post options"
+          className="absolute top-2 right-2 h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 opacity-0 group-hover-or-touch:opacity-100 data-[state=open]:opacity-100 transition-opacity focus-visible:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           <Ellipsis className="h-4 w-4" />

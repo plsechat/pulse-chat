@@ -43,8 +43,9 @@ import { useHomeOwnUserId, useHomeUserById } from '@/features/server/users/hooks
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getNameStyleCss } from '@/helpers/name-style';
+import { getFileUrl } from '@/helpers/get-file-url';
+import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { useUploadFiles } from '@/hooks/use-upload-files';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import {
   ContextMenu,
@@ -66,18 +67,18 @@ import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import { isLegacyHtml } from '@/lib/converters/token-content';
-import { TokenContentRenderer } from '@/lib/converters/token-content-renderer';
-import { serializer } from '@/components/chat-primitives/serializer';
-import parse from 'html-react-parser';
+import {
+  useComposerHelpers,
+  useTypingSignal
+} from '@/components/chat-primitives/use-composer-helpers';
 import { fullDateTime, groupTimestamp, longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { filesize } from 'filesize';
-import { throttle } from 'lodash-es';
 import { ArrowDown, Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
 import { LocalStorageKey } from '@/helpers/storage';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { DmCallBanner } from '@/components/dm-call/call-banner';
@@ -128,7 +129,6 @@ const DmConversation = memo(
     detached,
     loadNewer
   });
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const isInThisCall = ownDmCallChannelId === dmChannelId;
   const dmChannels = useDmChannels();
@@ -186,45 +186,67 @@ const DmConversation = memo(
     return `Message @${otherMembers[0]?.name ?? 'Unknown'}`;
   }, [dmChannels, dmChannelId, ownUserId]);
 
-  const inputAreaRef = useRef<HTMLDivElement>(null);
   const [multilineMode, setMultilineMode] = useState(false);
   const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
 
-  const focusEditor = useCallback(() => {
-    requestAnimationFrame(() => {
-      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-    });
-  }, []);
+  // Thread the reply context through so picking a GIF while replying
+  // lands as a reply (was dropped before — gif sent top-level + the
+  // user's reply preview vanished).
+  const sendGif = useCallback(
+    async (gifUrl: string) => {
+      await sendDmMessage(dmChannelId, gifUrl, undefined, replyingTo?.id);
+    },
+    [dmChannelId, replyingTo]
+  );
 
-  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
-    useUploadFiles(false, isE2ee, focusEditor);
+  // Shared composer plumbing (see chat-primitives/use-composer-helpers):
+  // the editor focus, hidden file input, staged-upload removal and the
+  // GIF-send envelope are identical to the channel composer's.
+  const {
+    inputAreaRef,
+    fileInputRef,
+    focusEditorAtBottom,
+    files,
+    clearFiles,
+    uploading,
+    uploadingSize,
+    fileKeyMapRef,
+    onFileInputChange,
+    onRemoveFileClick,
+    onGifSelect
+  } = useComposerHelpers({
+    uploadDisabled: false,
+    isE2ee,
+    sendGif,
+    onGifSent: () => setReplyingTo(null),
+    // DM uploads are staged on the home instance (home view has no
+    // active federated instance), so the temp file is deleted there.
+    deleteTemporaryFile: (fileId) =>
+      getHomeTRPCClient()?.files.deleteTemporary.mutate({ fileId }) ??
+      Promise.resolve(),
+    detached,
+    reattach,
+    scrollToBottom
+  });
 
   const handleReply = useCallback(
     (message: TJoinedDmMessage) => {
       setReplyingTo(message);
-      requestAnimationFrame(() => {
-        inputAreaRef.current
-          ?.querySelector<HTMLElement>('.ProseMirror')
-          ?.focus();
-        scrollToBottom();
-      });
+      focusEditorAtBottom();
     },
-    [scrollToBottom]
+    [focusEditorAtBottom]
   );
 
-  const sendTypingSignal = useMemo(
-    () =>
-      throttle(async () => {
-        const trpc = getHomeTRPCClient();
-        if (!trpc) return;
-        try {
-          await trpc.dms.signalTyping.mutate({ dmChannelId });
-        } catch {
-          // ignore
-        }
-      }, TYPING_MS),
-    [dmChannelId]
-  );
+  const signalTyping = useCallback(async () => {
+    const trpc = getHomeTRPCClient();
+    if (!trpc) return;
+    try {
+      await trpc.dms.signalTyping.mutate({ dmChannelId });
+    } catch {
+      // ignore
+    }
+  }, [dmChannelId]);
+  const sendTypingSignal = useTypingSignal(signalTyping, TYPING_MS);
 
 
   const onSendMessage = useCallback(async () => {
@@ -315,48 +337,6 @@ const DmConversation = memo(
       requestAnimationFrame(scrollToBottom);
     }
   }, [newMessage, dmChannelId, files, clearFiles, replyingTo, sendTypingSignal, isE2ee, fileKeyMapRef, detached, reattach, scrollToBottom]);
-
-  const onGifSelect = useCallback(
-    async (gifUrl: string) => {
-      try {
-        // Thread the reply context through so picking a GIF while
-        // replying lands as a reply (was dropped before — gif sent
-        // top-level + the user's reply preview vanished).
-        await sendDmMessage(
-          dmChannelId,
-          gifUrl,
-          undefined,
-          replyingTo?.id
-        );
-        setReplyingTo(null);
-        if (detached) {
-          await reattach();
-          requestAnimationFrame(scrollToBottom);
-        }
-      } catch (error) {
-        toast.error(getTrpcError(error, 'Failed to send GIF'));
-      }
-    },
-    [dmChannelId, replyingTo, detached, reattach, scrollToBottom]
-  );
-
-  const onFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selectedFiles = Array.from(e.target.files ?? []);
-      if (selectedFiles.length > 0) {
-        handleUploadFiles(selectedFiles);
-      }
-      e.target.value = '';
-    },
-    [handleUploadFiles]
-  );
-
-  const onRemoveFileClick = useCallback(
-    (fileId: string) => {
-      removeFile(fileId);
-    },
-    [removeFile]
-  );
 
   if (loading) {
     return (
@@ -559,6 +539,7 @@ const DmConversation = memo(
             className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
+            aria-label="Attach files"
           >
             <Plus className="h-5 w-5" />
           </Button>
@@ -594,6 +575,7 @@ const DmConversation = memo(
             )}
             onClick={onSendMessage}
             disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
+            aria-label="Send message"
           >
             <Send className="h-5 w-5" />
           </Button>
@@ -678,7 +660,14 @@ const DmHeader = memo(({
 
   return (
     <div className="relative flex h-12 items-center gap-3 border-b border-border px-4">
-      {channel?.isGroup ? (
+      {channel?.isGroup && channel.icon ? (
+        <Avatar className="h-7 w-7 flex-shrink-0">
+          <AvatarImage src={getFileUrl(channel.icon)} alt="" />
+          <AvatarFallback className="bg-muted text-xs">
+            {getInitialsFromName(displayName)}
+          </AvatarFallback>
+        </Avatar>
+      ) : channel?.isGroup ? (
         <div className="relative h-7 w-7 flex-shrink-0">
           {otherMembers.slice(0, 2).map((m, i) => (
             <UserAvatar
@@ -701,8 +690,8 @@ const DmHeader = memo(({
           homeScope
         />
       )}
-      <span className="flex-1 font-semibold text-foreground flex items-center gap-1.5">
-        {displayName}
+      <span className="flex-1 min-w-0 font-semibold text-foreground flex items-center gap-1.5">
+        <span className="min-w-0 truncate">{displayName}</span>
         {channel?.e2ee && (
           <E2EEStatusBadge
             peerUserId={channel.isGroup ? undefined : otherMembers[0]?.id}
@@ -878,16 +867,6 @@ const DmPinnedMessageItem = memo(
   }) => {
     const user = useHomeUserById(message.userId);
 
-    const content = message.content ?? '';
-    const legacy = isLegacyHtml(content);
-
-    const messageHtml = useMemo(() => {
-      if (!legacy || !content) return null;
-      return parse(content, {
-        replace: (domNode) => serializer(domNode, () => {})
-      });
-    }, [content, legacy]);
-
     return (
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
         <div className="flex items-center gap-2 mb-1">
@@ -899,10 +878,9 @@ const DmPinnedMessageItem = memo(
             {format(new Date(message.createdAt), longDateTime())}
           </span>
         </div>
-        <div className="pl-7 text-sm msg-content">
-          {content ? (legacy ? messageHtml : (
-            <TokenContentRenderer content={content} fileCount={0} onFoundMedia={() => {}} />
-          )) : null}
+        <div className="pl-7 text-sm">
+          {/* Shared sanitize/tokenize pipeline (audit A8-16). */}
+          <ChatMessageBody message={message} homeScope compact />
         </div>
         <div className="flex justify-end mt-1">
           <Button
@@ -1028,6 +1006,7 @@ const DmReplyBar = memo(
         <button
           type="button"
           onClick={onDismiss}
+          aria-label="Cancel reply"
           className="shrink-0 mr-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           <X className="h-4 w-4" />

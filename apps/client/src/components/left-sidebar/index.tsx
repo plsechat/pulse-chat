@@ -11,20 +11,27 @@ import {
   leaveServer,
   setActiveView
 } from '@/features/app/actions';
-import { useActiveServerId } from '@/features/app/hooks';
+import { useActiveInstanceDomain, useActiveServerId } from '@/features/app/hooks';
 import { openDialog, requestConfirmation } from '@/features/dialogs/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
 import { disconnectFromServer } from '@/features/server/actions';
-import { useIsOwnUserOwner, usePreviewMode, useServerName } from '@/features/server/hooks';
+import {
+  useCan,
+  useIsInstanceOwner,
+  useIsOwnUserOwner,
+  usePreviewMode,
+  useServerName
+} from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { ChevronDown, LogOut } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Dialog } from '../dialogs/dialogs';
 import { Protect } from '../protect';
 import { ServerScreen } from '../server-screens/screens';
+import { canOpenServerSettings } from '../server-screens/server-settings/permissions';
 import { Categories } from './categories';
 import { UserControl } from './user-control';
 import { VoiceControl } from './voice-control';
@@ -98,22 +105,24 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
     setActiveView('home');
   }, [activeServerId]);
 
-  const serverSettingsPermissions = useMemo(
-    () => [
-      Permission.MANAGE_SETTINGS,
-      Permission.MANAGE_ROLES,
-      Permission.MANAGE_EMOJIS,
-      Permission.MANAGE_STORAGE,
-      Permission.MANAGE_USERS,
-      Permission.MANAGE_INVITES
-    ],
-    []
+  // One gate for the menu entry and the screen: every permission that
+  // unlocks a section, plus the instance owner (who always has the
+  // Instance group on the home instance, whatever their server roles).
+  const can = useCan();
+  const isInstanceOwner = useIsInstanceOwner();
+  const activeInstanceDomain = useActiveInstanceDomain();
+  const showServerSettings = canOpenServerSettings(
+    can,
+    isInstanceOwner,
+    activeInstanceDomain
   );
 
   return (
     <aside
       className={cn(
-        'flex w-60 flex-col bg-transparent h-full overflow-hidden',
+        // Transparent on the desktop canvas; opaque as the mobile drawer,
+        // or the chat shows through it over the 50% backdrop.
+        'flex w-60 flex-col bg-sidebar shadow-xl md:bg-transparent md:shadow-none h-full overflow-hidden',
         className
       )}
     >
@@ -134,14 +143,16 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
                   Add Category
                 </DropdownMenuItem>
               </Protect>
-              <Protect permission={serverSettingsPermissions}>
-                <DropdownMenuItem
-                  onClick={() => openServerScreen(ServerScreen.SERVER_SETTINGS)}
-                >
-                  Server Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </Protect>
+              {showServerSettings && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => openServerScreen(ServerScreen.SERVER_SETTINGS)}
+                  >
+                    Server Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <Protect permission={Permission.MANAGE_INVITES}>
                 <DropdownMenuItem
                   onClick={() => openDialog(Dialog.CREATE_INVITE)}

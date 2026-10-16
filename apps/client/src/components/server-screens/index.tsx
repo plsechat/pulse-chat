@@ -3,6 +3,8 @@ import { closeServerScreens } from '@/features/server-screens/actions';
 import { useServerScreenInfo } from '@/features/server-screens/hooks';
 import { LazyFallback } from '@/components/lazy-fallback';
 import { useEscapeKey } from '@/hooks/use-escape-key';
+import { useHistoryOverlay } from '@/hooks/use-history-overlay';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { X } from 'lucide-react';
 import {
   createElement,
@@ -78,6 +80,7 @@ const ComponentWrapper = ({ children }: TComponentWrapperProps) => {
         <button
           type="button"
           onClick={closeServerScreens}
+          aria-label="Close"
           className="absolute top-3 right-3 z-10 h-9 w-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
           <X className="h-5 w-5" />
@@ -102,6 +105,10 @@ const ServerScreensProvider = memo(() => {
   }
 
   const realIsOpen = isOpen && !!component;
+  const isMobile = useIsMobile();
+  // The settings card is a full-screen overlay on phones, so the platform
+  // Back gesture closes it (desktop keeps the browser history untouched).
+  useHistoryOverlay(realIsOpen && isMobile, closeServerScreens);
 
   if (realIsOpen) {
     portalRoot.style.display = 'block';

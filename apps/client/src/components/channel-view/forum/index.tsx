@@ -215,11 +215,11 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
         </div>
 
         {/* Sort & Tag filter bar */}
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border/30">
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border/30 overflow-x-auto [scrollbar-width:none]">
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 gap-1 text-xs"
+            className="h-7 px-2 gap-1 text-xs shrink-0 whitespace-nowrap"
             onClick={() =>
               setSortBy(sortBy === 'latest' ? 'creation' : 'latest')
             }
@@ -229,12 +229,12 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
           </Button>
 
           {tags.length > 0 && (
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="flex items-center gap-1 ml-auto shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTagFilter(null)}
                 className={cn(
-                  'px-2 py-0.5 rounded text-xs transition-colors',
+                  'px-2 py-0.5 rounded text-xs transition-colors shrink-0 whitespace-nowrap',
                   !activeTagFilter
                     ? 'bg-primary/20 text-primary'
                     : 'text-muted-foreground hover:text-foreground'

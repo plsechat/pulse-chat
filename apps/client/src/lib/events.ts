@@ -25,6 +25,9 @@ type TAppEventMap = {
   'jump-to-message': undefined;
   'dm-navigate': { dmChannelId: number };
   'threads-changed': undefined;
+  // A channel row was tapped — fires even when that channel was already
+  // selected (Redux does not change then), so the mobile drawer can close.
+  'channel-selected': { channelId: number };
   'pinned-messages-changed': { channelId: number };
   'dm-pinned-messages-changed': { dmChannelId: number };
   'invites-changed': undefined;

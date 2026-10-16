@@ -19,21 +19,23 @@ import { VolumeController } from './volume-controller';
 
 type TTopBarProps = {
   onToggleRightSidebar: () => void;
+  /** Below `lg` the members panel is an overlay drawer (the server view
+   *  owns its state); the same button opens that instead. */
+  onToggleMobileMembers?: () => void;
   isOpen: boolean;
 };
 
 const TopBar = memo(
-  ({ onToggleRightSidebar, isOpen }: TTopBarProps) => {
+  ({ onToggleRightSidebar, onToggleMobileMembers, isOpen }: TTopBarProps) => {
     const isCurrentVoiceChannelSelected = useIsCurrentVoiceChannelSelected();
     const currentVoiceChannelId = useCurrentVoiceChannelId();
     const selectedChannel = useSelectedChannel();
     const previewMode = usePreviewMode();
     // The members sidebar uses lg:relative — below 1024px it slides
-    // off the right edge regardless of the user's preference. The
-    // toggle button stays in the top bar though, so without this flag
-    // it'd silently lie about the state. Track the breakpoint and
-    // grey out the button + clarify the tooltip when sidebar is
-    // unavailable.
+    // off the right edge regardless of the user's preference, and the
+    // top bar is the only members entry point between 768 and 1023px
+    // (the mobile header is md:hidden). Below the breakpoint the same
+    // button toggles the overlay drawer instead of the docked panel.
     const sidebarAvailable = useViewportAtLeast(1024);
     const [showPinned, setShowPinned] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
@@ -118,6 +120,8 @@ const TopBar = memo(
                     'h-7 px-2 transition-colors duration-150',
                     showSearch && 'bg-accent text-primary'
                   )}
+                  aria-label="Search messages"
+                  aria-expanded={showSearch}
                 >
                   <Tooltip content="Search (Ctrl+K)">
                     <div>
@@ -138,6 +142,8 @@ const TopBar = memo(
                     'h-7 px-2 transition-colors duration-150',
                     showPinned && 'bg-accent text-primary'
                   )}
+                  aria-label="Pinned messages"
+                  aria-expanded={showPinned}
                 >
                   <Tooltip content="Pinned Messages">
                     <div>
@@ -161,6 +167,8 @@ const TopBar = memo(
                     'h-7 px-2 transition-colors duration-150',
                     showThreads && 'bg-accent text-primary'
                   )}
+                  aria-label="Threads"
+                  aria-expanded={showThreads}
                 >
                   <Tooltip content="Threads">
                     <div>
@@ -187,15 +195,22 @@ const TopBar = memo(
             <Button
               variant="ghost"
               size="sm"
-              onClick={onToggleRightSidebar}
-              disabled={!sidebarAvailable}
-              className={cn(
-                'h-7 px-2 transition-colors duration-150',
-                !sidebarAvailable && 'opacity-50 cursor-not-allowed'
-              )}
+              onClick={
+                sidebarAvailable
+                  ? onToggleRightSidebar
+                  : (onToggleMobileMembers ?? onToggleRightSidebar)
+              }
+              className="h-7 px-2 transition-colors duration-150"
+              title={
+                !sidebarAvailable
+                  ? 'Open Members'
+                  : isOpen
+                    ? 'Close Members Sidebar'
+                    : 'Open Members Sidebar'
+              }
             >
               {!sidebarAvailable ? (
-                <Tooltip content="Members panel (unavailable — make the window wider)">
+                <Tooltip content="Open Members">
                   <div>
                     <PanelRight className="w-4 h-4" />
                   </div>

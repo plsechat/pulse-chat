@@ -17,6 +17,7 @@ import {
   useConnectedServerPublicId,
   useServerName
 } from '@/features/server/hooks';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { ChannelType } from '@pulse/shared';
 import { memo, useCallback, useState } from 'react';
 
@@ -37,6 +38,7 @@ const ContentWrapper = memo(() => {
   const serverName = useServerName();
   const activeThreadId = useActiveThreadId();
   const connectedServerPublicId = useConnectedServerPublicId();
+  const isMobile = useIsMobile();
 
   // Content components remount via `key` when the channel changes.
   // Numeric channel ids COLLIDE across federated instances (a remote
@@ -61,7 +63,17 @@ const ContentWrapper = memo(() => {
     localStorage.setItem(FORUM_LAYOUT_KEY, JSON.stringify(layout));
   }, []);
 
-  // Forum with active thread: resizable two-panel layout
+  // Forum with active thread: resizable two-panel layout. At phone
+  // width a 40/60 split leaves ~150px per pane — the open thread takes
+  // the whole pane instead and its X is the way back to the post list.
+  if (selectedChannelId && isForum && activeThreadId && isMobile) {
+    return (
+      <main className="flex flex-1 relative overflow-hidden">
+        <ForumThreadView key={threadKey} />
+      </main>
+    );
+  }
+
   if (selectedChannelId && isForum && activeThreadId) {
     return (
       <main className="flex flex-1 relative overflow-hidden">

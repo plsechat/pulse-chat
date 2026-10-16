@@ -33,6 +33,12 @@ import {
 import { startServerPreview } from '../server/preview/actions';
 import { serverSliceActions } from '../server/slice';
 import { store } from '../store';
+import {
+  clearFederatedFocus,
+  readFederatedFocus,
+  resolveFederatedFocus,
+  saveFederatedFocus
+} from './federated-focus';
 import { appSliceActions } from './slice';
 import type { TActiveView, TFederatedServerEntry } from './slice';
 
@@ -109,6 +115,7 @@ export const switchServer = async (
 
   // Clear federation context so tRPC routes go to home instance
   setActiveInstanceDomain(null);
+  clearFederatedFocus();
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   setActiveView('server');
 
@@ -138,6 +145,7 @@ export const leaveServerContext = () => {
   if (!app.activeInstanceDomain) return;
 
   setActiveInstanceDomain(null);
+  clearFederatedFocus();
   store.dispatch(serverSliceActions.resetStateKeepVoice());
   reinitServerSubscriptions();
 };
@@ -325,6 +333,10 @@ export const loadApp = async () => {
       // Load persisted federated servers and validate against home instance
       await loadFederatedServers();
 
+      // Back into the federated server that was on screen before the
+      // reload (the home join above restored the HOME server only).
+      await restoreFederatedFocus();
+
       // Check for invite code in URL and auto-join that server
       await handleInviteFromUrl();
 
@@ -390,6 +402,7 @@ export const resetApp = () => {
   store.dispatch(appSliceActions.setServerMentionCounts({}));
   store.dispatch(appSliceActions.setFederatedServers([]));
   setActiveInstanceDomain(null);
+  clearFederatedFocus();
   // Clean up federated unread subscriptions
   for (const [, sub] of federatedUnreadSubs) {
     sub.unsubscribe();
@@ -494,6 +507,16 @@ export const cleanupFederatedServerEntry = (
     appSliceActions.removeFederatedServer({ instanceDomain, serverId })
   );
   saveFederatedServers();
+
+  // A focus on the removed server must not be re-entered on reload.
+  const focus = readFederatedFocus();
+  if (
+    focus &&
+    focus.instanceDomain === instanceDomain &&
+    focus.serverId === serverId
+  ) {
+    clearFederatedFocus();
+  }
 
   // Check if any servers remain on this instance
   const remaining = store
@@ -605,9 +628,12 @@ export const switchToFederatedServer = async (
     await refreshFederationToken(instanceDomain);
   }
 
-  // Set active state optimistically
+  // Set active state optimistically. The focus is persisted by its
+  // (instance, id) pair — never through setActiveServerId, whose storage
+  // key is a HOME id that the next reload's openSession would load.
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   setActiveInstanceDomain(instanceDomain);
+  saveFederatedFocus({ instanceDomain, serverId });
   setActiveView('server');
 
   // Load channel/category/user data from the remote instance
@@ -675,12 +701,42 @@ export const switchToFederatedServer = async (
     // Rollback to previous state
     store.dispatch(appSliceActions.setActiveServerId(prevServerId));
     setActiveInstanceDomain(prevInstanceDomain);
+    if (prevInstanceDomain && prevServerId !== undefined) {
+      saveFederatedFocus({
+        instanceDomain: prevInstanceDomain,
+        serverId: prevServerId
+      });
+    } else {
+      clearFederatedFocus();
+    }
     setActiveView(prevView);
   }
 };
 
 export const setActiveInstanceDomain = (domain: string | null) => {
   store.dispatch(appSliceActions.setActiveInstanceDomain(domain));
+};
+
+/**
+ * Re-enter the federated server persisted by switchToFederatedServer.
+ * Runs once per app load after loadFederatedServers, so the entry (and
+ * its connection) exists; a focus that no longer matches a membership
+ * is dropped. Only when a server view was on screen: a reload from Home
+ * stays on Home, as it does for a home server.
+ */
+const restoreFederatedFocus = async () => {
+  const focus = readFederatedFocus();
+  if (!focus) return;
+  const entry = resolveFederatedFocus(
+    focus,
+    store.getState().app.federatedServers
+  );
+  if (!entry) {
+    clearFederatedFocus();
+    return;
+  }
+  if (getSavedActiveView() !== 'server') return;
+  await switchToFederatedServer(entry.instanceDomain, entry.server.id);
 };
 
 export const saveFederatedServers = () => {

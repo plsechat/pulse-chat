@@ -65,12 +65,13 @@ const EditPostTagsDialog = memo(
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-sm">
+        <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-sm mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
             <h3 className="text-sm font-semibold">Edit Tags</h3>
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close"
               className="text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />

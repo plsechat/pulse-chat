@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useVisualViewportKeyboard } from './use-visual-viewport';
 
 const isTextInput = (el: Element | null): boolean => {
   if (!el) return false;
@@ -18,13 +19,23 @@ const isTextInput = (el: Element | null): boolean => {
   return false;
 };
 
+/**
+ * Whether the soft keyboard is (probably) up. Two signals, either one
+ * counts: a text field holds focus, or the visual viewport shrank by a
+ * keyboard's height. The second one covers Android Back dismissing the
+ * keyboard while the field keeps focus — focus alone would then keep
+ * the bottom nav hidden with nothing on screen to bring it back.
+ */
 const useKeyboardVisible = () => {
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [focusInText, setFocusInText] = useState(false);
+  const viewportKeyboard = useVisualViewportKeyboard();
+  const viewportSupported =
+    typeof window !== 'undefined' && !!window.visualViewport;
 
   useEffect(() => {
     const handleFocusIn = (e: FocusEvent) => {
       if (isTextInput(e.target as Element)) {
-        setIsKeyboardVisible(true);
+        setFocusInText(true);
       }
     };
 
@@ -32,7 +43,7 @@ const useKeyboardVisible = () => {
       // Small delay to handle focus moving between inputs
       setTimeout(() => {
         if (!isTextInput(document.activeElement)) {
-          setIsKeyboardVisible(false);
+          setFocusInText(false);
         }
       }, 100);
     };
@@ -46,7 +57,10 @@ const useKeyboardVisible = () => {
     };
   }, []);
 
-  return isKeyboardVisible;
+  // Where the viewport reports (touch devices with visualViewport) it
+  // is the truth — focus can outlive the keyboard; elsewhere focus is
+  // all there is.
+  return viewportSupported ? viewportKeyboard : focusInText;
 };
 
 export { useKeyboardVisible };

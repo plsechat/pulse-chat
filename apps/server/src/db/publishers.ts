@@ -4,7 +4,7 @@ import {
   ServerEvents,
   UserStatus
 } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '.';
 import { logger } from '../logger';
 import { pluginManager } from '../plugins';
@@ -23,7 +23,13 @@ import {
   getServerMemberIds
 } from './queries/servers';
 import { getPublicUserById } from './queries/users';
-import { categories, channels, servers, threadFollowers } from './schema';
+import {
+  categories,
+  channels,
+  serverMembers,
+  servers,
+  threadFollowers
+} from './schema';
 import { toWireChannel } from './queries/channels';
 
 const publishMessage = async (
@@ -288,6 +294,23 @@ const publishUser = async (
   const user = await getPublicUserById(userId);
 
   if (!user) return;
+
+  if (scopeServerId) {
+    // A server-scoped update carries the member's timeout so a timeout
+    // landing mid-session shows at once instead of on the next roster
+    // fetch.
+    const [member] = await db
+      .select({ timedOutUntil: serverMembers.timedOutUntil })
+      .from(serverMembers)
+      .where(
+        and(
+          eq(serverMembers.serverId, scopeServerId),
+          eq(serverMembers.userId, userId)
+        )
+      )
+      .limit(1);
+    if (member) user.timedOutUntil = member.timedOutUntil;
+  }
 
   if (opts?.statusOverride !== undefined) {
     // Invisible should appear as offline to other users

@@ -33,7 +33,10 @@ const DialogsMap: { [K in Dialog]: ComponentType<TDialogPropsMap[K]> } = {
     import('./plugin-settings').then((m) => ({ default: m.PluginSettingsDialog }))
   ),
   [Dialog.CREATE_SERVER]: CreateServerDialog,
-  [Dialog.IDENTITY_CHANGED]: IdentityChangedDialog
+  [Dialog.IDENTITY_CHANGED]: IdentityChangedDialog,
+  [Dialog.GROUP_DM_SETTINGS]: lazy(() =>
+    import('./group-dm-settings').then((m) => ({ default: m.GroupDmSettingsDialog }))
+  )
 };
 
 /**

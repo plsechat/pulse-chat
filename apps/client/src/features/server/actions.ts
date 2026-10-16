@@ -140,6 +140,11 @@ export const fetchDeferredServerData = (
   expectedServerId: string
 ) => {
   if (!trpc) return;
+  // A preview is a read-only snapshot with no active server on the
+  // socket: these member-only routes would all 400 ("No active server").
+  // The real join (joinPreviewedServer → openSession) clears previewMode
+  // before it gets here, so nothing is skipped for an actual member.
+  if (store.getState().server.previewMode) return;
   const isStale = () => store.getState().server.serverId !== expectedServerId;
 
   trpc.others.getServerMembers.query().then((users) => {

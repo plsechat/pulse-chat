@@ -39,7 +39,12 @@ const PackRow = memo(({ pack, instanceDomain, onDelete }: TPackRowProps) => (
     />
     <div className="relative flex h-full items-center justify-between px-3">
       <span className="text-sm font-medium truncate">{pack.name}</span>
-      <Button size="icon" variant="ghost" onClick={() => onDelete(pack)}>
+      <Button
+        size="icon"
+        variant="ghost"
+        onClick={() => onDelete(pack)}
+        aria-label={`Delete nameplate ${pack.name}`}
+      >
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>

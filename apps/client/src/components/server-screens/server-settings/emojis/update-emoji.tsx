@@ -72,7 +72,7 @@ const UpdateEmoji = memo(
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Edit Emoji</CardTitle>
-            <Button size="icon" variant="ghost" onClick={onDeleteEmoji}>
+            <Button size="icon" variant="ghost" onClick={onDeleteEmoji} aria-label="Delete emoji">
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>

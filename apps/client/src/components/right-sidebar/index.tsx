@@ -12,18 +12,54 @@ import { cn } from '@/lib/utils';
 import type { TNameStyle } from '@pulse/shared';
 import type { TJoinedPublicUser } from '@pulse/server/types';
 import { UserStatus } from '@pulse/shared';
-import { Globe, Loader2 } from 'lucide-react';
+import { Globe, Loader2, TimerOff } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
+import { Tooltip } from '../ui/tooltip';
 import { useSelector } from 'react-redux';
 import { UserContextMenu } from '@/components/context-menus/user';
 import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
 import { UserPopover } from '../user-popover';
 import { UserStatusBadge } from '../user-status';
 
+/**
+ * The member list is fed by others.getServerMembers, which adds the
+ * per-membership automod deadline on top of the public projection; the
+ * slice stores the public type, so the field is read through this view.
+ */
+type TMemberRow = TJoinedPublicUser & { timedOutUntil?: number | null };
+
+const getTimedOutUntil = (user: TJoinedPublicUser): number | null =>
+  (user as TMemberRow).timedOutUntil ?? null;
+
+/** Re-renders every `intervalMs` while `enabled`, so a deadline expires on screen. */
+const useNow = (enabled: boolean, intervalMs: number) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [enabled, intervalMs]);
+  return now;
+};
+
+const TimedOutBadge = memo(({ until }: { until: number }) => (
+  <Tooltip content={`Timed out until ${new Date(until).toLocaleTimeString()}`}>
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-500"
+      aria-label="Timed out"
+    >
+      <TimerOff className="h-3 w-3" />
+    </span>
+  </Tooltip>
+));
+
 type TUserProps = {
   userId: number;
   name: string;
   banned: boolean;
+  /** Automod timeout deadline (ms epoch); shown while in the future. */
+  timedOutUntil?: number | null;
   status?: UserStatus;
   customStatus?: string | null;
   nameplate?: string | null;
@@ -33,8 +69,10 @@ type TUserProps = {
   dimmed?: boolean;
 };
 
-const User = memo(({ userId, name, banned, status, customStatus, nameplate, nameStyle, _identity, e2ee, dimmed }: TUserProps) => {
+const User = memo(({ userId, name, banned, timedOutUntil, status, customStatus, nameplate, nameStyle, _identity, e2ee, dimmed }: TUserProps) => {
   const displayRole = useUserDisplayRole(userId);
+  const now = useNow(!!timedOutUntil, 30_000);
+  const timedOut = !!timedOutUntil && timedOutUntil > now;
   const nameColor = useReadableRoleColor(displayRole?.color);
   // Styled name wins over role color; banned rows stay struck-through
   // and unstyled.
@@ -80,6 +118,7 @@ const User = memo(({ userId, name, banned, status, customStatus, nameplate, name
             {_identity?.includes('@') && (
               <Globe className="h-3 w-3 text-blue-500 shrink-0" />
             )}
+            {timedOut && <TimedOutBadge until={timedOutUntil} />}
             {e2ee && <VerifiedMemberDot userId={userId} />}
           </div>
           {customStatus && (
@@ -134,6 +173,7 @@ const RoleGroupSection = memo(
             userId={user.id}
             name={getDisplayName(user)}
             banned={user.banned}
+            timedOutUntil={getTimedOutUntil(user)}
             status={user.status}
             customStatus={user.customStatus}
             nameplate={user.nameplate}

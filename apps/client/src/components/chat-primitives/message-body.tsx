@@ -71,6 +71,15 @@ type TMessageBodyProps = {
   message: TBodyMessage;
   instanceDomain?: string;
   homeScope?: boolean;
+  /**
+   * Content only — no attachments, inline media, link previews,
+   * reactions or the lock/edited chrome. For lists and banners (pin
+   * banner, search results, pinned-message panel) that quote a message
+   * but are not the message. Same sanitize/tokenize pipeline as the
+   * full body: legacy HTML → DOMPurify → serializer, tokens →
+   * TokenContentRenderer (audit A8-16).
+   */
+  compact?: boolean;
   onToggleReaction?: (emoji: string) => void;
   /** Own-message attachment delete (channel surfaces only today). */
   onRemoveFile?: (fileId: number) => void;
@@ -144,7 +153,8 @@ const ChatMessageBody = memo(({
   instanceDomain,
   homeScope,
   onToggleReaction,
-  onRemoveFile
+  onRemoveFile,
+  compact = false
 }: TMessageBodyProps) => {
   const content = message.content ?? '';
   const legacy = isLegacyHtml(content);
@@ -246,6 +256,26 @@ const ChatMessageBody = memo(({
     message.e2ee &&
     message.content !== null &&
     DECRYPTION_SENTINELS.includes(message.content);
+
+  if (compact) {
+    return (
+      <div className="max-w-full break-words msg-content min-w-0">
+        {isDecryptionFailure ? (
+          <span className="text-destructive/80 italic">
+            Unable to decrypt this message
+          </span>
+        ) : content ? (
+          legacy ? messageHtml : (
+            <TokenContentRenderer
+              content={content}
+              fileCount={message.files.length}
+              onFoundMedia={handleTokenMedia}
+            />
+          )
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1">

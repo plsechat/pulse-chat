@@ -3,6 +3,12 @@ import { DmProfilePanel } from '@/components/dm-profile-panel';
 import { UserControl } from '@/components/left-sidebar';
 import { VoiceControl } from '@/components/left-sidebar/voice-control';
 import { MobileHeader } from '@/components/mobile-header';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle
+} from '@/components/ui/sheet';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
 import { useDmChannels, useSelectedDmChannelId } from '@/features/dms/hooks';
 import { useSelector } from 'react-redux';
@@ -12,6 +18,7 @@ import {
   LocalStorageKey,
   setLocalStorageItem
 } from '@/helpers/storage';
+import { useHistoryOverlay } from '@/hooks/use-history-overlay';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useSwipeGestures } from '@/hooks/use-swipe-gestures';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
@@ -52,11 +59,20 @@ const HomeView = memo(() => {
   const [isProfilePanelOpen, setIsProfilePanelOpen] = useState(
     getLocalStorageItem(LocalStorageKey.RIGHT_SIDEBAR_STATE) === 'true' || false
   );
-  // The DM profile panel needs the same room-to-breathe gate the
-  // server members panel uses — below 1024px the canvas is too narrow
-  // to fit it without crushing the message column.
-  const profilePanelAvailable = useViewportAtLeast(1024);
+  // The DM profile panel docks into the layout from 1024px (the same
+  // room-to-breathe gate the server members panel uses). Below that it
+  // is still reachable — as a right-hand sheet with its own open flag,
+  // which is never persisted as the docked preference.
+  const profilePanelDocked = useViewportAtLeast(1024);
+  const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  const closeMenu = useCallback(() => setIsMobileMenuOpen(false), []);
+  const closeMobileProfile = useCallback(
+    () => setIsMobileProfileOpen(false),
+    []
+  );
+  useHistoryOverlay(isMobileMenuOpen && isMobile, closeMenu);
 
   const handleToggleProfilePanel = useCallback(() => {
     setIsProfilePanelOpen((prev) => {
@@ -68,6 +84,15 @@ const HomeView = memo(() => {
       return next;
     });
   }, []);
+
+  const handleToggleMobileProfile = useCallback(() => {
+    setIsMobileProfileOpen((prev) => !prev);
+  }, []);
+
+  // A different DM means a different profile: the sheet starts closed.
+  useEffect(() => {
+    setIsMobileProfileOpen(false);
+  }, [selectedDmChannelId]);
 
   // The slice seeds the selection on first load; after a sign-out reset
   // Redux is empty again while storage still names the DM, so re-seed
@@ -133,21 +158,19 @@ const HomeView = memo(() => {
   }, [handleDmSelect]);
 
   const handleSwipeRight = useCallback(() => {
-    if (!isMobileMenuOpen) {
-      setIsMobileMenuOpen(true);
-    }
-  }, [isMobileMenuOpen]);
+    setIsMobileMenuOpen(true);
+  }, []);
 
   const handleSwipeLeft = useCallback(() => {
-    if (isMobileMenuOpen) {
-      setIsMobileMenuOpen(false);
-    }
-  }, [isMobileMenuOpen]);
+    setIsMobileMenuOpen(false);
+  }, []);
 
   const swipeHandlers = useSwipeGestures({
     onSwipeRight: handleSwipeRight,
     onSwipeLeft: handleSwipeLeft
   });
+
+  const dmOpen = activeTab === 'dm' && selectedDmChannelId !== undefined;
 
   return (
     <div className="flex flex-col flex-1 min-h-0" {...swipeHandlers}>
@@ -161,13 +184,15 @@ const HomeView = memo(() => {
         {isMobileMenuOpen && (
           <div
             className="md:hidden fixed inset-0 bg-black/50 z-30"
-            onClick={() => setIsMobileMenuOpen(false)}
+            onClick={closeMenu}
           />
         )}
 
+        {/* Transparent on the desktop canvas; opaque as a drawer, or the
+            conversation shows through it over the backdrop. */}
         <aside
           className={cn(
-            'flex w-60 flex-col bg-transparent h-full',
+            'flex w-60 flex-col bg-sidebar shadow-xl md:bg-transparent md:shadow-none h-full',
             'md:relative md:flex fixed inset-0 left-0 z-40 md:z-0 transition-transform duration-300 ease-in-out',
             isMobileMenuOpen
               ? 'translate-x-0'
@@ -194,23 +219,46 @@ const HomeView = memo(() => {
           ) : selectedDmChannelId ? (
             <DmConversation
               dmChannelId={selectedDmChannelId}
-              isProfilePanelOpen={isProfilePanelOpen && profilePanelAvailable}
-              profilePanelAvailable={profilePanelAvailable}
-              onToggleProfilePanel={handleToggleProfilePanel}
+              isProfilePanelOpen={
+                profilePanelDocked ? isProfilePanelOpen : isMobileProfileOpen
+              }
+              profilePanelAvailable
+              onToggleProfilePanel={
+                profilePanelDocked
+                  ? handleToggleProfilePanel
+                  : handleToggleMobileProfile
+              }
             />
           ) : (
             <FriendsPanel onDmSelect={handleDmSelect} />
           )}
         </div>
 
-        {activeTab === 'dm' &&
-          selectedDmChannelId !== undefined &&
-          profilePanelAvailable && (
-            <DmProfilePanel
-              dmChannelId={selectedDmChannelId}
-              isOpen={isProfilePanelOpen}
-            />
-          )}
+        {dmOpen && profilePanelDocked && (
+          <DmProfilePanel
+            dmChannelId={selectedDmChannelId}
+            isOpen={isProfilePanelOpen}
+          />
+        )}
+
+        {dmOpen && !profilePanelDocked && (
+          <Sheet
+            open={isMobileProfileOpen}
+            onOpenChange={(open) => !open && closeMobileProfile()}
+          >
+            <SheetContent
+              side="right"
+              close={closeMobileProfile}
+              className="w-[min(20rem,85vw)] gap-0 p-0 sm:max-w-sm [&>aside]:w-full"
+            >
+              <SheetTitle className="sr-only">Profile</SheetTitle>
+              <SheetDescription className="sr-only">
+                Conversation members and profile
+              </SheetDescription>
+              <DmProfilePanel dmChannelId={selectedDmChannelId} isOpen />
+            </SheetContent>
+          </Sheet>
+        )}
 
         {showCreateGroupDm && (
           <CreateGroupDmDialog

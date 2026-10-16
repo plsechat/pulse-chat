@@ -122,6 +122,7 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
             size="icon"
             className="h-6 w-6 flex-shrink-0"
             onClick={handleCopyCode}
+            aria-label="Copy invite code"
           >
             <Copy className="h-3 w-3" />
           </Button>
@@ -164,6 +165,7 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              aria-label="Invite actions"
             >
               <MoreVertical className="h-4 w-4" />
             </Button>

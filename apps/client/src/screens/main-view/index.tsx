@@ -12,6 +12,7 @@ import { PersistentAudioStreams } from '@/components/voice-provider/persistent-a
 import { useAutoAway } from '@/hooks/use-auto-away';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTabNotifications } from '@/hooks/use-tab-notifications';
+import { useVisualViewportHeight } from '@/hooks/use-visual-viewport';
 import { LazyFallback } from '@/components/lazy-fallback';
 import { lazy, memo, Suspense } from 'react';
 import { HomeView } from '../home-view';
@@ -27,6 +28,9 @@ const MainViewInner = memo(() => {
   const activeView = useActiveView();
   useTabNotifications();
   useAutoAway();
+  // Keeps --vvh at the visible height so the shell shrinks for the soft
+  // keyboard on browsers that only resize the visual viewport.
+  useVisualViewportHeight();
 
   const { shortcutsDialogOpen, setShortcutsDialogOpen } = useKeyboardShortcuts();
 
@@ -51,7 +55,11 @@ const MainViewInner = memo(() => {
       <StreamPreviewPublisher />
       <IncomingCallModal />
       <ForwardMessageDialog />
-      <div className="flex h-dvh bg-sidebar text-foreground">
+      {/* h-(--vvh): the visual-viewport height (index.css / use-visual-
+          viewport), 100dvh where nothing shrinks it. The side insets
+          keep the shell off a phone's rounded corners and notch in
+          landscape (viewport-fit=cover, index.html). */}
+      <div className="flex h-(--vvh) bg-sidebar text-foreground pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         {/*
           Was `hidden md:flex` (≥ 768px), then `sm:flex` (≥ 640px) —
           but a fully collapsed desktop window goes below 640px and

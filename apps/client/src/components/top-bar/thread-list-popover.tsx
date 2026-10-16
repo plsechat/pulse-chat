@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { setActiveThreadId } from '@/features/server/channels/actions';
+import { cn } from '@/lib/utils';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { useThreadsByParentChannelId } from '@/features/server/channels/hooks';
 import { getTRPCClient } from '@/lib/trpc';
@@ -12,6 +13,9 @@ import { onAppEvent } from '@/lib/events';
 type TThreadListPopoverProps = {
   channelId: number;
   onClose: () => void;
+  /** Hosted inside the mobile bottom sheet: fill it instead of the
+   *  anchored popover footprint (see mobile-header PANEL_HOST). */
+  sheet?: boolean;
 };
 
 type TThreadItem = {
@@ -26,7 +30,7 @@ type TThreadItem = {
 };
 
 const ThreadListPopover = memo(
-  ({ channelId, onClose }: TThreadListPopoverProps) => {
+  ({ channelId, onClose, sheet = false }: TThreadListPopoverProps) => {
     const localThreads = useThreadsByParentChannelId(channelId);
     const [serverThreads, setServerThreads] = useState<TThreadItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -104,8 +108,8 @@ const ThreadListPopover = memo(
     );
 
     return (
-      <div className="absolute right-0 top-full mt-1 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+      <div className="absolute right-0 top-full mt-1 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right flex flex-col">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
           <span className="text-sm font-medium">Threads</span>
           <Button
             variant="ghost"
@@ -117,7 +121,7 @@ const ThreadListPopover = memo(
             {showArchived ? 'Hide Archived' : 'Show Archived'}
           </Button>
         </div>
-        <div className="max-h-64 overflow-y-auto">
+        <div className={cn('overflow-y-auto', sheet ? 'flex-1 min-h-0' : 'max-h-64')}>
           {loading ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               Loading...

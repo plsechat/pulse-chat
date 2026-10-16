@@ -200,6 +200,17 @@ test.describe('message jump + scroll memory', () => {
     await expect(pane.locator('[id^="msg-"]').first()).toBeVisible({
       timeout: 15_000
     });
+    // The pane's entry fade is one-shot (B9): once it has run — or its
+    // fallback timer has fired — the class is gone and the list is fully
+    // opaque. A fade left applied for the life of the mount is what
+    // showed as "every message greyed out" after a channel switch.
+    await expect
+      .poll(
+        () => pane.evaluate((el) => getComputedStyle(el).opacity),
+        { timeout: 5_000 }
+      )
+      .toBe('1');
+    await expect(pane).not.toHaveClass(/animate-in/);
     await expect
       .poll(
         () =>

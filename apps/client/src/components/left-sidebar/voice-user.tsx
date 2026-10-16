@@ -296,6 +296,8 @@ const VoiceUser = memo(({ user, channelId }: TVoiceUserProps) => {
                   <button
                     type="button"
                     onClick={handleToggleMute}
+                    aria-label={isMuted ? 'Unmute user' : 'Mute user'}
+                    aria-pressed={isMuted}
                     className="text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {isMuted ? (

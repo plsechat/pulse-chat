@@ -87,7 +87,7 @@ const AvatarManager = memo(({ user }: TAvatarManagerProps) => {
             showStatusBadge={false}
             showUserPopover={false}
           />
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover-or-touch:opacity-100 transition-opacity rounded-full">
             <div className="bg-black/50 rounded-full p-3">
               <Upload className="h-6 w-6 text-white" />
             </div>

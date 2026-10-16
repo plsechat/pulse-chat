@@ -257,6 +257,8 @@ export type TJoinedPublicUser = Omit<TPublicUser, 'avatar' | 'banner'> & {
   banner: TFileRef | null;
   roleIds: number[];
   nickname?: string | null;
+  /** Set on server-scoped updates: the member's timeout deadline (ms). */
+  timedOutUntil?: number | null;
 };
 
 export type TJoinedSettings = TSettings & {
@@ -288,6 +290,13 @@ export type TJoinedFriendRequest = TFriendRequest & {
 };
 
 export type TJoinedDmChannel = TDmChannel & {
+  /**
+   * Group icon as a public file ref (`/public/<name>`); only the channel
+   * list (getDmChannelsForUser) resolves it — single-channel
+   * projections leave it undefined and the client refetches the list on
+   * DM_CHANNEL_UPDATE.
+   */
+  icon?: TFileRef | null;
   members: TJoinedPublicUser[];
   lastMessage?: TDmMessage | null;
   unreadCount: number;

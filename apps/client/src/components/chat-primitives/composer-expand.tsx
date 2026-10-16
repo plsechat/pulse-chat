@@ -23,7 +23,7 @@ const ComposerExpandToggle = memo(
       <button
         type="button"
         onClick={onToggle}
-        className="mx-auto flex h-4 w-16 items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 opacity-0 group-hover/composer:opacity-100 group-focus-within/composer:opacity-100 focus-visible:opacity-100 transition-[color,background-color,opacity] duration-150 cursor-pointer"
+        className="mx-auto flex h-4 w-16 items-center justify-center rounded-full text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 opacity-0 group-hover/composer:opacity-100 group-focus-within/composer:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-[color,background-color,opacity] duration-150 cursor-pointer"
         title={
           expanded
             ? 'Collapse composer (Enter sends)'

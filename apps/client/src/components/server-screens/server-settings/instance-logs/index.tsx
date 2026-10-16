@@ -1,8 +1,10 @@
 import { Button } from '@/components/ui/button';
+import { useAdminQuery } from '@/features/server/admin/hooks';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { QueryState } from '../query-state';
 
 type TLevel = 'all' | 'error' | 'warn' | 'info' | 'debug';
 type TLogLine = { ts: number; level: string; message: string };
@@ -21,22 +23,20 @@ const LEVEL_COLORS: Record<string, string> = {
  */
 const InstanceLogs = () => {
   const [level, setLevel] = useState<TLevel>('all');
-  const [lines, setLines] = useState<TLogLine[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = useCallback(async (): Promise<TLogLine[]> => {
     const trpc = getTRPCClient();
-    if (!trpc) return;
+    if (!trpc) throw new Error('Not connected');
     const result = await trpc.admin.getRecentLogs.query({
       level: level === 'all' ? undefined : level,
       limit: 300
     });
-    setLines(result.logs);
+    return result.logs;
   }, [level]);
 
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+  const query = useAdminQuery(fetchLogs, 'Could not load the server logs');
+  const lines = query.data;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' });
@@ -55,35 +55,47 @@ const InstanceLogs = () => {
             {l[0]!.toUpperCase() + l.slice(1)}
           </Button>
         ))}
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={fetchLogs}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto"
+          onClick={query.refetch}
+        >
           <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
       </div>
 
-      <div className="h-[28rem] overflow-y-auto rounded-lg border border-border bg-background/60 p-3 font-mono text-xs leading-5">
-        {lines.length === 0 ? (
-          <p className="text-muted-foreground">No log lines captured yet.</p>
-        ) : (
-          lines.map((line, i) => (
-            <div key={`${line.ts}-${i}`} className="flex gap-2 whitespace-pre-wrap break-all">
-              <span className="shrink-0 text-muted-foreground">
-                {new Date(line.ts).toLocaleTimeString()}
-              </span>
-              <span
-                className={cn(
-                  'shrink-0 w-12',
-                  LEVEL_COLORS[line.level] ?? 'text-foreground'
-                )}
-              >
-                {line.level}
-              </span>
-              <span className="text-foreground/90">{line.message}</span>
-            </div>
-          ))
+      <QueryState query={query}>
+        {(logs) => (
+          <div className="h-[28rem] overflow-y-auto rounded-lg border border-border bg-background/60 p-3 font-mono text-xs leading-5">
+            {logs.length === 0 ? (
+              <p className="text-muted-foreground">No log lines captured yet.</p>
+            ) : (
+              logs.map((line, i) => (
+                <div
+                  key={`${line.ts}-${i}`}
+                  className="flex gap-2 whitespace-pre-wrap break-all"
+                >
+                  <span className="shrink-0 text-muted-foreground">
+                    {new Date(line.ts).toLocaleTimeString()}
+                  </span>
+                  <span
+                    className={cn(
+                      'shrink-0 w-12',
+                      LEVEL_COLORS[line.level] ?? 'text-foreground'
+                    )}
+                  >
+                    {line.level}
+                  </span>
+                  <span className="text-foreground/90">{line.message}</span>
+                </div>
+              ))
+            )}
+            <div ref={bottomRef} />
+          </div>
         )}
-        <div ref={bottomRef} />
-      </div>
+      </QueryState>
     </div>
   );
 };

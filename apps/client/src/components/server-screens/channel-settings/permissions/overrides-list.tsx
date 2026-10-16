@@ -219,7 +219,7 @@ const OverridesList = memo(
     );
 
     return (
-      <Card className="w-64 flex-shrink-0">
+      <Card className="w-full flex-shrink-0 md:w-64">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Roles/Users</CardTitle>

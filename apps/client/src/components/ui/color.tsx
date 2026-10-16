@@ -21,7 +21,11 @@ const Color = ({
     <div className="flex flex-col">
       <Popover>
         <PopoverTrigger asChild>
-          <div
+          {/* A real button: the swatch used to be a <div>, so it had no
+              role, no name and no keyboard focus (audit A8-13). */}
+          <button
+            type="button"
+            aria-label={`Pick a color (currently ${value ?? defaultValue})`}
             style={{ backgroundColor: value }}
             className={cn(
               'w-10 cursor-pointer',

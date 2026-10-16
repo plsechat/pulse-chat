@@ -114,6 +114,7 @@ const UpdateRole = memo(
                   variant="ghost"
                   disabled={selectedRole.isDefault}
                   onClick={onSetAsDefaultRole}
+                  aria-label="Set as default role"
                 >
                   <Star className="h-4 w-4" />
                 </Button>
@@ -123,6 +124,7 @@ const UpdateRole = memo(
                 variant="ghost"
                 disabled={selectedRole.isPersistent || selectedRole.isDefault}
                 onClick={onDeleteRole}
+                aria-label="Delete role"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>

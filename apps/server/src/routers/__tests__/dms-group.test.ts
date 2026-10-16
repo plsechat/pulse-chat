@@ -184,9 +184,12 @@ describe('dms.updateGroup', () => {
     expect(saved!.mimeType).toBe('image/png');
     expect(saved!.userId).toBe(1);
 
-    // Channel projection carries the icon for every member.
+    // Channel projection carries the icon for every member — the id and
+    // the public file name the client needs to render it.
     const channels = await caller2.dms.getChannels();
-    expect(channels.find((c) => c.id === groupId)!.iconFileId).toBe(iconFileId);
+    const projected = channels.find((c) => c.id === groupId)!;
+    expect(projected.iconFileId).toBe(iconFileId);
+    expect(projected.icon).toEqual({ id: iconFileId!, name: saved!.name });
 
     // Replacing the icon drops the previous file row.
     const image2 = await stageTempFile(1, '.png');
@@ -206,6 +209,9 @@ describe('dms.updateGroup', () => {
     });
     expect(cleared.iconFileId).toBeNull();
     expect((await channelRow(groupId))!.iconFileId).toBeNull();
+    expect(
+      (await caller2.dms.getChannels()).find((c) => c.id === groupId)!.icon
+    ).toBeNull();
     expect(
       await tdb.select().from(files).where(eq(files.id, second.iconFileId!))
     ).toHaveLength(0);

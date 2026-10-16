@@ -78,7 +78,7 @@ export const useInfo = () => useSelector(infoSelector);
 
 export const useIsOwnUserOwner = () => useSelector(isOwnUserOwnerSelector);
 
-/** @pendingBatch B9 — gate for the plugins panel mounted in B9 (A8-1) */
+/** Whether the active server lets members run plugin commands. */
 export const usePluginsEnabled = () => useSelector(pluginsEnabledSelector);
 
 export const useCan = () => {

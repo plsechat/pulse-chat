@@ -349,6 +349,7 @@ const UserControl = memo(() => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                aria-label="Input device"
                 className={cn(
                   'h-8 w-4 flex items-center justify-center rounded-r-md transition-colors cursor-pointer',
                   ownVoiceState.micMuted
@@ -413,6 +414,7 @@ const UserControl = memo(() => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                aria-label="Output device"
                 className={cn(
                   'h-8 w-4 flex items-center justify-center rounded-r-md transition-colors cursor-pointer',
                   ownVoiceState.soundMuted

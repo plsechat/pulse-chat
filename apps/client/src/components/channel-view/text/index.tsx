@@ -12,7 +12,6 @@ import { SoundType } from '@/features/server/types';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { useUploadFiles } from '@/hooks/use-upload-files';
 import {
   encryptChannelMessage,
   ensureActiveChannelSenderKey
@@ -26,9 +25,12 @@ import {
 } from '@pulse/shared';
 import type { TJoinedMessage } from '@pulse/server/types';
 import { filesize } from 'filesize';
-import { throttle } from 'lodash-es';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
 import { DateDivider } from '@/components/chat-primitives/date-divider';
+import {
+  useComposerHelpers,
+  useTypingSignal
+} from '@/components/chat-primitives/use-composer-helpers';
 import { NewMessagesDivider } from '@/components/chat-primitives/new-messages-divider';
 import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -52,6 +54,7 @@ import { cn } from '@/lib/utils';
 import { FileCard } from '@/components/chat-primitives/file-card';
 import { MessagesGroup } from './messages-group';
 import { SystemMessage } from '@/components/chat-primitives/system-message';
+import { isSystemLikeMessage } from '@/helpers/automod-alert';
 import { TextSkeleton } from './text-skeleton';
 import { SelectionActionBar } from './selection-action-bar';
 import { SelectionProvider, useSelection } from './selection-context';
@@ -60,6 +63,10 @@ import { UsersTyping } from './users-typing';
 
 // Date and new-messages dividers live in chat-primitives so the DM
 // view paints them identically — see imports above.
+
+// Upper bound on the entry fade (500ms keyframes + slack) — see the
+// scroll container below.
+const ENTER_FADE_FALLBACK_MS = 700;
 
 type TChannelProps = {
   channelId: number;
@@ -105,6 +112,7 @@ const ReplyBar = memo(
         <button
           type="button"
           onClick={onDismiss}
+          aria-label="Cancel reply"
           className="shrink-0 mr-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
           <X className="h-4 w-4" />
@@ -211,44 +219,104 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     [can, allPluginCommands]
   );
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const inputAreaRef = useRef<HTMLDivElement>(null);
   const [multilineMode, setMultilineMode] = useState(false);
   const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
 
-  const focusEditor = useCallback(() => {
-    requestAnimationFrame(() => {
-      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-    });
-  }, []);
+  const sendGif = useCallback(
+    async (gifUrl: string) => {
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+      // Thread reply context — picking a GIF while replying should
+      // attach to the parent message, not start a new top-level msg.
+      const replyToId = replyingTo?.id;
 
-  const { files, removeFile, clearFiles, uploading, uploadingSize, handleUploadFiles, fileKeyMapRef } =
-    useUploadFiles(!canSendMessages, isE2ee, focusEditor);
+      if (isE2ee && ownUserId) {
+        await ensureActiveChannelSenderKey(channelId);
 
-  const handleReply = useCallback((message: TJoinedMessage) => {
-    setReplyingTo(message);
-    requestAnimationFrame(() => {
-      inputAreaRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus();
-      if (containerRef.current) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        const encryptedContent = await encryptChannelMessage(
+          channelId,
+          ownUserId,
+          { content: gifUrl }
+        );
+        await trpc.messages.send.mutate({
+          content: encryptedContent,
+          e2ee: true,
+          channelId,
+          replyToId
+        });
+      } else {
+        await trpc.messages.send.mutate({ content: gifUrl, channelId, replyToId });
       }
-    });
-  }, [containerRef]);
-
-  const sendTypingSignal = useMemo(
-    () =>
-      throttle(async () => {
-        const trpc = getTRPCClient();
-        if (!trpc) return;
-
-        try {
-          await trpc.messages.signalTyping.mutate({ channelId });
-        } catch {
-          // ignore
-        }
-      }, TYPING_MS),
-    [channelId]
+      playSound(SoundType.MESSAGE_SENT);
+    },
+    [channelId, isE2ee, ownUserId, replyingTo]
   );
+
+  // Shared composer plumbing (see chat-primitives/use-composer-helpers):
+  // the editor focus, hidden file input, staged-upload removal and the
+  // GIF-send envelope are identical to the DM composer's.
+  const {
+    inputAreaRef,
+    fileInputRef,
+    focusEditorAtBottom,
+    files,
+    clearFiles,
+    uploading,
+    uploadingSize,
+    fileKeyMapRef,
+    onFileInputChange,
+    onRemoveFileClick,
+    onGifSelect
+  } = useComposerHelpers({
+    uploadDisabled: !canSendMessages,
+    isE2ee,
+    sendGif,
+    onGifSent: () => setReplyingTo(null),
+    deleteTemporaryFile: (fileId) =>
+      getTRPCClient()?.files.deleteTemporary.mutate({ fileId }) ??
+      Promise.resolve(),
+    detached,
+    reattach,
+    scrollToBottom
+  });
+
+  const handleReply = useCallback(
+    (message: TJoinedMessage) => {
+      setReplyingTo(message);
+      focusEditorAtBottom();
+    },
+    [focusEditorAtBottom]
+  );
+
+  const signalTyping = useCallback(async () => {
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+
+    try {
+      await trpc.messages.signalTyping.mutate({ channelId });
+    } catch {
+      // ignore
+    }
+  }, [channelId]);
+  const sendTypingSignal = useTypingSignal(signalTyping, TYPING_MS);
+
+  // Entry fade for the skeleton → content handoff, made ONE-SHOT. The
+  // container used to carry `animate-in fade-in duration-500` for its
+  // whole life; an entry animation that was interrupted (tab hidden,
+  // re-layout mid-keyframe) could leave the keyframe's partial opacity
+  // on the element, which read as "every message greyed out" until the
+  // channel was reopened (Danny, 2026-10-15). Now the class is removed
+  // on `animationend`, with a timer as the fallback when that event
+  // never arrives — so once the fallback has elapsed the list cannot be
+  // anything but fully opaque. The component is keyed per channel
+  // (content-wrapper), so a channel switch starts fresh.
+  const [entered, setEntered] = useState(false);
+  const finishEntering = useCallback(() => setEntered(true), []);
+  useEffect(() => {
+    if (entered || loading) return;
+    const timer = setTimeout(finishEntering, ENTER_FADE_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [entered, loading, finishEntering]);
 
   const onSendMessage = useCallback(async () => {
     if ((isHtmlEmpty(newMessage) && !files.length) || !canSendMessages) return;
@@ -380,73 +448,6 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     scrollToBottom
   ]);
 
-  const onFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selectedFiles = Array.from(e.target.files ?? []);
-      if (selectedFiles.length > 0) {
-        handleUploadFiles(selectedFiles);
-      }
-      e.target.value = '';
-    },
-    [handleUploadFiles]
-  );
-
-  const onGifSelect = useCallback(
-    async (gifUrl: string) => {
-      const trpc = getTRPCClient();
-      if (!trpc) return;
-      const content = gifUrl;
-      // Thread reply context — picking a GIF while replying should
-      // attach to the parent message, not start a new top-level msg.
-      const replyToId = replyingTo?.id;
-
-      try {
-        if (isE2ee && ownUserId) {
-          await ensureActiveChannelSenderKey(channelId);
-
-          const encryptedContent = await encryptChannelMessage(
-            channelId,
-            ownUserId,
-            { content }
-          );
-          await trpc.messages.send.mutate({
-            content: encryptedContent,
-            e2ee: true,
-            channelId,
-            replyToId
-          });
-        } else {
-          await trpc.messages.send.mutate({ content, channelId, replyToId });
-        }
-        playSound(SoundType.MESSAGE_SENT);
-        setReplyingTo(null);
-        if (detached) {
-          await reattach();
-          requestAnimationFrame(scrollToBottom);
-        }
-      } catch (error) {
-        toast.error(getTrpcError(error, 'Failed to send GIF'));
-      }
-    },
-    [channelId, isE2ee, ownUserId, replyingTo, detached, reattach, scrollToBottom]
-  );
-
-  const onRemoveFileClick = useCallback(
-    async (fileId: string) => {
-      removeFile(fileId);
-
-      const trpc = getTRPCClient();
-      if (!trpc) return;
-
-      try {
-        trpc.files.deleteTemporary.mutate({ fileId });
-      } catch {
-        // ignore error
-      }
-    },
-    [removeFile]
-  );
-
   if (!channelCan(ChannelPermission.VIEW_CHANNEL) || loading) {
     return <TextSkeleton />;
   }
@@ -468,7 +469,15 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         ref={containerRef}
         onScroll={onScroll}
         data-testid="message-scroll"
-        className="flex-1 overflow-y-auto overflow-x-hidden pb-4 animate-in fade-in duration-500"
+        onAnimationEnd={(e) => {
+          // Children animate too (message highlight, spinners) — only
+          // the container's own entry animation ends the fade.
+          if (e.target === e.currentTarget) finishEntering();
+        }}
+        className={cn(
+          'flex-1 overflow-y-auto overflow-x-hidden pb-4',
+          !entered && 'animate-in fade-in duration-500'
+        )}
       >
         {groupedMessages.map((group, index) => {
           const showDivider =
@@ -489,7 +498,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             <div key={index} className="message-group-window">
               {showDateDivider && <DateDivider timestamp={group[0].createdAt} />}
               {showDivider && <NewMessagesDivider />}
-              {group[0].type === 'system' ? (
+              {isSystemLikeMessage(group[0]) ? (
                 <SystemMessage message={group[0]} />
               ) : (
                 <MessagesGroup group={group} onReply={handleReply} />
@@ -620,6 +629,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
               className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading || !canSendMessages}
+              aria-label="Attach files"
             >
               <Plus className="h-5 w-5" />
             </Button>
@@ -657,6 +667,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             )}
             onClick={onSendMessage}
             disabled={uploading || isHtmlEmpty(newMessage) || !canSendMessages || slowModeRemaining > 0}
+            aria-label="Send message"
           >
             <Send className="h-5 w-5" />
           </Button>

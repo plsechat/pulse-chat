@@ -1,4 +1,5 @@
 import { AddDmMembersDialog } from '@/components/dialogs/add-dm-members';
+import { Dialog } from '@/components/dialogs/dialogs';
 import { NameplateBackground } from '@/components/nameplate';
 import { AvatarDecoration } from '@/components/user-avatar';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -18,7 +19,7 @@ import {
   leaveDmChannel
 } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { openDialog, requestConfirmation } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import {
   useHomeOwnUserId,
@@ -37,6 +38,7 @@ import {
   Lock,
   MessageSquare,
   Plus,
+  Settings,
   Trash2,
   UserPlus,
   Users
@@ -255,7 +257,14 @@ const DmChannelItem = memo(
             )}
           >
             <NameplateBackground nameplate={nameplate} homeScope />
-            {channel.isGroup ? (
+            {channel.isGroup && channel.icon ? (
+              <Avatar className="h-8 w-8 flex-shrink-0">
+                <AvatarImage src={getFileUrl(channel.icon)} alt="" />
+                <AvatarFallback className="bg-muted text-xs">
+                  {getInitialsFromName(displayName)}
+                </AvatarFallback>
+              </Avatar>
+            ) : channel.isGroup ? (
               <div className="relative h-8 w-8 flex-shrink-0">
                 {otherMembers.slice(0, 2).map((m, i) => (
                   <DmMemberAvatar
@@ -305,6 +314,17 @@ const DmChannelItem = memo(
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {/* Name and icon are the owner's to change (dms.updateGroup). */}
+          {channel.isGroup && channel.ownerId === ownUserId && (
+            <ContextMenuItem
+              onClick={() =>
+                openDialog(Dialog.GROUP_DM_SETTINGS, { dmChannelId: channel.id })
+              }
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Group Settings
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             onClick={() => setShowAddDialog(true)}
             disabled={!canAddMore}

@@ -32,11 +32,7 @@
       "ignore": [
         "dist/**",
         "public/**",
-        "src/components/ui/**",
-        "src/components/server-screens/server-settings/plugins/index.tsx",
-        "src/components/server-screens/server-settings/storage/index.tsx",
-        "src/components/server-screens/server-settings/storage/metrics.tsx",
-        "src/components/server-screens/user-settings/desktop.tsx"
+        "src/components/ui/**"
       ],
       "ignoreDependencies": [
         "happy-dom",

@@ -1,4 +1,5 @@
 import type { TEmojiItem } from '@/components/tiptap-input/types';
+import { isCoarsePointer } from '@/hooks/use-is-mobile';
 import { useTheme } from '@/components/theme-provider';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import data from '@emoji-mart/data';
@@ -141,7 +142,7 @@ const EmojiPickerPanel = memo(
           'symbols',
           'flags'
         ]}
-        autoFocus
+        autoFocus={!isCoarsePointer()}
         previewPosition="none"
         skinTonePosition="search"
         maxFrequentRows={2}

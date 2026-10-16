@@ -158,7 +158,7 @@ const SearchPopover = memo(({ onClose }: TSearchPopoverProps) => {
     <PopoverPanelShell
       customHeader={customHeader}
       onClose={onClose}
-      className="w-[28rem] max-h-[32rem]"
+      className="w-[min(28rem,calc(100vw-1rem))] max-h-[32rem]"
       toolbar={
         <div className="p-2 border-b border-border/20">
           <SearchFilters filters={filters} onFiltersChange={onFiltersChange} />

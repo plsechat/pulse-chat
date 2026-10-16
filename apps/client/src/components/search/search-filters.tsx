@@ -25,7 +25,12 @@ type TFilterChipProps = {
 const FilterChip = memo(({ label, onRemove }: TFilterChipProps) => (
   <div className="h-6 pl-2.5 pr-1.5 inline-flex items-center gap-1 bg-primary/10 text-primary text-xs rounded-full">
     <span>{label}</span>
-    <button type="button" onClick={onRemove} className="hover:text-destructive">
+    <button
+      type="button"
+      onClick={onRemove}
+      aria-label={`Remove filter ${label}`}
+      className="hover:text-destructive"
+    >
       <X className="w-3 h-3" />
     </button>
   </div>

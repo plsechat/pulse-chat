@@ -6,6 +6,9 @@ import { memo, useEffect, useState } from 'react';
 const Desktop = memo(() => {
   const [minimizeToTray, setMinimizeToTray] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  // Launch-at-login arrived in desktop 0.1.0; an older shell has no
+  // bridge for it, and a switch that silently no-ops is worse than none.
+  const supportsStartup = typeof window.pulseDesktop?.setStartupEnabled === 'function';
 
   useEffect(() => {
     window.pulseDesktop?.getSettings().then((s) => {
@@ -70,6 +73,7 @@ const Desktop = memo(() => {
       </div>
 
       {/* Startup */}
+      {supportsStartup && (
       <div className="space-y-4">
         <div>
           <h3 className="text-lg font-semibold">Startup</h3>
@@ -92,6 +96,7 @@ const Desktop = memo(() => {
           </label>
         </div>
       </div>
+      )}
     </div>
   );
 });

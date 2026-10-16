@@ -34,7 +34,7 @@ const GifPicker = memo(({ children, onSelect }: TGifPickerProps) => {
       <PopoverContent
         side="top"
         align="end"
-        className="w-[420px] p-0"
+        className="w-[min(420px,calc(100vw-1rem))] p-0"
       >
         <Suspense fallback={<LazyFallback className="h-[200px]" />}>
           <Panel onSelect={handleSelect} />

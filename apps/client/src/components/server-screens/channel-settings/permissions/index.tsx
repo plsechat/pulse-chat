@@ -81,7 +81,7 @@ const ChannelPermissions = memo(({ channelId }: TChannelPermissionsProps) => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex gap-6">
+        <div className="flex flex-col gap-6 md:flex-row">
           <OverridesList
             channelId={channelId}
             rolePermissions={rolePermissions}

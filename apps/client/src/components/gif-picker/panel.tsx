@@ -1,4 +1,5 @@
 import { Input } from '@/components/ui/input';
+import { isCoarsePointer } from '@/hooks/use-is-mobile';
 import Spinner from '@/components/ui/spinner';
 import {
   searchGifs,
@@ -98,7 +99,7 @@ const GifPickerPanel = memo(({ onSelect }: TGifPickerPanelProps) => {
           placeholder="Search GIFs..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          autoFocus
+          autoFocus={!isCoarsePointer()}
         />
       </div>
 

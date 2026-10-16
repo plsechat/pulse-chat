@@ -9,7 +9,9 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { requestConfirmation } from '@/features/dialogs/actions';
-import { Archive, MessageCircle, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { useHistoryOverlay } from '@/hooks/use-history-overlay';
+import { useIsMobile } from '@/hooks/use-is-mobile';
+import { Archive, ArrowLeft, MessageCircle, MoreHorizontal, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -17,10 +19,15 @@ const ForumThreadView = memo(() => {
   const thread = useActiveThread();
   const messages = useMessagesByChannelId(thread?.id ?? 0);
   const [showMenu, setShowMenu] = useState(false);
+  const isMobile = useIsMobile();
 
   const onClose = useCallback(() => {
     setActiveThreadId(undefined);
   }, []);
+
+  // On phones the thread replaces the post list (content-wrapper), so
+  // the platform back gesture must return to the list, not leave.
+  useHistoryOverlay(isMobile, onClose);
 
   const onArchive = useCallback(async () => {
     if (!thread) return;
@@ -100,6 +107,7 @@ const ForumThreadView = memo(() => {
                 size="sm"
                 className="h-7 w-7 p-0"
                 onClick={() => setShowMenu(!showMenu)}
+                title="Thread options"
               >
                 <MoreHorizontal className="w-4 h-4" />
               </Button>
@@ -132,14 +140,19 @@ const ForumThreadView = memo(() => {
             </div>
           </Protect>
 
-          {/* Close button */}
+          {/* Close button — on phones it reads as "back to the posts" */}
           <Button
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0"
             onClick={onClose}
+            title={isMobile ? 'Back' : 'Close thread'}
           >
-            <X className="w-4 h-4" />
+            {isMobile ? (
+              <ArrowLeft className="w-4 h-4" />
+            ) : (
+              <X className="w-4 h-4" />
+            )}
           </Button>
         </div>
 

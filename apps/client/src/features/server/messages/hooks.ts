@@ -1,3 +1,4 @@
+import { isSystemLikeMessage } from '@/helpers/automod-alert';
 import type { IRootState } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
 import { DEFAULT_MESSAGES_LIMIT } from '@pulse/shared';
@@ -241,7 +242,7 @@ export const useMessages = (channelId: number) => {
       const lastMessage = last[last.length - 1];
 
       // System messages are always standalone (never grouped)
-      if (message.type === 'system' || lastMessage.type === 'system') {
+      if (isSystemLikeMessage(message) || isSystemLikeMessage(lastMessage)) {
         return [...acc, [message]];
       }
 

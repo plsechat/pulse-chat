@@ -268,7 +268,7 @@ const MessageReactions = memo(
             <button
               type="button"
               title="Add Reaction"
-              className="inline-flex items-center rounded-lg border border-transparent bg-accent/40 px-2 py-1 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-accent/60 transition-[opacity,background-color] duration-150"
+              className="inline-flex items-center rounded-lg border border-transparent bg-accent/40 px-2 py-1 opacity-0 group-hover-or-touch:opacity-100 data-[state=open]:opacity-100 hover:bg-accent/60 transition-[opacity,background-color] duration-150"
             >
               <SmilePlus className="h-4 w-4 text-muted-foreground" />
             </button>

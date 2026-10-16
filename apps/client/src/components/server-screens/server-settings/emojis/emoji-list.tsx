@@ -37,7 +37,7 @@ const EmojiList = memo(
     }, [emojis, search]);
 
     return (
-      <Card className="w-80 flex-shrink-0">
+      <Card className="w-full flex-shrink-0 md:w-80">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Emojis</CardTitle>

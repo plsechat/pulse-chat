@@ -139,6 +139,7 @@ const ManageTagsDialog = memo(
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close"
               className="text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />
@@ -177,6 +178,8 @@ const ManageTagsDialog = memo(
                     key={color}
                     type="button"
                     onClick={() => setNewTagColor(color)}
+                    aria-label={`Tag color ${color}`}
+                    aria-pressed={newTagColor === color}
                     className="w-5 h-5 rounded-full border-2 transition-transform"
                     style={{
                       backgroundColor: color,
@@ -221,6 +224,8 @@ const ManageTagsDialog = memo(
                                 key={color}
                                 type="button"
                                 onClick={() => setEditColor(color)}
+                                aria-label={`Tag color ${color}`}
+                                aria-pressed={editColor === color}
                                 className="w-4 h-4 rounded-full border-2 transition-transform"
                                 style={{
                                   backgroundColor: color,
@@ -269,6 +274,7 @@ const ManageTagsDialog = memo(
                             <button
                               type="button"
                               onClick={() => startEditing(tag)}
+                              aria-label={`Edit tag ${tag.name}`}
                               className="text-muted-foreground hover:text-foreground p-1"
                             >
                               <Pencil className="w-3 h-3" />
@@ -276,6 +282,7 @@ const ManageTagsDialog = memo(
                             <button
                               type="button"
                               onClick={() => onDeleteTag(tag.id)}
+                              aria-label={`Delete tag ${tag.name}`}
                               className="text-muted-foreground hover:text-red-500 p-1"
                             >
                               <Trash2 className="w-3 h-3" />

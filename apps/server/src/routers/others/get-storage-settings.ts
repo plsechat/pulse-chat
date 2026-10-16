@@ -10,8 +10,8 @@ import { instanceOwnerProcedure } from '../../utils/procedures';
 /**
  * Storage settings of a server plus the INSTANCE's disk metrics. The
  * disk numbers describe the operator's host, not the server, so this is
- * an instance-owner surface — a per-server MANAGE_STORAGE holder (every
- * owner of their own server) must not read them.
+ * an instance-owner surface — a server owner (or any per-server admin)
+ * must not read them.
  */
 const getStorageSettingsRoute = instanceOwnerProcedure
   .input(
