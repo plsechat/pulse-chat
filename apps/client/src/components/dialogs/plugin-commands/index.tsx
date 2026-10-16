@@ -26,7 +26,8 @@ const PluginCommandsDialog = memo(
   ({ isOpen, close, pluginId }: TPluginCommandsDialogProps) => {
     const commandsMap = usePluginCommands();
     const [selectedCommand, setSelectedCommand] = useState<string>('');
-    const [commandArgs, setCommandArgs] = useState<Record<string, unknown>>({});
+    type TCommandArgValue = string | number | boolean | null;
+    const [commandArgs, setCommandArgs] = useState<Record<string, TCommandArgValue>>({});
     const [isExecuting, setIsExecuting] = useState(false);
     const [commandResponse, setCommandResponse] =
       useState<TCommandResponse | null>(null);
@@ -48,10 +49,10 @@ const PluginCommandsDialog = memo(
     const handleArgChange = useCallback(
       (argName: string, value: string, type: string) => {
         setCommandArgs((prev) => {
-          let parsedValue: unknown = value;
+          let parsedValue: TCommandArgValue = value;
 
           if (type === 'number') {
-            parsedValue = value === '' ? undefined : Number(value);
+            parsedValue = value === '' ? null : Number(value);
           } else if (type === 'boolean') {
             parsedValue = value === 'true';
           }

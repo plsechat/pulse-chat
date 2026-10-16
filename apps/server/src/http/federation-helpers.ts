@@ -22,6 +22,82 @@ import { logger } from '../logger';
 
 const MAX_BODY_SIZE = 1024 * 1024;
 
+/**
+ * Trust-boundary caps for peer-supplied values. A federated peer is
+ * authenticated, not trusted: a hostile or buggy peer must not be able
+ * to grow a users/dm_messages row to the 1 MB body cap or mint shadow
+ * users by the thousand. Display strings are truncated (name, bio,
+ * server name); structural fields (ids, keys, arrays) are rejected.
+ */
+const MAX_PEER_NAME_LENGTH = 32;
+const MAX_PEER_BIO_LENGTH = 500;
+const MAX_PEER_PUBLIC_ID_LENGTH = 64;
+const MAX_PEER_DOMAIN_LENGTH = 253;
+const MAX_PEER_SERVER_NAME_LENGTH = 100;
+const MAX_PEER_GROUP_NAME_LENGTH = 100;
+const MAX_PEER_PUBLIC_KEY_LENGTH = 2048;
+const MAX_PEER_IDENTITY_KEY_LENGTH = 128;
+const MAX_PEER_DISTRIBUTION_MESSAGE_LENGTH = 16_384;
+const MAX_PEER_DM_GROUP_MEMBERS = 100;
+const MAX_PEER_SKDM_RECIPIENTS = 500;
+const MAX_PEER_SENDER_KEY_ID = 2 ** 31 - 1;
+/** `host` or `host:port` — never a path, scheme or userinfo. */
+const PEER_DOMAIN_RE = /^[a-z0-9.-]+(:\d{1,5})?$/i;
+const PEER_BANNER_COLOR_RE = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+
+/** A peer-supplied display string, truncated; undefined when not a string. */
+function peerString(v: unknown, max: number): string | undefined {
+  return typeof v === 'string' ? v.slice(0, max) : undefined;
+}
+
+/**
+ * A peer-supplied array of non-empty strings; undefined unless it is an
+ * array of at most `maxItems` strings each at most `maxLen` long.
+ */
+function peerStringArray(
+  v: unknown,
+  maxLen: number,
+  maxItems: number
+): string[] | undefined {
+  if (!Array.isArray(v) || v.length > maxItems) return undefined;
+  if (
+    !v.every(
+      (item) =>
+        typeof item === 'string' && item.length > 0 && item.length <= maxLen
+    )
+  ) {
+    return undefined;
+  }
+  return v as string[];
+}
+
+/** A peer-supplied identifier (publicId, federationGroupId): bounded, non-empty. */
+function isPeerPublicId(v: unknown): v is string {
+  return (
+    typeof v === 'string' &&
+    v.length > 0 &&
+    v.length <= MAX_PEER_PUBLIC_ID_LENGTH
+  );
+}
+
+function isPeerDomain(v: unknown): v is string {
+  return (
+    typeof v === 'string' &&
+    v.length > 0 &&
+    v.length <= MAX_PEER_DOMAIN_LENGTH &&
+    PEER_DOMAIN_RE.test(v)
+  );
+}
+
+function isPeerSenderKeyId(v: unknown): v is number {
+  return (
+    typeof v === 'number' &&
+    Number.isInteger(v) &&
+    v >= 0 &&
+    v <= MAX_PEER_SENDER_KEY_ID
+  );
+}
+
 function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const contentLength = parseInt(req.headers['content-length'] || '0', 10);
@@ -162,7 +238,25 @@ async function authorizeFederationRequest(
 
 export {
   MAX_BODY_SIZE,
+  MAX_PEER_BIO_LENGTH,
+  MAX_PEER_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_PEER_DM_GROUP_MEMBERS,
+  MAX_PEER_DOMAIN_LENGTH,
+  MAX_PEER_GROUP_NAME_LENGTH,
+  MAX_PEER_IDENTITY_KEY_LENGTH,
+  MAX_PEER_NAME_LENGTH,
+  MAX_PEER_PUBLIC_ID_LENGTH,
+  MAX_PEER_PUBLIC_KEY_LENGTH,
+  MAX_PEER_SERVER_NAME_LENGTH,
+  MAX_PEER_SKDM_RECIPIENTS,
+  PEER_BANNER_COLOR_RE,
+  PEER_DOMAIN_RE,
   parseBody,
   jsonResponse,
-  authorizeFederationRequest
+  authorizeFederationRequest,
+  isPeerDomain,
+  isPeerPublicId,
+  isPeerSenderKeyId,
+  peerString,
+  peerStringArray
 };

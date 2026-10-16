@@ -1,19 +1,21 @@
-import { Permission } from '@pulse/shared';
 import z from 'zod';
 import { pluginManager } from '../../plugins';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
+import {
+  pluginIdSchema,
+  settingKeySchema,
+  settingValueSchema
+} from './schemas';
 
-const updateSettingRoute = protectedProcedure
+const updateSettingRoute = instanceOwnerProcedure
   .input(
     z.object({
-      pluginId: z.string(),
-      key: z.string(),
-      value: z.union([z.string(), z.number(), z.boolean()])
+      pluginId: pluginIdSchema,
+      key: settingKeySchema,
+      value: settingValueSchema
     })
   )
-  .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_PLUGINS);
-
+  .mutation(async ({ input }) => {
     await pluginManager.updatePluginSetting(
       input.pluginId,
       input.key,

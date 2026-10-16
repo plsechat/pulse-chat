@@ -1,5 +1,15 @@
 import type { TFile, TJoinedDmMessage, TMessageReplyPreview } from '@pulse/shared';
-import { and, desc, eq, ilike, inArray, lt, type SQL } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  ilike,
+  inArray,
+  lt,
+  sql,
+  type SQL
+} from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -14,11 +24,11 @@ const searchDmMessagesRoute = protectedProcedure
   .input(
     z.object({
       query: z.string().min(1).max(200),
-      dmChannelId: z.number().optional(),
-      userId: z.number().optional(),
+      dmChannelId: z.number().int().positive().optional(),
+      userId: z.number().int().positive().optional(),
       hasFile: z.boolean().optional(),
-      cursor: z.number().optional(),
-      limit: z.number().min(1).max(50).default(25)
+      cursor: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(50).default(25)
     })
   )
   .query(async ({ ctx, input }) => {
@@ -28,6 +38,9 @@ const searchDmMessagesRoute = protectedProcedure
       eq(dmMessages.e2ee, false)
     ];
 
+    // Every row (and every reply preview) stays inside this set.
+    let channelScope: SQL;
+
     if (input.dmChannelId) {
       const memberIds = await getDmChannelMemberIds(input.dmChannelId);
 
@@ -36,7 +49,7 @@ const searchDmMessagesRoute = protectedProcedure
         message: 'You are not a member of this DM channel'
       });
 
-      conditions.push(eq(dmMessages.dmChannelId, input.dmChannelId));
+      channelScope = eq(dmMessages.dmChannelId, input.dmChannelId);
     } else {
       // Search across all user's DM channels
       const memberRows = await db
@@ -50,8 +63,10 @@ const searchDmMessagesRoute = protectedProcedure
         return { messages: [], nextCursor: null };
       }
 
-      conditions.push(inArray(dmMessages.dmChannelId, channelIds));
+      channelScope = inArray(dmMessages.dmChannelId, channelIds);
     }
+
+    conditions.push(channelScope);
 
     if (input.userId) {
       conditions.push(eq(dmMessages.userId, input.userId));
@@ -61,28 +76,28 @@ const searchDmMessagesRoute = protectedProcedure
       conditions.push(lt(dmMessages.createdAt, input.cursor));
     }
 
+    // EXISTS instead of join + DISTINCT ON: Postgres requires DISTINCT
+    // ON expressions to lead the ORDER BY, and we order by createdAt —
+    // the old shape threw on every "has file" search.
+    if (input.hasFile) {
+      conditions.push(
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(dmMessageFiles)
+            .where(eq(dmMessageFiles.dmMessageId, dmMessages.id))
+        )
+      );
+    }
+
     const { limit } = input;
 
-    let rows;
-
-    if (input.hasFile) {
-      const results = await db
-        .selectDistinctOn([dmMessages.id], { message: dmMessages })
-        .from(dmMessages)
-        .innerJoin(dmMessageFiles, eq(dmMessageFiles.dmMessageId, dmMessages.id))
-        .where(and(...conditions))
-        .orderBy(desc(dmMessages.createdAt))
-        .limit(limit + 1);
-
-      rows = results.map((r) => r.message);
-    } else {
-      rows = await db
-        .select()
-        .from(dmMessages)
-        .where(and(...conditions))
-        .orderBy(desc(dmMessages.createdAt))
-        .limit(limit + 1);
-    }
+    const rows = await db
+      .select()
+      .from(dmMessages)
+      .where(and(...conditions))
+      .orderBy(desc(dmMessages.createdAt))
+      .limit(limit + 1);
 
     let nextCursor: number | null = null;
 
@@ -131,14 +146,20 @@ const searchDmMessagesRoute = protectedProcedure
         .select({
           id: dmMessages.id,
           content: dmMessages.content,
-          userId: dmMessages.userId
+          userId: dmMessages.userId,
+          e2ee: dmMessages.e2ee
         })
         .from(dmMessages)
-        .where(inArray(dmMessages.id, replyToIds));
+        .where(and(inArray(dmMessages.id, replyToIds), channelScope));
 
       replyToMap = replyRows.reduce<Record<number, TMessageReplyPreview>>(
         (acc, r) => {
-          acc[r.id] = { id: r.id, content: r.content, userId: r.userId };
+          acc[r.id] = {
+            id: r.id,
+            content: r.content,
+            userId: r.userId,
+            e2ee: r.e2ee
+          };
           return acc;
         },
         {}

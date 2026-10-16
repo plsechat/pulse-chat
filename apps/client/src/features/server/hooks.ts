@@ -117,7 +117,15 @@ export const useChannelCan = (channelId: number | undefined) => {
 
   const can = useCallback(
     (permission: ChannelPermission) => {
-      if (isOwner || !channel || !channel?.private) return true;
+      // Overrides apply to public channels too (server evaluates them for
+      // every channel); only the owner and an unknown channel short-circuit.
+      if (isOwner || !channel) return true;
+
+      // No entry in the permission map (a preview snapshot, or a channel
+      // created after the map was built): the server's default applies —
+      // public channels allow, private ones deny.
+      // (The selector hands back an empty default object, not undefined.)
+      if (!ownUserRoles?.permissions) return !channel.private;
 
       // if VIEW is false, no other permission matters
       if (ownUserRoles.permissions[ChannelPermission.VIEW_CHANNEL] === false)

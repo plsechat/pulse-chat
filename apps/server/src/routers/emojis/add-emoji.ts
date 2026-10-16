@@ -11,13 +11,16 @@ import { protectedProcedure } from '../../utils/trpc';
 const addEmojiRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number(),
-      emojis: z.array(
-        z.object({
-          fileId: z.string(),
-          name: z.string().min(1).max(32)
-        })
-      )
+      serverId: z.number().int().positive(),
+      emojis: z
+        .array(
+          z.object({
+            fileId: z.string().max(64),
+            name: z.string().min(1).max(32)
+          })
+        )
+        .min(1)
+        .max(20)
     })
   )
   .mutation(async ({ input, ctx }) => {

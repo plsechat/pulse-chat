@@ -13,13 +13,26 @@ import { getFederationProtocol, validateFederationUrl } from '../../utils/valida
 import { publishUser } from '../publishers';
 import { files, users } from '../schema';
 
+/**
+ * A shadow's display name is a users.name like any other: cap it here
+ * so every entry point (DM relay, friend request, group DM, descriptor
+ * resolution) is covered, whatever the caller validated.
+ */
+const MAX_SHADOW_NAME_LENGTH = 32;
+const MAX_SHADOW_BIO_LENGTH = 500;
+const SHADOW_BANNER_COLOR_RE = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+
+const boundShadowName = (name: string): string =>
+  name.slice(0, MAX_SHADOW_NAME_LENGTH);
+
 async function findOrCreateShadowUser(
   instanceId: number,
   remoteUserId: number,
-  username: string,
+  rawUsername: string,
   _avatar?: string | null,
   remotePublicId?: string
 ): Promise<TUser> {
+  const username = boundShadowName(rawUsername);
   // Primary lookup: by federatedPublicId (immutable UUID — most reliable)
   if (remotePublicId) {
     const [byPublicId] = await db
@@ -147,8 +160,9 @@ async function findOrCreateShadowUser(
 async function findOrCreateShadowUserByPublicId(
   instanceId: number,
   remotePublicId: string,
-  name: string
+  rawName: string
 ): Promise<TUser> {
+  const name = boundShadowName(rawName);
   const [existing] = await db
     .select()
     .from(users)
@@ -161,7 +175,9 @@ async function findOrCreateShadowUserByPublicId(
     .limit(1);
 
   if (existing) {
-    if (existing.name !== name) {
+    // An empty name means "caller doesn't know it" (descriptor
+    // resolution without a name) — never blank an existing shadow.
+    if (name !== '' && existing.name !== name) {
       await db
         .update(users)
         .set({ name, updatedAt: Date.now() })
@@ -180,7 +196,9 @@ async function findOrCreateShadowUserByPublicId(
     .insert(users)
     .values({
       supabaseId: `federated-${randomUUIDv7()}`,
-      name,
+      // A nameless mint (descriptor resolution without a name) gets a
+      // readable placeholder instead of an empty display name.
+      name: name || remotePublicId.slice(0, MAX_SHADOW_NAME_LENGTH),
       isFederated: true,
       federatedInstanceId: instanceId,
       federatedPublicId: remotePublicId,
@@ -482,12 +500,22 @@ async function syncShadowUserProfile(
       }
     }
 
-    // Sync bio, bannerColor, and custom status
-    if (profile.bio !== shadow.bio) {
-      updates.bio = profile.bio;
+    // Sync bio, bannerColor, and custom status — bounded like the
+    // push path (user-info-update); the pulled profile is peer data too.
+    const bio =
+      typeof profile.bio === 'string'
+        ? profile.bio.slice(0, MAX_SHADOW_BIO_LENGTH)
+        : null;
+    if (bio !== shadow.bio) {
+      updates.bio = bio;
     }
-    if (profile.bannerColor !== shadow.bannerColor) {
-      updates.bannerColor = profile.bannerColor;
+    const bannerColor =
+      typeof profile.bannerColor === 'string' &&
+      SHADOW_BANNER_COLOR_RE.test(profile.bannerColor)
+        ? profile.bannerColor
+        : null;
+    if (bannerColor !== shadow.bannerColor) {
+      updates.bannerColor = bannerColor;
     }
     // Optional — older peers don't send it; bound like the push path.
     if (

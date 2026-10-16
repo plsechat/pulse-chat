@@ -3,12 +3,13 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { files, servers } from '../../db/schema';
+import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const getSettingsRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number()
+      serverId: z.number().int().positive()
     })
   )
   .query(async ({ input, ctx }) => {
@@ -20,9 +21,10 @@ const getSettingsRoute = protectedProcedure
       .where(eq(servers.id, input.serverId))
       .limit(1);
 
-    if (!server) {
-      throw new Error('Server not found');
-    }
+    invariant(server, {
+      code: 'NOT_FOUND',
+      message: 'Server not found'
+    });
 
     const logo = server.logoId
       ? (

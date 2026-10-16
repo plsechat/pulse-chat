@@ -7,7 +7,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const setServerNotificationLevelRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number(),
+      serverId: z.number().int().positive(),
       level: z.enum(['all', 'mentions', 'nothing', 'default'])
     })
   )

@@ -296,10 +296,17 @@ const getDmMessage = async (
       .select({
         id: dmMessages.id,
         content: dmMessages.content,
-        userId: dmMessages.userId
+        userId: dmMessages.userId,
+        e2ee: dmMessages.e2ee
       })
       .from(dmMessages)
-      .where(eq(dmMessages.id, msg.replyToId))
+      // Same conversation only — never preview another DM's text.
+      .where(
+        and(
+          eq(dmMessages.id, msg.replyToId),
+          eq(dmMessages.dmChannelId, msg.dmChannelId)
+        )
+      )
       .limit(1);
 
     if (replyRow) {

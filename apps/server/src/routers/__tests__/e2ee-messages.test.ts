@@ -259,7 +259,8 @@ describe('e2ee messages', () => {
 
     await caller.dms.editMessage({
       messageId,
-      content: 'updated-encrypted-dm'
+      content: 'updated-encrypted-dm',
+      e2ee: true
     });
 
     const after = await caller.dms.getMessages({

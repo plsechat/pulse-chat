@@ -19,6 +19,15 @@ import {
 import { getUserRoleIds } from './roles';
 import { getServerById } from './servers';
 
+/**
+ * Effective channel permissions of one user, for every channel (of one
+ * server, or of the whole instance). Evaluation order, per channel and
+ * permission: the channel's default — allow on a public channel, deny on
+ * a private one — then role overrides (any held role allowing wins over
+ * roles denying), then a user override, which beats everything. Owner
+ * bypass is NOT applied here; callers that need it check servers.ownerId
+ * themselves (hasChannelPermission, getAffectedUserIdsForChannel).
+ */
 const getAllChannelUserPermissions = async (
   userId: number,
   serverId?: number
@@ -123,7 +132,7 @@ const getAllChannelUserPermissions = async (
         continue;
       }
 
-      permissions[permissionType] = false;
+      permissions[permissionType] = !channel.private;
     }
 
     channelPermissions[channel.id] = {
@@ -152,14 +161,27 @@ const getAffectedUserIdsForChannel = async (
     return [];
   }
 
-  // For public channels, return all members of this channel's server
+  // For public channels, every member of the server — minus the ones an
+  // override explicitly denies the requested permission (a user row, or
+  // every held role denying with none allowing). The server owner is
+  // never excluded.
   if (!channel.private || options?.forceAllUsers) {
     const members = await db
       .select({ userId: serverMembers.userId })
       .from(serverMembers)
       .where(eq(serverMembers.serverId, channel.serverId));
 
-    return members.map((m) => m.userId);
+    const memberIds = members.map((m) => m.userId);
+    const publicPermission = options?.forceAllUsers ? undefined : options?.permission;
+
+    if (!publicPermission) return memberIds;
+
+    return filterPublicChannelDenials(
+      channel.id,
+      channel.serverId,
+      publicPermission,
+      memberIds
+    );
   }
 
   // For private channels, filter by channel-specific permissions
@@ -214,6 +236,67 @@ const getAffectedUserIdsForChannel = async (
   usersWithRoles.forEach((u) => userIdSet.add(u.userId));
 
   return Array.from(userIdSet);
+};
+
+const filterPublicChannelDenials = async (
+  channelId: number,
+  serverId: number,
+  permission: ChannelPermission,
+  memberIds: number[]
+): Promise<number[]> => {
+  const [userRows, roleRows] = await Promise.all([
+    db
+      .select({
+        userId: channelUserPermissions.userId,
+        allow: channelUserPermissions.allow
+      })
+      .from(channelUserPermissions)
+      .where(
+        and(
+          eq(channelUserPermissions.channelId, channelId),
+          eq(channelUserPermissions.permission, permission)
+        )
+      ),
+    db
+      .select({
+        roleId: channelRolePermissions.roleId,
+        allow: channelRolePermissions.allow
+      })
+      .from(channelRolePermissions)
+      .where(
+        and(
+          eq(channelRolePermissions.channelId, channelId),
+          eq(channelRolePermissions.permission, permission)
+        )
+      )
+  ]);
+
+  const hasDenial =
+    userRows.some((r) => !r.allow) || roleRows.some((r) => !r.allow);
+  if (!hasDenial) return memberIds;
+
+  const userOverride = new Map(userRows.map((r) => [r.userId, r.allow]));
+  const roleOverride = new Map(roleRows.map((r) => [r.roleId, r.allow]));
+
+  const holders = await db
+    .select({ userId: userRoles.userId, roleId: userRoles.roleId })
+    .from(userRoles)
+    .where(inArray(userRoles.roleId, [...roleOverride.keys()]));
+
+  const roleDecision = new Map<number, boolean>();
+  for (const { userId, roleId } of holders) {
+    const allow = roleOverride.get(roleId)!;
+    roleDecision.set(userId, (roleDecision.get(userId) ?? false) || allow);
+  }
+
+  const server = await getServerById(serverId);
+
+  return memberIds.filter((userId) => {
+    if (server?.ownerId === userId) return true;
+    const direct = userOverride.get(userId);
+    if (direct !== undefined) return direct;
+    return roleDecision.get(userId) ?? true;
+  });
 };
 
 const getChannelsReadStatesForUser = async (
@@ -334,9 +417,21 @@ const getForumUnreadForUser = async (
   };
 };
 
+/**
+ * A channel row as it may leave the server. `fileAccessToken` is the
+ * per-channel secret that mints file tokens and must never reach a
+ * client; it is blanked rather than dropped so the TChannel shape the
+ * clients store stays intact (preview sessions already model "no token"
+ * as an empty string).
+ */
+const toWireChannel = <T extends { fileAccessToken: string }>(
+  channel: T
+): T => ({ ...channel, fileAccessToken: '' });
+
 export {
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
   getChannelsReadStatesForUser,
-  getForumUnreadForUser
+  getForumUnreadForUser,
+  toWireChannel
 };

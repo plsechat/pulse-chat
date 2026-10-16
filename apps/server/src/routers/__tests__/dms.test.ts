@@ -588,7 +588,11 @@ describe('DM forward attribution', () => {
     expect(fwd!.forwardedFromName).toBe('Test User');
 
     await expect(
-      caller1.dms.editMessage({ messageId: fwd!.id, content: 'tampered' })
+      caller1.dms.editMessage({
+        messageId: fwd!.id,
+        content: 'tampered',
+        e2ee: false
+      })
     ).rejects.toThrow('Forwarded messages cannot be edited');
   });
 });

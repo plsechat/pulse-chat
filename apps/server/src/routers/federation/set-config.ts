@@ -20,7 +20,7 @@ const setConfigRoute = instanceOwnerProcedure
   .input(
     z.object({
       enabled: z.boolean(),
-      domain: z.string().min(1),
+      domain: z.string().min(1).max(253),
       // Instance-owner policy: whether non-owner server owners may mark
       // their own servers federatable. Omitted → left unchanged.
       allowUserFederatableServers: z.boolean().optional()

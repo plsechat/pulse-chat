@@ -18,7 +18,7 @@ const MAX_GROUP_MEMBERS = 10;
 const addMemberRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
+      dmChannelId: z.number().int().positive(),
       // Batch input + accept >=1 so the same route handles both
       // "add one to a group" and "promote a 1:1 to a group with N
       // additional people in a single click."

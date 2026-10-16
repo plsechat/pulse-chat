@@ -35,6 +35,7 @@ import { pubsub } from '../utils/pubsub';
 import { signedJsonResponse } from '../utils/federation';
 import {
   authorizeFederationRequest,
+  isPeerPublicId,
   jsonResponse
 } from './federation-helpers';
 
@@ -92,12 +93,8 @@ const federationDmChannelStateUpdateHandler = async (
   const e2eeChange = signedBody.e2ee as boolean | undefined;
 
   // Validate channel identifier — exactly one of the two paths.
-  const hasGroupId = typeof federationGroupId === 'string' && federationGroupId.length > 0;
-  const hasOneToOne =
-    typeof fromPublicId === 'string' &&
-    fromPublicId.length > 0 &&
-    typeof toPublicId === 'string' &&
-    toPublicId.length > 0;
+  const hasGroupId = isPeerPublicId(federationGroupId);
+  const hasOneToOne = isPeerPublicId(fromPublicId) && isPeerPublicId(toPublicId);
 
   if (hasGroupId === hasOneToOne) {
     return jsonResponse(res, 400, {

@@ -2,44 +2,62 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { publishCategory } from '../../db/publishers';
+import { publishCategory, publishChannel } from '../../db/publishers';
 import { categories, channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteCategoryRoute = protectedProcedure
+const deleteCategoryRoute = serverProcedure(Permission.MANAGE_CATEGORIES)
   .input(
     z.object({
-      categoryId: z.number()
+      categoryId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
+    const [category] = await db
+      .select()
+      .from(categories)
+      .where(
+        and(
+          eq(categories.id, input.categoryId),
+          eq(categories.serverId, ctx.activeServerId)
+        )
+      )
+      .limit(1);
 
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
+    invariant(category, {
+      code: 'NOT_FOUND',
+      message: 'Category not found'
     });
 
-    const [removedCategory] = await db
-      .delete(categories)
-      .where(and(eq(categories.id, input.categoryId), eq(categories.serverId, ctx.activeServerId)))
-      .returning();
-
-    invariant(removedCategory, 'Category not found');
-
-    await db
+    // The category's channels go with it: tear down their voice runtimes
+    // (a router left alive after its channel row is gone lives forever)
+    // and tell clients about each channel, not just the category.
+    const removedChannels = await db
       .delete(channels)
-      .where(eq(channels.categoryId, removedCategory.id));
+      .where(eq(channels.categoryId, category.id))
+      .returning({ id: channels.id });
 
-    publishCategory(removedCategory.id, 'delete', removedCategory.serverId);
+    for (const channel of removedChannels) {
+      const runtime = VoiceRuntime.findById(channel.id);
+      if (runtime) await runtime.destroy();
+    }
+
+    await db.delete(categories).where(eq(categories.id, category.id));
+
+    for (const channel of removedChannels) {
+      publishChannel(channel.id, 'delete', category.serverId);
+    }
+    publishCategory(category.id, 'delete', category.serverId);
+
     enqueueActivityLog({
       type: ActivityLogType.DELETED_CATEGORY,
       userId: ctx.user.id,
       details: {
-        categoryId: removedCategory.id,
-        categoryName: removedCategory.name
+        categoryId: category.id,
+        categoryName: category.name
       }
     });
   });

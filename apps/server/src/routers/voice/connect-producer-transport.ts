@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { dtlsParametersSchema } from './schemas';
 
 const connectProducerTransportRoute = protectedProcedure
   .input(
     z.object({
-      dtlsParameters: z.any()
+      dtlsParameters: dtlsParametersSchema
     })
   )
   .mutation(async ({ input, ctx }) => {

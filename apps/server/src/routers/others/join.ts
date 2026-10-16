@@ -5,6 +5,7 @@ import {
   type TCategory,
   type TChannel,
   type TChannelUserPermissionsMap,
+  type TCommandsMapByPlugin,
   type TJoinedRole,
   type TMentionStateMap,
   type TPublicServerSettings,
@@ -19,7 +20,8 @@ import { publishUser } from '../../db/publishers';
 import {
   getAllChannelUserPermissions,
   getChannelsReadStatesForUser,
-  getForumUnreadForUser
+  getForumUnreadForUser,
+  toWireChannel
 } from '../../db/queries/channels';
 import { getRolesForServer } from '../../db/queries/roles';
 import { getServerPublicSettings } from '../../db/queries/server';
@@ -38,9 +40,12 @@ import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueLogin } from '../../queues/logins';
 import { invariant } from '../../utils/invariant';
-import { t } from '../../utils/trpc';
+import { publicProcedure } from '../../utils/trpc';
 
-const joinServerRoute = t.procedure
+// publicProcedure (not protectedProcedure): this IS the route that sets
+// `authenticated`; it still runs through timingMiddleware so the
+// bootstrap call carries a requestId / route in the logs.
+const joinServerRoute = publicProcedure
   .input(
     z.object({
       handshakeHash: z.string(),
@@ -115,7 +120,7 @@ const joinServerRoute = t.procedure
         readStates: {} as TReadStateMap,
         mentionStates: {} as TMentionStateMap,
         lastReadMessageIds: {} as Record<number, number | null>,
-        commands: pluginManager.getCommands(),
+        commands: {} as TCommandsMapByPlugin,
         userPreferences: (prefsRow?.data as TUserPreferences) ?? undefined,
         isInstanceOwner: isInstanceOwnerFlag,
         federatableServersAllowed
@@ -161,7 +166,8 @@ const joinServerRoute = t.procedure
       db
         .select()
         .from(channels)
-        .where(eq(channels.serverId, targetServer.id)),
+        .where(eq(channels.serverId, targetServer.id))
+        .then((rows) => rows.map(toWireChannel)),
       getRolesForServer(targetServer.id),
       getAllChannelUserPermissions(ctx.user.id, targetServer.id),
       getChannelsReadStatesForUser(ctx.user.id, undefined, targetServer.id),
@@ -256,7 +262,11 @@ const joinServerRoute = t.procedure
       readStates,
       mentionStates,
       lastReadMessageIds: readStatesResult.lastReadMessageIds,
-      commands: pluginManager.getCommands(),
+      // Plugin commands only where the server has them switched on — the
+      // same gate plugins.getCommands applies.
+      commands: (await pluginManager.commandsEnabledForServer(targetServer.id))
+        ? pluginManager.getCommands()
+        : ({} as TCommandsMapByPlugin),
       userPreferences:
         (userPrefsRows[0]?.data as TUserPreferences) ?? undefined,
       isInstanceOwner: isInstanceOwnerFlag,

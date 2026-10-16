@@ -11,8 +11,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const updateCategoryRoute = protectedProcedure
   .input(
     z.object({
-      categoryId: z.number().min(1),
-      name: z.string().min(1).max(24)
+      categoryId: z.number().int().positive(),
+      name: z.string().min(1).max(32)
     })
   )
   .mutation(async ({ ctx, input }) => {

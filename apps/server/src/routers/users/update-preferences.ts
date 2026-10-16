@@ -5,6 +5,20 @@ import { db } from '../../db';
 import { userPreferences } from '../../db/schema';
 import { protectedProcedure } from '../../utils/trpc';
 
+/**
+ * The "last channel per server" map is merged on every update and was
+ * never pruned: cap it, dropping the oldest keys when it overflows.
+ */
+const MAX_SERVER_CHANNEL_MAP_ENTRIES = 200;
+
+const pruneServerChannelMap = (
+  map: Record<string, number>
+): Record<string, number> => {
+  const entries = Object.entries(map);
+  if (entries.length <= MAX_SERVER_CHANNEL_MAP_ENTRIES) return map;
+  return Object.fromEntries(entries.slice(-MAX_SERVER_CHANNEL_MAP_ENTRIES));
+};
+
 const preferencesSchema = z.object({
   appearance: z
     .object({
@@ -28,7 +42,12 @@ const preferencesSchema = z.object({
     .partial()
     .optional(),
   theme: z.enum(['dark', 'light', 'onyx', 'midnight', 'sunset', 'rose', 'forest', 'dracula', 'nord', 'sand', 'system']).optional(),
-  serverChannelMap: z.record(z.string(), z.number()).optional(),
+  serverChannelMap: z
+    .record(z.string().max(64), z.number().int().positive())
+    .refine((map) => Object.keys(map).length <= MAX_SERVER_CHANNEL_MAP_ENTRIES, {
+      message: `serverChannelMap may hold at most ${MAX_SERVER_CHANNEL_MAP_ENTRIES} entries`
+    })
+    .optional(),
   rightSidebarOpen: z.boolean().optional()
 });
 
@@ -52,7 +71,10 @@ const updatePreferencesRoute = protectedProcedure
       theme: input.theme ?? current.theme,
       serverChannelMap:
         input.serverChannelMap !== undefined
-          ? { ...current.serverChannelMap, ...input.serverChannelMap }
+          ? pruneServerChannelMap({
+              ...current.serverChannelMap,
+              ...input.serverChannelMap
+            })
           : current.serverChannelMap,
       rightSidebarOpen: input.rightSidebarOpen ?? current.rightSidebarOpen
     };

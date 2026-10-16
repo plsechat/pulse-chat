@@ -19,7 +19,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const getThreadsRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number(),
+      channelId: z.number().int().positive(),
       includeArchived: z.boolean().optional().default(false)
     })
   )

@@ -142,12 +142,18 @@ describe('server preview', () => {
   test('expired and exhausted invites are refused without consuming a use', async () => {
     const { caller: owner } = await initTest(1);
     const target = await createPreviewTarget(owner, { discoverable: false });
+    // invites.add refuses an expiry in the past, so backdate the row.
     await owner.invites.add({
       serverId: target.server.id,
       code: 'stale-invite',
       maxUses: 1,
-      expiresAt: Date.now() - 1000
+      expiresAt: Date.now() + 60_000
     });
+    const tdb = getTestDb();
+    await tdb
+      .update(invites)
+      .set({ expiresAt: Date.now() - 1000 })
+      .where(eq(invites.code, 'stale-invite'));
 
     const { caller } = await initTest(2);
 
@@ -155,7 +161,6 @@ describe('server preview', () => {
       caller.servers.preview({ inviteCode: 'stale-invite' })
     ).rejects.toThrow('expired');
 
-    const tdb = getTestDb();
     await tdb
       .update(invites)
       .set({ expiresAt: null, uses: 1 })

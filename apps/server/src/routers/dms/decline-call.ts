@@ -16,7 +16,7 @@ import { protectedProcedure } from '../../utils/trpc';
  * into someone else's call.
  */
 const declineCallRoute = protectedProcedure
-  .input(z.object({ dmChannelId: z.number() }))
+  .input(z.object({ dmChannelId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     const memberIds = await getDmChannelMemberIds(input.dmChannelId);
     invariant(memberIds.includes(ctx.userId), {

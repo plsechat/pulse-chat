@@ -15,14 +15,26 @@ import { protectedProcedure } from '../../utils/trpc';
 const addInviteRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number(),
-      maxUses: z.number().min(0).max(100).optional().default(0),
-      expiresAt: z.number().optional().nullable().default(null),
+      serverId: z.number().int().positive(),
+      maxUses: z.number().int().min(0).max(100).optional().default(0),
+      // 0 / null / absent all mean "never expires" (the client sends 0).
+      expiresAt: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .nullable()
+        .default(null)
+        .transform((value) => (value ? value : null)),
       code: z.string().min(4).max(64).optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
     await ctx.needsPermission(Permission.MANAGE_INVITES, input.serverId);
+
+    if (input.expiresAt && input.expiresAt <= Date.now()) {
+      ctx.throwValidationError('expiresAt', 'Expiry must be in the future');
+    }
 
     const newCode = input.code || getRandomString(24);
 

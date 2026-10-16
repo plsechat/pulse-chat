@@ -4,7 +4,16 @@ import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
 import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
-import { channels, dmChannelMembers, dmChannels, dmMessages, messages } from '../../db/schema';
+import {
+  channels,
+  dmChannelMembers,
+  dmChannels,
+  dmMessages,
+  messages,
+  userOneTimePreKeys,
+  userSignedPreKeys
+} from '../../db/schema';
+import { createTestUser } from '../../__tests__/fixtures';
 import { pubsub } from '../../utils/pubsub';
 
 describe('e2ee router', () => {
@@ -1022,5 +1031,204 @@ describe('e2ee router', () => {
     // care that e2ee channels appear; non-e2ee filtering is enforced
     // by the WHERE clause and asserted indirectly by length === 1
     // when the test fixture has no other e2ee channels seeded.
+  });
+});
+
+describe('e2ee router — input bounds and recipient scope', () => {
+  const keys = {
+    identityPublicKey: 'identity-key',
+    registrationId: 1,
+    signedPreKey: { keyId: 1, publicKey: 'spk', signature: 'sig' },
+    oneTimePreKeys: [] as { keyId: number; publicKey: string }[]
+  };
+
+  test('distributeSenderKeysBatch rejects a recipient who cannot view the channel', async () => {
+    const { caller } = await initTest(1);
+    // A user with no membership on server 1 — not in the channel's
+    // VIEW_CHANNEL audience.
+    const outsiderId = await createTestUser();
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        distributions: [{ toUserId: outsiderId, distributionMessage: 'skdm' }]
+      })
+    ).rejects.toThrow('Recipient cannot view this channel');
+
+    // Nothing was written, not even for would-be valid rows.
+    expect(await caller.e2ee.getPendingSenderKeys({})).toHaveLength(0);
+  });
+
+  test('distributeSenderKeysBatch still delivers to a member who can view the channel', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      distributions: [{ toUserId: 2, distributionMessage: 'skdm' }]
+    });
+
+    expect(await caller2.e2ee.getPendingSenderKeys({})).toHaveLength(1);
+  });
+
+  test('distribution batches, messages and sender key ids are bounded', async () => {
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        distributions: Array.from({ length: 501 }, () => ({
+          toUserId: 2,
+          distributionMessage: 'skdm'
+        }))
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        distributions: [{ toUserId: 2, distributionMessage: 'x'.repeat(16_385) }]
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        senderKeyId: 2 ** 31,
+        distributions: [{ toUserId: 2, distributionMessage: 'skdm' }]
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      caller.e2ee.acknowledgeSenderKeys({
+        ids: Array.from({ length: 501 }, (_, i) => i + 1)
+      })
+    ).rejects.toThrow();
+  });
+
+  test('key material is bounded on registerKeys and rotateSignedPreKey', async () => {
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.e2ee.registerKeys({ ...keys, identityPublicKey: 'k'.repeat(257) })
+    ).rejects.toThrow();
+    await expect(
+      caller.e2ee.registerKeys({
+        ...keys,
+        oneTimePreKeys: Array.from({ length: 201 }, (_, i) => ({
+          keyId: i,
+          publicKey: 'otp'
+        }))
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller.e2ee.rotateSignedPreKey({
+        keyId: 2,
+        publicKey: 'p'.repeat(257),
+        signature: 'sig'
+      })
+    ).rejects.toThrow();
+  });
+
+  test('the 501st one-time pre-key is rejected', async () => {
+    const { caller } = await initTest(1);
+    await caller.e2ee.registerKeys(keys);
+
+    const batch = (from: number, size: number) =>
+      Array.from({ length: size }, (_, i) => ({
+        keyId: from + i,
+        publicKey: `otp-${from + i}`
+      }));
+
+    await caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(0, 200) });
+    await caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(200, 200) });
+    await caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(400, 100) });
+    expect(await caller.e2ee.getPreKeyCount()).toBe(500);
+
+    await expect(
+      caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(500, 1) })
+    ).rejects.toThrow('At most 500 one-time pre-keys');
+    expect(await caller.e2ee.getPreKeyCount()).toBe(500);
+
+    const rows = await getTestDb()
+      .select()
+      .from(userOneTimePreKeys)
+      .where(eq(userOneTimePreKeys.userId, 1));
+    expect(rows).toHaveLength(500);
+  });
+
+  test('rotateSignedPreKey keeps only the newest two signed pre-keys', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    await caller1.e2ee.registerKeys(keys);
+
+    for (const keyId of [2, 3, 4]) {
+      await caller1.e2ee.rotateSignedPreKey({
+        keyId,
+        publicKey: `spk-${keyId}`,
+        signature: `sig-${keyId}`
+      });
+    }
+
+    const rows = await getTestDb()
+      .select({ keyId: userSignedPreKeys.keyId })
+      .from(userSignedPreKeys)
+      .where(eq(userSignedPreKeys.userId, 1));
+    expect(rows.map((r) => r.keyId).sort()).toEqual([3, 4]);
+
+    // The bundle serves the newest one.
+    const bundle = await caller2.e2ee.getPreKeyBundle({ userId: 1 });
+    expect(bundle!.signedPreKey.keyId).toBe(4);
+  });
+
+  test('key backups are bounded to 1 MiB', async () => {
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.e2ee.uploadKeyBackup({ encryptedData: 'x'.repeat(1_048_577) })
+    ).rejects.toThrow();
+    await caller.e2ee.uploadKeyBackup({ encryptedData: 'x'.repeat(1024) });
+    expect((await caller.e2ee.getKeyBackup())?.encryptedData).toHaveLength(1024);
+  });
+
+  test('DM sender-key distribution is bounded like the channel twin', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [dmChannel] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, e2ee: true, isGroup: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: dmChannel!.id, userId: 1, createdAt: now },
+      { dmChannelId: dmChannel!.id, userId: 2, createdAt: now }
+    ]);
+
+    await expect(
+      caller1.dms.distributeSenderKeys({
+        dmChannelId: dmChannel!.id,
+        distributions: [{ toUserId: 2, distributionMessage: 'x'.repeat(16_385) }]
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller1.dms.distributeSenderKeys({
+        dmChannelId: dmChannel!.id,
+        distributions: Array.from({ length: 501 }, () => ({
+          toUserId: 2,
+          distributionMessage: 'skdm'
+        }))
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller1.dms.acknowledgeSenderKeys({
+        ids: Array.from({ length: 501 }, (_, i) => i + 1)
+      })
+    ).rejects.toThrow();
+
+    await caller1.dms.distributeSenderKeys({
+      dmChannelId: dmChannel!.id,
+      distributions: [{ toUserId: 2, distributionMessage: 'skdm' }]
+    });
   });
 });

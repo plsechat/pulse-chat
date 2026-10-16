@@ -10,7 +10,7 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const deleteMessageRoute = protectedProcedure
-  .input(z.object({ messageId: z.number() }))
+  .input(z.object({ messageId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     const [msg] = await db
       .select()

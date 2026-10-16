@@ -14,9 +14,9 @@ const addChannelRoute = protectedProcedure
   .input(
     z.object({
       type: z.enum(ChannelType),
-      name: z.string().min(1).max(16),
-      categoryId: z.number(),
-      serverId: z.number()
+      name: z.string().min(1).max(24),
+      categoryId: z.number().int().positive(),
+      serverId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -70,9 +70,13 @@ const addChannelRoute = protectedProcedure
       return newChannel!;
     });
 
-    const runtime = new VoiceRuntime(channel.id);
+    // A mediasoup router only for channels that can carry voice — boot
+    // (runtimes/index.ts) and voice.join create them the same way.
+    if (channel.type === ChannelType.VOICE) {
+      const runtime = new VoiceRuntime(channel.id);
 
-    await runtime.init();
+      await runtime.init();
+    }
 
     publishChannel(channel.id, 'create');
     enqueueActivityLog({

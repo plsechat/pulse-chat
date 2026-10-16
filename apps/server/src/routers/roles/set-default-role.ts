@@ -3,46 +3,50 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishRole } from '../../db/publishers';
-import { getDefaultRole, getRole } from '../../db/queries/roles';
+import { getDefaultRoleForServer, getRole } from '../../db/queries/roles';
 import { roles } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
+import { getRoleCeiling } from './_hierarchy';
+import { invalidateAllPermissionCaches } from '../../utils/permission-cache-registry';
 
-const setDefaultRoleRoute = protectedProcedure
+const setDefaultRoleRoute = serverProcedure(Permission.MANAGE_ROLES)
   .input(
     z.object({
-      roleId: z.number().min(1)
+      roleId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_ROLES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
-    const defaultRole = await getDefaultRole();
+    // The ACTIVE server's default role — never an instance-wide lookup,
+    // which on a multi-server instance flipped another server's default.
+    const defaultRole = await getDefaultRoleForServer(ctx.activeServerId);
 
     invariant(defaultRole, {
       code: 'NOT_FOUND',
       message: 'Default role not found'
     });
 
-    if (input.roleId === defaultRole?.id) return;
+    if (input.roleId === defaultRole.id) return;
 
     const newDefaultRole = await getRole(input.roleId);
 
-    invariant(newDefaultRole, {
-      code: 'NOT_FOUND',
-      message: 'Role not found'
-    });
-
-    // Ensure the role belongs to the caller's active server
-    invariant(newDefaultRole.serverId === ctx.activeServerId, {
+    invariant(newDefaultRole && newDefaultRole.serverId === ctx.activeServerId, {
       code: 'NOT_FOUND',
       message: 'Role not found in this server'
+    });
+
+    // Everyone who joins gets the default role, so making the owner role
+    // the default would hand every member owner permissions.
+    invariant(!(newDefaultRole.isPersistent && !newDefaultRole.isDefault), {
+      code: 'FORBIDDEN',
+      message: 'The owner role cannot be the default role'
+    });
+
+    const ceiling = await getRoleCeiling(ctx.userId, ctx.activeServerId);
+    invariant(ceiling.owner || newDefaultRole.position <= ceiling.top, {
+      code: 'FORBIDDEN',
+      message: 'You can only make a role at or below your highest role the default'
     });
 
     await db.transaction(async (tx) => {
@@ -54,19 +58,20 @@ const setDefaultRoleRoute = protectedProcedure
       await tx
         .update(roles)
         .set({ isDefault: true })
-        .where(eq(roles.id, input.roleId));
+        .where(eq(roles.id, newDefaultRole.id));
     });
 
     await Promise.all([
+      invalidateAllPermissionCaches(),
       publishRole(defaultRole.id, 'update'),
-      publishRole(input.roleId, 'update')
+      publishRole(newDefaultRole.id, 'update')
     ]);
 
     enqueueActivityLog({
       type: ActivityLogType.UPDATED_DEFAULT_ROLE,
       userId: ctx.user.id,
       details: {
-        newRoleId: input.roleId,
+        newRoleId: newDefaultRole.id,
         oldRoleId: defaultRole.id,
         newRoleName: newDefaultRole.name,
         oldRoleName: defaultRole.name

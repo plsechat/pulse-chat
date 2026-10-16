@@ -1,15 +1,17 @@
 import { Permission, ServerEvents, StreamKind } from '@pulse/shared';
+import type { RtpCapabilities } from 'mediasoup/types';
 import { z } from 'zod';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { rtpCapabilitiesSchema } from './schemas';
 
 const consumeRoute = protectedProcedure
   .input(
     z.object({
       kind: z.enum(StreamKind),
-      remoteId: z.number(),
-      rtpCapabilities: z.any()
+      remoteId: z.number().int().positive(),
+      rtpCapabilities: rtpCapabilitiesSchema
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -41,7 +43,7 @@ const consumeRoute = protectedProcedure
     const router = runtime.getRouter();
     const routerCanConsume = router.canConsume({
       producerId: producer.id,
-      rtpCapabilities: input.rtpCapabilities
+      rtpCapabilities: input.rtpCapabilities as RtpCapabilities
     });
 
     invariant(routerCanConsume, {
@@ -51,7 +53,7 @@ const consumeRoute = protectedProcedure
 
     const consumer = await userConsumerTransport.consume({
       producerId: producer.id,
-      rtpCapabilities: input.rtpCapabilities,
+      rtpCapabilities: input.rtpCapabilities as RtpCapabilities,
       paused: false
     });
 

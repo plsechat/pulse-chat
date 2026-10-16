@@ -6,17 +6,15 @@ import { getServerMemberIds } from '../../db/queries/servers';
 import { invites } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteInviteRoute = protectedProcedure
+const deleteInviteRoute = serverProcedure(Permission.MANAGE_INVITES)
   .input(
     z.object({
-      inviteId: z.number()
+      inviteId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_INVITES);
-
     // Scope the delete to the caller's active server. Without this,
     // MANAGE_INVITES in server A could delete invites belonging to server B.
     const [removedInvite] = await db
@@ -24,7 +22,7 @@ const deleteInviteRoute = protectedProcedure
       .where(
         and(
           eq(invites.id, input.inviteId),
-          eq(invites.serverId, ctx.activeServerId!)
+          eq(invites.serverId, ctx.activeServerId)
         )
       )
       .returning();

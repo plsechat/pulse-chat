@@ -24,7 +24,7 @@ import { protectedProcedure } from '../../utils/trpc';
  * recipients, so it can't use the bare-id route.
  */
 const getVisibleUserDescriptorsRoute = protectedProcedure
-  .input(z.object({ channelId: z.number() }))
+  .input(z.object({ channelId: z.number().int().positive() }))
   .query(async ({ input, ctx }) => {
     // Read-only, but it enumerates the member list — preview scope is
     // "public channels + messages", not the roster.

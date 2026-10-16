@@ -24,7 +24,7 @@
 
 import { ServerEvents } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { exportJWK, generateKeyPair } from 'jose';
 import { config } from '../../config';
 import { db } from '../../db';
@@ -1465,5 +1465,386 @@ describe('POST /federation/shares-server (co-membership attestation)', () => {
       })
     });
     expect([400, 401, 403]).toContain(res.status);
+  });
+});
+
+/**
+ * Trust-boundary bounds (A3-4): a federated peer is authenticated, not
+ * trusted. Structural fields (ids, keys, arrays, message content) are
+ * rejected with 400 when over their cap; display strings (name, bio,
+ * server name) are truncated to the local caps.
+ */
+describe('federation handlers — peer-supplied input bounds', () => {
+  test('channel-sender-key-notify: hostDomain must be the announcing peer', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        hostDomain: 'third-party.example',
+        hostChannelPublicId: 'host-channel-pid-1',
+        fromPublicId: 'remote-sender-pid',
+        fromInstanceDomain: PEER_DOMAIN,
+        senderKeyId: 7,
+        recipientPublicIds: [localPublicId]
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+    expect(String(res.body?.error)).toContain('hostDomain');
+  });
+
+  test('channel-sender-key-notify: recipient list and ids are bounded, senderKeyId must be an integer', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const base = {
+      hostDomain: PEER_DOMAIN,
+      hostChannelPublicId: 'host-channel-pid-1',
+      fromPublicId: 'remote-sender-pid',
+      fromInstanceDomain: PEER_DOMAIN,
+      senderKeyId: 7
+    };
+
+    let res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      {
+        ...base,
+        recipientPublicIds: Array.from({ length: 501 }, (_, i) => `pid-${i}`)
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+
+    _resetSeenJtis();
+    res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      { ...base, recipientPublicIds: ['p'.repeat(65)] },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+
+    _resetSeenJtis();
+    res = await postSignedAsPeer(
+      '/federation/channel-sender-key-notify',
+      { ...base, senderKeyId: 1.5, recipientPublicIds: ['pid'] },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('user-info-update: name/bio are truncated, a non-hex bannerColor applies as cleared', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+
+    const [shadow] = await db
+      .insert(users)
+      .values({
+        name: 'OldName',
+        supabaseId: 'shadow-bounds-profile',
+        publicId: 'shadow-pid-bounds-profile',
+        bannerColor: '#000000',
+        isFederated: true,
+        federatedInstanceId: peerInstanceId,
+        federatedPublicId: 'remote-subject-bounds',
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      {
+        subjectPublicId: 'remote-subject-bounds',
+        name: 'N'.repeat(10_240),
+        bio: 'B'.repeat(10_240),
+        bannerColor: 'red'
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+
+    const [refreshed] = await db
+      .select({ name: users.name, bio: users.bio, bannerColor: users.bannerColor })
+      .from(users)
+      .where(eq(users.id, shadow!.id))
+      .limit(1);
+    expect(refreshed!.name).toHaveLength(32);
+    expect(refreshed!.bio).toHaveLength(500);
+    expect(refreshed!.bannerColor).toBeNull();
+  });
+
+  test('user-info-update: a non-string name is not a change', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/user-info-update',
+      { subjectPublicId: 'whoever', name: { $gt: '' } },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+    expect(res.body?.error).toBe('No changes specified');
+  });
+
+  test('dm-relay: content above the local wire cap is rejected', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-relay',
+      {
+        fromUsername: 'remote',
+        fromPublicId: 'remote-relay-pid',
+        toPublicId: localPublicId,
+        content: 'x'.repeat(40_001)
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+    expect(res.body?.error).toBe('Message too long');
+  });
+
+  test('dm-relay: the sender name is truncated when the shadow user is minted', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    const res = await postSignedAsPeer(
+      '/federation/dm-relay',
+      {
+        fromUsername: 'R'.repeat(10_240),
+        fromPublicId: 'remote-relay-long-name',
+        toPublicId: localPublicId,
+        content: 'hello'
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+
+    const [shadow] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(
+        and(
+          eq(users.federatedInstanceId, peerInstanceId),
+          eq(users.federatedPublicId, 'remote-relay-long-name')
+        )
+      )
+      .limit(1);
+    expect(shadow!.name).toHaveLength(32);
+  });
+
+  test('/federation/request: domain must be host[:port] and the key an OKP JWK', async () => {
+    await initTest();
+    const post = (body: Record<string, unknown>) =>
+      fetch(`${testsBaseUrl}/federation/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+    let res = await post({
+      domain: 'evil.example/federation',
+      name: 'Evil',
+      publicKey: '{"kty":"OKP","crv":"Ed25519","x":"x"}',
+      signature: 'sig'
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('Invalid domain');
+
+    res = await post({
+      domain: 'peer2.example',
+      name: 'Peer',
+      publicKey: '{"kty":"RSA","n":"x"}',
+      signature: 'sig'
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('Invalid public key');
+
+    res = await post({
+      domain: 'peer2.example',
+      name: 'Peer',
+      publicKey: 'x'.repeat(2049),
+      signature: 'sig'
+    });
+    expect(res.status).toBe(400);
+
+    const rows = await db
+      .select({ id: federationInstances.id })
+      .from(federationInstances)
+      .where(eq(federationInstances.domain, 'peer2.example'));
+    expect(rows).toHaveLength(0);
+  });
+
+  test('dm-group-create: member list bounded, malformed members rejected, names truncated', async () => {
+    await initTest();
+    const { peerPrivateJwk, peerInstanceId } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    let res = await postSignedAsPeer(
+      '/federation/dm-group-create',
+      {
+        federationGroupId: 'fed-group-too-many',
+        ownerPublicId: 'remote-owner-pid',
+        members: Array.from({ length: 101 }, (_, i) => ({
+          publicId: `pid-${i}`,
+          instanceDomain: PEER_DOMAIN,
+          name: `m${i}`
+        }))
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+    expect(res.body?.error).toBe('Too many members');
+
+    _resetSeenJtis();
+    res = await postSignedAsPeer(
+      '/federation/dm-group-create',
+      {
+        federationGroupId: 'fed-group-malformed',
+        ownerPublicId: 'remote-owner-pid',
+        members: [
+          { publicId: 'remote-owner-pid', instanceDomain: PEER_DOMAIN, name: 'O' },
+          { instanceDomain: TEST_LOCAL_DOMAIN, name: 'no publicId' }
+        ]
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+    expect(res.body?.error).toBe('Invalid member descriptor');
+
+    _resetSeenJtis();
+    res = await postSignedAsPeer(
+      '/federation/dm-group-create',
+      {
+        federationGroupId: 'fed-group-long-name',
+        name: 'G'.repeat(10_240),
+        ownerPublicId: 'remote-owner-long',
+        members: [
+          {
+            publicId: 'remote-owner-long',
+            instanceDomain: PEER_DOMAIN,
+            name: 'O'.repeat(10_240)
+          },
+          { publicId: localPublicId, instanceDomain: TEST_LOCAL_DOMAIN, name: 'Local' }
+        ]
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(200);
+
+    const [shadow] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(
+        and(
+          eq(users.federatedInstanceId, peerInstanceId),
+          eq(users.federatedPublicId, 'remote-owner-long')
+        )
+      )
+      .limit(1);
+    expect(shadow!.name).toHaveLength(32);
+
+    const [channel] = await db
+      .select({ name: dmChannels.name })
+      .from(dmChannels)
+      .where(eq(dmChannels.federationGroupId, 'fed-group-long-name'))
+      .limit(1);
+    expect(channel!.name).toHaveLength(100);
+  });
+
+  test('dm-sender-key: distributionMessage bounded, senderKeyId must be an integer', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+    const localPublicId = await getUserPublicId(1);
+
+    await postSignedAsPeer(
+      '/federation/dm-group-create',
+      {
+        federationGroupId: 'fed-skdm-bounds',
+        ownerPublicId: 'remote-sender-pid',
+        members: [
+          { publicId: 'remote-sender-pid', instanceDomain: PEER_DOMAIN, name: 'Remote' },
+          { publicId: localPublicId, instanceDomain: TEST_LOCAL_DOMAIN, name: 'Local' }
+        ]
+      },
+      peerPrivateJwk
+    );
+
+    _resetSeenJtis();
+    let res = await postSignedAsPeer(
+      '/federation/dm-sender-key',
+      {
+        federationGroupId: 'fed-skdm-bounds',
+        senderKeyId: 1,
+        fromPublicId: 'remote-sender-pid',
+        toPublicId: localPublicId,
+        distributionMessage: 'x'.repeat(16_385)
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+
+    _resetSeenJtis();
+    res = await postSignedAsPeer(
+      '/federation/dm-sender-key',
+      {
+        federationGroupId: 'fed-skdm-bounds',
+        senderKeyId: 1.5,
+        fromPublicId: 'remote-sender-pid',
+        toPublicId: localPublicId,
+        distributionMessage: 'skdm'
+      },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+
+    const rows = await db
+      .select()
+      .from(dmE2eeSenderKeys)
+      .where(eq(dmE2eeSenderKeys.toUserId, 1));
+    expect(rows).toHaveLength(0);
+  });
+
+  test('identity-rotation-broadcast: newIdentityPublicKey is bounded', async () => {
+    await initTest();
+    const { peerPrivateJwk } = await seedPeer();
+
+    const res = await postSignedAsPeer(
+      '/federation/identity-rotation-broadcast',
+      { fromPublicId: 'remote-pid', newIdentityPublicKey: 'k'.repeat(129) },
+      peerPrivateJwk
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test('member-removed: a forwarded serverName is truncated', async () => {
+    await initTest(1);
+    const { peerPrivateJwk } = await seedPeer();
+    const subjectPublicId = await getUserPublicId(1);
+
+    await withPubsubSpy(async (events) => {
+      const res = await postSignedAsPeer(
+        '/federation/member-removed',
+        {
+          subjectPublicId,
+          serverPublicId: 'srv-never-joined',
+          serverName: 'S'.repeat(10_240),
+          action: 'ban'
+        },
+        peerPrivateJwk
+      );
+      expect(res.status).toBe(200);
+
+      const removed = events.filter(
+        (e) => e.topic === ServerEvents.FEDERATED_SERVER_REMOVED
+      );
+      expect(removed).toHaveLength(1);
+      expect(
+        (removed[0]!.payload as { serverName: string }).serverName
+      ).toHaveLength(100);
+    });
   });
 });

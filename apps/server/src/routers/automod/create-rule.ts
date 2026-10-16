@@ -2,22 +2,27 @@ import { AutomodRuleType, Permission } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
 import { automodRules } from '../../db/schema';
-import { protectedProcedure } from '../../utils/trpc';
-import { automodActionsSchema, automodConfigSchema } from './_shared';
+import { serverProcedure } from '../../utils/procedures';
+import {
+  assertAutomodRefsInServer,
+  automodActionsSchema,
+  automodConfigSchema,
+  automodExemptIdsSchema
+} from './_shared';
 
-const createAutomodRuleRoute = protectedProcedure
+const createAutomodRuleRoute = serverProcedure(Permission.MANAGE_AUTOMOD)
   .input(
     z.object({
       name: z.string().min(1).max(100),
       type: z.nativeEnum(AutomodRuleType),
       config: automodConfigSchema,
       actions: automodActionsSchema,
-      exemptRoleIds: z.array(z.number()).optional(),
-      exemptChannelIds: z.array(z.number()).optional()
+      exemptRoleIds: automodExemptIdsSchema.optional(),
+      exemptChannelIds: automodExemptIdsSchema.optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_AUTOMOD);
+    await assertAutomodRefsInServer(input, ctx.activeServerId);
 
     const [rule] = await db
       .insert(automodRules)
@@ -28,7 +33,7 @@ const createAutomodRuleRoute = protectedProcedure
         actions: input.actions,
         exemptRoleIds: input.exemptRoleIds ?? [],
         exemptChannelIds: input.exemptChannelIds ?? [],
-        serverId: ctx.activeServerId!,
+        serverId: ctx.activeServerId,
         createdBy: ctx.userId,
         createdAt: Date.now()
       })

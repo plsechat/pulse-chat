@@ -32,7 +32,13 @@ import { pubsub } from '../utils/pubsub';
 import { signedJsonResponse } from '../utils/federation';
 import {
   authorizeFederationRequest,
-  jsonResponse
+  isPeerDomain,
+  isPeerPublicId,
+  isPeerSenderKeyId,
+  jsonResponse,
+  MAX_PEER_PUBLIC_ID_LENGTH,
+  MAX_PEER_SKDM_RECIPIENTS,
+  peerStringArray
 } from './federation-helpers';
 
 const federationChannelSenderKeyNotifyHandler = async (
@@ -53,18 +59,37 @@ const federationChannelSenderKeyNotifyHandler = async (
     | undefined;
 
   if (
-    !hostDomain ||
-    !hostChannelPublicId ||
-    !fromPublicId ||
-    !fromInstanceDomain ||
-    typeof senderKeyId !== 'number' ||
+    !isPeerDomain(hostDomain) ||
+    !isPeerPublicId(hostChannelPublicId) ||
+    !isPeerPublicId(fromPublicId) ||
+    !isPeerDomain(fromInstanceDomain) ||
+    !isPeerSenderKeyId(senderKeyId) ||
     !Array.isArray(recipientPublicIds)
   ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
+  // A peer may only announce SKDMs it hosts: the client is told to
+  // fetch from `hostDomain`, so a peer naming another host would be
+  // steering our users' fetches (and their federation tokens) at a
+  // third party.
+  if (hostDomain !== fromDomain) {
+    return jsonResponse(res, 400, {
+      error: 'hostDomain must be the announcing instance'
+    });
+  }
+
+  const boundedRecipientPublicIds = peerStringArray(
+    recipientPublicIds,
+    MAX_PEER_PUBLIC_ID_LENGTH,
+    MAX_PEER_SKDM_RECIPIENTS
+  );
+  if (!boundedRecipientPublicIds) {
+    return jsonResponse(res, 400, { error: 'Invalid recipientPublicIds' });
+  }
+
   // Empty list is a valid no-op — handler is idempotent.
-  if (recipientPublicIds.length === 0) {
+  if (boundedRecipientPublicIds.length === 0) {
     return signedJsonResponse(res, 200, { notified: 0 }, fromDomain);
   }
 
@@ -75,7 +100,7 @@ const federationChannelSenderKeyNotifyHandler = async (
   const recipients = await db
     .select({ id: users.id, isFederated: users.isFederated })
     .from(users)
-    .where(inArray(users.publicId, recipientPublicIds));
+    .where(inArray(users.publicId, boundedRecipientPublicIds));
 
   const localRecipientIds = recipients
     .filter((r) => !r.isFederated)

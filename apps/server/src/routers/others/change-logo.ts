@@ -13,8 +13,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const changeLogoRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number(),
-      fileId: z.string().optional()
+      serverId: z.number().int().positive(),
+      fileId: z.string().max(64).optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -36,6 +36,25 @@ const changeLogoRoute = protectedProcedure
     }
 
     if (input.fileId) {
+      const tempFile = await fileManager.getTemporaryFile(input.fileId);
+
+      invariant(tempFile, {
+        code: 'NOT_FOUND',
+        message: 'Temporary file not found'
+      });
+
+      invariant(tempFile.size <= 3 * 1024 * 1024, {
+        code: 'BAD_REQUEST',
+        message: 'File size exceeds the limit of 3 MB'
+      });
+
+      // Bun infers the mime from the temp file's extension — the same
+      // source saveFile persists to files.mimeType.
+      invariant(Bun.file(tempFile.path).type.startsWith('image/'), {
+        code: 'BAD_REQUEST',
+        message: 'Logo must be an image'
+      });
+
       const newFile = await fileManager.saveFile(input.fileId, ctx.userId);
 
       await db

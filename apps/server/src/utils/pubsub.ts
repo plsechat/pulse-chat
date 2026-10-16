@@ -151,6 +151,14 @@ type Events = {
   [ServerEvents.DM_CHANNEL_DELETE]: {
     dmChannelId: number;
   };
+  /**
+   * Self-scoped: published to the reader only, so their other
+   * devices/tabs drop the unread badge without a channel refetch.
+   */
+  [ServerEvents.DM_READ_STATE_UPDATE]: {
+    dmChannelId: number;
+    lastReadMessageId: number;
+  };
   [ServerEvents.DM_MEMBER_ADD]: {
     dmChannelId: number;
     userId: number;

@@ -13,6 +13,7 @@ import { emitAppEvent } from '@/lib/events';
 import {
   addDmMessages,
   addDmTypingUser,
+  applyDmReadState,
   decryptDmMessageInPlace,
   deleteDmMessage,
   dmCallDeclined,
@@ -83,6 +84,12 @@ const subscribeToDms = () => {
     ),
     subscribe('onDmChannelUpdate', trpc.dms.onChannelUpdate, () =>
       fetchDmChannels()
+    ),
+    subscribe(
+      'onDmReadStateUpdate',
+      trpc.dms.onReadStateUpdate,
+      ({ dmChannelId, lastReadMessageId }) =>
+        applyDmReadState(dmChannelId, lastReadMessageId)
     ),
     subscribe(
       'onDmChannelDelete',

@@ -154,13 +154,19 @@ const roles = pgTable(
     serverId: integer('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
+    // Rank within the server: higher = more senior. The owner role is the
+    // highest, the default role the lowest. A caller may only create,
+    // edit, assign, delete or reorder roles STRICTLY below their own
+    // highest role (the server owner bypasses the ceiling).
+    position: integer('position').notNull().default(0),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
     index('roles_is_default_idx').on(t.isDefault),
     index('roles_is_persistent_idx').on(t.isPersistent),
-    index('roles_server_idx').on(t.serverId)
+    index('roles_server_idx').on(t.serverId),
+    index('roles_server_position_idx').on(t.serverId, t.position)
   ]
 );
 

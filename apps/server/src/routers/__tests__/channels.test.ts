@@ -1,7 +1,9 @@
 import { ChannelPermission, ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
+import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import {
+  channels,
   federationInstances,
   serverMembers,
   users
@@ -15,6 +17,11 @@ import { generateFileToken, verifyFileToken } from '../../helpers/files-crypto';
 // carries a seed message, and channel 2 is the seeded VOICE channel, which
 // no longer accepts messages. Called inside each test (not beforeEach) so
 // it doesn't compete with the global per-test TRUNCATE.
+// The file access token never leaves the server (channels.get and every
+// published payload blank it), so the rotation tests read the row itself.
+const channelRow = async (channelId: number) =>
+  (await db.select().from(channels).where(eq(channels.id, channelId)))[0]!;
+
 describe('channels router', () => {
   test('should throw when user lacks permissions (add)', async () => {
     const { caller } = await initTest(2);
@@ -744,7 +751,7 @@ describe('channels router', () => {
   test('should rotate file access token for a channel', async () => {
     const { caller } = await initTest();
 
-    const channelBefore = await caller.channels.get({ channelId: 1 });
+    const channelBefore = await channelRow(1);
     const originalToken = channelBefore.fileAccessToken;
 
     expect(originalToken).toBeDefined();
@@ -754,7 +761,7 @@ describe('channels router', () => {
       channelId: 1
     });
 
-    const channelAfter = await caller.channels.get({ channelId: 1 });
+    const channelAfter = await channelRow(1);
     const newToken = channelAfter.fileAccessToken;
 
     expect(newToken).toBeDefined();
@@ -777,21 +784,21 @@ describe('channels router', () => {
   test('should generate unique tokens on multiple rotations', async () => {
     const { caller } = await initTest();
 
-    const channel = await caller.channels.get({ channelId: 1 });
+    const channel = await channelRow(1);
     const originalToken = channel.fileAccessToken;
 
     await caller.channels.rotateFileAccessToken({
       channelId: 1
     });
 
-    const afterFirstRotation = await caller.channels.get({ channelId: 1 });
+    const afterFirstRotation = await channelRow(1);
     const firstNewToken = afterFirstRotation.fileAccessToken;
 
     await caller.channels.rotateFileAccessToken({
       channelId: 1
     });
 
-    const afterSecondRotation = await caller.channels.get({ channelId: 1 });
+    const afterSecondRotation = await channelRow(1);
     const secondNewToken = afterSecondRotation.fileAccessToken;
 
     expect(originalToken).not.toBe(firstNewToken);
@@ -807,7 +814,7 @@ describe('channels router', () => {
       private: true
     });
 
-    const channelBefore = await caller.channels.get({ channelId: 1 });
+    const channelBefore = await channelRow(1);
     const oldToken = channelBefore.fileAccessToken;
 
     const oldFileToken = generateFileToken(123, oldToken);
@@ -816,7 +823,7 @@ describe('channels router', () => {
       channelId: 1
     });
 
-    const channelAfter = await caller.channels.get({ channelId: 1 });
+    const channelAfter = await channelRow(1);
     const newToken = channelAfter.fileAccessToken;
 
     const newFileToken = generateFileToken(123, newToken);
@@ -833,14 +840,14 @@ describe('channels router', () => {
   test('should allow rotating token for both public and private channels', async () => {
     const { caller } = await initTest();
 
-    const publicChannelBefore = await caller.channels.get({ channelId: 1 });
+    const publicChannelBefore = await channelRow(1);
     const publicTokenBefore = publicChannelBefore.fileAccessToken;
 
     await caller.channels.rotateFileAccessToken({
       channelId: 1
     });
 
-    const publicChannelAfter = await caller.channels.get({ channelId: 1 });
+    const publicChannelAfter = await channelRow(1);
     const publicTokenAfter = publicChannelAfter.fileAccessToken;
 
     expect(publicTokenAfter).not.toBe(publicTokenBefore);
@@ -850,14 +857,14 @@ describe('channels router', () => {
       private: true
     });
 
-    const privateChannelBefore = await caller.channels.get({ channelId: 2 });
+    const privateChannelBefore = await channelRow(2);
     const privateTokenBefore = privateChannelBefore.fileAccessToken;
 
     await caller.channels.rotateFileAccessToken({
       channelId: 2
     });
 
-    const privateChannelAfter = await caller.channels.get({ channelId: 2 });
+    const privateChannelAfter = await channelRow(2);
     const privateTokenAfter = privateChannelAfter.fileAccessToken;
 
     expect(privateTokenAfter).not.toBe(privateTokenBefore);

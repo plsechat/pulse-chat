@@ -10,7 +10,7 @@ import { logger } from '../../logger';
 const discoverRemoteRoute = protectedProcedure
   .input(
     z.object({
-      instanceId: z.number()
+      instanceId: z.number().int().positive()
     })
   )
   .query(async ({ ctx, input }) => {

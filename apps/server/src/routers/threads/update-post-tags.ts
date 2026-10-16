@@ -2,25 +2,23 @@ import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
 import { and, count, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, forumPostTags, messages } from '../../db/schema';
-import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
+import {
+  getThreadViewerIds,
+  MAX_TAGS_PER_POST,
+  resolveForumTagIds
+} from './_shared';
 
-const updatePostTagsRoute = protectedProcedure
+const updatePostTagsRoute = serverProcedure()
   .input(
     z.object({
-      threadId: z.number(),
-      tagIds: z.array(z.number())
+      threadId: z.number().int().positive(),
+      tagIds: z.array(z.number().int().positive()).max(MAX_TAGS_PER_POST)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [thread] = await db
       .select({
         id: channels.id,
@@ -38,7 +36,11 @@ const updatePostTagsRoute = protectedProcedure
       )
       .limit(1);
 
-    if (!thread || thread.type !== ChannelType.THREAD) {
+    if (
+      !thread ||
+      thread.type !== ChannelType.THREAD ||
+      thread.parentChannelId === null
+    ) {
       return ctx.throwValidationError('threadId', 'Thread not found');
     }
 
@@ -58,6 +60,12 @@ const updatePostTagsRoute = protectedProcedure
       await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
     }
 
+    // Tags must be the parent forum's own.
+    const tagIds = await resolveForumTagIds(
+      thread.parentChannelId,
+      input.tagIds
+    );
+
     await db.transaction(async (tx) => {
       // Remove existing tags
       await tx
@@ -65,9 +73,9 @@ const updatePostTagsRoute = protectedProcedure
         .where(eq(forumPostTags.threadId, input.threadId));
 
       // Insert new tags
-      if (input.tagIds.length > 0) {
+      if (tagIds.length > 0) {
         await tx.insert(forumPostTags).values(
-          input.tagIds.map((tagId) => ({
+          tagIds.map((tagId) => ({
             threadId: input.threadId,
             tagId
           }))
@@ -84,14 +92,14 @@ const updatePostTagsRoute = protectedProcedure
       .from(messages)
       .where(eq(messages.channelId, input.threadId));
 
-    const memberIds = await getServerMemberIds(thread.serverId);
-    pubsub.publishFor(memberIds, ServerEvents.THREAD_UPDATE, {
+    const viewerIds = await getThreadViewerIds(thread.id);
+    pubsub.publishFor(viewerIds, ServerEvents.THREAD_UPDATE, {
       id: thread.id,
       name: thread.name,
       messageCount: stats?.messageCount ?? 0,
       lastMessageAt: stats?.lastMessageAt ? Number(stats.lastMessageAt) : null,
       archived: false,
-      parentChannelId: thread.parentChannelId!,
+      parentChannelId: thread.parentChannelId,
       creatorId: firstMsg?.userId ?? 0
     });
   });

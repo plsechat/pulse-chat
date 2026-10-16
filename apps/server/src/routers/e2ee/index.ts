@@ -1,5 +1,5 @@
 import { ChannelPermission, ServerEvents } from '@pulse/shared';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../../config';
 import { db } from '../../db';
@@ -23,25 +23,38 @@ import { pubsub } from '../../utils/pubsub';
 import { relayFederatedChannelSenderKeyNotifications } from '../../utils/federation-channel-sender-key-dispatch';
 import { relayFederatedIdentityRotation } from '../../utils/federation-dm-group-dispatch';
 import { protectedProcedure, t } from '../../utils/trpc';
+import {
+  MAX_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_E2EE_BATCH,
+  MAX_E2EE_KEY_LENGTH,
+  MAX_KEY_BACKUP_LENGTH,
+  MAX_OTP_BATCH,
+  MAX_OTP_PER_USER,
+  MAX_REGISTRATION_ID,
+  MAX_SENDER_KEY_ID,
+  SIGNED_PREKEYS_KEPT
+} from './bounds';
 import { getFederatedPreKeyBundleRoute } from './get-federated-prekey-bundle';
 import { insertIdentityResetMessages } from './identity-reset-messages';
+
+const keyIdSchema = z.number().int().min(0).max(MAX_SENDER_KEY_ID);
+const keyMaterialSchema = z.string().min(1).max(MAX_E2EE_KEY_LENGTH);
+const oneTimePreKeySchema = z.object({
+  keyId: keyIdSchema,
+  publicKey: keyMaterialSchema
+});
 
 const registerKeysRoute = protectedProcedure
   .input(
     z.object({
-      identityPublicKey: z.string(),
-      registrationId: z.number(),
+      identityPublicKey: keyMaterialSchema,
+      registrationId: z.number().int().min(0).max(MAX_REGISTRATION_ID),
       signedPreKey: z.object({
-        keyId: z.number(),
-        publicKey: z.string(),
-        signature: z.string()
+        keyId: keyIdSchema,
+        publicKey: keyMaterialSchema,
+        signature: keyMaterialSchema
       }),
-      oneTimePreKeys: z.array(
-        z.object({
-          keyId: z.number(),
-          publicKey: z.string()
-        })
-      )
+      oneTimePreKeys: z.array(oneTimePreKeySchema).max(MAX_OTP_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -157,7 +170,7 @@ const registerKeysRoute = protectedProcedure
   });
 
 const getPreKeyBundleRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .query(async ({ ctx, input }) => {
     // Verify the caller shares at least one server with the target user
     const callerServers = db
@@ -238,7 +251,7 @@ const getPreKeyBundleRoute = protectedProcedure
   });
 
 const getIdentityPublicKeyRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .query(async ({ ctx, input }) => {
     // Verify the caller shares at least one server with the target user
     const callerServers = db
@@ -288,16 +301,27 @@ const getOwnIdentityRoute = protectedProcedure.query(async ({ ctx }) => {
 const uploadOneTimePreKeysRoute = protectedProcedure
   .input(
     z.object({
-      oneTimePreKeys: z.array(
-        z.object({
-          keyId: z.number(),
-          publicKey: z.string()
-        })
-      )
+      oneTimePreKeys: z.array(oneTimePreKeySchema).max(MAX_OTP_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
     if (input.oneTimePreKeys.length === 0) return;
+
+    // Per-user pool ceiling — a looping client must not grow this table
+    // without bound. The client replenishes in batches of 100 only when
+    // the pool runs low, so a healthy pool never approaches the cap.
+    const [existing] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(userOneTimePreKeys)
+      .where(eq(userOneTimePreKeys.userId, ctx.userId));
+
+    invariant(
+      (existing?.count ?? 0) + input.oneTimePreKeys.length <= MAX_OTP_PER_USER,
+      {
+        code: 'BAD_REQUEST',
+        message: `At most ${MAX_OTP_PER_USER} one-time pre-keys may be stored`
+      }
+    );
 
     await db.insert(userOneTimePreKeys).values(
       input.oneTimePreKeys.map((key) => ({
@@ -348,18 +372,40 @@ const getPreKeyCountRoute = protectedProcedure.query(async ({ ctx }) => {
 const rotateSignedPreKeyRoute = protectedProcedure
   .input(
     z.object({
-      keyId: z.number(),
-      publicKey: z.string(),
-      signature: z.string()
+      keyId: keyIdSchema,
+      publicKey: keyMaterialSchema,
+      signature: keyMaterialSchema
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await db.insert(userSignedPreKeys).values({
-      userId: ctx.userId,
-      keyId: input.keyId,
-      publicKey: input.publicKey,
-      signature: input.signature,
-      createdAt: Date.now()
+    await db.transaction(async (tx) => {
+      await tx.insert(userSignedPreKeys).values({
+        userId: ctx.userId,
+        keyId: input.keyId,
+        publicKey: input.publicKey,
+        signature: input.signature,
+        createdAt: Date.now()
+      });
+
+      // Keep only the newest SIGNED_PREKEYS_KEPT rows: the bundle serves
+      // the latest, and libsignal needs at most the previous one for
+      // handshakes still in flight. Everything older is dead weight.
+      const keep = await tx
+        .select({ id: userSignedPreKeys.id })
+        .from(userSignedPreKeys)
+        .where(eq(userSignedPreKeys.userId, ctx.userId))
+        .orderBy(desc(userSignedPreKeys.createdAt), desc(userSignedPreKeys.id))
+        .limit(SIGNED_PREKEYS_KEPT);
+
+      await tx.delete(userSignedPreKeys).where(
+        and(
+          eq(userSignedPreKeys.userId, ctx.userId),
+          notInArray(
+            userSignedPreKeys.id,
+            keep.map((row) => row.id)
+          )
+        )
+      );
     });
   });
 
@@ -369,24 +415,29 @@ const rotateSignedPreKeyRoute = protectedProcedure
 // instances be addressed without an active-server-local id; the
 // receiving instance gets a federation notification (Decision 1,
 // Option A: host-only SKDM storage with notify-on-availability).
+const distributionMessageSchema = z
+  .string()
+  .min(1)
+  .max(MAX_DISTRIBUTION_MESSAGE_LENGTH);
+
 const distributionTargetSchema = z.union([
   z.object({
-    toUserId: z.number(),
-    distributionMessage: z.string()
+    toUserId: z.number().int().positive(),
+    distributionMessage: distributionMessageSchema
   }),
   z.object({
-    toPublicId: z.string().min(1),
-    toInstanceDomain: z.string().optional(),
-    distributionMessage: z.string()
+    toPublicId: z.string().min(1).max(64),
+    toInstanceDomain: z.string().max(253).optional(),
+    distributionMessage: distributionMessageSchema
   })
 ]);
 
 const distributeSenderKeysBatchRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number(),
-      senderKeyId: z.number().int().min(1).default(1),
-      distributions: z.array(distributionTargetSchema)
+      channelId: z.number().int().positive(),
+      senderKeyId: z.number().int().min(1).max(MAX_SENDER_KEY_ID).default(1),
+      distributions: z.array(distributionTargetSchema).max(MAX_E2EE_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -399,6 +450,16 @@ const distributeSenderKeysBatchRoute = protectedProcedure
     );
     // Previewers hold VIEW_CHANNEL but must not write sender-key rows
     await refuseInPreview(ctx, input.channelId);
+
+    // Only users who can VIEW the channel are valid recipients — the
+    // same invariant the DM twin enforces with membership. Without it,
+    // one VIEW_CHANNEL holder could insert rows and fire pubsub at any
+    // user id on the instance.
+    const viewerIds = new Set(
+      await getAffectedUserIdsForChannel(input.channelId, {
+        permission: ChannelPermission.VIEW_CHANNEL
+      })
+    );
 
     // Resolve each distribution target to a local user id (real for
     // non-federated, shadow for federated). Collect federated targets
@@ -472,6 +533,11 @@ const distributeSenderKeysBatchRoute = protectedProcedure
         );
         continue;
       }
+
+      invariant(viewerIds.has(resolvedUserId), {
+        code: 'BAD_REQUEST',
+        message: 'Recipient cannot view this channel'
+      });
 
       insertRows.push({
         channelId: input.channelId,
@@ -557,7 +623,7 @@ const distributeSenderKeysBatchRoute = protectedProcedure
   });
 
 const getPendingSenderKeysRoute = protectedProcedure
-  .input(z.object({ channelId: z.number().optional() }))
+  .input(z.object({ channelId: z.number().int().positive().optional() }))
   .query(async ({ ctx, input }) => {
     const conditions = [eq(e2eeSenderKeys.toUserId, ctx.userId)];
 
@@ -637,7 +703,11 @@ const getPendingSenderKeysRoute = protectedProcedure
   });
 
 const acknowledgeSenderKeysRoute = protectedProcedure
-  .input(z.object({ ids: z.array(z.number()) }))
+  .input(
+    z.object({
+      ids: z.array(z.number().int().positive()).max(MAX_E2EE_BATCH)
+    })
+  )
   .mutation(async ({ ctx, input }) => {
     if (input.ids.length === 0) return;
 
@@ -652,7 +722,11 @@ const acknowledgeSenderKeysRoute = protectedProcedure
   });
 
 const uploadKeyBackupRoute = protectedProcedure
-  .input(z.object({ encryptedData: z.string() }))
+  .input(
+    z.object({
+      encryptedData: z.string().min(1).max(MAX_KEY_BACKUP_LENGTH)
+    })
+  )
   .mutation(async ({ ctx, input }) => {
     const now = Date.now();
     await db

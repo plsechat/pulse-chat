@@ -820,12 +820,13 @@ export const editDmMessage = async (messageId: number, content: string) => {
     ownSentPlaintextCache.set(encryptedContent, plaintext);
     await trpc.dms.editMessage.mutate({
       messageId,
-      content: encryptedContent
+      content: encryptedContent,
+      e2ee: true
     });
     return;
   }
 
-  await trpc.dms.editMessage.mutate({ messageId, content });
+  await trpc.dms.editMessage.mutate({ messageId, content, e2ee: false });
 };
 
 export const deleteDmMessageAction = async (messageId: number) => {
@@ -1014,6 +1015,15 @@ export const dmCallEnded = (dmChannelId: number) => {
 
 export const dismissRingingCall = (dmChannelId: number) =>
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+
+/** Another session of ours read this DM up to `lastReadMessageId`. */
+export const applyDmReadState = (
+  dmChannelId: number,
+  lastReadMessageId: number
+) =>
+  store.dispatch(
+    dmsSliceActions.applyReadState({ dmChannelId, lastReadMessageId })
+  );
 
 /**
  * Clear an unread badge on a DM the user is actively looking at —

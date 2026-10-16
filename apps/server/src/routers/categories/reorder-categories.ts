@@ -11,7 +11,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const reorderCategoriesRoute = protectedProcedure
   .input(
     z.object({
-      categoryIds: z.array(z.number())
+      categoryIds: z.array(z.number().int().positive()).max(200)
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -20,6 +20,11 @@ const reorderCategoriesRoute = protectedProcedure
     invariant(ctx.activeServerId, {
       code: 'BAD_REQUEST',
       message: 'No active server'
+    });
+
+    invariant(new Set(input.categoryIds).size === input.categoryIds.length, {
+      code: 'BAD_REQUEST',
+      message: 'categoryIds contains duplicates'
     });
 
     const serverId = ctx.activeServerId;

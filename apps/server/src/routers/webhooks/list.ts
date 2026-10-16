@@ -4,22 +4,15 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { channels, webhooks } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const listWebhooksRoute = protectedProcedure
+const listWebhooksRoute = serverProcedure(Permission.MANAGE_WEBHOOKS)
   .input(
     z.object({
-      channelId: z.number().optional()
+      channelId: z.number().int().positive().optional()
     })
   )
   .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_WEBHOOKS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     if (input.channelId) {
       // Verify the channel belongs to the caller's active server
       const [channel] = await db

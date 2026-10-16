@@ -504,7 +504,7 @@ export const useAdminChannelPermissions = (channelId: number) => {
     const trpc = getTRPCClient();
     if (!trpc) return;
     const { rolePermissions, userPermissions } =
-      await trpc.channels.getPermissions.mutate({ channelId });
+      await trpc.channels.getPermissions.query({ channelId });
 
     setRolePermissions(rolePermissions);
     setUserPermissions(userPermissions);

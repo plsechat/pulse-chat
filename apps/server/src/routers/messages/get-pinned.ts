@@ -17,7 +17,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const getPinnedMessagesRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number()
+      channelId: z.number().int().positive()
     })
   )
   .query(async ({ ctx, input }) => {
@@ -105,7 +105,15 @@ const getPinnedMessagesRoute = protectedProcedure
           userId: messages.userId
         })
         .from(messages)
-        .where(inArray(messages.id, replyToIds));
+        // Replies are same-channel by construction (send validates it);
+        // the condition keeps a stray id from ever previewing content
+        // outside the channel the caller is reading.
+        .where(
+          and(
+            inArray(messages.id, replyToIds),
+            eq(messages.channelId, input.channelId)
+          )
+        );
 
       const fileRowsForReplies = await db
         .select({ messageId: messageFiles.messageId })

@@ -17,7 +17,7 @@ import { protectedProcedure } from '../../utils/trpc';
  * conversation. If the channel ends up empty, we delete it.
  */
 const leaveGroupRoute = protectedProcedure
-  .input(z.object({ dmChannelId: z.number() }))
+  .input(z.object({ dmChannelId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
     const [channel] = await db
       .select()

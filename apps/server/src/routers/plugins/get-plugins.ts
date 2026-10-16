@@ -1,10 +1,12 @@
-import { Permission, type TPluginInfo } from '@pulse/shared';
+import type { TPluginInfo } from '@pulse/shared';
 import { pluginManager } from '../../plugins';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
 
-const getPluginsRoute = protectedProcedure.query(async ({ ctx }) => {
-  await ctx.needsPermission(Permission.MANAGE_PLUGINS);
-
+// The plugin manager is a singleton for the whole instance, so listing,
+// loading and configuring plugins is the instance owner's alone — not
+// any server owner's (who holds every per-server permission on their
+// own server).
+const getPluginsRoute = instanceOwnerProcedure.query(async () => {
   const pluginIds = await pluginManager.getPluginsFromPath();
 
   const pluginResults = await Promise.all(

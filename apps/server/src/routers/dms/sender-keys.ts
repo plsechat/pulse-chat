@@ -14,6 +14,11 @@ import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, userSubscription } from '../../utils/trpc';
+import {
+  MAX_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_E2EE_BATCH,
+  MAX_SENDER_KEY_ID
+} from '../e2ee/bounds';
 
 // Mirror of e2ee.distributeSenderKeysBatch but scoped to a DM channel.
 // Permission check is "is the caller a member of the DM" instead of
@@ -21,16 +26,21 @@ import { protectedProcedure, userSubscription } from '../../utils/trpc';
 const distributeSenderKeysRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
+      dmChannelId: z.number().int().positive(),
       // Phase B chain rotation id. Defaults to 1 for the first chain
       // and pre-Phase-B clients still in the wild.
-      senderKeyId: z.number().int().min(1).default(1),
-      distributions: z.array(
-        z.object({
-          toUserId: z.number(),
-          distributionMessage: z.string()
-        })
-      )
+      senderKeyId: z.number().int().min(1).max(MAX_SENDER_KEY_ID).default(1),
+      distributions: z
+        .array(
+          z.object({
+            toUserId: z.number().int().positive(),
+            distributionMessage: z
+              .string()
+              .min(1)
+              .max(MAX_DISTRIBUTION_MESSAGE_LENGTH)
+          })
+        )
+        .max(MAX_E2EE_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -141,7 +151,7 @@ const distributeSenderKeysRoute = protectedProcedure
   });
 
 const getPendingSenderKeysRoute = protectedProcedure
-  .input(z.object({ dmChannelId: z.number().optional() }))
+  .input(z.object({ dmChannelId: z.number().int().positive().optional() }))
   .query(async ({ ctx, input }) => {
     const conditions = [eq(dmE2eeSenderKeys.toUserId, ctx.userId)];
     if (input.dmChannelId !== undefined) {
@@ -163,7 +173,11 @@ const getPendingSenderKeysRoute = protectedProcedure
   });
 
 const acknowledgeSenderKeysRoute = protectedProcedure
-  .input(z.object({ ids: z.array(z.number()) }))
+  .input(
+    z.object({
+      ids: z.array(z.number().int().positive()).max(MAX_E2EE_BATCH)
+    })
+  )
   .mutation(async ({ ctx, input }) => {
     if (input.ids.length === 0) return;
 

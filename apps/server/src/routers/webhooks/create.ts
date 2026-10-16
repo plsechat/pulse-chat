@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { channels, files, webhooks } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
 /**
  * A webhook avatar must be an image file the caller uploaded themselves
@@ -36,7 +36,7 @@ const assertWebhookAvatarFile = async (fileId: number, userId: number) => {
   });
 };
 
-const createWebhookRoute = protectedProcedure
+const createWebhookRoute = serverProcedure(Permission.MANAGE_WEBHOOKS)
   .input(
     z.object({
       name: z.string().min(1).max(80),
@@ -45,8 +45,6 @@ const createWebhookRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_WEBHOOKS);
-
     // Verify the channel belongs to the caller's active server
     const [channel] = await db
       .select({ id: channels.id, type: channels.type })
@@ -54,7 +52,7 @@ const createWebhookRoute = protectedProcedure
       .where(
         and(
           eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId!)
+          eq(channels.serverId, ctx.activeServerId)
         )
       )
       .limit(1);
@@ -83,7 +81,7 @@ const createWebhookRoute = protectedProcedure
         token: randomUUID(),
         avatarFileId: input.avatarFileId ?? null,
         createdBy: ctx.userId,
-        serverId: ctx.activeServerId!,
+        serverId: ctx.activeServerId,
         createdAt: Date.now()
       })
       .returning();

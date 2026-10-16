@@ -9,7 +9,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const leaveServerRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number()
+      serverId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -26,7 +26,18 @@ const leaveServerRoute = protectedProcedure
       message: 'Server owner cannot leave. Transfer ownership first.'
     });
 
+    // Membership, roles and channel overrides go together (see
+    // removeServerMember).
     await removeServerMember(input.serverId, ctx.userId);
+
+    // This connection must not keep acting in the server it just left:
+    // with the active server unset every permission check denies until
+    // the client re-joins another server, and the cached roles / channel
+    // overrides from the old server are dropped.
+    if (ctx.activeServerId === input.serverId) {
+      ctx.activeServerId = undefined;
+      ctx.invalidatePermissionCache();
+    }
 
     ctx.pubsub.publishFor(ctx.userId, ServerEvents.SERVER_MEMBER_LEAVE, {
       serverId: input.serverId,

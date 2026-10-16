@@ -13,7 +13,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const changeBannerRoute = protectedProcedure
   .input(
     z.object({
-      fileId: z.string().optional()
+      fileId: z.string().max(64).optional()
     })
   )
   .mutation(async ({ ctx, input }) => {

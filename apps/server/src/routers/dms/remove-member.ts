@@ -11,8 +11,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const removeMemberRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
-      userId: z.number()
+      dmChannelId: z.number().int().positive(),
+      userId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {

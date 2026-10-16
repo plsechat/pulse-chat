@@ -8,21 +8,19 @@ import { users } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { markUnbanned } from '../../utils/banned-cache';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const unbanRoute = protectedProcedure
+const unbanRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
-      userId: z.number()
+      userId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_USERS);
-
     // Mirror ban.ts: only allow unbanning users who are members of the
     // caller's active server. Without this, MANAGE_USERS in server A could
     // unban a user banned by server B's admin.
-    const isMember = await isServerMember(ctx.activeServerId!, input.userId);
+    const isMember = await isServerMember(ctx.activeServerId, input.userId);
 
     invariant(isMember, {
       code: 'NOT_FOUND',
@@ -33,7 +31,8 @@ const unbanRoute = protectedProcedure
       .update(users)
       .set({
         banned: false,
-        banReason: null
+        banReason: null,
+        bannedAt: null
       })
       .where(eq(users.id, input.userId));
 

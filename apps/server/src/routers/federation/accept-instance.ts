@@ -15,7 +15,7 @@ import { logger } from '../../logger';
 const acceptInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
-      instanceId: z.number()
+      instanceId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {

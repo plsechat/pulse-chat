@@ -19,7 +19,7 @@ import { logger } from '../../logger';
 const addInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
-      remoteUrl: z.string().url()
+      remoteUrl: z.string().max(2048).url()
     })
   )
   .mutation(async ({ ctx, input }) => {

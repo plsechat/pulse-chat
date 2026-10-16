@@ -3,19 +3,17 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { automodRules } from '../../db/schema';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteAutomodRuleRoute = protectedProcedure
-  .input(z.object({ ruleId: z.number() }))
+const deleteAutomodRuleRoute = serverProcedure(Permission.MANAGE_AUTOMOD)
+  .input(z.object({ ruleId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_AUTOMOD);
-
     await db
       .delete(automodRules)
       .where(
         and(
           eq(automodRules.id, input.ruleId),
-          eq(automodRules.serverId, ctx.activeServerId!)
+          eq(automodRules.serverId, ctx.activeServerId)
         )
       );
   });

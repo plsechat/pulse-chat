@@ -6,39 +6,42 @@ import { getMessagesByUserId } from '../../db/queries/messages';
 import { getJoinMethod, isServerMember } from '../../db/queries/servers';
 import { getAuditLogForUser } from '../../db/queries/activity-log';
 import { getUserById } from '../../db/queries/users';
+import { clearFields } from '../../helpers/clear-fields';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getUserInfoRoute = protectedProcedure
+const getUserInfoRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
-      userId: z.number()
+      userId: z.number().int().positive()
     })
   )
   .query(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_USERS);
-
     // Verify target user is a member of the caller's active server
-    const isMember = await isServerMember(ctx.activeServerId!, input.userId);
+    const isMember = await isServerMember(ctx.activeServerId, input.userId);
 
     invariant(isMember, {
       code: 'NOT_FOUND',
       message: 'User not found'
     });
 
-    const user = await getUserById(input.userId);
+    const fullUser = await getUserById(input.userId);
 
-    invariant(user, {
+    invariant(fullUser, {
       code: 'NOT_FOUND',
       message: 'User not found'
     });
 
+    // The auth-backend subject id is an internal identifier; blank it the
+    // way users.getAll does (the shape stays, the value never leaves).
+    const user = clearFields(fullUser, ['supabaseId']);
+
     const [logins, files, messages, auditLog, joinMethod] = await Promise.all([
       getLastLogins(user.id, 6),
-      getFilesByUserId(user.id, ctx.activeServerId!),
-      getMessagesByUserId(user.id, ctx.activeServerId!),
-      getAuditLogForUser(user.id, ctx.activeServerId!),
-      getJoinMethod(ctx.activeServerId!, user.id)
+      getFilesByUserId(user.id, ctx.activeServerId),
+      getMessagesByUserId(user.id, ctx.activeServerId),
+      getAuditLogForUser(user.id, ctx.activeServerId),
+      getJoinMethod(ctx.activeServerId, user.id)
     ]);
 
     return { user, logins, files, messages, auditLog, joinMethod };

@@ -4,6 +4,7 @@ import { db } from '..';
 import {
   channelReadStates,
   channels,
+  channelUserPermissions,
   dmChannelMembers,
   files,
   friendships,
@@ -143,15 +144,48 @@ const addServerMember = async (
     .onConflictDoNothing();
 };
 
+/**
+ * Take a user out of a server completely: the membership row, every role
+ * they hold IN THAT SERVER and their per-channel overrides there, in one
+ * transaction. Leave, kick and ban all go through here. Leaving only the
+ * membership row behind let a kicked moderator rejoin by invite with
+ * every role intact (the join path only adds the default role), and let
+ * a leaver keep acting through roles that still existed.
+ */
 const removeServerMember = async (serverId: number, userId: number) => {
-  await db
-    .delete(serverMembers)
-    .where(
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(serverMembers)
+      .where(
+        and(
+          eq(serverMembers.serverId, serverId),
+          eq(serverMembers.userId, userId)
+        )
+      );
+
+    await tx.delete(userRoles).where(
       and(
-        eq(serverMembers.serverId, serverId),
-        eq(serverMembers.userId, userId)
+        eq(userRoles.userId, userId),
+        inArray(
+          userRoles.roleId,
+          tx.select({ id: roles.id }).from(roles).where(eq(roles.serverId, serverId))
+        )
       )
     );
+
+    await tx.delete(channelUserPermissions).where(
+      and(
+        eq(channelUserPermissions.userId, userId),
+        inArray(
+          channelUserPermissions.channelId,
+          tx
+            .select({ id: channels.id })
+            .from(channels)
+            .where(eq(channels.serverId, serverId))
+        )
+      )
+    );
+  });
 };
 
 const getFirstServer = async (): Promise<TJoinedServer | undefined> => {

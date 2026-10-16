@@ -12,7 +12,7 @@ import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 
 const deleteMessageRoute = protectedProcedure
-  .input(z.object({ messageId: z.number() }))
+  .input(z.object({ messageId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
     invariant(ctx.activeServerId, {
       code: 'BAD_REQUEST',

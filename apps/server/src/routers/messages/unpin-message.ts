@@ -7,22 +7,15 @@ import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getMessageInActiveServer } from '../../db/queries/messages';
 import { messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const unpinMessageRoute = protectedProcedure
+const unpinMessageRoute = serverProcedure(Permission.PIN_MESSAGES)
   .input(
     z.object({
-      messageId: z.number()
+      messageId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.PIN_MESSAGES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const message = await getMessageInActiveServer(
       input.messageId,
       ctx.activeServerId
@@ -32,6 +25,13 @@ const unpinMessageRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Message not found'
     });
+
+    // Server scope alone still lets a member unpin inside a private
+    // channel they cannot view (and learn the message exists).
+    await ctx.needsChannelPermission(
+      message.channelId,
+      ChannelPermission.VIEW_CHANNEL
+    );
 
     invariant(message.pinned, {
       code: 'BAD_REQUEST',

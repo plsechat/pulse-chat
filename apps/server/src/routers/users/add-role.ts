@@ -3,26 +3,22 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
+import { isServerMember } from '../../db/queries/servers';
 import { roles, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { assertCanManageRole, getRoleCeiling } from '../roles/_hierarchy';
+import { invalidatePermissionCacheForUser } from '../../utils/permission-cache-registry';
 
-const addRoleRoute = protectedProcedure
+const addRoleRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
-      userId: z.number(),
-      roleId: z.number()
+      userId: z.number().int().positive(),
+      roleId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_USERS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // The Owner role can only be acquired through ownership transfer, never
     // granted via add-role — even by callers with MANAGE_USERS. The active-
     // server scope on the role lookup below is necessary but not sufficient
@@ -39,7 +35,8 @@ const addRoleRoute = protectedProcedure
         id: roles.id,
         name: roles.name,
         isPersistent: roles.isPersistent,
-        isDefault: roles.isDefault
+        isDefault: roles.isDefault,
+        position: roles.position
       })
       .from(roles)
       .where(
@@ -61,6 +58,17 @@ const addRoleRoute = protectedProcedure
     invariant(!(role.isPersistent && !role.isDefault), {
       code: 'FORBIDDEN',
       message: 'The Owner role can only change via ownership transfer'
+    });
+
+    // Role hierarchy: only roles strictly below the caller's own highest
+    // role may be handed out — this is what stops a MANAGE_USERS holder
+    // from giving themselves (or anyone) a more senior role.
+    const ceiling = await getRoleCeiling(ctx.userId, ctx.activeServerId);
+    assertCanManageRole(ceiling, role);
+
+    invariant(await isServerMember(ctx.activeServerId, input.userId), {
+      code: 'NOT_FOUND',
+      message: 'User not found'
     });
 
     const existing = await db
@@ -86,6 +94,7 @@ const addRoleRoute = protectedProcedure
     });
 
     ctx.invalidatePermissionCache();
+    invalidatePermissionCacheForUser(input.userId);
     publishUser(input.userId, 'update');
 
     enqueueActivityLog({

@@ -1,20 +1,19 @@
-import { ActivityLogType, Permission } from '@pulse/shared';
+import { ActivityLogType } from '@pulse/shared';
 import { z } from 'zod';
 import { publishPluginCommands } from '../../db/publishers';
 import { pluginManager } from '../../plugins';
 import { enqueueActivityLog } from '../../queues/activity-log';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
+import { pluginIdSchema } from './schemas';
 
-const togglePluginRoute = protectedProcedure
+const togglePluginRoute = instanceOwnerProcedure
   .input(
     z.object({
-      pluginId: z.string(),
+      pluginId: pluginIdSchema,
       enabled: z.boolean()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_PLUGINS);
-
     await pluginManager.togglePlugin(input.pluginId, input.enabled);
 
     publishPluginCommands();

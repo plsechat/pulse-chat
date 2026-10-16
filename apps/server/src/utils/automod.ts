@@ -1,11 +1,12 @@
 import {
   AutomodRuleType,
+  ChannelType,
   type TAutomodAction,
   type TAutomodConfig
 } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db';
-import { automodRules } from '../db/schema';
+import { automodRules, channels, messages } from '../db/schema';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { logger } from '../logger';
 import { publishMessage } from '../db/publishers';
@@ -14,6 +15,8 @@ type TAutomodResult = {
   blocked: boolean;
   matchedRuleId?: number;
   matchedRuleName?: string;
+  /** The rule's author — alert messages are posted under this identity. */
+  matchedRuleCreatedBy?: number;
   actions?: TAutomodAction[];
 };
 
@@ -174,12 +177,80 @@ export const checkAutomod = async (
         blocked: true,
         matchedRuleId: rule.id,
         matchedRuleName: rule.name,
+        matchedRuleCreatedBy: rule.createdBy,
         actions: rule.actions as TAutomodAction[]
       };
     }
   }
 
   return { blocked: false };
+};
+
+/**
+ * Post the alert for one `alert_channel` action. The target is re-checked
+ * at execution time — a rule's stored id is validated when it is saved,
+ * but the channel can be deleted or (by a later schema change) moved
+ * afterwards, and the alert must never land outside the rule's server
+ * or in a channel that cannot carry messages.
+ *
+ * The alert is authored by the rule's creator (`authorId`), not the
+ * offender: the offender may have no access to the alert channel, and
+ * the text is server-generated. Locked (`editable: false`) so nobody
+ * can rewrite it afterwards.
+ */
+const postAlert = async (
+  targetChannelId: number,
+  context: {
+    channelId: number;
+    userId: number;
+    serverId: number;
+    ruleName: string;
+    authorId?: number;
+  }
+) => {
+  if (context.authorId === undefined) {
+    logger.warn(
+      '[Automod] alert_channel skipped: rule "%s" has no author',
+      context.ruleName
+    );
+    return;
+  }
+
+  const [target] = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.id, targetChannelId),
+        eq(channels.serverId, context.serverId),
+        eq(channels.type, ChannelType.TEXT)
+      )
+    )
+    .limit(1);
+
+  if (!target) {
+    logger.warn(
+      '[Automod] alert_channel skipped: channel %d is not a text channel of server %d',
+      targetChannelId,
+      context.serverId
+    );
+    return;
+  }
+
+  const [alertMsg] = await db
+    .insert(messages)
+    .values({
+      content: `[Auto-Mod] Rule "${context.ruleName}" blocked a message from <@${context.userId}> in <#${context.channelId}>`,
+      userId: context.authorId,
+      channelId: target.id,
+      editable: false,
+      createdAt: Date.now()
+    })
+    .returning();
+
+  if (alertMsg) {
+    await publishMessage(alertMsg.id, target.id, 'create');
+  }
 };
 
 export const executeAutomodActions = async (
@@ -190,28 +261,15 @@ export const executeAutomodActions = async (
     content: string;
     serverId: number;
     ruleName: string;
+    /** The rule's creator; alerts are posted under this identity. */
+    authorId?: number;
   }
 ) => {
   for (const action of actions) {
     switch (action.type) {
       case 'alert_channel':
         if (action.channelId) {
-          // Send a system message to the alert channel
-          const { messages: messagesTable } = await import('../db/schema');
-          const [alertMsg] = await db
-            .insert(messagesTable)
-            .values({
-              content: `**[Auto-Mod]** Rule "${context.ruleName}" blocked a message from <@${context.userId}> in <#${context.channelId}>`,
-              userId: context.userId,
-              channelId: action.channelId,
-              editable: false,
-              createdAt: Date.now()
-            })
-            .returning();
-
-          if (alertMsg) {
-            await publishMessage(alertMsg.id, action.channelId, 'create');
-          }
+          await postAlert(action.channelId, context);
         }
         break;
       case 'log':

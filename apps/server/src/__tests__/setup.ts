@@ -12,6 +12,7 @@ import { loginsQueue } from '../queues/logins';
 import { messageMetadataQueue } from '../queues/message-metadata';
 import { loadMediasoup } from '../utils/mediasoup';
 import { client, dbProxy, getTestDb } from './mock-db';
+import { loadBannedUsersCache } from '../utils/banned-cache';
 import { seedDatabase } from './seed';
 import { TRUNCATE_ALL_SQL } from './truncate';
 
@@ -171,6 +172,11 @@ beforeEach(async () => {
       await seedDatabase(tx as unknown as Parameters<typeof seedDatabase>[0]);
     })
   );
+
+  // The banned-user cache is process memory: a ban in one test file would
+  // otherwise follow the (re-seeded) user id into every later file in the
+  // same process. Re-scan after each reseed so it mirrors the fresh rows.
+  await loadBannedUsersCache();
 
   // Warm the file-HMAC cache. Production never calls this explicitly either;
   // tests that exercised generateFileToken used to depend on cross-file mock

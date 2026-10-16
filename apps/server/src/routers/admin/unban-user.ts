@@ -41,7 +41,8 @@ const unbanUserRoute = instanceOwnerProcedure
       .update(users)
       .set({
         banned: false,
-        banReason: null
+        banReason: null,
+        bannedAt: null
       })
       .where(eq(users.id, input.userId));
 

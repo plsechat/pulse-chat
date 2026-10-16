@@ -27,7 +27,7 @@ import semver from 'semver';
 import { db } from '../db';
 import { getSettings } from '../db/queries/server';
 import { getServerMemberIds } from '../db/queries/servers';
-import { channels, pluginData } from '../db/schema';
+import { channels, pluginData, servers } from '../db/schema';
 import { PLUGINS_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 import { VoiceRuntime } from '../runtimes/voice';
@@ -365,7 +365,7 @@ class PluginManager {
         pluginId,
         'debug',
         `Executing command '${commandName}' with args:`,
-        args
+        this.redactCommandArgs(pluginId, commandName, args)
       );
 
       return await foundCommand.command.executes(invokerCtx, args);
@@ -381,6 +381,57 @@ class PluginManager {
 
       throw error;
     }
+  };
+
+  /**
+   * Copy of `args` with every argument the command declared `sensitive`
+   * replaced by a placeholder. Used for the plugin log stream and the
+   * activity log — the real values only ever reach the command itself.
+   */
+  public redactCommandArgs = <TArgs>(
+    pluginId: string,
+    commandName: string,
+    args: TArgs
+  ): TArgs => {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      return args;
+    }
+
+    const definition = this.commands
+      .get(pluginId)
+      ?.find((c) => c.name === commandName)?.command.args;
+    const sensitiveNames = new Set(
+      (definition ?? []).filter((a) => a.sensitive).map((a) => a.name)
+    );
+
+    if (sensitiveNames.size === 0) return args;
+
+    const redacted: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(args)) {
+      redacted[key] = sensitiveNames.has(key) ? '[redacted]' : value;
+    }
+
+    return redacted as TArgs;
+  };
+
+  /**
+   * Whether plugin *commands* may be executed from `serverId`. Plugins
+   * load and unload at the instance level (instance owner only); this
+   * per-server flag is the one thing a server owner controls about them.
+   */
+  public commandsEnabledForServer = async (
+    serverId: number | undefined
+  ): Promise<boolean> => {
+    if (serverId === undefined) return false;
+
+    const [server] = await db
+      .select({ enablePlugins: servers.enablePlugins })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+
+    return server?.enablePlugins === true;
   };
 
   public getCommands = (): TCommandsMapByPlugin => {

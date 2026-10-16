@@ -7,23 +7,21 @@ import { channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteChannelRoute = protectedProcedure
+const deleteChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(
     z.object({
-      channelId: z.number()
+      channelId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS);
-
     const [removedChannel] = await db
       .delete(channels)
       .where(
         and(
           eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId!)
+          eq(channels.serverId, ctx.activeServerId)
         )
       )
       .returning();

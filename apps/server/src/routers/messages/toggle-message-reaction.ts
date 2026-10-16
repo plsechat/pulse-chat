@@ -1,4 +1,4 @@
-import { Permission } from '@pulse/shared';
+import { ChannelPermission, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -10,23 +10,21 @@ import {
 } from '../../db/queries/messages';
 import { messageReactions } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const toggleMessageReactionRoute = protectedProcedure
+/** A unicode emoji or a `:custom_name:` token — never free text. */
+const MAX_EMOJI_LENGTH = 64;
+
+const toggleMessageReactionRoute = serverProcedure(
+  Permission.REACT_TO_MESSAGES
+)
   .input(
     z.object({
-      messageId: z.number(),
-      emoji: z.string()
+      messageId: z.number().int().positive(),
+      emoji: z.string().min(1).max(MAX_EMOJI_LENGTH)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.REACT_TO_MESSAGES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const message = await getMessageInActiveServer(
       input.messageId,
       ctx.activeServerId
@@ -36,6 +34,13 @@ const toggleMessageReactionRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Message not found'
     });
+
+    // Server scope alone still lets a member react inside a private
+    // channel they cannot view (and learn the message exists).
+    await ctx.needsChannelPermission(
+      message.channelId,
+      ChannelPermission.VIEW_CHANNEL
+    );
 
     const reaction = await getReaction(
       input.messageId,

@@ -1,16 +1,28 @@
-import { Permission } from '@pulse/shared';
 import z from 'zod';
 import { pluginManager } from '../../plugins';
-import { protectedProcedure } from '../../utils/trpc';
+import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
+import { pluginIdSchema } from './schemas';
 
-const getCommandsRoute = protectedProcedure
+/**
+ * The command list (names, descriptions, arg definitions — never
+ * settings or logs) is readable by any member of the active server,
+ * provided that server has plugin commands enabled.
+ */
+const getCommandsRoute = serverProcedure()
   .input(
     z.object({
-      pluginId: z.string().optional()
+      pluginId: pluginIdSchema.optional()
     })
   )
   .query(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_PLUGINS);
+    invariant(
+      await pluginManager.commandsEnabledForServer(ctx.activeServerId),
+      {
+        code: 'FORBIDDEN',
+        message: 'Plugin commands are not enabled on this server'
+      }
+    );
 
     const allCommands = pluginManager.getCommands();
 

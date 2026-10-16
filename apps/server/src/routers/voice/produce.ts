@@ -10,6 +10,12 @@ import { z } from 'zod';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import {
+  MAX_CODECS,
+  MAX_HEADER_EXTENSIONS,
+  rtpCodecSchema,
+  rtpHeaderExtensionSchema
+} from './schemas';
 
 // Per-kind upper bound on encoding maxBitrate (bps).
 // Mediasoup applies these as the ceiling the SFU is willing to accept;
@@ -26,9 +32,6 @@ const MAX_BITRATE_BY_KIND: Record<StreamKind, number> = {
 
 const MAX_FRAMERATE = 60;
 const MAX_ENCODINGS = 3; // typical simulcast layer count
-const MAX_CODECS = 8;
-const MAX_HEADER_EXTENSIONS = 16;
-const MAX_RTCP_FEEDBACK = 16;
 
 // Use .passthrough() so we stay forward-compatible with mediasoup's RtpParameters
 // shape (it adds fields), while still bounding the security-relevant ones.
@@ -43,26 +46,6 @@ const rtpEncodingSchema = z
     scaleResolutionDownBy: z.number().positive().max(1024).optional(),
     maxBitrate: z.number().int().positive().optional(),
     maxFramerate: z.number().int().positive().max(MAX_FRAMERATE).optional()
-  })
-  .passthrough();
-
-const rtpCodecSchema = z
-  .object({
-    mimeType: z.string().max(64),
-    payloadType: z.number().int().nonnegative(),
-    clockRate: z.number().int().positive().max(192_000),
-    channels: z.number().int().positive().max(8).optional(),
-    parameters: z.record(z.string(), z.unknown()).optional(),
-    rtcpFeedback: z.array(z.unknown()).max(MAX_RTCP_FEEDBACK).optional()
-  })
-  .passthrough();
-
-const rtpHeaderExtensionSchema = z
-  .object({
-    uri: z.string().max(128),
-    id: z.number().int().nonnegative(),
-    encrypt: z.boolean().optional(),
-    parameters: z.record(z.string(), z.unknown()).optional()
   })
   .passthrough();
 

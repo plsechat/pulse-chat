@@ -12,8 +12,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const updateEmojiRoute = protectedProcedure
   .input(
     z.object({
-      emojiId: z.number().min(1),
-      name: z.string().min(1).max(24)
+      emojiId: z.number().int().positive(),
+      name: z.string().min(1).max(32)
     })
   )
   .mutation(async ({ ctx, input }) => {

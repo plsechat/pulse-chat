@@ -13,7 +13,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const bulkDeleteMessagesRoute = protectedProcedure
   .input(
     z.object({
-      messageIds: z.array(z.number()).min(1).max(100)
+      messageIds: z.array(z.number().int().positive()).min(1).max(100)
     })
   )
   .mutation(async ({ input, ctx }) => {

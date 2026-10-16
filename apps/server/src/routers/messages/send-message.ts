@@ -2,6 +2,7 @@ import {
   ActivityLogType,
   ChannelPermission,
   ChannelType,
+  MAX_MESSAGE_CONTENT_LENGTH,
   MAX_MESSAGE_WIRE_LENGTH,
   Permission,
   toDomCommand
@@ -11,7 +12,6 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { getSettings } from '../../db/queries/server';
 import { channels, messageFiles, messages } from '../../db/schema';
 import { getInvokerCtxFromTrpcCtx } from '../../helpers/get-invoker-ctx-from-trpc-ctx';
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
@@ -25,20 +25,30 @@ import { checkAutomod, executeAutomodActions } from '../../utils/automod';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 import { resolveForwardSource } from '../../utils/forward-source';
 
-const sendMessageRoute = protectedProcedure
+/**
+ * Bounds on the attachment list: each id is a `saveFile` (disk + DB
+ * work), so the array is capped; temp ids are UUIDs, never longer.
+ */
+const MAX_FILES_PER_MESSAGE = 10;
+const MAX_TEMP_FILE_ID_LENGTH = 64;
+
+const sendMessageRoute = serverProcedure()
   .input(
     z.object({
+      channelId: z.number().int().positive(),
       content: z
         .string()
         .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
         .optional(),
       e2ee: z.boolean().optional(),
-      channelId: z.number(),
-      files: z.array(z.string()).optional(),
-      replyToId: z.number().optional(),
+      files: z
+        .array(z.string().min(1).max(MAX_TEMP_FILE_ID_LENGTH))
+        .max(MAX_FILES_PER_MESSAGE)
+        .optional(),
+      replyToId: z.number().int().positive().optional(),
       /**
        * Forward attribution by SOURCE REFERENCE — the server loads the
        * source, verifies visibility, and derives the author itself.
@@ -53,6 +63,10 @@ const sendMessageRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
+    // Permission checks first: previewers and private-channel outsiders
+    // are refused as FORBIDDEN (the channel check already denies
+    // cross-server ids). The scoped load below is the row the handler
+    // works from; it reads as NOT_FOUND only for ids the check let past.
     await Promise.all([
       ctx.needsPermission(Permission.SEND_MESSAGES),
       ctx.needsChannelPermission(
@@ -61,33 +75,42 @@ const sendMessageRoute = protectedProcedure
       )
     ]);
 
-    const isE2ee = !!input.e2ee;
-
-    // Check channel E2EE flag matches the message
     const [channel] = await db
-      .select({
-        slowMode: channels.slowMode,
-        e2ee: channels.e2ee,
-        type: channels.type
-      })
+      .select()
       .from(channels)
-      .where(eq(channels.id, input.channelId))
+      .where(
+        and(
+          eq(channels.id, input.channelId),
+          eq(channels.serverId, ctx.activeServerId)
+        )
+      )
       .limit(1);
+
+    invariant(channel, {
+      code: 'NOT_FOUND',
+      message: 'Channel not found'
+    });
+
+    const isE2ee = !!input.e2ee;
 
     // Voice channels have no chat. The UI no longer offers one, but the
     // capability must be gated here too — otherwise messages could still
     // be pushed into voice channels via the raw API.
-    invariant(channel?.type !== ChannelType.VOICE, {
+    invariant(channel.type !== ChannelType.VOICE, {
       code: 'BAD_REQUEST',
       message: 'Voice channels do not support text messages'
     });
 
-    if (channel?.e2ee) {
-      invariant(isE2ee && input.content, {
-        code: 'BAD_REQUEST',
-        message: 'This channel requires E2EE messages'
-      });
-    }
+    // The channel flag is authoritative in BOTH directions: plaintext
+    // into an encrypted channel leaks, and ciphertext into a plaintext
+    // channel produces rows that search, automod and link previews
+    // silently skip (the DM route has enforced this symmetry all along).
+    invariant(channel.e2ee === isE2ee, {
+      code: 'BAD_REQUEST',
+      message: channel.e2ee
+        ? 'This channel requires E2EE messages'
+        : 'This channel is not encrypted — encrypted sends are not allowed'
+    });
 
     if (isE2ee) {
       invariant(input.content, {
@@ -99,10 +122,37 @@ const sendMessageRoute = protectedProcedure
         code: 'BAD_REQUEST',
         message: 'Non-E2EE messages must include content or files'
       });
+
+      // The wire cap exists for ciphertext expansion only; plaintext is
+      // held to the composer's budget.
+      invariant(
+        !input.content || input.content.length <= MAX_MESSAGE_CONTENT_LENGTH,
+        {
+          code: 'BAD_REQUEST',
+          message: 'Message is too long'
+        }
+      );
+    }
+
+    // A reply may only point at a message in the SAME channel: the
+    // reply-preview readers ship the target's content to everyone who
+    // can see the new message, so an unchecked id would disclose text
+    // from private channels, other servers or DMs.
+    if (input.replyToId !== undefined) {
+      const [replyTarget] = await db
+        .select({ channelId: messages.channelId })
+        .from(messages)
+        .where(eq(messages.id, input.replyToId))
+        .limit(1);
+
+      invariant(replyTarget && replyTarget.channelId === channel.id, {
+        code: 'BAD_REQUEST',
+        message: 'Reply target not found in this channel'
+      });
     }
 
     // Slow mode enforcement
-    if (channel && channel.slowMode > 0) {
+    if (channel.slowMode > 0) {
       const [lastMessage] = await db
         .select({ createdAt: messages.createdAt })
         .from(messages)
@@ -137,31 +187,32 @@ const sendMessageRoute = protectedProcedure
 
     if (!isE2ee && content) {
       // Automod check
-      if (ctx.activeServerId) {
-        const automodResult = await checkAutomod(
+      const automodResult = await checkAutomod(
+        content,
+        input.channelId,
+        ctx.userId,
+        channel.serverId
+      );
+
+      if (automodResult.blocked && automodResult.actions) {
+        await executeAutomodActions(automodResult.actions, {
+          channelId: input.channelId,
+          userId: ctx.userId,
           content,
-          input.channelId,
-          ctx.userId,
-          ctx.activeServerId
+          serverId: channel.serverId,
+          ruleName: automodResult.matchedRuleName ?? 'Unknown',
+          authorId: automodResult.matchedRuleCreatedBy
+        });
+
+        ctx.throwValidationError(
+          'automod',
+          'Message blocked by auto-moderation.'
         );
-
-        if (automodResult.blocked && automodResult.actions) {
-          await executeAutomodActions(automodResult.actions, {
-            channelId: input.channelId,
-            userId: ctx.userId,
-            content,
-            serverId: ctx.activeServerId,
-            ruleName: automodResult.matchedRuleName ?? 'Unknown'
-          });
-
-          ctx.throwValidationError(
-            'automod',
-            'Message blocked by auto-moderation.'
-          );
-        }
       }
 
-      const { enablePlugins } = await getSettings();
+      const enablePlugins = await pluginManager.commandsEnabledForServer(
+        ctx.activeServerId
+      );
 
       if (enablePlugins) {
         const plainText = getPlainTextFromHtml(content);

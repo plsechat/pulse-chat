@@ -1,4 +1,8 @@
-import { type TFederationInfo, ServerEvents } from '@pulse/shared';
+import {
+  type TFederationInfo,
+  MAX_MESSAGE_WIRE_LENGTH,
+  ServerEvents
+} from '@pulse/shared';
 import { and, eq, count, sql } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
@@ -29,6 +33,13 @@ import { invalidateCorsCache } from './cors';
 import { pubsub } from '../utils/pubsub';
 import { federationFetch } from '../utils/federation-fetch';
 import { getFederationProtocol, validateFederationUrl } from '../utils/validate-url';
+import {
+  isPeerDomain,
+  MAX_PEER_NAME_LENGTH,
+  MAX_PEER_PUBLIC_KEY_LENGTH,
+  MAX_PEER_SERVER_NAME_LENGTH,
+  peerString
+} from './federation-helpers';
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1 MB
 
@@ -95,6 +106,19 @@ const federationInfoHandler = async (
   jsonResponse(res, 200, info);
 };
 
+const isOkpJwk = (publicKey: string): boolean => {
+  try {
+    const parsed = JSON.parse(publicKey) as unknown;
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      (parsed as { kty?: unknown }).kty === 'OKP'
+    );
+  } catch {
+    return false;
+  }
+};
+
 // POST /federation/request — Receive federation request from remote instance
 const federationRequestHandler = async (
   req: http.IncomingMessage,
@@ -115,6 +139,27 @@ const federationRequestHandler = async (
   if (!domain || !publicKey || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
+
+  // `domain` is stored and later interpolated into
+  // `${protocol}://${domain}${path}` — it must be a bare host[:port],
+  // never a path or userinfo that would redirect our outbound calls.
+  if (!isPeerDomain(domain)) {
+    return jsonResponse(res, 400, { error: 'Invalid domain' });
+  }
+
+  // The key is stored verbatim and parsed on every signature check;
+  // bound it and require the one shape we ever verify with (Ed25519 OKP).
+  if (
+    typeof publicKey !== 'string' ||
+    publicKey.length > MAX_PEER_PUBLIC_KEY_LENGTH ||
+    !isOkpJwk(publicKey)
+  ) {
+    return jsonResponse(res, 400, { error: 'Invalid public key' });
+  }
+
+  // Display name: truncated, never rejected (the signature covers the
+  // original `name`, so verification below uses the wire value).
+  const storedName = peerString(name, MAX_PEER_SERVER_NAME_LENGTH) || null;
 
   // Verify signature proves key ownership AND binds to the body. The
   // sender signed { domain, name, publicKey } so we re-derive that
@@ -177,7 +222,7 @@ const federationRequestHandler = async (
     await db
       .update(federationInstances)
       .set({
-        name: name as string || null,
+        name: storedName,
         publicKey,
         direction:
           existing.direction === 'outgoing' ? 'mutual' : existing.direction,
@@ -206,7 +251,7 @@ const federationRequestHandler = async (
   // Create new incoming request
   await db.insert(federationInstances).values({
     domain,
-    name: name as string || null,
+    name: storedName,
     publicKey,
     status: 'pending',
     direction: 'incoming',
@@ -461,7 +506,8 @@ const federationFriendRequestHandler = async (
     signature: string;
   };
   const fromDomain = signedBody.fromDomain as string;
-  const fromUsername = signedBody.fromUsername as string;
+  // Becomes the shadow user's display name — cap like a local name.
+  const fromUsername = peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH);
   const fromPublicId = signedBody.fromPublicId as string;
   const fromUserId = signedBody.fromUserId as number | undefined;
   const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
@@ -586,7 +632,8 @@ const federationFriendAcceptHandler = async (
     signature: string;
   };
   const fromDomain = signedBody.fromDomain as string;
-  const fromUsername = signedBody.fromUsername as string;
+  // Becomes the shadow user's display name — cap like a local name.
+  const fromUsername = peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH);
   const fromPublicId = signedBody.fromPublicId as string;
   const fromUserId = signedBody.fromUserId as number | undefined;
   const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
@@ -822,7 +869,8 @@ const federationDmRelayHandler = async (
     signature: string;
   };
   const fromDomain = signedBody.fromDomain as string;
-  const fromUsername = signedBody.fromUsername as string;
+  // Becomes the shadow user's display name — cap like a local name.
+  const fromUsername = peerString(signedBody.fromUsername, MAX_PEER_NAME_LENGTH);
   const fromPublicId = signedBody.fromPublicId as string;
   const fromAvatarFile = signedBody.fromAvatarFile as string | undefined;
   const toPublicId = signedBody.toPublicId as string;
@@ -853,6 +901,12 @@ const federationDmRelayHandler = async (
 
   if (!fromDomain || !fromUsername || !content || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+
+  // Same ceiling as a locally sent DM — the 1 MB body cap alone would
+  // let a peer grow dm_messages rows 25x past what our own users can.
+  if (typeof content !== 'string' || content.length > MAX_MESSAGE_WIRE_LENGTH) {
+    return jsonResponse(res, 400, { error: 'Message too long' });
   }
 
   // Require UUIDs — reject requests without them to prevent impersonation
@@ -1038,8 +1092,8 @@ const federationReportUserHandler = async (
     signature: string;
   };
   const fromDomain = signedBody.fromDomain as string;
-  const username = signedBody.username as string;
-  const reason = signedBody.reason as string;
+  const username = peerString(signedBody.username, MAX_PEER_NAME_LENGTH);
+  const reason = peerString(signedBody.reason, 512);
 
   if (!fromDomain || !username || !reason || !signature) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });

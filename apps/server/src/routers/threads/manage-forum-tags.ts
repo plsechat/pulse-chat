@@ -3,17 +3,14 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channels, forumTags } from '../../db/schema';
-import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getForumTagsRoute = protectedProcedure
-  .input(z.object({ channelId: z.number() }))
+// Rendered as CSS by the client — accept a hex colour only.
+const HEX_COLOR_RE = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+
+const getForumTagsRoute = serverProcedure()
+  .input(z.object({ channelId: z.number().int().positive() }))
   .query(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Confirm the channel is in the active server before exposing its tags.
     const [channel] = await db
       .select({ id: channels.id })
@@ -34,20 +31,15 @@ const getForumTagsRoute = protectedProcedure
       .where(eq(forumTags.channelId, input.channelId));
   });
 
-const createForumTagRoute = protectedProcedure
+const createForumTagRoute = serverProcedure()
   .input(
     z.object({
-      channelId: z.number(),
+      channelId: z.number().int().positive(),
       name: z.string().min(1).max(50),
-      color: z.string().max(20).optional()
+      color: z.string().regex(HEX_COLOR_RE, 'Invalid hex color').optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [channel] = await db
       .select({ serverId: channels.serverId, type: channels.type })
       .from(channels)
@@ -78,20 +70,15 @@ const createForumTagRoute = protectedProcedure
     return tag;
   });
 
-const updateForumTagRoute = protectedProcedure
+const updateForumTagRoute = serverProcedure()
   .input(
     z.object({
-      tagId: z.number(),
+      tagId: z.number().int().positive(),
       name: z.string().min(1).max(50).optional(),
-      color: z.string().max(20).optional()
+      color: z.string().regex(HEX_COLOR_RE, 'Invalid hex color').optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [tag] = await db
       .select()
       .from(forumTags)
@@ -132,14 +119,9 @@ const updateForumTagRoute = protectedProcedure
     return updated;
   });
 
-const deleteForumTagRoute = protectedProcedure
-  .input(z.object({ tagId: z.number() }))
+const deleteForumTagRoute = serverProcedure()
+  .input(z.object({ tagId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [tag] = await db
       .select()
       .from(forumTags)

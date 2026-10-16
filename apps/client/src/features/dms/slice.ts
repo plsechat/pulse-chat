@@ -230,6 +230,30 @@ export const dmsSlice = createSlice({
     ) => {
       state.ownDmCallChannelId = action.payload;
     },
+    // DM_READ_STATE_UPDATE from another device/tab of the same user.
+    // Clear when the marker covers the newest message we know about;
+    // otherwise recount from loaded messages (a message arrived after
+    // the other device read), or leave the badge alone if none loaded.
+    applyReadState: (
+      state,
+      action: PayloadAction<{ dmChannelId: number; lastReadMessageId: number }>
+    ) => {
+      const { dmChannelId, lastReadMessageId } = action.payload;
+      const channel = state.channels.find((c) => c.id === dmChannelId);
+      if (!channel) return;
+
+      if (!channel.lastMessage || channel.lastMessage.id <= lastReadMessageId) {
+        channel.unreadCount = 0;
+        return;
+      }
+
+      const loaded = state.messagesMap[dmChannelId];
+      if (loaded) {
+        channel.unreadCount = loaded.filter(
+          (m) => m.id > lastReadMessageId
+        ).length;
+      }
+    },
     clearChannelUnread: (state, action: PayloadAction<number>) => {
       const channel = state.channels.find((c) => c.id === action.payload);
       if (channel) {

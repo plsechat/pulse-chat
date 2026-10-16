@@ -1,29 +1,24 @@
-import { NotificationLevel } from '@pulse/shared';
+import { ChannelPermission, NotificationLevel } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { channelNotificationSettings } from '../../db/schema';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const getNotificationSettingRoute = protectedProcedure
-  .input(
-    z.object({
-      channelId: z.number()
-    })
-  )
-  .query(async ({ ctx, input }) => {
-    const [setting] = await db
-      .select({ level: channelNotificationSettings.level })
-      .from(channelNotificationSettings)
-      .where(
-        and(
-          eq(channelNotificationSettings.userId, ctx.userId),
-          eq(channelNotificationSettings.channelId, input.channelId)
-        )
+const getNotificationSettingRoute = channelProcedure(
+  ChannelPermission.VIEW_CHANNEL
+).query(async ({ ctx }) => {
+  const [setting] = await db
+    .select({ level: channelNotificationSettings.level })
+    .from(channelNotificationSettings)
+    .where(
+      and(
+        eq(channelNotificationSettings.userId, ctx.userId),
+        eq(channelNotificationSettings.channelId, ctx.channel.id)
       )
-      .limit(1);
+    )
+    .limit(1);
 
-    return { level: (setting?.level ?? NotificationLevel.DEFAULT) as NotificationLevel };
-  });
+  return { level: (setting?.level ?? NotificationLevel.DEFAULT) as NotificationLevel };
+});
 
 export { getNotificationSettingRoute };

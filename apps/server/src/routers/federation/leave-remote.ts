@@ -7,8 +7,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const leaveRemoteRoute = protectedProcedure
   .input(
     z.object({
-      instanceDomain: z.string(),
-      remoteServerId: z.number()
+      instanceDomain: z.string().min(1).max(253),
+      remoteServerId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {

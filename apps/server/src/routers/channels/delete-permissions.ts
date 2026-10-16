@@ -2,7 +2,7 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { publishChannelPermissions } from '../../db/publishers';
+import { publishChannelPermissions, publishChannelVisibility } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import {
   channelRolePermissions,
@@ -12,6 +12,7 @@ import {
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
+import { invalidateAllPermissionCaches } from '../../utils/permission-cache-registry';
 
 const deletePermissionsRoute = protectedProcedure
   .input(
@@ -72,7 +73,12 @@ const deletePermissionsRoute = protectedProcedure
       }
     });
 
+    invalidateAllPermissionCaches();
     publishChannelPermissions(affectedUserIds);
+    // Overrides decide who may VIEW a private channel: members who just
+    // gained or lost it need the channel added to / removed from their
+    // sidebar, not only a new permission map.
+    await publishChannelVisibility(input.channelId);
     enqueueActivityLog({
       type: ActivityLogType.DELETED_CHANNEL_PERMISSIONS,
       userId: ctx.user.id,

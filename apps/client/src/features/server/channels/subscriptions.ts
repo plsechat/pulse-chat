@@ -1,3 +1,4 @@
+import { channelByIdSelector } from './selectors';
 import { activeServerIdSelector } from '@/features/app/selectors';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getTRPCClient } from '@/lib/trpc';
@@ -27,9 +28,18 @@ const subscribeToChannels = () => {
     subscribe('onChannelDelete', trpc.channels.onDelete, (channelId) =>
       removeChannel(channelId)
     ),
-    subscribe('onChannelUpdate', trpc.channels.onUpdate, (channel) =>
-      updateChannel(channel.id, channel)
-    ),
+    subscribe('onChannelUpdate', trpc.channels.onUpdate, (channel) => {
+      const state = store.getState();
+      const activeServerId = activeServerIdSelector(state);
+      if (activeServerId && channel.serverId !== activeServerId) return;
+      // A member who could not see this channel before (it was private)
+      // learns about it through an update once it becomes visible.
+      if (!channelByIdSelector(state, channel.id)) {
+        addChannel(channel);
+        return;
+      }
+      updateChannel(channel.id, channel);
+    }),
     subscribe(
       'onChannelPermissionsUpdate',
       trpc.channels.onPermissionsUpdate,

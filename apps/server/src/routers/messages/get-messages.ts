@@ -31,18 +31,28 @@ import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
+const MAX_MESSAGES_LIMIT = 100;
+
 const getMessagesRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number(),
-      cursor: z.number().nullish(),
+      channelId: z.number().int().positive(),
+      cursor: z.number().int().nullish(),
       // Jump-to-message support: `aroundId` returns a window of messages
       // centered on that message id; `after` pages FORWARD (ascending)
       // from a createdAt cursor to fill the gap below an around-window.
       // Mutually exclusive with `cursor`; aroundId wins if both given.
-      aroundId: z.number().nullish(),
-      after: z.number().nullish(),
-      limit: z.number().default(DEFAULT_MESSAGES_LIMIT)
+      aroundId: z.number().int().positive().nullish(),
+      after: z.number().int().nullish(),
+      // Hard upper bound: `limit + 1` rows plus the files/reactions/replies
+      // fan-out run on the single Bun thread, so an unbounded limit is a
+      // one-call way to load a whole channel.
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_MESSAGES_LIMIT)
+        .default(DEFAULT_MESSAGES_LIMIT)
     })
   )
   .meta({ infinite: true })
@@ -260,7 +270,15 @@ const getMessagesRoute = protectedProcedure
           e2ee: messages.e2ee
         })
         .from(messages)
-        .where(inArray(messages.id, replyToIds));
+        // Replies are same-channel by construction (send validates it);
+        // the condition keeps a stray id from ever previewing content
+        // outside the channel the caller is reading.
+        .where(
+          and(
+            inArray(messages.id, replyToIds),
+            eq(messages.channelId, channelId)
+          )
+        );
 
       // Probe attachments per replied-to message so file-only messages
       // (content null + attachments present) don't render as "Message

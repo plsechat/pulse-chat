@@ -11,8 +11,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const toggleDmReactionRoute = protectedProcedure
   .input(
     z.object({
-      dmMessageId: z.number(),
-      emoji: z.string()
+      dmMessageId: z.number().int().positive(),
+      emoji: z.string().min(1).max(64)
     })
   )
   .mutation(async ({ input, ctx }) => {

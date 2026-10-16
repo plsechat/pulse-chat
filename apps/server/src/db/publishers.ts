@@ -24,6 +24,7 @@ import {
 } from './queries/servers';
 import { getPublicUserById } from './queries/users';
 import { categories, channels, servers, threadFollowers } from './schema';
+import { toWireChannel } from './queries/channels';
 
 const publishMessage = async (
   messageId: number | undefined,
@@ -307,6 +308,51 @@ const publishUser = async (
   pubsub.publishFor(recipients, targetEvent, user);
 };
 
+/**
+ * Who may see a channel right now: every member for a public channel,
+ * only VIEW_CHANNEL holders for a private one (owner included).
+ */
+const getChannelViewerIds = async (channel: {
+  id: number;
+  serverId: number;
+  private: boolean;
+}): Promise<{ viewers: number[]; others: number[] }> => {
+  const memberIds = await getServerMemberIds(channel.serverId);
+  if (!channel.private) return { viewers: memberIds, others: [] };
+
+  const viewers = await getAffectedUserIdsForChannel(channel.id, {
+    permission: ChannelPermission.VIEW_CHANNEL
+  });
+  const viewerSet = new Set(viewers);
+  return {
+    viewers,
+    others: memberIds.filter((id) => !viewerSet.has(id))
+  };
+};
+
+/**
+ * Re-sync a channel's presence on every member's client after something
+ * changed who may view it (privacy flag flipped, an override added or
+ * removed): viewers get the row (CHANNEL_CREATE is an idempotent upsert
+ * on the client, so members who never had the channel gain it), everyone
+ * else gets CHANNEL_DELETE so the channel leaves their sidebar live.
+ */
+const publishChannelVisibility = async (channelId: number) => {
+  const [channel] = await db
+    .select()
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+
+  if (!channel) return;
+
+  const { viewers, others } = await getChannelViewerIds(channel);
+  pubsub.publishFor(viewers, ServerEvents.CHANNEL_CREATE, toWireChannel(channel));
+  if (others.length > 0) {
+    pubsub.publishFor(others, ServerEvents.CHANNEL_DELETE, channelId);
+  }
+};
+
 const publishChannel = async (
   channelId: number | undefined,
   type: 'create' | 'update' | 'delete',
@@ -334,8 +380,16 @@ const publishChannel = async (
       ? ServerEvents.CHANNEL_CREATE
       : ServerEvents.CHANNEL_UPDATE;
 
-  const memberIds = await getServerMemberIds(channel.serverId);
-  pubsub.publishFor(memberIds, targetEvent, channel);
+  // A private channel's row (name, topic, position) only goes to the
+  // members who can view it; a public one to every member. On update,
+  // members outside the viewer set are told the channel is gone for them
+  // (a public→private flip is otherwise invisible to the people it hides
+  // the channel from).
+  const { viewers, others } = await getChannelViewerIds(channel);
+  pubsub.publishFor(viewers, targetEvent, toWireChannel(channel));
+  if (type === 'update' && others.length > 0) {
+    pubsub.publishFor(others, ServerEvents.CHANNEL_DELETE, channelId);
+  }
 };
 
 const publishCategory = async (
@@ -420,6 +474,10 @@ const swallowRejection = <A extends unknown[], R>(
 
 const guardedPublishCategory = swallowRejection('publishCategory', publishCategory);
 const guardedPublishChannel = swallowRejection('publishChannel', publishChannel);
+const guardedPublishChannelVisibility = swallowRejection(
+  'publishChannelVisibility',
+  publishChannelVisibility
+);
 const guardedPublishChannelPermissions = swallowRejection(
   'publishChannelPermissions',
   publishChannelPermissions
@@ -435,6 +493,7 @@ const guardedPublishUser = swallowRejection('publishUser', publishUser);
 export {
   guardedPublishCategory as publishCategory,
   guardedPublishChannel as publishChannel,
+  guardedPublishChannelVisibility as publishChannelVisibility,
   guardedPublishChannelPermissions as publishChannelPermissions,
   guardedPublishEmoji as publishEmoji,
   publishMessage,

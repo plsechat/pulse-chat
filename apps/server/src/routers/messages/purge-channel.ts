@@ -12,8 +12,8 @@ import { protectedProcedure } from '../../utils/trpc';
 const purgeChannelRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number(),
-      confirmChannelName: z.string()
+      channelId: z.number().int().positive(),
+      confirmChannelName: z.string().max(100)
     })
   )
   .mutation(async ({ input, ctx }) => {

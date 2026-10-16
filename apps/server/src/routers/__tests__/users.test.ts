@@ -873,7 +873,8 @@ describe('users router', () => {
     test('addRole and removeRole work on federated targets', async () => {
       const { caller } = await initTest();
       const tdb = getTestDb();
-      const shadowId = await insertFederatedShadow();
+      // Roles are only granted to members of the active server.
+      const shadowId = await insertFederatedShadow({ member: true });
 
       await caller.users.addRole({ userId: shadowId, roleId: 2 });
 

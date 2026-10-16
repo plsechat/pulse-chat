@@ -16,7 +16,6 @@ import {
   isServerOwner
 } from '../../db/queries/servers';
 import { servers } from '../../db/schema';
-import { pluginManager } from '../../plugins';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
@@ -24,10 +23,10 @@ import { protectedProcedure } from '../../utils/trpc';
 const updateSettingsRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number(),
+      serverId: z.number().int().positive(),
       name: z.string().min(2).max(24).optional(),
       description: z.string().max(128).optional(),
-      password: z.string().min(1).max(32).optional().nullable().default(null),
+      password: z.string().min(1).max(32).optional().nullable(),
       allowNewUsers: z.boolean().optional(),
       storageUploadEnabled: z.boolean().optional(),
       storageUploadMaxFileSize: z.number().min(0).optional(),
@@ -77,8 +76,14 @@ const updateSettingsRoute = protectedProcedure
       }
     }
 
-    const oldEnablePlugins = server.enablePlugins;
-    const { serverId, ...updates } = input;
+    const { serverId, ...rest } = input;
+
+    // Partial update: only the keys the caller sent are written. An
+    // omitted `password` must leave the current one alone (an explicit
+    // null clears it).
+    const updates = Object.fromEntries(
+      Object.entries(rest).filter(([, value]) => value !== undefined)
+    );
 
     await db
       .update(servers)
@@ -87,14 +92,6 @@ const updateSettingsRoute = protectedProcedure
         updatedAt: Date.now()
       })
       .where(eq(servers.id, serverId));
-
-    if (oldEnablePlugins !== input.enablePlugins) {
-      if (input.enablePlugins) {
-        await pluginManager.loadPlugins();
-      } else {
-        await pluginManager.unloadPlugins();
-      }
-    }
 
     // Publish to server members
     const publicSettings = await getServerPublicSettings(serverId);

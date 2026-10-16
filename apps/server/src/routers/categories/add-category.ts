@@ -11,7 +11,7 @@ const addCategoryRoute = protectedProcedure
   .input(
     z.object({
       name: z.string().min(1).max(32),
-      serverId: z.number()
+      serverId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {

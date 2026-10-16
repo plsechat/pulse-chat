@@ -13,10 +13,10 @@ import { getFederationProtocol } from '../../utils/validate-url';
 const ensureShadowUserRoute = protectedProcedure
   .input(
     z.object({
-      instanceDomain: z.string(),
-      remoteUserId: z.number(),
-      username: z.string(),
-      remotePublicId: z.string()
+      instanceDomain: z.string().min(1).max(253),
+      remoteUserId: z.number().int().nonnegative(),
+      username: z.string().max(32),
+      remotePublicId: z.string().min(1).max(64)
     })
   )
   .mutation(async ({ ctx, input }) => {

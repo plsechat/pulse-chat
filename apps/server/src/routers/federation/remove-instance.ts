@@ -12,7 +12,7 @@ import { instanceOwnerProcedure } from '../../utils/procedures';
 const removeInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
-      instanceId: z.number()
+      instanceId: z.number().int().positive()
     })
   )
   .mutation(async ({ input }) => {

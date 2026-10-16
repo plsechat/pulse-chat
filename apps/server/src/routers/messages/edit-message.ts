@@ -1,4 +1,7 @@
-import { MAX_MESSAGE_WIRE_LENGTH } from '@pulse/shared';
+import {
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_MESSAGE_WIRE_LENGTH
+} from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -9,13 +12,14 @@ import { messages } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
+import { checkAutomod, executeAutomodActions } from '../../utils/automod';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const editMessageRoute = protectedProcedure
+const editMessageRoute = serverProcedure()
   .input(
     z.object({
-      messageId: z.number(),
+      messageId: z.number().int().positive(),
       content: z
         .string()
         .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
@@ -23,11 +27,6 @@ const editMessageRoute = protectedProcedure
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const message = await getMessageInActiveServer(
       input.messageId,
       ctx.activeServerId
@@ -64,6 +63,38 @@ const editMessageRoute = protectedProcedure
         code: 'BAD_REQUEST',
         message: 'Non-E2EE messages must be edited with content'
       });
+
+      // Same plaintext budget as sending — the wire cap is for ciphertext.
+      invariant(input.content.length <= MAX_MESSAGE_CONTENT_LENGTH, {
+        code: 'BAD_REQUEST',
+        message: 'Message is too long'
+      });
+
+      // An edit is a second chance to publish blocked content; run the
+      // same rules (and the same actions) as the send path.
+      const automodResult = await checkAutomod(
+        input.content,
+        message.channelId,
+        ctx.userId,
+        ctx.activeServerId
+      );
+
+      if (automodResult.blocked && automodResult.actions) {
+        await executeAutomodActions(automodResult.actions, {
+          channelId: message.channelId,
+          userId: ctx.userId,
+          content: input.content,
+          serverId: ctx.activeServerId,
+          ruleName: automodResult.matchedRuleName ?? 'Unknown',
+          authorId: automodResult.matchedRuleCreatedBy
+        });
+
+        ctx.throwValidationError(
+          'automod',
+          'Message blocked by auto-moderation.'
+        );
+      }
+
       updateSet.content = input.content;
 
       // Re-parse mentions on edit

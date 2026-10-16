@@ -1,6 +1,67 @@
-import { ChannelType } from '@pulse/shared';
+import {
+  ChannelPermission,
+  ChannelType,
+  MAX_MESSAGE_CONTENT_LENGTH
+} from '@pulse/shared';
+import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
+import { eq } from 'drizzle-orm';
+import {
+  createEmptyTextChannel,
+  createTestChannel
+} from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
+import { getTestDb } from '../../__tests__/mock-db';
+import {
+  channelUserPermissions,
+  channels,
+  forumPostTags,
+  threadFollowers
+} from '../../db/schema';
+
+/** A private channel of `type` in the bootstrap server, no override rows. */
+const insertPrivateChannel = async (name: string, type: ChannelType) => {
+  const [channel] = await getTestDb()
+    .insert(channels)
+    .values({
+      type,
+      name,
+      position: 80,
+      private: true,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    })
+    .returning();
+  return channel!;
+};
+
+const grantChannelPermissions = async (
+  channelId: number,
+  userId: number,
+  permissions: ChannelPermission[]
+) => {
+  await getTestDb().insert(channelUserPermissions).values(
+    permissions.map((permission) => ({
+      channelId,
+      userId,
+      permission,
+      allow: true,
+      createdAt: Date.now()
+    }))
+  );
+};
+
+const loadChannel = async (id: number) => {
+  const [row] = await getTestDb()
+    .select()
+    .from(channels)
+    .where(eq(channels.id, id));
+  return row!;
+};
 
 describe('forums', () => {
   // ── Channel creation ──────────────────────────────────────────────
@@ -128,7 +189,7 @@ describe('forums', () => {
     ).rejects.toThrow();
   });
 
-  test('should reject forum post with content exceeding 4000 chars', async () => {
+  test('should cap forum post content at the plaintext message budget', async () => {
     const { caller } = await initTest();
 
     const forumId = await caller.channels.add({
@@ -142,9 +203,17 @@ describe('forums', () => {
       caller.threads.createForumPost({
         channelId: forumId,
         title: 'Valid title',
-        content: 'a'.repeat(4001)
+        content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1)
       })
     ).rejects.toThrow();
+
+    // A post is an ordinary message in its thread — same cap, not 4000.
+    const { threadId } = await caller.threads.createForumPost({
+      channelId: forumId,
+      title: 'Long but legal',
+      content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH)
+    });
+    expect(typeof threadId).toBe('number');
   });
 
   // ── Listing threads ───────────────────────────────────────────────
@@ -620,5 +689,280 @@ describe('forums', () => {
         name: 'a'.repeat(51)
       })
     ).rejects.toThrow();
+  });
+
+  test('should reject a tag colour that is not hex', async () => {
+    const { caller } = await initTest();
+
+    const forumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'css-colour',
+      categoryId: 1,
+      serverId: 1
+    });
+
+    await expect(
+      caller.threads.createForumTag({
+        channelId: forumId,
+        name: 'bad',
+        color: 'url(javascript:1)'
+      })
+    ).rejects.toThrow('Invalid hex color');
+
+    const tag = await caller.threads.createForumTag({
+      channelId: forumId,
+      name: 'good',
+      color: '#abc'
+    });
+    await expect(
+      caller.threads.updateForumTag({ tagId: tag!.id, color: 'red' })
+    ).rejects.toThrow('Invalid hex color');
+  });
+
+  // ── Channel-level authorization ───────────────────────────────────
+
+  test('posting into a private forum needs channel SEND_MESSAGES', async () => {
+    const { caller: member } = await initTest(2);
+    const forum = await insertPrivateChannel('private-forum', ChannelType.FORUM);
+
+    await expect(
+      member.threads.createForumPost({
+        channelId: forum.id,
+        title: 'sneak',
+        content: 'in'
+      })
+    ).rejects.toThrow('Insufficient channel permissions');
+
+    await grantChannelPermissions(forum.id, 2, [
+      ChannelPermission.VIEW_CHANNEL,
+      ChannelPermission.SEND_MESSAGES
+    ]);
+    const { caller: allowed } = await initTest(2);
+    const { threadId } = await allowed.threads.createForumPost({
+      channelId: forum.id,
+      title: 'allowed',
+      content: 'in'
+    });
+
+    // The post inherits the forum's visibility and its viewer set.
+    const thread = await loadChannel(threadId);
+    expect(thread.private).toBe(true);
+
+    const { caller: outsider } = await initTest(3);
+    await expect(
+      outsider.messages.get({ channelId: threadId, limit: 10 })
+    ).rejects.toThrow('Insufficient channel permissions');
+    const page = await allowed.messages.get({ channelId: threadId, limit: 10 });
+    expect(page.messages).toHaveLength(1);
+  });
+
+  test('tags must belong to the forum; count is bounded', async () => {
+    const { caller } = await initTest();
+
+    const forumA = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'forum-a',
+      categoryId: 1,
+      serverId: 1
+    });
+    const forumB = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'forum-b',
+      categoryId: 1,
+      serverId: 1
+    });
+    const tagB = await caller.threads.createForumTag({
+      channelId: forumB,
+      name: 'b-only'
+    });
+
+    await expect(
+      caller.threads.createForumPost({
+        channelId: forumA,
+        title: 'wrong tag',
+        content: 'x',
+        tagIds: [tagB!.id]
+      })
+    ).rejects.toThrow('do not belong to this forum');
+
+    await expect(
+      caller.threads.createForumPost({
+        channelId: forumA,
+        title: 'too many',
+        content: 'x',
+        tagIds: Array.from({ length: 21 }, (_, i) => i + 1)
+      })
+    ).rejects.toThrow();
+
+    const tagA = await caller.threads.createForumTag({
+      channelId: forumA,
+      name: 'a'
+    });
+    const { threadId } = await caller.threads.createForumPost({
+      channelId: forumA,
+      title: 'ok',
+      content: 'x',
+      tagIds: [tagA!.id, tagA!.id]
+    });
+
+    await expect(
+      caller.threads.updatePostTags({ threadId, tagIds: [tagB!.id] })
+    ).rejects.toThrow('do not belong to this forum');
+
+    await caller.threads.updatePostTags({ threadId, tagIds: [tagA!.id] });
+    const rows = await getTestDb()
+      .select()
+      .from(forumPostTags)
+      .where(eq(forumPostTags.threadId, threadId));
+    expect(rows.map((r) => r.tagId)).toEqual([tagA!.id]);
+  });
+
+  // ── Inline threads via the router ─────────────────────────────────
+
+  test('threads.create needs channel SEND_MESSAGES on the parent and server scope', async () => {
+    const { caller: owner } = await initTest(1);
+    const { caller: member } = await initTest(2);
+    const secret = await insertPrivateChannel('thread-secret', ChannelType.TEXT);
+
+    const messageId = await owner.messages.send({
+      channelId: secret.id,
+      content: 'seed'
+    });
+
+    await expect(
+      member.threads.create({ messageId, name: 'peek' })
+    ).rejects.toThrow('Insufficient channel permissions');
+
+    await expect(
+      member.threads.create({ messageId: 999999, name: 'none' })
+    ).rejects.toThrow('Message not found');
+  });
+
+  test('a thread inherits e2ee from its parent and refuses plaintext', async () => {
+    const { caller } = await initTest(1);
+    const e2eeChannel = await createTestChannel({
+      serverId: 1,
+      name: 'encrypted',
+      e2ee: true
+    });
+
+    const messageId = await caller.messages.send({
+      channelId: e2eeChannel,
+      content: 'ciphertext',
+      e2ee: true
+    });
+
+    const { threadId } = await caller.threads.create({
+      messageId,
+      name: 'encrypted thread'
+    });
+    const thread = await loadChannel(threadId);
+    expect(thread.e2ee).toBe(true);
+    expect(thread.parentChannelId).toBe(e2eeChannel);
+
+    await expect(
+      caller.messages.send({ channelId: threadId, content: 'plaintext' })
+    ).rejects.toThrow('This channel requires E2EE messages');
+    await caller.messages.send({
+      channelId: threadId,
+      content: 'more ciphertext',
+      e2ee: true
+    });
+  });
+
+  test('a thread under a private parent is private to the same viewers', async () => {
+    const { caller: owner } = await initTest(1);
+    const secret = await insertPrivateChannel('private-parent', ChannelType.TEXT);
+    await grantChannelPermissions(secret.id, 2, [
+      ChannelPermission.VIEW_CHANNEL,
+      ChannelPermission.SEND_MESSAGES
+    ]);
+    const { caller: viewer } = await initTest(2);
+    const { caller: outsider } = await initTest(3);
+
+    const messageId = await owner.messages.send({
+      channelId: secret.id,
+      content: 'seed'
+    });
+    const { threadId } = await viewer.threads.create({
+      messageId,
+      name: 'private thread'
+    });
+
+    const thread = await loadChannel(threadId);
+    expect(thread.private).toBe(true);
+
+    // Viewer of the parent can read and post; an outsider cannot see it.
+    await viewer.messages.send({ channelId: threadId, content: 'inside' });
+    const page = await viewer.messages.get({ channelId: threadId, limit: 10 });
+    expect(page.messages).toHaveLength(1);
+    await expect(
+      outsider.messages.get({ channelId: threadId, limit: 10 })
+    ).rejects.toThrow('Insufficient channel permissions');
+    await expect(
+      outsider.threads.followThread({ threadId, follow: true })
+    ).rejects.toThrow('Insufficient channel permissions');
+  });
+
+  test('threads cannot be nested', async () => {
+    const { caller } = await initTest(1);
+    const channel = await createEmptyTextChannel('no-nesting');
+
+    const messageId = await caller.messages.send({
+      channelId: channel.id,
+      content: 'root'
+    });
+    const { threadId } = await caller.threads.create({ messageId, name: 't' });
+    const inner = await caller.messages.send({
+      channelId: threadId,
+      content: 'inside'
+    });
+
+    await expect(
+      caller.threads.create({ messageId: inner, name: 'nested' })
+    ).rejects.toThrow('text or forum channels');
+  });
+
+  test('follow / getFollowStatus / deleteThread via the router', async () => {
+    const { caller: owner } = await initTest(1);
+    const { caller: member } = await initTest(2);
+    const channel = await createEmptyTextChannel('follow-me');
+
+    const messageId = await member.messages.send({
+      channelId: channel.id,
+      content: 'root'
+    });
+    const { threadId } = await member.threads.create({ messageId, name: 't' });
+
+    expect(await owner.threads.getFollowStatus({ threadId })).toEqual({
+      following: false
+    });
+    await owner.threads.followThread({ threadId, follow: true });
+    expect(await owner.threads.getFollowStatus({ threadId })).toEqual({
+      following: true
+    });
+    await owner.threads.followThread({ threadId, follow: false });
+    expect(await owner.threads.getFollowStatus({ threadId })).toEqual({
+      following: false
+    });
+    await expect(
+      owner.threads.followThread({ threadId: 999999, follow: true })
+    ).rejects.toThrow('Thread not found');
+
+    // Creator may delete while nobody else has posted...
+    await owner.messages.send({ channelId: threadId, content: 'joined' });
+    await expect(member.threads.deleteThread({ threadId })).rejects.toThrow(
+      'Ask an admin'
+    );
+    // ...an admin always can.
+    await owner.threads.deleteThread({ threadId });
+    const rows = await getTestDb()
+      .select()
+      .from(threadFollowers)
+      .where(eq(threadFollowers.threadId, threadId));
+    expect(rows).toHaveLength(0);
+    await expect(
+      owner.threads.deleteThread({ threadId })
+    ).rejects.toThrow('Thread not found');
   });
 });

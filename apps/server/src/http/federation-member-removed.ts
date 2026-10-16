@@ -37,7 +37,9 @@ import { signedJsonResponse } from '../utils/federation';
 import { pubsub } from '../utils/pubsub';
 import {
   authorizeFederationRequest,
-  jsonResponse
+  jsonResponse,
+  MAX_PEER_SERVER_NAME_LENGTH,
+  peerString
 } from './federation-helpers';
 
 const federationMemberRemovedHandler = async (
@@ -50,7 +52,10 @@ const federationMemberRemovedHandler = async (
 
   const subjectPublicId = signedBody.subjectPublicId as string | undefined;
   const serverPublicId = signedBody.serverPublicId as string | undefined;
-  const serverName = signedBody.serverName as string | undefined;
+  const serverName = peerString(
+    signedBody.serverName,
+    MAX_PEER_SERVER_NAME_LENGTH
+  );
   const action = signedBody.action as string | undefined;
   const reason = signedBody.reason as string | undefined;
 

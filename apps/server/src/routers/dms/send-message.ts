@@ -1,5 +1,5 @@
 import { MAX_MESSAGE_WIRE_LENGTH, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { isBlockBetween } from '../../db/queries/blocks';
@@ -19,14 +19,15 @@ import { resolveForwardSource } from '../../utils/forward-source';
 const sendMessageRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
+      dmChannelId: z.number().int().positive(),
       content: z
         .string()
         .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
         .optional(),
       e2ee: z.boolean().optional(),
-      files: z.array(z.string()).optional(),
-      replyToId: z.number().optional(),
+      // Every entry is a saveFile — bound the batch and the id length.
+      files: z.array(z.string().max(64)).max(10).optional(),
+      replyToId: z.number().int().positive().optional(),
       /**
        * Forward attribution by SOURCE REFERENCE — the server loads the
        * source, verifies visibility, and derives the author itself.
@@ -97,6 +98,26 @@ const sendMessageRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'Non-E2EE messages must include content or files'
     });
+
+    // The reply target must live in THIS conversation. Reader routes
+    // ship `replyTo.content` to every member, so an unchecked id would
+    // disclose a message from any other DM (or an unrelated id space).
+    if (input.replyToId != null) {
+      const [reply] = await db
+        .select({ id: dmMessages.id })
+        .from(dmMessages)
+        .where(
+          and(
+            eq(dmMessages.id, input.replyToId),
+            eq(dmMessages.dmChannelId, input.dmChannelId)
+          )
+        )
+        .limit(1);
+      invariant(reply, {
+        code: 'BAD_REQUEST',
+        message: 'Reply target is not in this conversation'
+      });
+    }
 
     const forwarded = input.forwardedFrom
       ? await resolveForwardSource(input.forwardedFrom, ctx)

@@ -14,11 +14,9 @@ import { leavePreviewRoute } from './leave-preview';
 import { previewServerRoute } from './preview';
 import { reorderServersRoute } from './reorder';
 import { transferOwnerRoute } from './transfer-owner';
-import { updateServerRoute } from './update';
 
 export const serversRouter = t.router({
   create: createServerRoute,
-  update: updateServerRoute,
   delete: deleteServerRoute,
   join: joinServerByInviteRoute,
   joinDiscover: joinDiscoverRoute,

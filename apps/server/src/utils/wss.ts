@@ -41,6 +41,10 @@ import { appRouter } from '../routers';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { VoiceRuntime } from '../runtimes/voice';
 import { verifyFederationToken } from './federation';
+import {
+  registerPermissionCacheInvalidator,
+  unregisterPermissionCacheInvalidator
+} from './permission-cache-registry';
 import { setWsStatsProvider } from './ws-stats';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
@@ -237,6 +241,15 @@ const createContext = async ({
     _cachedChannelPerms = undefined;
   };
 
+  // Reachable by user id so a route that changes ANOTHER user's standing
+  // (ownership transfer) can drop their caches on every connection; the
+  // socket close handler unregisters it.
+  registerPermissionCacheInvalidator(
+    decodedUser.id,
+    accessToken,
+    invalidatePermissionCache
+  );
+
   const _activeServer = { id: undefined as number | undefined };
 
   // Read-only preview session (servers.preview): grants exactly
@@ -253,6 +266,17 @@ const createContext = async ({
     // are scoped to the current server instead of checking globally.
     const effectiveServerId = serverId ?? _activeServer.id;
 
+    // No server to evaluate against (the connection never joined one, or
+    // left its active server): deny. Aggregating roles across every
+    // server the user is in would grant a permission held anywhere.
+    if (effectiveServerId === undefined) {
+      logger.debug(
+        '[perm] denied reason=no-active-server target=%o',
+        targetPermission
+      );
+      return false;
+    }
+
     const user = await getCachedUser();
     if (!user) {
       logger.debug(
@@ -264,17 +288,15 @@ const createContext = async ({
     }
 
     // Check if user is the server owner (bypasses all permission checks)
-    if (effectiveServerId) {
-      const server = await getCachedServer(effectiveServerId);
-      if (server && server.ownerId === user.id) {
-        logger.debug(
-          '[perm] granted reason=owner userId=%d serverId=%s target=%o',
-          user.id,
-          effectiveServerId,
-          targetPermission
-        );
-        return true;
-      }
+    const server = await getCachedServer(effectiveServerId);
+    if (server && server.ownerId === user.id) {
+      logger.debug(
+        '[perm] granted reason=owner userId=%d serverId=%s target=%o',
+        user.id,
+        effectiveServerId,
+        targetPermission
+      );
+      return true;
     }
 
     const roles = await getCachedUserRoles(user.id, effectiveServerId);
@@ -341,8 +363,20 @@ const createContext = async ({
       return granted;
     }
 
-    // Ensure the channel belongs to the caller's active server
-    if (_activeServer.id && channelRecord.serverId !== _activeServer.id) {
+    // Outside a preview, channel permissions only exist relative to the
+    // connection's active server: no active server means no access (a
+    // connection that never joined, or left, must not read every public
+    // channel on the instance), and a channel of another server is denied.
+    if (_activeServer.id === undefined) {
+      logger.debug(
+        '[chan-perm] denied reason=no-active-server channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
+      return false;
+    }
+
+    if (channelRecord.serverId !== _activeServer.id) {
       logger.debug(
         '[chan-perm] denied reason=cross-server channelId=%d activeServerId=%d target=%o',
         channelId,
@@ -350,15 +384,6 @@ const createContext = async ({
         targetPermission
       );
       return false;
-    }
-
-    if (!channelRecord.private) {
-      logger.debug(
-        '[chan-perm] granted reason=public channelId=%d target=%o',
-        channelId,
-        targetPermission
-      );
-      return true;
     }
 
     const user = await getCachedUser();
@@ -383,16 +408,24 @@ const createContext = async ({
       return true;
     }
 
+    // Overrides apply to EVERY channel: a public channel defaults to
+    // allow and a private one to deny, then role rows, then user rows
+    // (see getAllChannelUserPermissions). A channel missing from the
+    // cached map (created after this connection's map was built) falls
+    // back to that default.
     const userChannelPermissions = await getCachedChannelPermissions();
     const channelInfo = userChannelPermissions[channelId];
     if (!channelInfo) {
+      const granted = !channelRecord.private;
       logger.debug(
-        '[chan-perm] denied reason=no-permissions-row userId=%d channelId=%d target=%o',
+        '[chan-perm] %s reason=no-permissions-row userId=%d channelId=%d private=%s target=%o',
+        granted ? 'granted' : 'denied',
         user.id,
         channelId,
+        channelRecord.private,
         targetPermission
       );
-      return false;
+      return granted;
     }
     if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) {
       logger.debug(
@@ -651,6 +684,10 @@ const createWsServer = async (server: http.Server) => {
 
       ws.on('close', async () => {
         logger.debug('[WS] connection close userId=%s', ws.userId ?? '-');
+
+        if (ws.userId !== undefined && ws.token) {
+          unregisterPermissionCacheInvalidator(ws.userId, ws.token);
+        }
 
         // Clean up the token map only if it still points at THIS socket.
         // A refreshed page reuses the same access token, so the old

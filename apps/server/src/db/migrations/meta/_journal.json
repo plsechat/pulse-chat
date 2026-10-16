@@ -218,6 +218,13 @@
       "when": 1792102705339,
       "tag": "0030_normalize_local_auth_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792106550735,
+      "tag": "0031_charming_shadowcat",
+      "breakpoints": true
     }
   ]
 }

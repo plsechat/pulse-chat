@@ -18,7 +18,7 @@ import { serverProcedure } from '../../utils/procedures';
 const moderateMemberRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
-      userId: z.number(),
+      userId: z.number().int().positive(),
       serverMuted: z.boolean().optional(),
       serverDeafened: z.boolean().optional()
     })

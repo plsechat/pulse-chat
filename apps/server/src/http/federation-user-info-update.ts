@@ -50,7 +50,11 @@ import { signedJsonResponse } from '../utils/federation';
 import { setRuntimeUserStatus } from '../utils/wss';
 import {
   authorizeFederationRequest,
-  jsonResponse
+  jsonResponse,
+  MAX_PEER_BIO_LENGTH,
+  MAX_PEER_NAME_LENGTH,
+  PEER_BANNER_COLOR_RE,
+  peerString
 } from './federation-helpers';
 
 // Mirror of the UserStatus enum surface validated against incoming
@@ -74,9 +78,21 @@ const federationUserInfoUpdateHandler = async (
   const { instance, signedBody, fromDomain } = auth;
 
   const subjectPublicId = signedBody.subjectPublicId as string | undefined;
-  const nameChange = signedBody.name as string | undefined;
-  const bioChange = signedBody.bio as string | null | undefined;
-  const bannerColorChange = signedBody.bannerColor as string | null | undefined;
+  // Display strings are truncated to the local caps; a non-string is
+  // treated as "not sent". bannerColor must be a hex color or it
+  // applies as cleared (same rule as nameplate / nameStyle below).
+  const nameChange = peerString(signedBody.name, MAX_PEER_NAME_LENGTH) || undefined;
+  const bioChange =
+    signedBody.bio === null
+      ? null
+      : peerString(signedBody.bio, MAX_PEER_BIO_LENGTH);
+  const bannerColorChange =
+    signedBody.bannerColor === undefined
+      ? undefined
+      : typeof signedBody.bannerColor === 'string' &&
+          PEER_BANNER_COLOR_RE.test(signedBody.bannerColor)
+        ? signedBody.bannerColor
+        : null;
   const customStatusChange = signedBody.customStatus as
     | string
     | null

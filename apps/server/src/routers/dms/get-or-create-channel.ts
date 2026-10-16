@@ -11,7 +11,7 @@ import { protectedProcedure } from '../../utils/trpc';
 import { attachMemberStatus } from './attach-member-status';
 
 const getOrCreateChannelRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     invariant(input.userId !== ctx.userId, {
       code: 'BAD_REQUEST',

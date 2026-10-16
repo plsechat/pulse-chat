@@ -18,7 +18,7 @@ import { removeUserFromVoice } from '../../utils/voice-cleanup';
 const disconnectUserRoute = protectedProcedure
   .input(
     z.object({
-      userId: z.number()
+      userId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {

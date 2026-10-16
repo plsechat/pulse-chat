@@ -12,7 +12,7 @@ import { instanceOwnerProcedure } from '../../utils/procedures';
 const blockInstanceRoute = instanceOwnerProcedure
   .input(
     z.object({
-      instanceId: z.number()
+      instanceId: z.number().int().positive()
     })
   )
   .mutation(async ({ input }) => {

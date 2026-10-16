@@ -14,7 +14,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const getPinnedDmMessagesRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number()
+      dmChannelId: z.number().int().positive()
     })
   )
   .query(async ({ ctx, input }) => {
@@ -76,14 +76,25 @@ const getPinnedDmMessagesRoute = protectedProcedure
         .select({
           id: dmMessages.id,
           content: dmMessages.content,
-          userId: dmMessages.userId
+          userId: dmMessages.userId,
+          e2ee: dmMessages.e2ee
         })
         .from(dmMessages)
-        .where(inArray(dmMessages.id, replyToIds));
+        .where(
+          and(
+            inArray(dmMessages.id, replyToIds),
+            eq(dmMessages.dmChannelId, input.dmChannelId)
+          )
+        );
 
       replyToMap = replyRows.reduce<Record<number, TMessageReplyPreview>>(
         (acc, r) => {
-          acc[r.id] = { id: r.id, content: r.content, userId: r.userId };
+          acc[r.id] = {
+            id: r.id,
+            content: r.content,
+            userId: r.userId,
+            e2ee: r.e2ee
+          };
           return acc;
         },
         {}

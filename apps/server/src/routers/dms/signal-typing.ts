@@ -7,7 +7,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const signalDmTypingRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number()
+      dmChannelId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {

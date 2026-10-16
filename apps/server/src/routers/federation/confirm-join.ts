@@ -8,10 +8,10 @@ import { protectedProcedure } from '../../utils/trpc';
 const confirmJoinRoute = protectedProcedure
   .input(
     z.object({
-      instanceDomain: z.string(),
-      remoteServerId: z.number(),
-      remoteServerPublicId: z.string(),
-      remoteServerName: z.string()
+      instanceDomain: z.string().min(1).max(253),
+      remoteServerId: z.number().int().positive(),
+      remoteServerPublicId: z.string().min(1).max(64),
+      remoteServerName: z.string().max(100)
     })
   )
   .mutation(async ({ ctx, input }) => {

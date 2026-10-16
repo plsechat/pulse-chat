@@ -18,7 +18,7 @@ import { removeUserFromVoice } from '../../utils/voice-cleanup';
 const joinVoiceRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number(),
+      channelId: z.number().int().positive(),
       state: z.object({
         micMuted: z.boolean().default(false),
         soundMuted: z.boolean().default(false)

@@ -10,7 +10,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const pinDmMessageRoute = protectedProcedure
   .input(
     z.object({
-      dmMessageId: z.number()
+      dmMessageId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {

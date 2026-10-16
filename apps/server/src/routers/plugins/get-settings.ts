@@ -1,17 +1,15 @@
-import { Permission } from '@pulse/shared';
 import z from 'zod';
 import { pluginManager } from '../../plugins';
-import { protectedProcedure } from '../../utils/trpc';
+import { instanceOwnerProcedure } from '../../utils/procedures';
+import { pluginIdSchema } from './schemas';
 
-const getSettingsRoute = protectedProcedure
+const getSettingsRoute = instanceOwnerProcedure
   .input(
     z.object({
-      pluginId: z.string()
+      pluginId: pluginIdSchema
     })
   )
-  .query(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_PLUGINS);
-
+  .query(async ({ input }) => {
     return pluginManager.getPluginSettings(input.pluginId);
   });
 

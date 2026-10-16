@@ -42,7 +42,16 @@ import { pubsub } from '../utils/pubsub';
 import { signedJsonResponse } from '../utils/federation';
 import {
   authorizeFederationRequest,
-  jsonResponse
+  isPeerDomain,
+  isPeerPublicId,
+  isPeerSenderKeyId,
+  jsonResponse,
+  MAX_PEER_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_PEER_DM_GROUP_MEMBERS,
+  MAX_PEER_GROUP_NAME_LENGTH,
+  MAX_PEER_IDENTITY_KEY_LENGTH,
+  MAX_PEER_NAME_LENGTH,
+  peerString
 } from './federation-helpers';
 
 type IncomingFederatedMember = {
@@ -66,6 +75,26 @@ type IncomingFederatedMember = {
  *      through them will fall back to the requesting peer being
  *      able to see them).
  */
+/**
+ * Validate and bound one wire member descriptor. Structural fields
+ * (publicId, instanceDomain) are rejected when malformed; the display
+ * name is truncated and falls back to the publicId when missing.
+ */
+function sanitizeIncomingMember(
+  raw: unknown
+): IncomingFederatedMember | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { publicId, instanceDomain, name } = raw as Record<string, unknown>;
+  if (!isPeerPublicId(publicId) || !isPeerDomain(instanceDomain)) return null;
+  return {
+    publicId,
+    instanceDomain,
+    name:
+      peerString(name, MAX_PEER_NAME_LENGTH) ||
+      publicId.slice(0, MAX_PEER_NAME_LENGTH)
+  };
+}
+
 async function resolveMemberToLocalUserId(
   member: IncomingFederatedMember,
   requesterInstanceId: number,
@@ -117,18 +146,32 @@ const federationDmGroupCreateHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const name = (signedBody.name as string | null) ?? null;
-  const ownerPublicId = signedBody.ownerPublicId as string;
-  const members = signedBody.members as IncomingFederatedMember[];
+  const federationGroupId = signedBody.federationGroupId;
+  const name = peerString(signedBody.name, MAX_PEER_GROUP_NAME_LENGTH) ?? null;
+  const ownerPublicId = signedBody.ownerPublicId;
+  const rawMembers = signedBody.members;
 
   if (
-    !federationGroupId ||
-    !ownerPublicId ||
-    !Array.isArray(members) ||
-    members.length === 0
+    !isPeerPublicId(federationGroupId) ||
+    !isPeerPublicId(ownerPublicId) ||
+    !Array.isArray(rawMembers) ||
+    rawMembers.length === 0
   ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+
+  // Every member may mint a shadow user — bound the list and reject
+  // malformed entries outright rather than skipping them silently.
+  if (rawMembers.length > MAX_PEER_DM_GROUP_MEMBERS) {
+    return jsonResponse(res, 400, { error: 'Too many members' });
+  }
+  const members: IncomingFederatedMember[] = [];
+  for (const raw of rawMembers) {
+    const member = sanitizeIncomingMember(raw);
+    if (!member) {
+      return jsonResponse(res, 400, { error: 'Invalid member descriptor' });
+    }
+    members.push(member);
   }
 
   // Idempotent: a re-announce of the same group should be a no-op.
@@ -218,12 +261,10 @@ const federationDmGroupAddMemberHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const addedMember = signedBody.addedMember as
-    | IncomingFederatedMember
-    | undefined;
+  const federationGroupId = signedBody.federationGroupId;
+  const addedMember = sanitizeIncomingMember(signedBody.addedMember);
 
-  if (!federationGroupId || !addedMember?.publicId) {
+  if (!isPeerPublicId(federationGroupId) || !addedMember) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -297,10 +338,10 @@ const federationDmGroupRemoveMemberHandler = async (
   if (!auth) return;
   const { signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const removedPublicId = signedBody.removedPublicId as string;
+  const federationGroupId = signedBody.federationGroupId;
+  const removedPublicId = signedBody.removedPublicId;
 
-  if (!federationGroupId || !removedPublicId) {
+  if (!isPeerPublicId(federationGroupId) || !isPeerPublicId(removedPublicId)) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -361,20 +402,24 @@ const federationDmSenderKeyHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const senderKeyId = signedBody.senderKeyId as number;
-  const fromPublicId = signedBody.fromPublicId as string;
-  const toPublicId = signedBody.toPublicId as string;
-  const distributionMessage = signedBody.distributionMessage as string;
+  const federationGroupId = signedBody.federationGroupId;
+  const senderKeyId = signedBody.senderKeyId;
+  const fromPublicId = signedBody.fromPublicId;
+  const toPublicId = signedBody.toPublicId;
+  const distributionMessage = signedBody.distributionMessage;
 
   if (
-    !federationGroupId ||
-    typeof senderKeyId !== 'number' ||
-    !fromPublicId ||
-    !toPublicId ||
-    !distributionMessage
+    !isPeerPublicId(federationGroupId) ||
+    !isPeerSenderKeyId(senderKeyId) ||
+    !isPeerPublicId(fromPublicId) ||
+    !isPeerPublicId(toPublicId) ||
+    typeof distributionMessage !== 'string' ||
+    distributionMessage.length === 0
   ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+  if (distributionMessage.length > MAX_PEER_DISTRIBUTION_MESSAGE_LENGTH) {
+    return jsonResponse(res, 400, { error: 'distributionMessage too large' });
   }
 
   const [mirror] = await db
@@ -443,10 +488,15 @@ const federationIdentityRotationHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const fromPublicId = signedBody.fromPublicId as string;
-  const newIdentityPublicKey = signedBody.newIdentityPublicKey as string;
+  const fromPublicId = signedBody.fromPublicId;
+  const newIdentityPublicKey = signedBody.newIdentityPublicKey;
 
-  if (!fromPublicId || !newIdentityPublicKey) {
+  if (
+    !isPeerPublicId(fromPublicId) ||
+    typeof newIdentityPublicKey !== 'string' ||
+    newIdentityPublicKey.length === 0 ||
+    newIdentityPublicKey.length > MAX_PEER_IDENTITY_KEY_LENGTH
+  ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 

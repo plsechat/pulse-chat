@@ -1,5 +1,6 @@
 import type { TFile, TJoinedDmMessage, TMessageReplyPreview } from '@pulse/shared';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { ServerEvents } from '@pulse/shared';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -16,9 +17,9 @@ const DEFAULT_DM_MESSAGES_LIMIT = 50;
 const getMessagesRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
-      cursor: z.number().nullish(),
-      limit: z.number().default(DEFAULT_DM_MESSAGES_LIMIT)
+      dmChannelId: z.number().int().positive(),
+      cursor: z.number().int().positive().nullish(),
+      limit: z.number().int().min(1).max(100).default(DEFAULT_DM_MESSAGES_LIMIT)
     })
   )
   .query(async ({ ctx, input }) => {
@@ -101,7 +102,14 @@ const getMessagesRoute = protectedProcedure
           e2ee: dmMessages.e2ee
         })
         .from(dmMessages)
-        .where(inArray(dmMessages.id, replyToIds));
+        // Scoped to this channel: a replyToId pointing into another
+        // conversation must never surface that conversation's text.
+        .where(
+          and(
+            inArray(dmMessages.id, replyToIds),
+            eq(dmMessages.dmChannelId, dmChannelId)
+          )
+        );
 
       const fileRowsForReplies = await db
         .select({ dmMessageId: dmMessageFiles.dmMessageId })
@@ -133,25 +141,36 @@ const getMessagesRoute = protectedProcedure
       replyTo: msg.replyToId ? (replyToMap[msg.replyToId] ?? null) : null
     }));
 
-    // Update read state
-    const latestMessage = rows[0];
+    // Update read state — first page only. Opening the conversation
+    // is what reads it; paging back through history must not move the
+    // marker to an older message (that re-flagged every newer message
+    // as unread on the next channel fetch). GREATEST keeps the marker
+    // monotonic even if a stale first-page response lands late.
+    if (!cursor) {
+      const latestId = Math.max(...rows.map((m) => m.id));
+      const now = Date.now();
 
-    if (latestMessage) {
-      await db
+      const [state] = await db
         .insert(dmReadStates)
         .values({
           dmChannelId,
           userId: ctx.userId,
-          lastReadMessageId: latestMessage.id,
-          lastReadAt: Date.now()
+          lastReadMessageId: latestId,
+          lastReadAt: now
         })
         .onConflictDoUpdate({
           target: [dmReadStates.userId, dmReadStates.dmChannelId],
           set: {
-            lastReadMessageId: latestMessage.id,
-            lastReadAt: Date.now()
+            lastReadMessageId: sql`GREATEST(${dmReadStates.lastReadMessageId}, ${latestId})`,
+            lastReadAt: now
           }
-        });
+        })
+        .returning({ lastReadMessageId: dmReadStates.lastReadMessageId });
+
+      ctx.pubsub.publishFor(ctx.userId, ServerEvents.DM_READ_STATE_UPDATE, {
+        dmChannelId,
+        lastReadMessageId: state?.lastReadMessageId ?? latestId
+      });
     }
 
     return { messages: messagesWithFiles, nextCursor };
