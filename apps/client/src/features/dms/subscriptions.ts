@@ -1,7 +1,6 @@
-import { connectionManager } from '@/lib/connection-manager';
 import {
-  fetchAndProcessPendingDmSenderKeys,
-  processIncomingFederatedSenderKey
+  fetchAndProcessFederatedSenderKeys,
+  fetchAndProcessPendingDmSenderKeys
 } from '@/lib/e2ee';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient } from '@/lib/trpc';
@@ -136,63 +135,17 @@ const subscribeToDms = () => {
     ),
     // Phase E / E1f — federated channel SKDM available on a host.
     // Fired on home WS when one of our local users is a recipient of
-    // a fresh SKDM stored on a peer instance. We open or reuse the
-    // active-server tRPC to that host, fetch all pending SKDMs (the
-    // notification is a wake-up; the actual rows tell us what's
-    // there), decrypt each via the federated path, and ack on host.
+    // a fresh SKDM stored on a peer instance. The notification is a
+    // wake-up; the pull itself (shared with the host connect /
+    // reconnect path, which reconciles anything this wake-up missed)
+    // fetches the rows from the host, opens each through the
+    // federated path and acks on the host.
     subscribe(
       'onFederatedSenderKeyAvailable',
       trpc.e2ee.onFederatedSenderKeyAvailable,
       async ({ hostDomain }) => {
         try {
-          const hostTrpc =
-            connectionManager.getRemoteTRPCClient(hostDomain);
-          if (!hostTrpc) {
-            console.warn(
-              '[E2EE] no active connection to %s for federated SKDM',
-              hostDomain
-            );
-            return;
-          }
-
-          const pending = await hostTrpc.e2ee.getPendingSenderKeys.query({});
-          if (pending.length === 0) return;
-
-          const processedIds: number[] = [];
-          for (const row of pending) {
-            try {
-              if (!row.fromHomePublicId) {
-                // Sender record on host has no usable publicId —
-                // can't be addressed cross-instance. Skip; the row
-                // will get re-fetched if anything changes.
-                continue;
-              }
-              await processIncomingFederatedSenderKey({
-                hostDomain,
-                hostChannelId: row.channelId,
-                hostFromUserId: row.fromUserId,
-                fromHomePublicId: row.fromHomePublicId,
-                fromInstanceDomain: row.fromInstanceDomain,
-                distributionMessage: row.distributionMessage
-              });
-              processedIds.push(row.id);
-            } catch (err) {
-              console.warn(
-                '[E2EE] Failed to process federated SKDM row:',
-                err
-              );
-            }
-          }
-
-          if (processedIds.length > 0) {
-            try {
-              await hostTrpc.e2ee.acknowledgeSenderKeys.mutate({
-                ids: processedIds
-              });
-            } catch {
-              // Non-fatal: rows persist and get retried next time.
-            }
-          }
+          await fetchAndProcessFederatedSenderKeys(hostDomain);
         } catch (err) {
           console.error(
             '[E2EE] Federated SKDM-available handler failed:',

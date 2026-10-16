@@ -10,6 +10,8 @@ import { resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
 import {
   distributeSenderKeysToOnlineMember,
+  getActiveE2eeInstance,
+  invalidateChannelMembers,
   markChainForRotation
 } from '@/lib/e2ee';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
@@ -19,23 +21,28 @@ import { toast } from 'sonner';
 import { addUser, handleUserJoin, removeUser, updateUser } from './actions';
 
 /**
- * Snapshot the inputs needed by lib/e2ee from Redux. Keeping the lookup
- * here (rather than inside lib/e2ee) avoids a Redux dependency in the
- * E2EE module — `lib/` stays orchestrator-callable from anywhere.
+ * The join event arrived on the active server's socket, so the joiner's
+ * id and the channel ids are in the active instance's id space — hand
+ * lib/e2ee that instance explicitly rather than letting it guess from
+ * ambient state.
  */
-function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
-  const state = store.getState();
-  const ownUserId = state.server.ownUserId;
-  if (!ownUserId) return Promise.resolve();
-  const e2eeChannelIds = state.server.channels
-    .filter((c) => c.e2ee)
+async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
+  const e2eeChannelIds = store
+    .getState()
+    .server.channels.filter((c) => c.e2ee)
     .map((c) => c.id);
-  return distributeSenderKeysToOnlineMember(
+  if (e2eeChannelIds.length === 0) return;
+  const instance = await getActiveE2eeInstance();
+  if (!instance) return;
+  await distributeSenderKeysToOnlineMember(
     joinedUserId,
-    ownUserId,
+    instance,
     e2eeChannelIds
   );
 }
+
+const sameRoleIds = (a: number[], b: number[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
 
 const subscribeToUsers = () => {
   const trpc = getTRPCClient();
@@ -69,6 +76,13 @@ const subscribeToUsers = () => {
       );
     }),
     subscribe('onUserUpdate', trpc.users.onUpdate, (user) => {
+      // A role grant can make an encrypted channel visible to this
+      // user; the cached roster predates it and would keep them off
+      // the SKDM target list. Presence-only updates leave it alone.
+      const before = store.getState().server.users.find((u) => u.id === user.id);
+      if (before && !sameRoleIds(before.roleIds, user.roleIds)) {
+        invalidateChannelMembers();
+      }
       updateUser(user.id, user);
       updateFriend(user.id, user);
       // Mirror the FULL profile onto cached DM member projections —

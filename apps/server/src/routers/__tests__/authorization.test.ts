@@ -235,7 +235,7 @@ describe('E2EE authorization', () => {
 
     await expect(
       caller.e2ee.getPreKeyBundle({ userId: isolatedId })
-    ).rejects.toThrow('No shared server with target user');
+    ).rejects.toThrow('No shared server, conversation or friendship with target user');
   });
 
   test('should deny fetching identity public key for unrelated user', async () => {
@@ -254,7 +254,7 @@ describe('E2EE authorization', () => {
 
     await expect(
       caller.e2ee.getIdentityPublicKey({ userId: isolatedId })
-    ).rejects.toThrow('No shared server with target user');
+    ).rejects.toThrow('No shared server, conversation or friendship with target user');
   });
 
   test('should allow fetching pre-key bundle for user in same server', async () => {

@@ -8,10 +8,12 @@ import {
 } from '@/lib/e2ee/key-backup';
 import {
   hasKeys,
-  signalStore,
   setupE2EEKeys,
   initE2EE,
-  finalizeRestoredKeys
+  finalizeRestoredKeys,
+  redistributeOwnSenderKeys,
+  regenerateOwnKeys,
+  setLocalResetFlag
 } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { useFilePicker } from '@/hooks/use-file-picker';
@@ -38,7 +40,9 @@ const Encryption = memo(() => {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState<
+    false | 'registering' | 'redistributing'
+  >(false);
 
   const [backupPassphrase, setBackupPassphrase] = useState('');
   const [backupConfirm, setBackupConfirm] = useState('');
@@ -65,6 +69,44 @@ const Encryption = memo(() => {
       .catch(() => setBackupStatus({ exists: false }));
   }, []);
 
+  /**
+   * A partial redistribution leaves the named members encrypting
+   * against a chain we no longer use — say so, and offer to run the
+   * redistribution again rather than leave them stuck until the next
+   * reset.
+   */
+  const reportRedistributeFailures = useCallback(
+    (failures: string[], retry: () => void) => {
+      toast.error(
+        `Keys regenerated, but they could not be redistributed to: ${failures.join(
+          ', '
+        )}. Members there cannot read your new messages until this succeeds.`,
+        { duration: 15000, action: { label: 'Retry', onClick: retry } }
+      );
+    },
+    []
+  );
+
+  const retryRedistribute = useCallback(async () => {
+    setGenerating('redistributing');
+    setLocalResetFlag(true);
+    try {
+      const failures = await redistributeOwnSenderKeys();
+      if (failures.length > 0) {
+        reportRedistributeFailures(failures, () => void retryRedistribute());
+      } else {
+        toast.success('Keys redistributed successfully');
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to redistribute keys'
+      );
+    } finally {
+      setLocalResetFlag(false);
+      setGenerating(false);
+    }
+  }, [reportRedistributeFailures]);
+
   const handleGenerate = useCallback(async () => {
     if (hasE2eeKeys) {
       const confirmed = window.confirm(
@@ -74,35 +116,40 @@ const Encryption = memo(() => {
       if (!confirmed) return;
     }
 
-    setGenerating(true);
+    setGenerating('registering');
     try {
-      if (hasE2eeKeys) {
-        await signalStore.clearAll();
+      if (!hasE2eeKeys) {
+        await setupE2EEKeys('generate');
+        setHasE2eeKeys(true);
+        toast.success('Keys generated successfully');
+        return;
       }
 
-      const { setLocalResetFlag, redistributeOwnSenderKeys } = await import(
-        '@/lib/e2ee'
-      );
-
-      setLocalResetFlag(true);
-      await setupE2EEKeys('generate');
-      setHasE2eeKeys(true);
-
-      // Re-distribute new sender keys to all E2EE channel members
-      redistributeOwnSenderKeys()
-        .catch((err) =>
-          console.error('[E2EE] Failed to redistribute sender keys:', err)
-        )
-        .finally(() => setLocalResetFlag(false));
-
-      toast.success(hasE2eeKeys ? 'Keys regenerated successfully' : 'Keys generated successfully');
+      // Register first, replace the local identity only once the
+      // server accepted it, then push rotated sender keys everywhere
+      // — and only report success once both have happened.
+      const failures = await regenerateOwnKeys({
+        onRegistered: () => {
+          setHasE2eeKeys(true);
+          setGenerating('redistributing');
+        }
+      });
+      if (failures.length > 0) {
+        reportRedistributeFailures(failures, () => void retryRedistribute());
+      } else {
+        toast.success('Keys regenerated successfully');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate keys';
-      toast.error(message);
+      toast.error(
+        hasE2eeKeys
+          ? `Key regeneration failed — ${message}. Your current keys are unchanged.`
+          : message
+      );
     } finally {
       setGenerating(false);
     }
-  }, [hasE2eeKeys]);
+  }, [hasE2eeKeys, reportRedistributeFailures, retryRedistribute]);
 
   const handleExport = useCallback(async () => {
     setExportError('');
@@ -172,13 +219,17 @@ const Encryption = memo(() => {
       // peers. Without this the server keeps whatever identity was
       // registered last (typically the throwaway from a prior regen),
       // and peers can't decrypt anything we send.
-      await finalizeRestoredKeys();
+      const failures = await finalizeRestoredKeys();
       await initE2EE();
 
       setImportFile(null);
       setImportPassphrase('');
       setHasE2eeKeys(true);
-      toast.success('Keys imported successfully');
+      if (failures.length > 0) {
+        reportRedistributeFailures(failures, () => void retryRedistribute());
+      } else {
+        toast.success('Keys imported successfully');
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to import keys';
@@ -187,7 +238,7 @@ const Encryption = memo(() => {
     } finally {
       setImporting(false);
     }
-  }, [importFile, importPassphrase]);
+  }, [importFile, importPassphrase, reportRedistributeFailures, retryRedistribute]);
 
   const handleServerBackup = useCallback(async () => {
     setBackupError('');
@@ -232,12 +283,16 @@ const Encryption = memo(() => {
       await restoreBackupFromServer(restorePassphrase);
       // Same post-restore reconciliation as importKeys — server identity
       // flip + sender-key redistribute. See finalizeRestoredKeys().
-      await finalizeRestoredKeys();
+      const failures = await finalizeRestoredKeys();
       await initE2EE();
 
       setRestorePassphrase('');
       setHasE2eeKeys(true);
-      toast.success('Keys restored from server');
+      if (failures.length > 0) {
+        reportRedistributeFailures(failures, () => void retryRedistribute());
+      } else {
+        toast.success('Keys restored from server');
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Failed to restore keys';
@@ -246,7 +301,7 @@ const Encryption = memo(() => {
     } finally {
       setRestoring(false);
     }
-  }, [restorePassphrase]);
+  }, [restorePassphrase, reportRedistributeFailures, retryRedistribute]);
 
   return (
     <div className="space-y-8">
@@ -296,13 +351,18 @@ const Encryption = memo(() => {
               : 'Generate new encryption keys to enable end-to-end encrypted messaging.'}
           </p>
         </div>
-        <Button onClick={handleGenerate} disabled={generating || hasE2eeKeys === null}>
+        <Button
+          onClick={handleGenerate}
+          disabled={generating !== false || hasE2eeKeys === null}
+        >
           <KeyRound className="mr-2 h-4 w-4" />
-          {generating
-            ? 'Generating...'
-            : hasE2eeKeys
-              ? 'Regenerate Keys'
-              : 'Generate Keys'}
+          {generating === 'redistributing'
+            ? 'Redistributing keys...'
+            : generating === 'registering'
+              ? 'Generating...'
+              : hasE2eeKeys
+                ? 'Regenerate Keys'
+                : 'Generate Keys'}
         </Button>
       </div>
 

@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { config } from '../../config';
 import { db } from '../../db';
 import {
-  channels,
+  dmChannelMembers,
   e2eeSenderKeys,
   federationInstances,
+  friendships,
   serverMembers,
   userIdentityKeys,
   userKeyBackups,
@@ -14,8 +15,10 @@ import {
   userSignedPreKeys,
   users
 } from '../../db/schema';
-import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { getCoMemberIds } from '../../db/queries/servers';
+import {
+  getAffectedUserIdsForChannel,
+  getViewableE2eeChannelIds
+} from '../../db/queries/channels';
 import { logger } from '../../logger';
 import { invariant } from '../../utils/invariant';
 import { refuseInPreview } from '../../utils/preview-guard';
@@ -35,7 +38,10 @@ import {
   SIGNED_PREKEYS_KEPT
 } from './bounds';
 import { getFederatedPreKeyBundleRoute } from './get-federated-prekey-bundle';
-import { insertIdentityResetMessages } from './identity-reset-messages';
+import {
+  collectIdentityResetRecipients,
+  insertIdentityResetMessages
+} from './identity-reset-messages';
 
 const keyIdSchema = z.number().int().min(0).max(MAX_SENDER_KEY_ID);
 const keyMaterialSchema = z.string().min(1).max(MAX_E2EE_KEY_LENGTH);
@@ -135,25 +141,55 @@ const registerKeysRoute = protectedProcedure
     // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
       logger.debug('[E2EE/registerKeys] identityChanged=true');
+
+      // The resetter's E2EE channels, once; the system rows, the
+      // recipient set and the per-recipient channel lists all derive
+      // from it. Failures past this point must not undo a registration
+      // that already committed, so each stage is its own try/catch.
+      let e2eeChannelIds: number[] = [];
       try {
-        await insertIdentityResetMessages(ctx.userId);
+        e2eeChannelIds = await getViewableE2eeChannelIds(ctx.userId);
+      } catch (err) {
+        logger.error('[E2EE] getViewableE2eeChannelIds failed: %o', err);
+      }
+
+      try {
+        await insertIdentityResetMessages(ctx.userId, e2eeChannelIds);
       } catch (err) {
         // Non-fatal: don't block key registration if system messages fail
         logger.error('[E2EE] insertIdentityResetMessages failed: %o', err);
       }
 
+      // Only the users who hold something from the resetter — viewers
+      // of a shared E2EE channel or members of a shared E2EE DM — are
+      // told, each with the channels they share so the client re-keys
+      // exactly those instead of listing and re-keying all of its own.
+      let recipients = new Map<number, number[]>();
+      try {
+        recipients = await collectIdentityResetRecipients(
+          ctx.userId,
+          e2eeChannelIds
+        );
+      } catch (err) {
+        logger.error('[E2EE] collectIdentityResetRecipients failed: %o', err);
+      }
+      for (const [recipientId, channelIds] of recipients) {
+        pubsub.publishFor(recipientId, ServerEvents.E2EE_IDENTITY_RESET, {
+          userId: ctx.userId,
+          channelIds
+        });
+      }
+
       // Include self: the user's OTHER devices/tabs must learn their
-      // account identity was replaced. getCoMemberIds filters the user
-      // out, so a second device never got the signal and kept operating
-      // under the dead identity. handlePeerIdentityReset's own-user
-      // branch (guarded by the local-reset flag on the initiator) picks
-      // it up and reloads → the initE2EE parity guard then warns.
-      const coMemberIds = await getCoMemberIds(ctx.userId);
-      pubsub.publishFor(
-        [...coMemberIds, ctx.userId],
-        ServerEvents.E2EE_IDENTITY_RESET,
-        { userId: ctx.userId }
-      );
+      // account identity was replaced, or a second device keeps
+      // operating under the dead identity. handlePeerIdentityReset's
+      // own-user branch (guarded by the local-reset flag on the
+      // initiator) picks it up and reloads → the initE2EE parity guard
+      // then warns. Self gets the full channel list.
+      pubsub.publishFor(ctx.userId, ServerEvents.E2EE_IDENTITY_RESET, {
+        userId: ctx.userId,
+        channelIds: e2eeChannelIds
+      });
 
       // Phase D / D3 — propagate to federated DM peers. Active-DM-
       // channels-only scope; channel rotation propagation is out of
@@ -169,30 +205,92 @@ const registerKeysRoute = protectedProcedure
     }
   });
 
+/**
+ * May `callerId` read `targetId`'s public key material (prekey bundle,
+ * identity key)? Yes when the two share a server, share a DM channel, or
+ * are friends — one statement anchored on the target's row. The old
+ * rule was "shared server" alone, which left friends who met outside
+ * any server able to open an encrypted DM and never establish the
+ * session behind it (every send failed FORBIDDEN here). DM membership is
+ * the precise authorization for that case; friendship covers the key
+ * fetch that precedes the DM channel's creation.
+ */
+const canReadKeysOf = async (
+  callerId: number,
+  targetId: number
+): Promise<boolean> => {
+  if (callerId === targetId) return true;
+
+  const sharedServer = db
+    .select({ one: sql`1` })
+    .from(serverMembers)
+    .where(
+      and(
+        eq(serverMembers.userId, targetId),
+        inArray(
+          serverMembers.serverId,
+          db
+            .select({ serverId: serverMembers.serverId })
+            .from(serverMembers)
+            .where(eq(serverMembers.userId, callerId))
+        )
+      )
+    );
+
+  const sharedDm = db
+    .select({ one: sql`1` })
+    .from(dmChannelMembers)
+    .where(
+      and(
+        eq(dmChannelMembers.userId, targetId),
+        inArray(
+          dmChannelMembers.dmChannelId,
+          db
+            .select({ dmChannelId: dmChannelMembers.dmChannelId })
+            .from(dmChannelMembers)
+            .where(eq(dmChannelMembers.userId, callerId))
+        )
+      )
+    );
+
+  const friends = db
+    .select({ one: sql`1` })
+    .from(friendships)
+    .where(
+      or(
+        and(
+          eq(friendships.userId, callerId),
+          eq(friendships.friendId, targetId)
+        ),
+        and(
+          eq(friendships.userId, targetId),
+          eq(friendships.friendId, callerId)
+        )
+      )
+    );
+
+  const [row] = await db
+    .select({
+      ok: sql<boolean>`EXISTS (${sharedServer}) OR EXISTS (${sharedDm}) OR EXISTS (${friends})`
+    })
+    .from(users)
+    .where(eq(users.id, targetId))
+    .limit(1);
+
+  return row?.ok === true;
+};
+
+const assertCanReadKeysOf = async (callerId: number, targetId: number) => {
+  invariant(await canReadKeysOf(callerId, targetId), {
+    code: 'FORBIDDEN',
+    message: 'No shared server, conversation or friendship with target user'
+  });
+};
+
 const getPreKeyBundleRoute = protectedProcedure
   .input(z.object({ userId: z.number().int().positive() }))
   .query(async ({ ctx, input }) => {
-    // Verify the caller shares at least one server with the target user
-    const callerServers = db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, ctx.userId));
-
-    const [shared] = await db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(
-        and(
-          eq(serverMembers.userId, input.userId),
-          sql`${serverMembers.serverId} IN (${callerServers})`
-        )
-      )
-      .limit(1);
-
-    invariant(shared, {
-      code: 'FORBIDDEN',
-      message: 'No shared server with target user'
-    });
+    await assertCanReadKeysOf(ctx.userId, input.userId);
 
     // Get identity key
     const [identityKey] = await db
@@ -253,27 +351,7 @@ const getPreKeyBundleRoute = protectedProcedure
 const getIdentityPublicKeyRoute = protectedProcedure
   .input(z.object({ userId: z.number().int().positive() }))
   .query(async ({ ctx, input }) => {
-    // Verify the caller shares at least one server with the target user
-    const callerServers = db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, ctx.userId));
-
-    const [shared] = await db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(
-        and(
-          eq(serverMembers.userId, input.userId),
-          sql`${serverMembers.serverId} IN (${callerServers})`
-        )
-      )
-      .limit(1);
-
-    invariant(shared, {
-      code: 'FORBIDDEN',
-      message: 'No shared server with target user'
-    });
+    await assertCanReadKeysOf(ctx.userId, input.userId);
 
     const [key] = await db
       .select({ identityPublicKey: userIdentityKeys.identityPublicKey })
@@ -338,27 +416,11 @@ const uploadOneTimePreKeysRoute = protectedProcedure
 // just the active server (the previous behavior, which left peers in
 // other servers stuck on stale keys until manual rotation). The result
 // is a flat number[] of channel ids; the client iterates and calls
-// ensureChannelSenderKey on each.
-const listMyE2eeChannelIdsRoute = protectedProcedure.query(async ({ ctx }) => {
-  // Pull every e2ee channel id and ask the existing visibility query
-  // which ones the caller can view. This re-uses the channel-permission
-  // logic (private + per-user overrides + role permissions) instead of
-  // duplicating it, at the cost of N small queries on identity reset.
-  // Reset happens rarely; the cost is acceptable.
-  const e2eeChannels = await db
-    .select({ id: channels.id })
-    .from(channels)
-    .where(eq(channels.e2ee, true));
-
-  const visible: number[] = [];
-  for (const ch of e2eeChannels) {
-    const userIds = await getAffectedUserIdsForChannel(ch.id, {
-      permission: ChannelPermission.VIEW_CHANNEL
-    });
-    if (userIds.includes(ctx.userId)) visible.push(ch.id);
-  }
-  return visible;
-});
+// ensureChannelSenderKey on each. One statement (see the helper) — this
+// used to be one permission query per E2EE channel on the instance.
+const listMyE2eeChannelIdsRoute = protectedProcedure.query(({ ctx }) =>
+  getViewableE2eeChannelIds(ctx.userId)
+);
 
 const getPreKeyCountRoute = protectedProcedure.query(async ({ ctx }) => {
   const [result] = await db

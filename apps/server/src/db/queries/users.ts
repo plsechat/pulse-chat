@@ -61,6 +61,7 @@ const selectPublicUsers = (userIds: number[]) => {
       id: users.id,
       name: users.name,
       publicId: users.publicId,
+      federatedPublicId: users.federatedPublicId,
       bannerColor: users.bannerColor,
       bio: users.bio,
       customStatus: users.customStatus,
@@ -97,6 +98,7 @@ const toPublicUser = (row: TPublicUserRow): TJoinedPublicUser => ({
   id: row.id,
   name: row.name,
   publicId: row.publicId,
+  federatedPublicId: row.federatedPublicId,
   bannerColor: row.bannerColor,
   bio: row.bio,
   ...statusTrio(row),
@@ -457,6 +459,7 @@ const getPublicUsersForServer = async (
       _identity: sql<string | null>`NULL`.as('_identity'),
       isFederated: users.isFederated,
       federatedInstanceId: users.federatedInstanceId,
+      federatedPublicId: users.federatedPublicId,
       nickname: serverMembers.nickname,
       timedOutUntil: serverMembers.timedOutUntil
     })
@@ -519,6 +522,7 @@ const getPublicUsersForServer = async (
       id: result.id,
       name: result.name,
       publicId: result.publicId,
+      federatedPublicId: result.federatedPublicId,
       bannerColor: result.bannerColor,
       bio: result.bio,
       ...statusTrio(result),

@@ -12,6 +12,13 @@
  * 30-digit halves concatenated in a deterministic order (lexicographic
  * smaller-first) so the two endpoints render the same string.
  *
+ * The stable id is the user's HOME `publicId` — the one identifier that
+ * is the same on every instance. Numeric user ids are instance-local:
+ * across a federated DM, Alice sees Bob under his shadow id on her
+ * instance and Bob sees Alice under hers, so digits derived from
+ * numeric ids never agreed even when both keys were genuine. Use
+ * `stablePublicIdOf` to pick the right field off a user record.
+ *
  * No protocol break: this only computes a comparison string from public
  * inputs. Stays Signal-compatible — anyone with the same identity keys
  * and stable ids will produce the same digits.
@@ -26,18 +33,38 @@ const HALF_DIGITS = 30;
 const TOTAL_DIGITS = HALF_DIGITS * 2;
 
 export type SafetyNumberInputs = {
-  localUserId: number | string;
+  localPublicId: string;
   localIdentityKey: Uint8Array;
-  remoteUserId: number | string;
+  remotePublicId: string;
   remoteIdentityKey: Uint8Array;
 };
+
+/**
+ * The instance-independent identifier of a user record: a shadow of a
+ * federated user carries the publicId its home issued in
+ * `federatedPublicId`, while its own `publicId` was minted locally and
+ * differs on every instance that holds a shadow. Local users have only
+ * `publicId`. Undefined when the record carries neither (not loaded).
+ */
+export function stablePublicIdOf(
+  user:
+    | { publicId?: string | null; federatedPublicId?: string | null }
+    | null
+    | undefined
+): string | undefined {
+  if (!user) return undefined;
+  return user.federatedPublicId || user.publicId || undefined;
+}
 
 export async function computeSafetyNumber(inputs: SafetyNumberInputs): Promise<string> {
   if (!inputs.localIdentityKey?.length || !inputs.remoteIdentityKey?.length) {
     throw new Error('safety number inputs require non-empty identity keys');
   }
-  const local = await fingerprintFor(String(inputs.localUserId), inputs.localIdentityKey);
-  const remote = await fingerprintFor(String(inputs.remoteUserId), inputs.remoteIdentityKey);
+  if (!inputs.localPublicId || !inputs.remotePublicId) {
+    throw new Error('safety number inputs require both public ids');
+  }
+  const local = await fingerprintFor(inputs.localPublicId, inputs.localIdentityKey);
+  const remote = await fingerprintFor(inputs.remotePublicId, inputs.remoteIdentityKey);
   const localDigits = chunksToDigits(local);
   const remoteDigits = chunksToDigits(remote);
   return localDigits <= remoteDigits
@@ -60,9 +87,9 @@ export function formatForDisplay(digits: string): string {
   return groups.join(' ');
 }
 
-async function fingerprintFor(stableId: string, identityKey: Uint8Array): Promise<Uint8Array> {
+async function fingerprintFor(publicId: string, identityKey: Uint8Array): Promise<Uint8Array> {
   const versionBytes = u16BE(FINGERPRINT_VERSION);
-  const idBytes = new TextEncoder().encode(stableId);
+  const idBytes = new TextEncoder().encode(publicId);
   let hash = concat(versionBytes, identityKey, idBytes);
   for (let i = 0; i < ITERATIONS; i++) {
     hash = await sha512(concat(hash, identityKey));

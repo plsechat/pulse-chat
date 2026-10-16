@@ -13,7 +13,10 @@ import { getDisplayName } from '@/helpers/get-display-name';
 import { isGiphyEnabled } from '@/helpers/giphy';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useUploadFiles } from '@/hooks/use-upload-files';
-import { encryptChannelMessage, ensureChannelSenderKey } from '@/lib/e2ee';
+import {
+  encryptChannelMessage,
+  ensureActiveChannelSenderKey
+} from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
 import {
   ChannelPermission,
@@ -286,7 +289,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
-        await ensureChannelSenderKey(channelId, ownUserId);
+        await ensureActiveChannelSenderKey(channelId);
 
         // Build fileKeys from encrypted upload key material. Includes
         // the real originalName + extension so the recipient can render
@@ -388,7 +391,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
 
       try {
         if (isE2ee && ownUserId) {
-          await ensureChannelSenderKey(channelId, ownUserId);
+          await ensureActiveChannelSenderKey(channelId);
 
           const encryptedContent = await encryptChannelMessage(
             channelId,

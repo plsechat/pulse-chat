@@ -162,6 +162,11 @@ type TPublicUser = Pick<
 > & {
   status?: UserStatus;
   _identity?: string;
+  /** For a shadow of a federated user: the publicId their HOME instance
+   *  issued — the one identity every instance agrees on. `publicId` on a
+   *  shadow row is minted locally and differs per instance. Absent (or
+   *  null) for local users. */
+  federatedPublicId?: string | null;
 };
 
 export type TJoinedRole = TRole & {

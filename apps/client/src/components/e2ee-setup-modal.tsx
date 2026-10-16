@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { setupE2EEKeys } from '@/lib/e2ee';
+import { setLocalResetFlag, setupE2EEKeys } from '@/lib/e2ee';
 import { store } from '@/features/store';
 import { serverSliceActions } from '@/features/server/slice';
 import { getHomeTRPCClient } from '@/lib/trpc';
@@ -99,6 +99,13 @@ const E2EESetupModal = memo(() => {
   const handleGenerate = useCallback(async () => {
     setStep('processing');
     setError('');
+    // When a server backup exists the server still holds the previous
+    // identity, so this registration is an identity change and the
+    // server echoes E2EE_IDENTITY_RESET to us as well — flag it as our
+    // own so the tab isn't reloaded out from under the pending send.
+    // No sender keys exist on this device yet, so there is nothing to
+    // redistribute; peers re-key us from the reset broadcast.
+    setLocalResetFlag(true);
     try {
       await setupE2EEKeys('generate');
       store.dispatch(serverSliceActions.clearAllMessages());
@@ -110,6 +117,8 @@ const E2EESetupModal = memo(() => {
     } catch (err) {
       setStep('choosing');
       setError(err instanceof Error ? err.message : 'Failed to generate keys');
+    } finally {
+      setLocalResetFlag(false);
     }
   }, []);
 

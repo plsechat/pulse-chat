@@ -24,6 +24,18 @@ import {
 import { decryptChannelMessageForDisplay } from './decrypt';
 import { emitAppEvent } from '@/lib/events';
 
+/**
+ * The encrypted channels the reset peer shares with us (empty for a
+ * DM-only peer). A server predating the field broadcasts without it;
+ * the handler then falls back to re-keying every encrypted channel it
+ * is a member of.
+ */
+function readResetChannelIds(payload: {
+  channelIds?: number[];
+}): number[] | undefined {
+  return Array.isArray(payload.channelIds) ? payload.channelIds : undefined;
+}
+
 
 const subscribeToMessages = () => {
   const trpc = getTRPCClient();
@@ -88,21 +100,6 @@ const subscribeToMessages = () => {
         }
       }
     ),
-    subscribe(
-      'onIdentityReset',
-      trpc.e2ee.onIdentityReset,
-      async ({ userId, newIdentityPublicKey }) => {
-        try {
-          const { handlePeerIdentityReset } = await import('@/lib/e2ee');
-          await handlePeerIdentityReset(userId, newIdentityPublicKey);
-        } catch (err) {
-          console.error(
-            `[E2EE] Failed to handle identity reset for user ${userId}:`,
-            err
-          );
-        }
-      }
-    ),
     subscribe('onInviteCreate', trpc.invites.onInviteCreate, () =>
       emitAppEvent('invites-changed')
     ),
@@ -123,10 +120,70 @@ const subscribeToMessages = () => {
     )
   ];
 
+  // Identity resets are handled on the instance they arrive from: the
+  // ids in the payload are that instance's, and so are the store the
+  // peer's pin and session live in and the channels to re-key. Home
+  // ids (DM peers, home channels, and federated peers' rotations
+  // relayed to our home as shadow ids) come over the home socket —
+  // subscribed here even while a federated server is in focus, which
+  // used to drop them. Host-local ids come over the active federated
+  // socket.
+  const homeTrpc = getHomeTRPCClient();
+  const activeDomain = store.getState().app.activeInstanceDomain;
+  if (homeTrpc) {
+    subs.push(
+      subscribe(
+        'onIdentityReset',
+        homeTrpc.e2ee.onIdentityReset,
+        async (payload) => {
+          try {
+            const { getHomeE2eeInstance, handlePeerIdentityReset } =
+              await import('@/lib/e2ee');
+            const instance = await getHomeE2eeInstance();
+            if (!instance) return;
+            await handlePeerIdentityReset(payload.userId, instance, {
+              newIdentityPublicKey: payload.newIdentityPublicKey,
+              channelIds: readResetChannelIds(payload)
+            });
+          } catch (err) {
+            console.error(
+              `[E2EE] Failed to handle identity reset for user ${payload.userId}:`,
+              err
+            );
+          }
+        }
+      )
+    );
+  }
+  if (activeDomain && trpc !== homeTrpc) {
+    subs.push(
+      subscribe(
+        'onFederatedIdentityReset',
+        trpc.e2ee.onIdentityReset,
+        async (payload) => {
+          try {
+            const { getFederatedE2eeInstance, handlePeerIdentityReset } =
+              await import('@/lib/e2ee');
+            const instance = await getFederatedE2eeInstance(activeDomain);
+            if (!instance) return;
+            await handlePeerIdentityReset(payload.userId, instance, {
+              newIdentityPublicKey: payload.newIdentityPublicKey,
+              channelIds: readResetChannelIds(payload)
+            });
+          } catch (err) {
+            console.error(
+              `[E2EE] Failed to handle identity reset for user ${payload.userId} on ${activeDomain}:`,
+              err
+            );
+          }
+        }
+      )
+    );
+  }
+
   // Federation instance updates are home-scoped — only mount when we
   // have a home tRPC client. The conditional push keeps the unsub set
   // a single list, no early-return required.
-  const homeTrpc = getHomeTRPCClient();
   if (homeTrpc) {
     subs.push(
       subscribe(

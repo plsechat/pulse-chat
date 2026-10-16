@@ -12,7 +12,11 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import { connectionManager } from '@/lib/connection-manager';
-import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
+import {
+  fetchAndProcessFederatedSenderKeys,
+  initE2EE,
+  initE2EEForInstance
+} from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
 import type { TServerInfo, TServerSummary } from '@pulse/shared';
@@ -778,6 +782,12 @@ export const loadFederatedServers = async () => {
     // after a token re-mint or a peer restart gets its badge back.
     if (status === 'connected') {
       setupFederatedUnreadSubscriptions(domain);
+      // Sender keys that landed on this host while we were away were
+      // announced over the home socket at the time; nothing re-sends
+      // that wake-up, so every (re)connect pulls what is still waiting.
+      fetchAndProcessFederatedSenderKeys(domain).catch((err) =>
+        console.warn(`[E2EE] federated SKDM pull failed for ${domain}:`, err)
+      );
     }
 
     // When a federated connection is permanently lost, fall back to home

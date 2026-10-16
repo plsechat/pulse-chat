@@ -265,6 +265,13 @@ type Events = {
 
   [ServerEvents.E2EE_IDENTITY_RESET]: {
     userId: number;
+    // The E2EE channels the recipient shares with the resetter, so it
+    // re-distributes its sender keys on exactly those instead of
+    // listing and re-keying every E2EE channel it has. Empty for a
+    // DM-only peer (DM chains re-send lazily) and for a federated
+    // rotation (DM scope only); the resetter's own tabs get the full
+    // list.
+    channelIds: number[];
     // Phase D / D3 — only set on federated rotations. The receiving
     // client uses this directly so it doesn't have to round-trip
     // back through federation just to learn the new key. Same-

@@ -1,11 +1,15 @@
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
-import { useUserById } from '@/features/server/users/hooks';
+import {
+  useOwnPublicUser,
+  useUserById
+} from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { fullDateTime } from '@/helpers/time-format';
 import {
   computeSafetyNumber,
-  formatForDisplay
+  formatForDisplay,
+  stablePublicIdOf
 } from '@/lib/e2ee/safety-number';
 import {
   getStoreForInstance,
@@ -27,9 +31,6 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useSelector } from 'react-redux';
-import type { IRootState } from '@/features/store';
-
-const ownUserIdSelector = (state: IRootState) => state.server.ownUserId;
 
 const StatusBadge = memo(
   ({
@@ -114,23 +115,31 @@ const PeerDetail = memo(
   }) => {
     const user = useUserById(entry.userId);
     const name = user ? getDisplayName(user) : `User #${entry.userId}`;
-    const ownUserId = useSelector(ownUserIdSelector);
+    // The number hashes HOME publicIds, never numeric ids: those differ
+    // per instance, so a federated pair would never see equal digits.
+    // Own id comes from the roster (a shadow of ourselves on a federated
+    // server still carries our home id); the peer's from the roster or,
+    // if they are in no loaded roster, from the pin itself.
+    const ownUser = useOwnPublicUser();
+    const localPublicId = stablePublicIdOf(ownUser);
+    const remotePublicId = stablePublicIdOf(user) ?? entry.publicId;
     const [safetyNumber, setSafetyNumber] = useState<string | null>(null);
     const [working, setWorking] = useState(false);
+    const idsKnown = !!localPublicId && !!remotePublicId;
 
     useEffect(() => {
       let cancelled = false;
       (async () => {
         const ownKeyPair = await store.getIdentityKeyPair();
-        if (!ownKeyPair || ownUserId === undefined) {
+        if (!ownKeyPair || !localPublicId || !remotePublicId) {
           if (!cancelled) setSafetyNumber(null);
           return;
         }
         try {
           const digits = await computeSafetyNumber({
-            localUserId: ownUserId,
+            localPublicId,
             localIdentityKey: new Uint8Array(ownKeyPair.pubKey),
-            remoteUserId: entry.userId,
+            remotePublicId,
             remoteIdentityKey: new Uint8Array(
               base64ToArrayBuffer(entry.identityPublicKey)
             )
@@ -144,7 +153,7 @@ const PeerDetail = memo(
       return () => {
         cancelled = true;
       };
-    }, [entry.identityPublicKey, entry.userId, ownUserId, store]);
+    }, [entry.identityPublicKey, localPublicId, remotePublicId, store]);
 
     const handleMarkVerified = useCallback(async () => {
       if (working) return;
@@ -152,7 +161,8 @@ const PeerDetail = memo(
       try {
         await store.markIdentityManual(
           entry.userId,
-          entry.identityPublicKey
+          entry.identityPublicKey,
+          remotePublicId
         );
         notifyVerifiedIdentityChanged();
         toast.success(`Marked ${name} as verified`);
@@ -163,7 +173,15 @@ const PeerDetail = memo(
       } finally {
         setWorking(false);
       }
-    }, [entry.userId, entry.identityPublicKey, name, onChanged, working, store]);
+    }, [
+      entry.userId,
+      entry.identityPublicKey,
+      name,
+      onChanged,
+      remotePublicId,
+      working,
+      store
+    ]);
 
     const handleClearPin = useCallback(async () => {
       if (working) return;
@@ -212,7 +230,10 @@ const PeerDetail = memo(
             Safety number
           </p>
           <pre className="whitespace-pre-wrap break-all font-mono text-base leading-relaxed text-foreground">
-            {safetyNumber ?? 'Computing…'}
+            {safetyNumber ??
+              (idsKnown
+                ? 'Computing…'
+                : 'Unavailable until this user is loaded in a server or conversation you are viewing.')}
           </pre>
           <p className="mt-3 text-xs text-muted-foreground">
             Compare this 60-digit number with what {name} sees on their

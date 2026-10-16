@@ -602,6 +602,9 @@ const federationIdentityRotationHandler = async (
     ServerEvents.E2EE_IDENTITY_RESET,
     {
       userId: shadow.id,
+      // Federated rotations propagate over DMs only (Phase D / D3);
+      // there is no shared server channel to re-key.
+      channelIds: [],
       newIdentityPublicKey
     }
   );

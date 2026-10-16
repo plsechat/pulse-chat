@@ -5,6 +5,7 @@ import {
   encryptDmMessage,
   ensureDmGroupSenderKey,
   isSenderKeyWire,
+  loadPersistedDmGroupPlaintexts,
   rotateDmGroupSenderKey
 } from '@/lib/e2ee';
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
@@ -589,7 +590,17 @@ export async function decryptDmMessages(
 
   // Sender-key (group DM) decrypts. Each chain is independent so
   // these can run in parallel. The chain wrapper persists plaintext
-  // by messageId on success — re-decrypts hit cache.
+  // by messageId on success — re-decrypts hit cache, and the whole
+  // page's cache rows are loaded in one IDB read up front.
+  const persistedSenderKey =
+    senderKeyMessages.length > 0
+      ? await loadPersistedDmGroupPlaintexts(
+          senderKeyMessages.map(({ msg }) => ({
+            id: msg.id,
+            fromUserId: msg.userId
+          }))
+        )
+      : undefined;
   await Promise.all(
     senderKeyMessages.map(async ({ index, msg }) => {
       try {
@@ -597,7 +608,8 @@ export async function decryptDmMessages(
           msg.dmChannelId,
           msg.userId,
           msg.content!,
-          msg.id
+          msg.id,
+          persistedSenderKey
         );
         setFileKeys(msg.id, payload.fileKeys);
         const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);

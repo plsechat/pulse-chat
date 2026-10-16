@@ -37,6 +37,7 @@ const USER_B = runUser('e2ee-b');
 const SEED_MSG = `e2ee seed ${USER_A.displayName}`;
 const DM_HELLO = `plaintext hello ${USER_A.displayName}`;
 const SECRET_A = `secret-from-a ${USER_A.displayName}`;
+const SECRET_A_EDITED = `secret-from-a-edited ${USER_A.displayName}`;
 const SECRET_B = `secret-from-b ${USER_A.displayName}`;
 const POST_RESET_MSG = `post-reset ${USER_A.displayName}`;
 const PASSPHRASE = 'backup-passphrase-1234';
@@ -200,12 +201,34 @@ test.describe('E2EE direct messages', () => {
       pageA.locator('[id^="dm-msg-"]').getByText(SECRET_B, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
 
+    // Edit round-trip: the author re-encrypts under the SAME message id
+    // and the peer must render the new text. The peer's plaintext cache
+    // is keyed by id, so a cache that ignores the ciphertext keeps
+    // serving the pre-edit text forever — this is the assertion that
+    // catches it.
+    const rowA = dmMessageRow(pageA, SECRET_A);
+    await rowA.hover();
+    await rowA.getByTitle('Edit Message').click();
+    const inlineEditor = rowA.locator('[contenteditable="true"]');
+    await expect(inlineEditor).toBeVisible();
+    await inlineEditor.fill(SECRET_A_EDITED);
+    await pageA.keyboard.press('Enter');
+    await expect(
+      pageA.locator('[id^="dm-msg-"]').getByText(SECRET_A_EDITED, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').getByText(SECRET_A_EDITED, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').getByText(SECRET_A, { exact: true })
+    ).toHaveCount(0);
+
     // At-rest assertions: the plaintext appears NOWHERE in the database,
     // while the pre-encryption control message is stored verbatim.
     expect(
       psql(
         'core',
-        `SELECT count(*) FROM dm_messages WHERE content LIKE '%${SECRET_A}%' OR content LIKE '%${SECRET_B}%'`
+        `SELECT count(*) FROM dm_messages WHERE content LIKE '%${SECRET_A}%' OR content LIKE '%${SECRET_A_EDITED}%' OR content LIKE '%${SECRET_B}%'`
       )
     ).toBe('0');
     expect(
@@ -362,7 +385,7 @@ test.describe('E2EE direct messages', () => {
     }
   });
 
-  test('identity reset (online peer): system message, silent re-pin, messaging continues', async () => {
+  test('identity reset (online peer, manually verified): system message, identity dialog, accept, messaging continues', async () => {
     // B watches the conversation live, so B RECEIVES the reset broadcast.
     await openDmWith(pageB, USER_A.displayName);
 
@@ -384,11 +407,18 @@ test.describe('E2EE direct messages', () => {
       pageB.getByText(/encryption keys have changed/).first()
     ).toBeVisible({ timeout: 15_000 });
 
-    // Because B processed the live reset broadcast, handlePeerIdentityReset
-    // re-pinned A's new identity silently — B's next send goes through with
-    // NO identity-changed dialog and messaging continues both ways.
-    await sendDmMessage(pageB, POST_RESET_MSG);
+    // B verified A in person earlier in this spec, so the live reset
+    // broadcast must NOT re-pin silently: a key change over a manual pin
+    // is exactly what the identity-changed dialog exists for. B sees it,
+    // accepts, and only then does messaging continue both ways. (A peer
+    // pinned on first use is re-pinned silently — covered by the client
+    // unit tests in lib/e2ee/__tests__/identity-reset-policy.test.ts.)
+    await expect(pageB.getByText(/identity has changed/)).toBeVisible({
+      timeout: 15_000
+    });
+    await pageB.getByRole('button', { name: 'Accept new identity' }).click();
     await expect(pageB.getByText(/identity has changed/)).toHaveCount(0);
+    await sendDmMessage(pageB, POST_RESET_MSG);
     await openDmWith(pageA, USER_B.displayName);
     await expect(
       pageA.locator('[id^="dm-msg-"]').getByText(POST_RESET_MSG, { exact: true })

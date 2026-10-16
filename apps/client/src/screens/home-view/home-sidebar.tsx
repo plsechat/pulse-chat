@@ -192,7 +192,7 @@ const DmChannelItem = memo(
       const confirmed = await requestConfirmation({
         title: 'Enable Encryption',
         message:
-          'This will enable end-to-end encryption for this conversation. This cannot be reversed.',
+          'This will enable end-to-end encryption for this conversation. This cannot be reversed. Message text and attachments become unreadable to the server; who writes, when, reactions, pins, replies and attachment sizes stay visible to it.',
         confirmLabel: 'Enable',
         variant: 'info'
       });

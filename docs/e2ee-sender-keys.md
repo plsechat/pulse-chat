@@ -26,6 +26,17 @@ outside SKDM envelopes it cannot open).
 - Identity verification is TOFU with explicit verification on top
   (identity changes surface as warnings; `decrypt-retry.ts` +
   `identity-change-dispatch.ts` handle re-sync after a peer rotates).
+  Safety numbers hash the two users' **home publicIds** with their
+  identity keys — never numeric user ids, which are instance-local and
+  would give a federated pair two different numbers for one genuine
+  key pair. A shadow user's home id reaches the client as
+  `federatedPublicId`; `stablePublicIdOf` picks it.
+- **Who may read whose keys**: `e2ee.getPreKeyBundle` and
+  `e2ee.getIdentityPublicKey` answer when the caller and the target
+  share a server, share a DM channel, or are friends
+  (`canReadKeysOf`). Friends who met outside any server can therefore
+  open and actually use an encrypted DM; strangers get FORBIDDEN and
+  consume no one-time prekey.
 
 ## Chain states and transitions
 
@@ -53,6 +64,20 @@ A sender's outbound chain for a conversation is in one of:
 chain FIRST, then re-SKDM — peers must get a brand-new chain under the
 new identity, never a re-send of the old chainKey. Federated peers are
 told via `/federation/identity-rotation-broadcast`.
+
+The same-instance fan-out (`registerKeys` → `E2EE_IDENTITY_RESET`) goes
+only to users who hold something from the resetter: every viewer of one
+of the resetter's E2EE channels and every member of an E2EE DM with
+them — not every co-member of every shared server. Each recipient's
+payload carries `channelIds`, the E2EE channels *that recipient* shares
+with the resetter (computed per recipient so nobody learns the ids of
+private channels they cannot see; empty for DM-only peers, whose DM
+chains re-send lazily on the next send), so the client re-keys exactly
+those instead of listing and re-keying all of its own. The resetter's
+own list comes from `getViewableE2eeChannelIds`, one statement over
+channel + membership + role/user overrides with the same semantics as
+`hasChannelPermission`; the `identity_reset` system rows are inserted
+into that list and the E2EE DMs.
 
 ## Federation relay
 
@@ -89,17 +114,22 @@ All of this is current behaviour:
 | Typing indicators | `messages.signalTyping` pubsub |
 | Membership, roles and read state | the usual tables |
 
-Two further caveats:
+Three further caveats:
 
-- **Forum posts under an E2EE channel are stored in plaintext.**
-  `messages.sendMessage` refuses a non-E2EE message in an encrypted
-  channel, but `threads.createForumPost` writes `input.content`
-  directly with no E2EE check. Do not treat a forum channel as
-  encrypted.
+- **Threads inherit encryption; forum posts cannot be encrypted.** A
+  thread created under an E2EE channel is an E2EE channel itself
+  (`threads.createThread` copies the parent's flag), so its messages
+  are enforced like the parent's. A forum post's opening message is
+  plaintext by construction, so `threads.createForumPost` refuses to
+  create posts under an encrypted forum rather than storing them in the
+  clear.
 - **Search excludes encrypted messages.** Channel search
   (`search.searchMessages`) and DM search (`dms.searchMessages`) both
   filter on `e2ee = false`; encrypted history is not searchable
   anywhere today.
+- **One device per identity.** The server holds one identity key per
+  user and the client UI says so; see invariant 5 below for what that
+  means in practice.
 
 The server also does not emit plugin events (`message:created` /
 `message:updated`) for E2EE messages, so plugins never see ciphertext
@@ -114,6 +144,16 @@ either — they see nothing.
 3. SKDM distribution always targets the member list as of distribution
    time, never a cached pre-removal roster.
 4. Identity rotation ⇒ chain rotation before any re-distribution.
-5. One identity per user (single-device keying); restore replaces.
+5. **One identity per user — single-device keying is the contract.**
+   The server stores exactly one identity key, one signed prekey set
+   and one one-time-prekey pool per user; the browser profile that
+   registered them is the only one that can decrypt. Signing in
+   elsewhere means either restoring the key backup there (which
+   *replaces* the identity: every peer sees an identity change and
+   re-keys, and the previous profile's sessions are dead) or
+   generating new keys with the same effect. Two profiles never share
+   one identity, and nothing in the protocol fans a message out to a
+   second device. Messages received before the replacement stay
+   readable only where the old profile's IndexedDB survives.
 6. Cross-instance E2EE identity is publicId-keyed, like all federation
    identity (see `federation.md`).

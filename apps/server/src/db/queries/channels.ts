@@ -14,6 +14,7 @@ import {
   channelUserPermissions,
   messages,
   serverMembers,
+  servers,
   userRoles
 } from '../schema';
 import { getUserRoleIds } from './roles';
@@ -236,6 +237,90 @@ const getAffectedUserIdsForChannel = async (
   usersWithRoles.forEach((u) => userIdSet.add(u.userId));
 
   return Array.from(userIdSet);
+};
+
+/**
+ * Ids of every E2EE channel `userId` can VIEW, across every server they
+ * are a member of, in ONE statement. Identity reset and key restore
+ * redistribute sender keys to all of these; the previous implementation
+ * ran getAffectedUserIdsForChannel once per E2EE channel on the instance,
+ * and every co-member of the resetter ran it too.
+ *
+ * Per-channel evaluation is the one hasChannelPermission enforces
+ * (getAllChannelUserPermissions): owner bypass, then a user override,
+ * then role overrides (any held role allowing wins), then the channel
+ * default — allow on public, deny on private. Server membership is
+ * required: an override left behind for a user who has since left the
+ * server does not make the channel theirs. getAffectedUserIdsForChannel
+ * agrees on every case except a private channel where a user override
+ * denies and a held role allows — there the enforcement path denies,
+ * and so does this query.
+ */
+const getViewableE2eeChannelIds = async (userId: number): Promise<number[]> => {
+  const heldRoleIds = db
+    .select({ roleId: userRoles.roleId })
+    .from(userRoles)
+    .where(eq(userRoles.userId, userId));
+
+  const userOverride = db
+    .select({ allow: channelUserPermissions.allow })
+    .from(channelUserPermissions)
+    .where(
+      and(
+        eq(channelUserPermissions.channelId, channels.id),
+        eq(channelUserPermissions.userId, userId),
+        eq(channelUserPermissions.permission, ChannelPermission.VIEW_CHANNEL)
+      )
+    );
+
+  const roleOverrides = db
+    .select({ allow: channelRolePermissions.allow })
+    .from(channelRolePermissions)
+    .where(
+      and(
+        eq(channelRolePermissions.channelId, channels.id),
+        eq(channelRolePermissions.permission, ChannelPermission.VIEW_CHANNEL),
+        inArray(channelRolePermissions.roleId, heldRoleIds)
+      )
+    );
+
+  const roleAllows = db
+    .select({ allow: channelRolePermissions.allow })
+    .from(channelRolePermissions)
+    .where(
+      and(
+        eq(channelRolePermissions.channelId, channels.id),
+        eq(channelRolePermissions.permission, ChannelPermission.VIEW_CHANNEL),
+        eq(channelRolePermissions.allow, true),
+        inArray(channelRolePermissions.roleId, heldRoleIds)
+      )
+    );
+
+  const rows = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .innerJoin(
+      serverMembers,
+      and(
+        eq(serverMembers.serverId, channels.serverId),
+        eq(serverMembers.userId, userId)
+      )
+    )
+    .innerJoin(servers, eq(servers.id, channels.serverId))
+    .where(
+      and(
+        eq(channels.e2ee, true),
+        sql`CASE
+          WHEN ${servers.ownerId} = ${userId} THEN true
+          WHEN EXISTS (${userOverride}) THEN (${userOverride})
+          WHEN EXISTS (${roleOverrides}) THEN EXISTS (${roleAllows})
+          ELSE NOT ${channels.private}
+        END`
+      )
+    )
+    .orderBy(channels.id);
+
+  return rows.map((r) => r.id);
 };
 
 const filterPublicChannelDenials = async (
@@ -554,5 +639,6 @@ export {
   getChannelUnreadForUsers,
   getForumUnreadForUser,
   getForumUnreadForUsers,
+  getViewableE2eeChannelIds,
   toWireChannel
 };

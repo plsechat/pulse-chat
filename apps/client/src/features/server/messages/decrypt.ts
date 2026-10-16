@@ -1,8 +1,10 @@
 import {
   decryptChannelMessage,
   fetchAndProcessPendingSenderKeys,
-  loadPersistedChannelPlaintexts
+  loadPersistedChannelPlaintexts,
+  type PersistedPlaintextRef
 } from '@/lib/e2ee';
+import type { PersistedSkPlaintext } from '@/lib/e2ee/plaintext-cache';
 import {
   patchFilesWithE2eeMetadata,
   setFileKeys
@@ -24,7 +26,7 @@ import type { TJoinedMessage } from '@pulse/shared';
 async function maybeDecryptReplyTo(
   replyTo: NonNullable<TJoinedMessage['replyTo']> | null | undefined,
   channelId: number,
-  persisted: ReadonlyMap<number, string>
+  persisted: ReadonlyMap<number, PersistedSkPlaintext>
 ): Promise<NonNullable<TJoinedMessage['replyTo']> | null | undefined> {
   if (!replyTo || !replyTo.e2ee || !replyTo.content) return replyTo;
   try {
@@ -53,14 +55,22 @@ export async function decryptChannelMessages(
   // One IDB read for every encrypted id in the batch (messages + their
   // encrypted replyTo targets) instead of one per decryptChannelMessage
   // call; a page that was already decrypted once never touches the
-  // chain again.
-  const persistedIds = new Set<number>();
+  // chain again. The author id rides along so own messages can use
+  // the legacy-row fallback.
+  const persistedRefs = new Map<number, PersistedPlaintextRef>();
   for (const m of messages) {
-    if (m.e2ee && m.content) persistedIds.add(m.id);
-    if (m.replyTo?.e2ee && m.replyTo.content) persistedIds.add(m.replyTo.id);
+    if (m.e2ee && m.content) {
+      persistedRefs.set(m.id, { id: m.id, fromUserId: m.userId });
+    }
+    if (m.replyTo?.e2ee && m.replyTo.content) {
+      persistedRefs.set(m.replyTo.id, {
+        id: m.replyTo.id,
+        fromUserId: m.replyTo.userId
+      });
+    }
   }
   const [persisted] = await Promise.all([
-    loadPersistedChannelPlaintexts([...persistedIds]),
+    loadPersistedChannelPlaintexts([...persistedRefs.values()]),
     ...[...e2eeChannelIds].map((channelId) =>
       fetchAndProcessPendingSenderKeys(channelId)
     )

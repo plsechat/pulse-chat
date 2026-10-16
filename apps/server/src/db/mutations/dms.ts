@@ -41,11 +41,16 @@ async function getOrCreatePairChannel(
     created = row!.inserted;
   }
 
+  // Lowest user id first, whichever side is calling: two callers inserting
+  // the same pair in opposite orders each hold one index entry and wait
+  // for the other's (deadlock 40P01). With one order the second caller
+  // simply queues behind the first on the shared key.
+  const [first, second] = userIdA < userIdB ? [userIdA, userIdB] : [userIdB, userIdA];
   await db
     .insert(dmChannelMembers)
     .values([
-      { dmChannelId: id, userId: userIdA, createdAt: now },
-      { dmChannelId: id, userId: userIdB, createdAt: now }
+      { dmChannelId: id, userId: first, createdAt: now },
+      { dmChannelId: id, userId: second, createdAt: now }
     ])
     .onConflictDoNothing();
 

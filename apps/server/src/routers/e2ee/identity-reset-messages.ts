@@ -1,5 +1,5 @@
 import { ChannelPermission, ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { db } from '../../db';
 import { logger } from '../../logger';
 import { publishMessage } from '../../db/publishers';
@@ -7,7 +7,6 @@ import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getDmChannelMemberIds, getDmMessage } from '../../db/queries/dms';
 import { pubsub } from '../../utils/pubsub';
 import {
-  channels,
   dmChannelMembers,
   dmChannels,
   dmMessages,
@@ -15,32 +14,38 @@ import {
 } from '../../db/schema';
 
 /**
- * Insert system messages into all E2EE channels and DMs that a user
- * participates in, notifying peers that their encryption keys have changed.
+ * Ids of the E2EE DM channels `userId` is a member of — one join, no
+ * per-row flag lookup.
+ */
+const getE2eeDmChannelIds = async (userId: number): Promise<number[]> => {
+  const rows = await db
+    .select({ dmChannelId: dmChannelMembers.dmChannelId })
+    .from(dmChannelMembers)
+    .innerJoin(dmChannels, eq(dmChannels.id, dmChannelMembers.dmChannelId))
+    .where(
+      and(eq(dmChannelMembers.userId, userId), eq(dmChannels.e2ee, true))
+    );
+  return rows.map((r) => r.dmChannelId);
+};
+
+/**
+ * Insert an `identity_reset` system row into every E2EE channel the
+ * resetting user can view (`channelIds`, from getViewableE2eeChannelIds)
+ * and every E2EE DM they are a member of, so peers see why the next
+ * messages arrive under a new key.
  */
 export async function insertIdentityResetMessages(
-  userId: number
+  userId: number,
+  channelIds: number[]
 ): Promise<void> {
   const now = Date.now();
 
-  // --- E2EE Channels ---
-  const e2eeChannels = await db
-    .select({ id: channels.id })
-    .from(channels)
-    .where(eq(channels.e2ee, true));
-
-  for (const channel of e2eeChannels) {
+  for (const channelId of channelIds) {
     try {
-      const affectedUserIds = await getAffectedUserIdsForChannel(channel.id, {
-        permission: ChannelPermission.VIEW_CHANNEL
-      });
-
-      if (!affectedUserIds.includes(userId)) continue;
-
       const [msg] = await db
         .insert(messages)
         .values({
-          channelId: channel.id,
+          channelId,
           userId,
           content: 'identity_reset',
           type: 'system',
@@ -51,41 +56,28 @@ export async function insertIdentityResetMessages(
         .returning();
 
       if (msg) {
-        publishMessage(msg.id, channel.id, 'create');
+        publishMessage(msg.id, channelId, 'create');
       }
     } catch (err) {
       logger.error(
-        `[E2EE] Failed to insert identity reset message for channel ${channel.id}:`,
+        `[E2EE] Failed to insert identity reset message for channel ${channelId}:`,
         err
       );
     }
   }
 
-  // --- E2EE DMs ---
-  const userDmRows = await db
-    .select({ dmChannelId: dmChannelMembers.dmChannelId })
-    .from(dmChannelMembers)
-    .where(eq(dmChannelMembers.userId, userId));
+  const dmChannelIds = await getE2eeDmChannelIds(userId);
 
   logger.info(
-    `[E2EE] Identity reset for user ${userId}: inserting system messages into ${userDmRows.length} DM channel(s)`
+    `[E2EE] Identity reset for user ${userId}: inserting system messages into ${channelIds.length} channel(s) and ${dmChannelIds.length} DM channel(s)`
   );
 
-  for (const row of userDmRows) {
+  for (const dmChannelId of dmChannelIds) {
     try {
-      // Only insert into E2EE DM channels
-      const [dmChannel] = await db
-        .select({ e2ee: dmChannels.e2ee })
-        .from(dmChannels)
-        .where(eq(dmChannels.id, row.dmChannelId))
-        .limit(1);
-
-      if (!dmChannel?.e2ee) continue;
-
       const [msg] = await db
         .insert(dmMessages)
         .values({
-          dmChannelId: row.dmChannelId,
+          dmChannelId,
           userId,
           content: 'identity_reset',
           type: 'system',
@@ -97,20 +89,72 @@ export async function insertIdentityResetMessages(
       if (msg) {
         const joined = await getDmMessage(msg.id);
         if (joined) {
-          const memberIds = await getDmChannelMemberIds(row.dmChannelId);
+          const memberIds = await getDmChannelMemberIds(dmChannelId);
           for (const memberId of memberIds) {
             pubsub.publishFor(memberId, ServerEvents.DM_NEW_MESSAGE, joined);
           }
-          logger.info(
-            `[E2EE] Identity reset system message inserted in DM channel ${row.dmChannelId}, broadcast to ${memberIds.length} member(s)`
-          );
         }
       }
     } catch (err) {
       logger.error(
-        `[E2EE] Failed to insert identity reset message for DM channel ${row.dmChannelId}:`,
+        `[E2EE] Failed to insert identity reset message for DM channel ${dmChannelId}:`,
         err
       );
     }
   }
+}
+
+/**
+ * Who must learn that `userId` replaced their identity, and which E2EE
+ * channels each of them shares with the resetter: every viewer of one
+ * of the resetter's E2EE channels (`channelIds`), plus every member of
+ * an E2EE DM with them. Those are exactly the users who hold a pairwise
+ * session, a TOFU pin or a sender-key chain from the resetter; the old
+ * fan-out went to every co-member of every shared server, and each of
+ * them then listed ALL their E2EE channels and re-distributed to every
+ * one.
+ *
+ * The channel list is computed per recipient rather than sent whole so
+ * the client re-distributes only on channels it actually shares with
+ * the resetter — and so one recipient never learns the ids of private
+ * channels it cannot see. One viewer query per channel of the resetter
+ * is the cost; the resetter's own E2EE channel count is small and a
+ * reset is rare. DM-only peers get an empty list: DM chains are re-sent
+ * lazily on the next DM send, nothing to re-distribute eagerly.
+ */
+export async function collectIdentityResetRecipients(
+  userId: number,
+  channelIds: number[]
+): Promise<Map<number, number[]>> {
+  const recipients = new Map<number, number[]>();
+
+  for (const channelId of channelIds) {
+    const viewerIds = await getAffectedUserIdsForChannel(channelId, {
+      permission: ChannelPermission.VIEW_CHANNEL
+    });
+    for (const viewerId of viewerIds) {
+      if (viewerId === userId) continue;
+      const shared = recipients.get(viewerId);
+      if (shared) shared.push(channelId);
+      else recipients.set(viewerId, [channelId]);
+    }
+  }
+
+  const dmChannelIds = await getE2eeDmChannelIds(userId);
+  if (dmChannelIds.length > 0) {
+    const peerRows = await db
+      .selectDistinct({ userId: dmChannelMembers.userId })
+      .from(dmChannelMembers)
+      .where(
+        and(
+          inArray(dmChannelMembers.dmChannelId, dmChannelIds),
+          ne(dmChannelMembers.userId, userId)
+        )
+      );
+    for (const { userId: peerId } of peerRows) {
+      if (!recipients.has(peerId)) recipients.set(peerId, []);
+    }
+  }
+
+  return recipients;
 }

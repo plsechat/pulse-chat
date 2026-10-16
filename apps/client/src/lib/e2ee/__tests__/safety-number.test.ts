@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   computeSafetyNumber,
   formatForDisplay,
+  stablePublicIdOf,
   __testing
 } from '../safety-number';
 
@@ -16,12 +17,16 @@ const KEY_A = new Uint8Array(32).map((_, i) => (i + 1) & 0xff);
 const KEY_B = new Uint8Array(32).map((_, i) => (i * 3 + 7) & 0xff);
 const KEY_C = new Uint8Array(32).map((_, i) => (i * 5 + 11) & 0xff);
 
+const PID_A = '0192f1a0-1111-7000-8000-00000000000a';
+const PID_B = '0192f1a0-2222-7000-8000-00000000000b';
+const PID_C = '0192f1a0-3333-7000-8000-00000000000c';
+
 describe('computeSafetyNumber', () => {
   test('produces 60 decimal digits', async () => {
     const digits = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     expect(digits).toHaveLength(60);
@@ -30,15 +35,15 @@ describe('computeSafetyNumber', () => {
 
   test('two endpoints compute the same number with sides swapped', async () => {
     const fromA = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     const fromB = await computeSafetyNumber({
-      localUserId: 2,
+      localPublicId: PID_B,
       localIdentityKey: KEY_B,
-      remoteUserId: 1,
+      remotePublicId: PID_A,
       remoteIdentityKey: KEY_A
     });
     expect(fromA).toBe(fromB);
@@ -46,9 +51,9 @@ describe('computeSafetyNumber', () => {
 
   test('deterministic: same inputs → same output', async () => {
     const inputs = {
-      localUserId: 42,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 99,
+      remotePublicId: PID_C,
       remoteIdentityKey: KEY_C
     };
     const a = await computeSafetyNumber(inputs);
@@ -58,15 +63,15 @@ describe('computeSafetyNumber', () => {
 
   test('changing the remote key changes the number', async () => {
     const original = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     const withNewRemoteKey = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_C
     });
     expect(withNewRemoteKey).not.toBe(original);
@@ -74,15 +79,15 @@ describe('computeSafetyNumber', () => {
 
   test('changing the local key changes the number', async () => {
     const original = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     const withNewLocalKey = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_C,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     expect(withNewLocalKey).not.toBe(original);
@@ -90,42 +95,70 @@ describe('computeSafetyNumber', () => {
 
   test('changing a stable id changes the number', async () => {
     const original = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     const withDifferentRemoteId = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 3,
+      remotePublicId: PID_C,
       remoteIdentityKey: KEY_B
     });
     expect(withDifferentRemoteId).not.toBe(original);
   });
 
-  test('numeric vs string user ids agree when string-equal', async () => {
-    const numeric = await computeSafetyNumber({
-      localUserId: 1,
+  test('a federated pair agrees: each side names the peer by the HOME publicId, whatever the local ids are', async () => {
+    // Alice on instance A sees Bob as shadow #17 with Bob's home id in
+    // federatedPublicId; Bob on instance B sees Alice as shadow #3.
+    // Each side's own record is a plain local user.
+    const aliceOnA = { id: 1, publicId: PID_A, federatedPublicId: null };
+    const bobOnA = { id: 17, publicId: 'shadow-on-a-random', federatedPublicId: PID_B };
+    const bobOnB = { id: 1, publicId: PID_B, federatedPublicId: null };
+    const aliceOnB = { id: 3, publicId: 'shadow-on-b-random', federatedPublicId: PID_A };
+
+    const aliceSees = await computeSafetyNumber({
+      localPublicId: stablePublicIdOf(aliceOnA)!,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: stablePublicIdOf(bobOnA)!,
       remoteIdentityKey: KEY_B
     });
-    const strings = await computeSafetyNumber({
-      localUserId: '1',
+    const bobSees = await computeSafetyNumber({
+      localPublicId: stablePublicIdOf(bobOnB)!,
+      localIdentityKey: KEY_B,
+      remotePublicId: stablePublicIdOf(aliceOnB)!,
+      remoteIdentityKey: KEY_A
+    });
+    expect(aliceSees).toBe(bobSees);
+
+    // Hashing the shadow's locally minted publicId instead would not.
+    const wrong = await computeSafetyNumber({
+      localPublicId: aliceOnA.publicId,
       localIdentityKey: KEY_A,
-      remoteUserId: '2',
+      remotePublicId: bobOnA.publicId,
       remoteIdentityKey: KEY_B
     });
-    expect(numeric).toBe(strings);
+    expect(wrong).not.toBe(bobSees);
+  });
+
+  test('rejects missing public ids', async () => {
+    await expect(
+      computeSafetyNumber({
+        localPublicId: '',
+        localIdentityKey: KEY_A,
+        remotePublicId: PID_B,
+        remoteIdentityKey: KEY_B
+      })
+    ).rejects.toThrow();
   });
 
   test('rejects empty identity keys', async () => {
     await expect(
       computeSafetyNumber({
-        localUserId: 1,
+        localPublicId: PID_A,
         localIdentityKey: new Uint8Array(0),
-        remoteUserId: 2,
+        remotePublicId: PID_B,
         remoteIdentityKey: KEY_B
       })
     ).rejects.toThrow();
@@ -134,20 +167,31 @@ describe('computeSafetyNumber', () => {
 
 describe('fingerprintFor (internal)', () => {
   test('produces exactly 30 truncated bytes', async () => {
-    const fp = await __testing.fingerprintFor('1', KEY_A);
+    const fp = await __testing.fingerprintFor(PID_A, KEY_A);
     expect(fp.byteLength).toBe(__testing.TRUNCATED_BYTES);
   });
 
   test('changing identity key changes the fingerprint', async () => {
-    const fpA = await __testing.fingerprintFor('1', KEY_A);
-    const fpB = await __testing.fingerprintFor('1', KEY_B);
+    const fpA = await __testing.fingerprintFor(PID_A, KEY_A);
+    const fpB = await __testing.fingerprintFor(PID_A, KEY_B);
     expect(Buffer.from(fpA).toString('hex')).not.toBe(Buffer.from(fpB).toString('hex'));
   });
 
-  test('changing stable id changes the fingerprint', async () => {
-    const one = await __testing.fingerprintFor('1', KEY_A);
-    const two = await __testing.fingerprintFor('2', KEY_A);
+  test('changing the public id changes the fingerprint', async () => {
+    const one = await __testing.fingerprintFor(PID_A, KEY_A);
+    const two = await __testing.fingerprintFor(PID_B, KEY_A);
     expect(Buffer.from(one).toString('hex')).not.toBe(Buffer.from(two).toString('hex'));
+  });
+});
+
+describe('stablePublicIdOf', () => {
+  test('prefers the home id of a shadow, falls back to publicId, undefined when neither', () => {
+    expect(stablePublicIdOf({ publicId: 'local-random', federatedPublicId: PID_B })).toBe(PID_B);
+    expect(stablePublicIdOf({ publicId: PID_A, federatedPublicId: null })).toBe(PID_A);
+    expect(stablePublicIdOf({ publicId: PID_A })).toBe(PID_A);
+    expect(stablePublicIdOf({ publicId: '', federatedPublicId: '' })).toBeUndefined();
+    expect(stablePublicIdOf(undefined)).toBeUndefined();
+    expect(stablePublicIdOf(null)).toBeUndefined();
   });
 });
 
@@ -197,9 +241,9 @@ describe('formatForDisplay', () => {
 describe('integration: end-to-end format', () => {
   test('computeSafetyNumber output passes formatForDisplay', async () => {
     const digits = await computeSafetyNumber({
-      localUserId: 1,
+      localPublicId: PID_A,
       localIdentityKey: KEY_A,
-      remoteUserId: 2,
+      remotePublicId: PID_B,
       remoteIdentityKey: KEY_B
     });
     const formatted = formatForDisplay(digits);
