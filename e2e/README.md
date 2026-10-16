@@ -14,6 +14,7 @@ four shipped bugs the unit suite missed.
 | `sso`        | `127.0.0.1:14993`              | derived SSO-only login mode: UI rendering + `/login`/`/register` gates |
 | `federation` | `127.0.0.1:14994` + `:14995`   | full peering → discover → join → cross-instance messaging → DM |
 | `probes`     | `127.0.0.1:14991`              | env-gated probe utilities (`tests/probes/*-probe.spec.ts`, `ui-baseline.spec.ts`): screenshot walkers and manual-review harnesses for cosmetics, nameplates, emoji, previews, mic, OBS, reports. Not a CI gate. |
+| `upgrade`    | `127.0.0.1:14997`              | upgrade smoke (`tests/upgrade/{seed,verify}.spec.ts`): previous release image seeds a persistent volume, the freshly built image boots on it. Phase-gated by `UPGRADE_PHASE`; nightly, not a push-time gate. See [Upgrade smoke](#upgrade-smoke). |
 
 Instances are defined in `docker/compose.yml` (no volumes — every
 `up` is a first boot; `down` fully resets). Instance config
@@ -84,9 +85,58 @@ message-count style assertions are written to tolerate it.
   via a Chromium host-resolver rule — same URLs as production, no
   app-side special-casing.
 
+## Upgrade smoke
+
+`compose.yml` is stateless on purpose; `docker/compose.upgrade.yml` is
+the opposite: one instance (`pulse-e2e-upgrade-core`, host port 14997)
+plus postgres on **named volumes** (`pulse_data`, `pg_data`), with the
+image taken from `PULSE_IMAGE`. `docker/upgrade-smoke.sh` runs the
+operator's `docker compose pull && up -d` end to end:
+
+1. fresh volumes, **old** image up → `UPGRADE_PHASE=seed` runs
+   `tests/upgrade/seed.spec.ts`: register the owner, create a channel,
+   send a message, upload a file; the migration tracking rows and the
+   file URL are written to `.upgrade/state.json`
+2. `stop pulse-core`, volumes kept, **new** image up on the same volumes
+3. `UPGRADE_PHASE=verify` runs `tests/upgrade/verify.spec.ts`: `/healthz`
+   ok, `/info` reports the new version, the seeded owner logs in through
+   the form, channel + message + upload are still there (same URL), and
+   `drizzle.__drizzle_migrations` holds every journal entry exactly once
+   with the old rows untouched
+
+Locally (the review stack on 1499[1-5] can stay up — different project
+name, containers and port, no media port published):
+
+```bash
+docker build -f e2e/docker/Dockerfile -t pulse-e2e:upgrade-new .   # the candidate
+docker pull ghcr.io/plsechat/pulse-chat:latest                      # the previous release
+cd e2e && npm run upgrade:smoke -- ghcr.io/plsechat/pulse-chat:latest pulse-e2e:upgrade-new
+```
+
+Pass any published tag as the old side (`:v0.2.6`), or the same image
+twice for a restart-on-volumes check. The script tears the stack down
+(`down -v`) when it ends; `KEEP_UPGRADE_STACK=1` leaves it up for
+inspection (`npm run upgrade:down` later). Both specs skip themselves
+unless `UPGRADE_PHASE` is set, so `npm test` lists them as skipped.
+
+The two images lay their data out differently (release: compiled
+binary, `/root/.config/pulse`, port 5443; harness: bun runtime,
+`/app/apps/server/data`, port from `PULSE_PORT`), so the compose mounts
+the data volume at both paths and the harness entrypoint writes 5443
+into a *new* `config.ini` only — an existing one from the old image is
+reused as is, like a real upgrade. The harness image also re-seeds its
+client bundle into `interface/<version>` whenever the volume carries a
+different build (content stamp), mirroring the release binary's
+re-extract of `interface.zip` on boot.
+
 ## CI
 
 `.github/workflows/e2e.yml` runs the full suite on every push to
 dev/main and on PRs, building the harness image with a GHA-cached
 buildx layer cache. On failure it uploads the Playwright report +
 traces and dumps instance logs.
+
+`.github/workflows/e2e-upgrade.yml` runs the upgrade smoke nightly
+against `dev` from `ghcr.io/plsechat/pulse-chat:latest` (the last
+Manual Release), and on demand from any branch with a chosen source
+tag (`old_tag` input). It shares the e2e layer cache.

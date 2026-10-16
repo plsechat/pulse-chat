@@ -19,8 +19,8 @@ const FAKE_MEDIA_ARGS = [
   '--use-fake-device-for-media-stream'
 ];
 
-// Shared by the `core` and `probes` projects: both target the core
-// instance with the same fake-media launch flags.
+// Shared by the `core`, `probes` and `tools` projects: all target the
+// core instance with the same fake-media launch flags.
 const CORE_USE = {
   ...devices['Desktop Chrome'],
   baseURL: 'http://127.0.0.1:14991',
@@ -58,15 +58,37 @@ export default defineConfig({
       dependencies: ['core-setup'],
       use: CORE_USE
     },
-    // Env-gated probe utilities (screenshot walkers, manual-review
-    // harnesses). Each spec skips itself unless its own *_PROBE / UI_SHOTS
-    // variable is set, so `--project=core` never parses or lists them:
-    //   COSMETICS_PROBE=1 npx playwright test --project=probes
+    // Env-gated probe utilities (manual-review harnesses). Each spec
+    // skips itself unless its own *_PROBE variable is set, so a bare run
+    // lists them as skipped:
+    //   OBS_PROBE=1 npx playwright test --project=probes
     {
       name: 'probes',
       testDir: './tests/probes',
       dependencies: ['core-setup'],
       use: CORE_USE
+    },
+    // Screenshot/review utilities, not tests: gated by UI_SHOTS so a
+    // bare run lists them as skipped:
+    //   UI_SHOTS=1 UI_SHOTS_DIR=/tmp/shots npx playwright test --project=tools
+    {
+      name: 'tools',
+      testDir: './tools',
+      dependencies: ['core-setup'],
+      use: CORE_USE
+    },
+    // Phone-width shell (Pixel 7: 412×915 < the 768px mobile breakpoint)
+    // against the same core instance — drawers, bottom nav, composer.
+    {
+      name: 'core-mobile',
+      testDir: './tests/mobile',
+      dependencies: ['core-setup'],
+      use: {
+        ...devices['Pixel 7'],
+        baseURL: 'http://127.0.0.1:14991',
+        launchOptions: { args: FAKE_MEDIA_ARGS },
+        permissions: ['microphone']
+      }
     },
     {
       name: 'sso',
@@ -93,6 +115,20 @@ export default defineConfig({
             '--host-resolver-rules=MAP pulse-fed-b:4991 127.0.0.1:14995'
           ]
         }
+      }
+    },
+    // Upgrade smoke (docker/compose.upgrade.yml, docker/upgrade-smoke.sh):
+    // seed.spec.ts runs against the previous release image, verify.spec.ts
+    // against the freshly built one, on the same data volumes. Each spec
+    // gates itself on UPGRADE_PHASE (seed | verify), so the default run
+    // lists both as skipped — like the probes, this is never part of the
+    // push-time gate; e2e-upgrade.yml runs it nightly.
+    {
+      name: 'upgrade',
+      testDir: './tests/upgrade',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: `http://127.0.0.1:${process.env.UPGRADE_HOST_PORT ?? '14997'}`
       }
     }
   ]

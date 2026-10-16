@@ -436,33 +436,14 @@ test.describe('E2EE direct messages', () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  /**
-   * The identity-changed modal is the attack-detection surface — it fires
-   * only when a peer's key changes WITHOUT an accompanying reset event (a
-   * malicious server swapping keys). We could not trigger it deterministically
-   * through the client UI, and confirmed WHY empirically:
-   *
-   *  - A legitimate rotation always emits E2EE_IDENTITY_RESET. Any peer that
-   *    is online — OR that reconnects and re-subscribes — re-receives it
-   *    through the `e2ee.onIdentityReset` subscription (subscriptions.ts:94)
-   *    and `handlePeerIdentityReset` (index.ts:1394) silently re-pins the new
-   *    identity BEFORE the next send, so `buildSession`'s pin check never
-   *    trips. Dropping the WS and clearing B's Signal session both failed to
-   *    reach the dialog for this reason (the subscription re-delivers on
-   *    reconnect; reload re-decrypts history which re-establishes state).
-   *  - The only remaining trigger is a server that returns a different
-   *    identity key from getPreKeyBundle with no reset event — i.e. a
-   *    genuinely hostile server. The e2e harness runs the real server, which
-   *    doesn't do that.
-   *
-   * The online reset path (system message + silent re-pin + continued
-   * messaging) is covered by the preceding test. The dialog dispatch logic
-   * itself lives in lib/e2ee/identity-change-dispatch.ts (presentIdentityChange,
-   * single-modal collapse) and warrants a focused client unit test with a
-   * mocked store rather than a full-stack e2e.
+  /*
+   * The identity-changed modal (an unannounced key swap — a hostile
+   * server returning a different identity key with no reset event) has
+   * no e2e: a legitimate rotation always emits E2EE_IDENTITY_RESET, which
+   * every online or reconnecting peer re-receives and silently re-pins
+   * before the next send, so the dialog cannot be reached through the
+   * real server this harness runs. Its dispatch logic (presentIdentityChange,
+   * single-modal collapse) is covered by the client unit test
+   * apps/client/src/lib/e2ee/__tests__/identity-change-dispatch.test.ts.
    */
-  test.fixme(
-    'identity change dialog fires on an unannounced key swap (needs a hostile-server harness)',
-    () => {}
-  );
 });

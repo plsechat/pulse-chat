@@ -27,14 +27,23 @@ COPY . .
 RUN cd apps/client && bun run build
 
 # In IS_DEVELOPMENT mode, loadEmbeds() skips the embedded-zip extract
-# but doesn't seed INTERFACE_PATH. Pre-populate it from the just-built
-# client bundle so the HTTP interface handler can serve the UI from the
-# first request. INTERFACE_PATH = DATA_PATH/interface/SERVER_VERSION and
-# DATA_PATH in dev resolves to <cwd>/data (cwd = /app/apps/server).
+# but doesn't seed INTERFACE_PATH. Stash the just-built client bundle
+# outside the data directory; entrypoint.sh copies it into
+# DATA_PATH/interface/SERVER_VERSION at boot (DATA_PATH in dev resolves
+# to <cwd>/data, cwd = /app/apps/server). The stash lives outside
+# DATA_PATH on purpose: compose.upgrade.yml mounts a named volume over
+# the data directory, and a volume hides whatever the image put there.
+#
+# `.build-stamp` is a content hash of the bundle. The entrypoint only
+# re-seeds when the stamp differs from the one already in the data
+# directory — a fresh container always seeds, an upgrade onto a volume
+# that carries an older build re-seeds, and a bundle hot-patched into a
+# running container (same stamp) survives a restart.
 RUN VERSION=$(bun -e "console.log(require('./apps/server/package.json').version)") \
-    && mkdir -p apps/server/data/interface/${VERSION} \
-    && cp -R apps/client/dist/. apps/server/data/interface/${VERSION}/ \
-    && echo "Seeded apps/server/data/interface/${VERSION}" \
+    && mkdir -p /app/interface-seed \
+    && cp -R apps/client/dist/. /app/interface-seed/ \
+    && (cd /app/interface-seed && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1) > /app/interface-seed/.build-stamp \
+    && echo "Stashed client bundle $(cat /app/interface-seed/.build-stamp) for ${VERSION}" \
     && echo "PULSE_BUILD_VERSION=${VERSION}" > /pulse-version.env
 
 COPY e2e/docker/entrypoint.sh /entrypoint.sh

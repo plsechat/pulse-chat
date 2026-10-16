@@ -6,8 +6,8 @@ import {
 } from '@playwright/test';
 import path from 'node:path';
 import { psql } from '../../helpers/db';
-import { authedPage, registerAndJoin, runUser } from '../../helpers/fixtures';
-import { dmComposer, goHome } from '../../helpers/ui';
+import { authedPage, registerAndJoin, RUN_TAG, runUser } from '../../helpers/fixtures';
+import { dmComposer, goHome, sendDmMessage } from '../../helpers/ui';
 
 /**
  * DM depth: the friend-request loop, group-DM lifecycle, and DM
@@ -163,6 +163,30 @@ test.describe('DM depth', () => {
     url.searchParams.delete('accessToken');
     const denied = await pageA.request.get(url.href);
     expect(denied.status()).toBe(403);
+  });
+
+  test('DM body renders through the shared message body: emoji-only sizing parity', async () => {
+    // The 1:1 DM with B is open from the previous test. DMs render via
+    // the same ChatMessageBody as channels, so the emoji-only treatment
+    // (.emoji-only on .msg-content) must apply here too, while plain text
+    // stays plain.
+    const text = `shared-body ${RUN_TAG}`;
+    await sendDmMessage(pageA, text);
+    const textRow = pageA.locator('[id^="dm-msg-"]').filter({ hasText: text }).last();
+    await expect(textRow.locator('.msg-content')).toHaveCount(1);
+    await expect(textRow.locator('.msg-content.emoji-only')).toHaveCount(0);
+
+    await sendDmMessage(pageA, '🎉🎉');
+    const emojiRow = pageA.locator('[id^="dm-msg-"]').filter({ hasText: '🎉🎉' }).last();
+    await expect(emojiRow.locator('.msg-content.emoji-only')).toHaveCount(1, {
+      timeout: 15_000
+    });
+    // B receives both with the same treatment.
+    await pageB.getByText(A.displayName, { exact: true }).first().click();
+    await expect(dmComposer(pageB)).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').filter({ hasText: '🎉🎉' }).last().locator('.msg-content.emoji-only')
+    ).toHaveCount(1, { timeout: 15_000 });
   });
 
   test('group DM: create from friends, promote to group, leave', async () => {

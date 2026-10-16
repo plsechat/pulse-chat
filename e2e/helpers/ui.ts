@@ -259,3 +259,67 @@ export async function authedGoto(
   await page.goto(baseURL);
   await waitForAppReady(page);
 }
+
+/**
+ * Open Server Settings (server-name dropdown in the left sidebar) at the
+ * given section. Settings navigation is buttons, not tabs.
+ */
+export async function openServerSettings(
+  page: Page,
+  section: string
+): Promise<void> {
+  await page
+    .locator('aside')
+    .getByRole('button')
+    .filter({ hasText: 'Pulse Server' })
+    .first()
+    .click();
+  await page.getByRole('menuitem', { name: 'Server Settings' }).click();
+  await page.getByRole('button', { name: section, exact: true }).click();
+}
+
+/**
+ * The visible composer regardless of placeholder state. tiptap drops the
+ * data-placeholder attribute once the field has content, so the
+ * placeholder-scoped locators above stop resolving mid-typing; this one
+ * keeps resolving for keyboard-driven input (code blocks, mentions).
+ */
+export function visibleComposer(page: Page): Locator {
+  return page
+    .locator('[contenteditable="true"]')
+    .filter({ visible: true })
+    .first();
+}
+
+/**
+ * Sidebar voice-roster entries for `name` (every voice channel's rows): a
+ * cursor-pointer row carrying the member's name and a mic icon
+ * (components/left-sidebar/voice-user.tsx). The member list on the right
+ * shows names without a mic icon, so the icon filter keeps the two apart.
+ */
+export function voiceRosterEntry(page: Page, name: string): Locator {
+  return page
+    .locator('div.cursor-pointer:has(svg.lucide-mic, svg.lucide-mic-off)')
+    .filter({ hasText: name });
+}
+
+/** The desktop member list (right sidebar); `w-60` when open, `w-0` closed. */
+export function memberList(page: Page): Locator {
+  return page.locator('aside.lg\\:bg-sidebar\\/50');
+}
+
+/**
+ * Open the desktop member list. It is CLOSED by default in a fresh
+ * context (RIGHT_SIDEBAR_STATE localStorage) and toggled from the top
+ * bar's panel button; idempotent.
+ */
+export async function openMemberList(page: Page): Promise<void> {
+  const list = memberList(page);
+  await expect(list).toBeAttached();
+  if (!/\bw-60\b/.test((await list.getAttribute('class')) ?? '')) {
+    await page
+      .locator('.app-topbar button:has(svg.lucide-panel-right)')
+      .click();
+  }
+  await expect(list).toHaveClass(/\bw-60\b/);
+}

@@ -146,7 +146,7 @@ bun run --filter client test
 
 ### Browser end-to-end tests
 
-Playwright specs in `e2e/` drive the real client against dockerized instances — see [e2e/README.md](e2e/README.md). The `probes` project there holds exploratory/visual probe specs that are not part of the CI gate.
+Playwright specs in `e2e/` drive the real client against dockerized instances — see [e2e/README.md](e2e/README.md). The `probes` project there holds exploratory/visual probe specs that are not part of the CI gate, and the `upgrade` project is the nightly upgrade smoke (previous release image → this checkout on the same data volumes; `e2e/docker/upgrade-smoke.sh`, see the README's "Upgrade smoke" section for the local run).
 
 ### Before you push
 

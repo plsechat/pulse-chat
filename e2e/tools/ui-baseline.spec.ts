@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
-import { authedPage, CORE_OWNER } from '../../helpers/fixtures';
+import { psql } from '../helpers/db';
+import { authedPage, CORE_OWNER } from '../helpers/fixtures';
 import {
   channelComposer,
   goHome,
@@ -11,26 +11,21 @@ import {
   openUserSettings,
   selectChannel,
   sendDmMessage
-} from '../../helpers/ui';
+} from '../helpers/ui';
 
 /**
- * SCREENSHOT UTILITY — not a test. Captures the UI-rework baseline/after
- * shots for the design audit. Runs only when UI_SHOTS is set so it can
- * never fire in CI. Seeds visually-rich content via psql, then walks the
- * key surfaces and screenshots each into UI_SHOTS_DIR.
+ * SCREENSHOT UTILITY — not a test (hence e2e/tools/, project `tools`).
+ * Captures the UI-rework baseline/after shots for the design audit. Runs
+ * only when UI_SHOTS is set so it can never fire in CI. Seeds
+ * visually-rich content via psql, then walks the key surfaces and
+ * screenshots each into UI_SHOTS_DIR:
+ *   UI_SHOTS=1 UI_SHOTS_DIR=/tmp/ui-shots npx playwright test --project=tools
  */
 
 const BASE = 'http://127.0.0.1:14991';
 const OUT = process.env.UI_SHOTS_DIR ?? '/tmp/ui-shots';
 
 test.skip(!process.env.UI_SHOTS, 'screenshot utility, set UI_SHOTS=1');
-
-function psql(sql: string): string {
-  return execSync(
-    `docker exec pulse-e2e-db-core psql -U postgres -qtAX -c "${sql.replace(/"/g, '\\"')}"`,
-    { encoding: 'utf-8' }
-  ).trim();
-}
 
 test('capture UI surfaces', async ({ browser }) => {
   test.setTimeout(600_000);
@@ -39,9 +34,9 @@ test('capture UI surfaces', async ({ browser }) => {
   mkdirSync(OUT, { recursive: true });
 
   // ---- seed rich content (idempotent-ish: tagged, re-runs add nothing) ----
-  const seeded = psql(`SELECT count(*) FROM messages WHERE content LIKE 'uishot:%'`);
+  const seeded = psql('core', `SELECT count(*) FROM messages WHERE content LIKE 'uishot:%'`);
   if (seeded === '0') {
-    const users = psql(`SELECT id, name FROM users ORDER BY id LIMIT 2`)
+    const users = psql('core', `SELECT id, name FROM users ORDER BY id LIMIT 2`)
       .split('\n')
       .map((l) => l.split('|')[0]);
     const [owner, userB] = users;
@@ -57,14 +52,12 @@ test('capture UI surfaces', async ({ browser }) => {
       [owner, `uishot: seed marker`, 1]
     ] as const;
     for (const [uid, content, minAgo] of rows) {
-      psql(
-        `INSERT INTO messages (content, user_id, channel_id, created_at) VALUES ('${String(content).replace(/'/g, "''")}', ${uid}, 1, (extract(epoch from now()) - ${minAgo} * 60) * 1000)`
+      psql('core', `INSERT INTO messages (content, user_id, channel_id, created_at) VALUES ('${String(content).replace(/'/g, "''")}', ${uid}, 1, (extract(epoch from now()) - ${minAgo} * 60) * 1000)`
       );
     }
-    const target = psql(`SELECT id FROM messages WHERE content = 'let''s test reactions on this one'`);
+    const target = psql('core', `SELECT id FROM messages WHERE content = 'let''s test reactions on this one'`);
     for (const [uid, emoji] of [[owner, 'thumbsup'], [userB, 'thumbsup'], [owner, 'tada'], [userB, 'heart']] as const) {
-      psql(
-        `INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (${target}, ${uid}, '${emoji}', extract(epoch from now()) * 1000)`
+      psql('core', `INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (${target}, ${uid}, '${emoji}', extract(epoch from now()) * 1000)`
       );
     }
   }
