@@ -962,7 +962,8 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
     } else {
       // Dynamically import to avoid circular dependency with voice/actions
       const { leaveVoice } = await import('../server/voice/actions');
-      await leaveVoice();
+      // Hop, not hang-up: only the join cue plays.
+      await leaveVoice({ silent: true });
     }
   }
 

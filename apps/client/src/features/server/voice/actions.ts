@@ -191,14 +191,16 @@ export const updateOwnVoiceState = (
  * Leave whatever voice call the user is currently in (server or DM).
  * Call this before joining a new voice channel of any type.
  */
-export const leaveCurrentVoice = async (): Promise<void> => {
+export const leaveCurrentVoice = async (
+  options?: LeaveVoiceOptions
+): Promise<void> => {
   const state = store.getState();
   const ownDmCallChannelId = state.dms.ownDmCallChannelId;
 
   if (ownDmCallChannelId) {
     await leaveDmVoiceCall();
   } else {
-    await leaveVoice();
+    await leaveVoice(options);
   }
 };
 
@@ -214,8 +216,11 @@ export const joinVoice = async (
   }
 
   if (currentChannelId) {
-    // is already in a voice channel (server or DM), leave it first
-    await leaveCurrentVoice();
+    // Already in a voice channel (server or DM) — leave it first. This
+    // is a hop, not a hang-up: only the join cue should play, so the
+    // leave is silent (the provider plays the join sound once the new
+    // session is up).
+    await leaveCurrentVoice({ silent: true });
   }
 
   const { micMuted, soundMuted } = ownVoiceStateSelector(state);
@@ -242,7 +247,15 @@ export const joinVoice = async (
   return undefined;
 };
 
-export const leaveVoice = async (): Promise<void> => {
+export type LeaveVoiceOptions = {
+  /** Skip the "left voice" cue — set when the leave is the first half
+   *  of a hop to another channel, where only the join cue should play. */
+  silent?: boolean;
+};
+
+export const leaveVoice = async (
+  options?: LeaveVoiceOptions
+): Promise<void> => {
   const state = store.getState();
   const currentChannelId = currentVoiceChannelIdSelector(state);
   const selectedChannelId = selectedChannelIdSelector(state);
@@ -264,7 +277,9 @@ export const leaveVoice = async (): Promise<void> => {
 
   try {
     await client.voice.leave.mutate();
-    playSound(SoundType.OWN_USER_LEFT_VOICE_CHANNEL);
+    if (!options?.silent) {
+      playSound(SoundType.OWN_USER_LEFT_VOICE_CHANNEL);
+    }
   } catch (error) {
     toast.error(getTrpcError(error, 'Failed to leave voice channel'));
   }
