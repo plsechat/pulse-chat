@@ -51,7 +51,7 @@ describe('banned-cache → tRPC auth middleware', () => {
     await ownerCaller.users.ban({ userId: 2, reason: 'test' });
 
     // Build a caller as user 2 *after* the ban; their handshake +
-    // joinServer paths are protected, so they should be rejected
+    // openSession paths are protected, so they should be rejected
     // without ever reaching the route logic.
     await expect(initTest(2)).rejects.toThrow('User is banned');
   });

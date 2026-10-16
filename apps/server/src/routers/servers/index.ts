@@ -18,6 +18,12 @@ import { transferOwnerRoute } from './transfer-owner';
 export const serversRouter = t.router({
   create: createServerRoute,
   delete: deleteServerRoute,
+  joinByInvite: joinServerByInviteRoute,
+  /**
+   * @deprecated Alias of `joinByInvite`, kept for one release for clients
+   * built against the previous release. v0.4.0 ships the alias; delete it
+   * in v0.5.0.
+   */
   join: joinServerByInviteRoute,
   joinDiscover: joinDiscoverRoute,
   joinFederated: joinFederatedRoute,

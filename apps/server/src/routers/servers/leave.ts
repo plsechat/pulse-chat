@@ -6,9 +6,9 @@ import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishUser } from '../../db/publishers';
 import { getServerById, removeServerMember } from '../../db/queries/servers';
 import { channels } from '../../db/schema';
-import { eventBus } from '../../plugins/event-bus';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
+import { announceMemberLeft } from '../../utils/membership-events';
 import { protectedProcedure } from '../../utils/trpc';
 import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
@@ -79,7 +79,7 @@ const leaveServerRoute = protectedProcedure
     // their roster in real time (no more "stale until refresh").
     publishUser(ctx.userId, 'delete', { scopeServerId: input.serverId });
 
-    eventBus.emit('user:left', {
+    await announceMemberLeft({
       userId: ctx.userId,
       username: ctx.user.name,
       serverId: input.serverId

@@ -690,7 +690,7 @@ describe('users router', () => {
     expect(row?.pronouns).toBe('they/them');
   });
 
-  test('joinServer publishes USER_JOIN carrying the server publicId', async () => {
+  test('openSession publishes USER_CONNECTED carrying the server publicId', async () => {
     const publishedEvents: { topic: string; payload: unknown }[] = [];
     const original = pubsub.publishFor.bind(pubsub);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -716,7 +716,7 @@ describe('users router', () => {
     )) as unknown as { public_id: string }[];
 
     const joins = publishedEvents.filter(
-      (e) => e.topic === ServerEvents.USER_JOIN
+      (e) => e.topic === ServerEvents.USER_CONNECTED
     );
     expect(joins.length).toBe(1);
     expect(joins[0]!.payload).toMatchObject({

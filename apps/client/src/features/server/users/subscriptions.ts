@@ -49,7 +49,9 @@ const subscribeToUsers = () => {
   if (!trpc) return () => {};
 
   return combineUnsubscribes(
-    subscribe('onUserJoin', trpc.users.onJoin, (payload) => {
+    // A member's client session connected to the server (the
+    // bootstrap). A NEW member arrives on servers.onMemberJoin.
+    subscribe('onUserConnected', trpc.users.onConnected, (payload) => {
       handleUserJoin(payload.serverId, payload.user, payload.serverPublicId);
       updateFriend(payload.user.id, payload.user);
       store.dispatch(
@@ -98,7 +100,7 @@ const subscribeToUsers = () => {
         // Server-scoped delete (kick/ban/leave from `serverId`). Only mutate
         // the local roster when we're actually viewing that server, otherwise
         // we'd corrupt the active server's user list (audit H1, same shape as
-        // the USER_JOIN scope fix).
+        // the USER_CONNECTED scope fix).
         //
         // Prefer the globally-unique serverPublicId when present — numeric
         // ids collide across federated instances (state.server.serverId

@@ -5,7 +5,9 @@ export enum ServerEvents {
   MESSAGE_BULK_DELETE = "messageBulkDelete",
   MESSAGE_TYPING = "messageTyping",
 
-  USER_JOIN = "userJoin",
+  // A user's client session connected to (bootstrapped) a server it is
+  // already a member of. Becoming a member is SERVER_MEMBER_JOIN.
+  USER_CONNECTED = "userConnected",
   USER_LEAVE = "userLeave",
 
   CHANNEL_CREATE = "channelCreate",

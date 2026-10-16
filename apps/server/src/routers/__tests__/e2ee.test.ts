@@ -1502,7 +1502,7 @@ describe('e2ee router — identity reset fan-out and key-read authorization', ()
       await caller1.e2ee.getIdentityPublicKey({ userId: dmFriendId })
     ).toBe('dm-friend-identity');
     // And the other direction, from a caller who is in no server at all
-    // (joinServer answers a user with no servers minimally; it enrols
+    // (openSession answers a user with no servers minimally; it enrols
     // nobody).
     await caller1.e2ee.registerKeys({
       ...mockKeys,

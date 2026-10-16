@@ -1,4 +1,3 @@
-import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -7,15 +6,16 @@ import { getDefaultRoleForServer } from '../../db/queries/roles';
 import {
   addServerMember,
   getServerById,
-  getServerMemberIds,
   getServersByUserId,
   isServerMember
 } from '../../db/queries/servers';
-import { getPublicUserById } from '../../db/queries/users';
 import { invites, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
+import { announceMemberJoin } from '../../utils/membership-events';
 import { protectedProcedure } from '../../utils/trpc';
 
+// Membership join by invite code (servers.joinByInvite). Opening the
+// joined server on this socket is a separate others.openSession call.
 const joinServerByInviteRoute = protectedProcedure
   .input(
     z.object({
@@ -99,26 +99,16 @@ const joinServerByInviteRoute = protectedProcedure
     const servers = await getServersByUserId(ctx.userId);
     const summary = servers.find((s) => s.id === server.id)!;
 
-    ctx.pubsub.publishFor(ctx.userId, ServerEvents.SERVER_MEMBER_JOIN, {
-      serverId: server.id,
+    // One fan-out to every member: the joiner's rail entry and the
+    // existing members' roster add (they see the new user without
+    // waiting for their first session on the server).
+    await announceMemberJoin({
+      pubsub: ctx.pubsub,
+      server,
       userId: ctx.userId,
-      server: summary
+      username: ctx.user.name,
+      summary
     });
-
-    // Notify existing members so they see the new user in the member list
-    const memberIds = await getServerMemberIds(server.id);
-    const publicUser = await getPublicUserById(ctx.userId);
-    if (publicUser) {
-      ctx.pubsub.publishFor(
-        memberIds.filter((id) => id !== ctx.userId),
-        ServerEvents.USER_JOIN,
-        {
-          serverId: server.id,
-          serverPublicId: server.publicId,
-          user: publicUser
-        }
-      );
-    }
 
     return summary;
   });

@@ -44,7 +44,7 @@ const initTest = async (userId: number = 1) => {
   const { caller, mockedToken, ctx } = await getCaller(userId);
   const { handshakeHash } = await caller.others.handshake();
 
-  const initialData = await caller.others.joinServer({
+  const initialData = await caller.others.openSession({
     handshakeHash: handshakeHash
   });
 

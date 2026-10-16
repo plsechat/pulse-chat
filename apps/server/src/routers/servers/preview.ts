@@ -48,7 +48,7 @@ const previewServerRoute = protectedProcedure
       });
 
       // Validate remaining uses WITHOUT consuming one — only an actual
-      // join (servers.join) increments.
+      // join (servers.joinByInvite) increments.
       invariant(!invite.maxUses || invite.uses < invite.maxUses, {
         code: 'FORBIDDEN',
         message: 'This invite has reached its maximum uses'

@@ -287,7 +287,7 @@ const createContext = async ({
 
   // Read-only preview session (servers.preview): grants exactly
   // VIEW_CHANNEL on the previewed server's public channels. Cleared when
-  // the connection joins a real server (others.joinServer) or via
+  // the connection joins a real server (others.openSession) or via
   // servers.leavePreview.
   const _previewServer = { id: undefined as number | undefined };
 

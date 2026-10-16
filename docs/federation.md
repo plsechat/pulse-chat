@@ -280,6 +280,17 @@ and returns a signed body, `/federation/accept` verifies the whole body
 `/unpeer`, `/key-rotation`, `/report-user` are new (older peers answer
 `404`; the rows dead-letter).
 
+Remote tRPC rename with a one-release alias: the session bootstrap a
+federated client calls on the remote instance is `others.openSession`
+(was `others.joinServer`); the membership join is `servers.joinByInvite`
+(was `servers.join`) and the "member's session connected" subscription
+is `users.onConnected` (was `users.onJoin`; the event is
+`USER_CONNECTED`, and becoming a member is `SERVER_MEMBER_JOIN`, now
+fanned out to every member). v0.4.0 answers both names, so a v0.3.x
+client against a v0.4.0 peer and a v0.4.0 client against a v0.3.x peer
+both still bootstrap; v0.5.0 deletes the old names, after which a
+v0.3.x client cannot open a session on a v0.5.0 peer.
+
 ## Known gaps (current behaviour)
 
 - User federation tokens have no replay protection within their 24 h

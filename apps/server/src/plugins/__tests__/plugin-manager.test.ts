@@ -191,77 +191,139 @@ describe('plugin manager', () => {
     }
   });
 
-  test('servers.leave emits user:left with the server id', async () => {
+  // Collects every emit of `events` for the duration of `run`.
+  const collect = async (
+    events: Parameters<typeof eventBus.on>[0][],
+    run: () => Promise<unknown>
+  ) => {
+    const received: { event: string; payload: unknown }[] = [];
+    const handlers = events.map((event) => {
+      const handler = (payload: unknown) => {
+        received.push({ event, payload });
+      };
+      eventBus.on(event, handler);
+      return { event, handler };
+    });
+    try {
+      await run();
+      await new Promise((r) => setTimeout(r, 0));
+    } finally {
+      for (const { event, handler } of handlers) eventBus.off(event, handler);
+    }
+    return received;
+  };
+
+  const nameOf = async (id: number) => {
+    const [row] = await getTestDb()
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, id));
+    return row!.name;
+  };
+
+  test('servers.leave emits member:left (and the deprecated user:left) with the server id', async () => {
     await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    const received: unknown[] = [];
-    const handler = (payload: unknown) => {
-      received.push(payload);
-    };
-    eventBus.on('user:left', handler);
+    const received = await collect(['member:left', 'user:left'], () =>
+      caller2.servers.leave({ serverId: 1 })
+    );
 
-    try {
-      await caller2.servers.leave({ serverId: 1 });
-      await new Promise((r) => setTimeout(r, 0));
-    } finally {
-      eventBus.off('user:left', handler);
-    }
-
-    const [user2] = await getTestDb()
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, 2));
-
+    const payload = { userId: 2, username: await nameOf(2), serverId: 1 };
     expect(received).toEqual([
-      { userId: 2, username: user2!.name, serverId: 1 }
+      { event: 'member:left', payload },
+      { event: 'user:left', payload }
     ]);
   });
 
-  test('users.kick and users.ban emit user:left with the server id', async () => {
+  test('users.kick and users.ban emit member:left with the server id', async () => {
     const { caller } = await initTest(1);
     await initTest(2);
     await initTest(3);
 
-    const received: unknown[] = [];
-    const handler = (payload: unknown) => {
-      received.push(payload);
-    };
-    eventBus.on('user:left', handler);
-
-    try {
+    const received = await collect(['member:left'], async () => {
       await caller.users.kick({ userId: 2, reason: 'kicked' });
       await caller.users.ban({ userId: 3, reason: 'banned' });
-      await new Promise((r) => setTimeout(r, 0));
-    } finally {
-      eventBus.off('user:left', handler);
-    }
+    });
 
-    const names = await getTestDb()
-      .select({ id: users.id, name: users.name })
-      .from(users);
-    const nameOf = (id: number) => names.find((u) => u.id === id)!.name;
-
-    expect(received).toEqual([
-      { userId: 2, username: nameOf(2), serverId: 1 },
-      { userId: 3, username: nameOf(3), serverId: 1 }
+    expect(received.map((r) => r.payload)).toEqual([
+      { userId: 2, username: await nameOf(2), serverId: 1 },
+      { userId: 3, username: await nameOf(3), serverId: 1 }
     ]);
   });
 
-  test('others.joinServer emits user:joined with the server id', async () => {
-    const received: unknown[] = [];
-    const handler = (payload: unknown) => {
-      received.push(payload);
-    };
-    eventBus.on('user:joined', handler);
+  test('others.openSession emits user:connected (and the deprecated user:joined), not member:joined', async () => {
+    await initTest(1);
+    const received = await collect(
+      ['user:connected', 'user:joined', 'member:joined'],
+      () => initTest(2)
+    );
+
+    const payload = { userId: 2, username: await nameOf(2), serverId: 1 };
+    expect(received).toEqual([
+      { event: 'user:connected', payload },
+      { event: 'user:joined', payload }
+    ]);
+  });
+
+  test('servers.joinByInvite and servers.joinDiscover emit member:joined, not user:connected', async () => {
+    const owner = await initTest(1);
+    const invite = await owner.caller.invites.add({ serverId: 1 });
+    const member = await initTest(2);
+    await member.caller.servers.leave({ serverId: 1 });
+
+    const viaInvite = await collect(['member:joined', 'user:connected'], () =>
+      member.caller.servers.joinByInvite({ inviteCode: invite.code })
+    );
+    const payload = { userId: 2, username: await nameOf(2), serverId: 1 };
+    expect(viaInvite).toEqual([{ event: 'member:joined', payload }]);
+
+    await member.caller.servers.leave({ serverId: 1 });
+    await getTestDb()
+      .update(servers)
+      .set({ discoverable: true })
+      .where(eq(servers.id, 1));
+    const viaDiscover = await collect(['member:joined', 'user:connected'], () =>
+      member.caller.servers.joinDiscover({ serverId: 1 })
+    );
+    expect(viaDiscover).toEqual([{ event: 'member:joined', payload }]);
+  });
+
+  test('a loaded plugin receives member:joined and member:left through ctx.events', async () => {
+    const owner = await initTest(1);
+    await enablePluginsSetting();
+    const invite = await owner.caller.invites.add({ serverId: 1 });
+    const member = await initTest(2);
+
+    const id = 'member-events-plugin';
+    const cleanup = await writePlugin({
+      id,
+      entrySource: `
+        export const onLoad = (ctx) => {
+          globalThis.__memberEvents = [];
+          ctx.events.on('member:joined', (p) => { globalThis.__memberEvents.push(['member:joined', p]); });
+          ctx.events.on('member:left', (p) => { globalThis.__memberEvents.push(['member:left', p]); });
+        };
+      `
+    });
 
     try {
-      await initTest(2);
-    } finally {
-      eventBus.off('user:joined', handler);
-    }
+      await pluginManager.togglePlugin(id, true);
+      expect(pluginManager.isPluginLoaded(id)).toBe(true);
 
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({ userId: 2, serverId: 1 });
+      await member.caller.servers.leave({ serverId: 1 });
+      await member.caller.servers.joinByInvite({ inviteCode: invite.code });
+      await new Promise((r) => setTimeout(r, 0));
+
+      const payload = { userId: 2, username: await nameOf(2), serverId: 1 };
+      expect((globalThis as { __memberEvents?: unknown }).__memberEvents).toEqual([
+        ['member:left', payload],
+        ['member:joined', payload]
+      ]);
+    } finally {
+      delete (globalThis as { __memberEvents?: unknown }).__memberEvents;
+      await pluginManager.unload(id);
+      await cleanup();
+    }
   });
 });

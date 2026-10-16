@@ -7,11 +7,17 @@ import { getServerVoiceStateRoute } from './get-server-voice-state';
 import { getSettingsRoute } from './get-settings';
 import { getStorageSettingsRoute } from './get-storage-settings';
 import { handshakeRoute } from './handshake';
-import { joinServerRoute } from './join';
+import { openSessionRoute } from './open-session';
 import { updateSettingsRoute } from './update-settings';
 
 export const othersRouter = t.router({
-  joinServer: joinServerRoute,
+  openSession: openSessionRoute,
+  /**
+   * @deprecated Alias of `openSession`, kept for one release: federated
+   * peers on the previous release call `others.joinServer` over remote
+   * tRPC. v0.4.0 ships the alias; delete it in v0.5.0.
+   */
+  joinServer: openSessionRoute,
   handshake: handshakeRoute,
   updateSettings: updateSettingsRoute,
   changeLogo: changeLogoRoute,

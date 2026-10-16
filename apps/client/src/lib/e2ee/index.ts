@@ -152,7 +152,7 @@ export async function getHomeE2eeInstance(): Promise<E2eeInstance | null> {
 
 /**
  * A connected federated instance. Our id there is cached on the rail
- * entry at joinServer time; an entry restored from localStorage that
+ * entry at openSession time; an entry restored from localStorage that
  * was never visited this session has none, so fall back to the live
  * `users.getMyId` and cache the answer for the next caller.
  */

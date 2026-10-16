@@ -114,13 +114,13 @@ export const connect = async () => {
 
   // Restore last active server from localStorage
   const savedServerId = getSavedActiveServerId();
-  await joinServer(handshakeHash, savedServerId);
+  await openSession(handshakeHash, savedServerId);
 
   // Home-scoped subscriptions live for the whole home connection: one
   // set per socket, never per server switch (a re-subscribe round trip
   // on every switch dropped DM messages, calls and friend events that
   // arrived in the gap). They must follow the first join: the server
-  // only treats the socket as authenticated once joinServer has run,
+  // only treats the socket as authenticated once openSession has run,
   // and a subscription opened before that is refused as UNAUTHORIZED
   // and never retried.
   unsubscribeFromHome?.();
@@ -162,14 +162,20 @@ export const fetchDeferredServerData = (
   fetchNameplates(trpc, expectedServerId);
 };
 
-export const joinServer = async (
+/**
+ * The WebSocket session bootstrap (`others.openSession`): authenticates
+ * the socket against the handshake and loads `serverId` (a server we are
+ * already a member of). Becoming a member is `joinServerByInvite` and
+ * friends in app/actions.
+ */
+export const openSession = async (
   handshakeHash: string,
   serverId?: number
 ) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
   const join = beginServerJoin();
-  const data = await trpc.others.joinServer.query({
+  const data = await trpc.others.openSession.query({
     handshakeHash,
     serverId
   });
@@ -178,7 +184,7 @@ export const joinServer = async (
   // flight: its response is the one the user asked for, drop this one.
   if (!isCurrentServerJoin(join)) return;
 
-  logDebug('joinServer', data);
+  logDebug('openSession', data);
 
   // Unsubscribe from previous server if switching
   unsubscribeFromServer?.();

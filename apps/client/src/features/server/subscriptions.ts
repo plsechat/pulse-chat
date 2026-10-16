@@ -19,6 +19,7 @@ import { subscribeToEmojis } from './emojis/subscriptions';
 import { subscribeToMessages } from './messages/subscriptions';
 import { subscribeToPlugins } from './plugins/subscriptions';
 import { subscribeToRoles } from './roles/subscriptions';
+import { handleUserJoin } from './users/actions';
 import { subscribeToUsers } from './users/subscriptions';
 import { subscribeToVoice } from './voice/subscriptions';
 
@@ -110,8 +111,20 @@ const subscribeToHomeServerEvents = () => {
   if (!trpc) return () => {};
 
   return combineUnsubscribes(
-    subscribe('onServerMemberJoin', trpc.servers.onMemberJoin, ({ server }) =>
-      store.dispatch(appSliceActions.addJoinedServer(server))
+    // Fanned out to every member of the server. Our own join (from
+    // this or another device) adds the server to the rail; someone
+    // else's adds them to the roster when we are viewing that server.
+    // An older server publishes it to the joiner only, without `user`.
+    subscribe(
+      'onServerMemberJoin',
+      trpc.servers.onMemberJoin,
+      ({ serverId, serverPublicId, userId, server, user }) => {
+        if (userId === store.getState().app.homeOwnUserId) {
+          store.dispatch(appSliceActions.addJoinedServer(server));
+          return;
+        }
+        if (user) handleUserJoin(serverId, user, serverPublicId);
+      }
     ),
     subscribe(
       'onServerMemberLeave',

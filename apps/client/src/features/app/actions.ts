@@ -26,7 +26,7 @@ import {
   connect,
   fetchDeferredServerData,
   isCurrentServerJoin,
-  joinServer,
+  openSession,
   reinitServerSubscriptions,
   setInfo
 } from '../server/actions';
@@ -119,7 +119,7 @@ export const switchServer = async (
   }
 
   // Re-join with the new serverId to load its data
-  await joinServer(handshakeHash, serverId);
+  await openSession(handshakeHash, serverId);
 };
 
 /**
@@ -164,7 +164,7 @@ export const joinServerByInvite = async (
   try {
     const trpc = getHomeTRPCClient();
     if (!trpc) return undefined;
-    const server = await trpc.servers.join.mutate({ inviteCode });
+    const server = await trpc.servers.joinByInvite.mutate({ inviteCode });
     store.dispatch(appSliceActions.addJoinedServer(server));
     return server;
   } catch (error) {
@@ -209,7 +209,7 @@ const handleInviteFromUrl = async () => {
 
   try {
     // Land in a read-only preview instead of instant-joining — the
-    // preview banner's Join button consumes the invite (servers.join).
+    // preview banner's Join button consumes the invite (servers.joinByInvite).
     await startServerPreview({ inviteCode });
   } catch (error) {
     console.error('Failed to preview server from invite URL:', error);
@@ -618,7 +618,7 @@ export const switchToFederatedServer = async (
       throw new Error('No remote tRPC client available');
     }
 
-    const data = await remoteTrpc.others.joinServer.query({
+    const data = await remoteTrpc.others.openSession.query({
       handshakeHash: '',
       serverId
     });
@@ -630,7 +630,7 @@ export const switchToFederatedServer = async (
     store.dispatch(serverSliceActions.setInitialData(data));
     // Cache our user id within this federated instance so flows like
     // Phase B redistribute can target each instance's chains under
-    // the right author id without re-fetching joinServer.
+    // the right author id without re-fetching openSession.
     store.dispatch(
       appSliceActions.setFederatedOwnUserId({
         instanceDomain,

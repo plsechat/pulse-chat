@@ -7,7 +7,7 @@ import { deleteAccountRoute } from './delete-account';
 import {
   onUserCreateRoute,
   onUserDeleteRoute,
-  onUserJoinRoute,
+  onUserConnectedRoute,
   onUserKickedRoute,
   onUserLeaveRoute,
   onUserUpdateRoute
@@ -52,7 +52,13 @@ export const usersRouter = t.router({
   kick: kickRoute,
   ban: banRoute,
   unban: unbanRoute,
-  onJoin: onUserJoinRoute,
+  onConnected: onUserConnectedRoute,
+  /**
+   * @deprecated Alias of `onConnected`, kept for one release for clients
+   * built against the previous release. v0.4.0 ships the alias; delete it
+   * in v0.5.0.
+   */
+  onJoin: onUserConnectedRoute,
   onLeave: onUserLeaveRoute,
   onUpdate: onUserUpdateRoute,
   onCreate: onUserCreateRoute,

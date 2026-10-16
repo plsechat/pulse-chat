@@ -40,7 +40,12 @@ export type TExternalStreamHandle = {
 };
 
 export type ServerEvent =
+  | "user:connected"
+  | "member:joined"
+  | "member:left"
+  /** @deprecated alias of `user:connected`; removed in v0.5.0 */
   | "user:joined"
+  /** @deprecated alias of `member:left`; removed in v0.5.0 */
   | "user:left"
   | "message:created"
   | "message:updated"
@@ -49,11 +54,37 @@ export type ServerEvent =
   | "voice:runtime_closed";
 
 export interface EventPayloads {
+  /** A member's client session connected to (bootstrapped) `serverId`. */
+  "user:connected": {
+    userId: number;
+    username: string;
+    serverId: number;
+  };
+  /** A user became a member of `serverId` (invite, discover or federated join). */
+  "member:joined": {
+    userId: number;
+    username: string;
+    serverId: number;
+  };
+  /** A user stopped being a member of `serverId` (left, kicked or banned). */
+  "member:left": {
+    userId: number;
+    username: string;
+    serverId: number;
+  };
+  /**
+   * @deprecated Same payload and timing as `user:connected`; emitted
+   * alongside it for one release (v0.4.0) and removed in v0.5.0.
+   */
   "user:joined": {
     userId: number;
     username: string;
     serverId: number;
   };
+  /**
+   * @deprecated Same payload and timing as `member:left`; emitted
+   * alongside it for one release (v0.4.0) and removed in v0.5.0.
+   */
   "user:left": {
     userId: number;
     username: string;

@@ -11,9 +11,9 @@ export type TFederatedServerEntry = {
   federationToken: string;
   tokenExpiresAt: number;
   /** Our user id WITHIN this federated instance. Cached at first
-   *  contact (joinServer or users.getMyId) so flows like Phase B
+   *  contact (openSession or users.getMyId) so flows like Phase B
    *  redistribute can target each instance's chains under the right
-   *  author id without re-fetching joinServer. */
+   *  author id without re-fetching openSession. */
   ownUserId?: number;
   /** The home instance's last relay failure against this peer (for
    *  example `unsupported:/federation/...` from an older peer). Shown

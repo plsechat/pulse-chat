@@ -49,7 +49,10 @@ type Events = {
   // serverPublicId is the globally-unique id of the server. Numeric ids are
   // instance-local and collide across federated instances, so clients prefer
   // the publicId for scoping when present (optional for older servers).
-  [ServerEvents.USER_JOIN]: {
+  // Published by the session bootstrap (others.openSession) to the
+  // server's members: the user is now connected. Membership changes are
+  // SERVER_MEMBER_JOIN / SERVER_MEMBER_LEAVE.
+  [ServerEvents.USER_CONNECTED]: {
     serverId: number;
     serverPublicId?: string;
     user: TJoinedPublicUser;
@@ -202,10 +205,16 @@ type Events = {
     userId: number;
   };
 
+  // Fanned out to EVERY member of the server (the joiner included): the
+  // joiner's clients add `server` to their rail, the others add `user` to
+  // their roster. `user` / `serverPublicId` are optional only for the
+  // payload older servers (joiner-only publish) emitted.
   [ServerEvents.SERVER_MEMBER_JOIN]: {
     serverId: number;
+    serverPublicId?: string;
     userId: number;
     server: TServerSummary;
+    user?: TJoinedPublicUser;
   };
   [ServerEvents.SERVER_MEMBER_LEAVE]: {
     serverId: number;

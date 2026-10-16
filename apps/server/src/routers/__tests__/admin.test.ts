@@ -148,7 +148,7 @@ describe('admin router', () => {
     expect(health.database.servers).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(health.federation)).toBe(true);
 
-    // joinServer in initTest writes SERVER_STARTED/USER_* rows via the
+    // openSession in initTest writes SERVER_STARTED/USER_* rows via the
     // async activity queue; seed one row directly so the assertion
     // never races the drain.
     const { activityLog } = await import('../../db/schema');

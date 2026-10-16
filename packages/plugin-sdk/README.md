@@ -75,11 +75,15 @@ const settingDefinitions = [
 const onLoad = async (ctx: PluginContext) => {
   const settings = await ctx.settings.register(settingDefinitions);
 
-  ctx.events.on("user:joined", ({ userId, username, serverId }) => {
+  ctx.events.on("user:connected", ({ userId, username, serverId }) => {
     ctx.log(`${username} (#${userId}) opened server ${serverId}`);
   });
 
-  ctx.events.on("user:left", ({ username, serverId }) => {
+  ctx.events.on("member:joined", ({ username, serverId }) => {
+    ctx.log(`${username} joined server ${serverId}`);
+  });
+
+  ctx.events.on("member:left", ({ username, serverId }) => {
     ctx.log(`${username} left server ${serverId}`);
   });
 
@@ -147,8 +151,11 @@ Subscribe to a server event. Handlers may be async; listeners are removed on unl
 
 | Event | Payload | Fired when |
 | --- | --- | --- |
-| `user:joined` | `{ userId, username, serverId }` | a user's client session connects and bootstraps a server (`others.join`) — fires on every connect, **not** when someone becomes a member |
-| `user:left` | `{ userId, username, serverId }` | a user leaves, or is kicked or banned from, a server |
+| `user:connected` | `{ userId, username, serverId }` | a member's client session connects and bootstraps a server (`others.openSession`) — fires on every connect, **not** when someone becomes a member |
+| `member:joined` | `{ userId, username, serverId }` | a user becomes a member of a server (`servers.joinByInvite`, `joinDiscover`, `joinFederated`) |
+| `member:left` | `{ userId, username, serverId }` | a user leaves, or is kicked or banned from, a server |
+| `user:joined` | `{ userId, username, serverId }` | **deprecated** alias of `user:connected` (same payload, same moment); emitted alongside it in v0.4.0 and removed in v0.5.0 |
+| `user:left` | `{ userId, username, serverId }` | **deprecated** alias of `member:left` (same payload, same moment); emitted alongside it in v0.4.0 and removed in v0.5.0 |
 | `message:created` | `{ messageId, channelId, userId, content }` | a plaintext channel message is sent |
 | `message:updated` | `{ messageId, channelId, userId, content }` | a plaintext channel message is edited |
 | `message:deleted` | `{ messageId, channelId }` | a channel message is deleted (single, bulk, or report takedown) |

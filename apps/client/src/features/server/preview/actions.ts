@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { store } from '../../store';
 import {
   getHandshakeHash,
-  joinServer,
+  openSession,
   reinitServerSubscriptions
 } from '../actions';
 import { setSelectedChannelId } from '../channels/actions';
@@ -97,7 +97,7 @@ export const startServerPreview = async (target: {
     store.dispatch(appSliceActions.setActiveServerId(data.serverDbId));
     setActiveView('server');
 
-    // Rebind subscriptions to the home instance (mirrors joinServer) —
+    // Rebind subscriptions to the home instance (mirrors openSession) —
     // they may still point at a federated instance from the previous
     // view, whose channel ids can collide with the preview's.
     reinitServerSubscriptions();
@@ -118,9 +118,9 @@ export const startServerPreview = async (target: {
 
 /**
  * Join the currently previewed server for real: invite path uses the
- * preserved code (servers.join), Discover path uses servers.joinDiscover
- * with a password prompt when required. On success runs the normal
- * joinServer bootstrap, which clears preview mode.
+ * preserved code (servers.joinByInvite), Discover path uses
+ * servers.joinDiscover with a password prompt when required. On success
+ * runs the normal openSession bootstrap, which clears preview mode.
  */
 export const joinPreviewedServer = async () => {
   const meta = store.getState().server.previewMeta;
@@ -143,7 +143,7 @@ export const joinPreviewedServer = async () => {
 
   try {
     const summary = meta.inviteCode
-      ? await trpc.servers.join.mutate({ inviteCode: meta.inviteCode })
+      ? await trpc.servers.joinByInvite.mutate({ inviteCode: meta.inviteCode })
       : await trpc.servers.joinDiscover.mutate({
           serverId: meta.serverDbId,
           password
@@ -156,7 +156,7 @@ export const joinPreviewedServer = async () => {
     // points at the previewed server.
     const hash = getHandshakeHash();
     if (hash) {
-      await joinServer(hash, summary.id);
+      await openSession(hash, summary.id);
     }
 
     toast.success(`Joined ${summary.name}`);

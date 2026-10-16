@@ -85,7 +85,7 @@ describe('connect', () => {
     await settle();
 
     expect(home.callsTo('others.handshake')).toHaveLength(1);
-    expect(home.callsTo('others.joinServer')[0]!.input).toMatchObject({
+    expect(home.callsTo('others.openSession')[0]!.input).toMatchObject({
       handshakeHash: 'hash',
       serverId: 2
     });
@@ -101,12 +101,12 @@ describe('connect', () => {
 
   test('home subscriptions open only after the first join authenticated the socket', async () => {
     // The server refuses a subscription from a socket that has not run
-    // others.joinServer yet (UNAUTHORIZED) and never retries it, so the
+    // others.openSession yet (UNAUTHORIZED) and never retries it, so the
     // join must come first. Record how many home subscriptions existed
     // at the moment the join request was made.
-    const original = home.handlers['others.joinServer']!;
+    const original = home.handlers['others.openSession']!;
     let homeSubsAtJoin = -1;
-    home.handlers['others.joinServer'] = (input) => {
+    home.handlers['others.openSession'] = (input) => {
       homeSubsAtJoin = HOME_SUBS.reduce(
         (n, path) => n + home.subscribeCount(path),
         0
@@ -162,7 +162,7 @@ describe('connect', () => {
     await appActions.switchToFederatedServer(PEER, 1);
     await settle();
     expect(state().server.serverId).toBe(`srv-${PEER}-1`);
-    expect(remote.callsTo('others.joinServer')).toHaveLength(1);
+    expect(remote.callsTo('others.openSession')).toHaveLength(1);
 
     // The socket dropped and came back.
     await serverActions.connect();
@@ -175,7 +175,7 @@ describe('connect', () => {
     expect(state().server.ownUserId).toBe(77);
     // Home identity is still the home one.
     expect(state().app.homeOwnUserId).toBe(10);
-    expect(remote.callsTo('others.joinServer')).toHaveLength(2);
+    expect(remote.callsTo('others.openSession')).toHaveLength(2);
     // Server-scoped subscriptions ended up on the remote again.
     expect(remote.activeSubscriptions(SERVER_SUB)).toBe(1);
     expect(home.activeSubscriptions(SERVER_SUB)).toBe(0);
@@ -209,26 +209,60 @@ describe('unread routing', () => {
     expect(state().app.serverMentionCounts[1]).toBe(1);
   });
 
-  test('a member-join on the home socket lands in the home rail', async () => {
+  test('our own member-join on the home socket lands in the home rail', async () => {
     await serverActions.connect();
     await settle();
     await appActions.switchToFederatedServer(PEER, 1);
     await settle();
 
+    // userId 10 is the home ownUserId from homeJoinData.
     await home.emit('servers.onMemberJoin', {
+      serverId: 4,
+      serverPublicId: 'home-4',
+      userId: 10,
       server: { id: 4, publicId: 'home-4', name: 'Delta', logo: null }
     });
     expect(state().app.joinedServers.map((s) => s.id)).toContain(4);
   });
+
+  test("another user's member-join joins the roster of the viewed server, never the rail", async () => {
+    localStorage.setItem('pulse-active-server-id', '2');
+    await serverActions.connect();
+    await settle();
+
+    const newcomer = { id: 42, name: 'Newcomer', roleIds: [] };
+    const summary = { id: 2, publicId: 'home-2', name: 'Beta', logo: null };
+
+    // Viewing home-2: the joiner is added to the roster.
+    await home.emit('servers.onMemberJoin', {
+      serverId: 2,
+      serverPublicId: 'home-2',
+      userId: 42,
+      server: summary,
+      user: newcomer
+    });
+    expect(state().server.users.map((u) => u.id)).toContain(42);
+    expect(state().app.joinedServers.map((s) => s.id)).not.toContain(4);
+
+    // A join to a server we are not viewing leaves the roster alone.
+    await home.emit('servers.onMemberJoin', {
+      serverId: 3,
+      serverPublicId: 'home-3',
+      userId: 43,
+      server: { id: 3, publicId: 'home-3', name: 'Gamma', logo: null },
+      user: { id: 43, name: 'Elsewhere', roleIds: [] }
+    });
+    expect(state().server.users.map((u) => u.id)).not.toContain(43);
+  });
 });
 
-describe('joinServer sequencing', () => {
+describe('openSession sequencing', () => {
   test('overlapping joins resolving out of order land on the last requested server', async () => {
     await serverActions.connect();
     await settle();
 
     const pending = new Map<number, (value: unknown) => void>();
-    home.handlers['others.joinServer'] = (input) =>
+    home.handlers['others.openSession'] = (input) =>
       new Promise((resolve) => {
         pending.set((input as { serverId: number }).serverId, resolve);
       });
@@ -256,7 +290,7 @@ describe('joinServer sequencing', () => {
     await settle();
 
     let resolveHome: ((value: unknown) => void) | null = null;
-    home.handlers['others.joinServer'] = () =>
+    home.handlers['others.openSession'] = () =>
       new Promise((resolve) => {
         resolveHome = resolve;
       });
@@ -317,12 +351,12 @@ describe('leaveServerContext', () => {
     await settle();
     appActions.leaveServerContext();
     await settle();
-    const joinsBefore = home.callsTo('others.joinServer').length;
+    const joinsBefore = home.callsTo('others.openSession').length;
 
     await appActions.switchServer(1, 'hash');
     await settle();
 
-    expect(home.callsTo('others.joinServer')).toHaveLength(joinsBefore + 1);
+    expect(home.callsTo('others.openSession')).toHaveLength(joinsBefore + 1);
     expect(state().server.serverId).toBe('home-1');
     expect(state().app.activeView).toBe('server');
   });
@@ -338,7 +372,7 @@ describe('leaveServerContext', () => {
     await appActions.switchToFederatedServer(PEER, 1);
     await settle();
 
-    expect(remote.callsTo('others.joinServer')).toHaveLength(2);
+    expect(remote.callsTo('others.openSession')).toHaveLength(2);
     expect(state().server.serverId).toBe(`srv-${PEER}-1`);
     expect(state().app.activeInstanceDomain).toBe(PEER);
   });
@@ -346,7 +380,7 @@ describe('leaveServerContext', () => {
   test('from a home server: only the view changes and returning is instant', async () => {
     await serverActions.connect();
     await settle();
-    const joins = home.callsTo('others.joinServer').length;
+    const joins = home.callsTo('others.openSession').length;
     const serverSubs = home.subscribeCount(SERVER_SUB);
 
     appActions.leaveServerContext();
@@ -354,7 +388,7 @@ describe('leaveServerContext', () => {
     expect(state().server.serverId).toBe('home-1');
 
     await appActions.switchServer(1, 'hash');
-    expect(home.callsTo('others.joinServer')).toHaveLength(joins);
+    expect(home.callsTo('others.openSession')).toHaveLength(joins);
     expect(home.subscribeCount(SERVER_SUB)).toBe(serverSubs);
     expect(state().app.activeView).toBe('server');
   });

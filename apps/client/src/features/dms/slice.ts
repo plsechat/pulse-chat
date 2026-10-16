@@ -104,7 +104,7 @@ export const dmsSlice = createSlice({
         (id) => id !== action.payload
       );
     },
-    // Presence transitions arrive as USER_JOIN/USER_LEAVE/USER_UPDATE
+    // Presence transitions arrive as USER_CONNECTED/USER_LEAVE/USER_UPDATE
     // events; without mirroring them onto the cached member projections
     // the DM sidebar/panel would only refresh status on a full refetch.
     updateMemberPresence: (

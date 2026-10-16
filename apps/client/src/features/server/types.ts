@@ -46,7 +46,7 @@ export type TVoiceUser = TJoinedPublicUser & {
 /**
  * What the read-only preview banner/join prompt needs (servers.preview).
  * `inviteCode` set = preview came from an invite link and joining goes
- * through servers.join; null = Discover path (servers.joinDiscover).
+ * through servers.joinByInvite; null = Discover path (servers.joinDiscover).
  */
 export type TServerPreviewMeta = {
   serverDbId: number;

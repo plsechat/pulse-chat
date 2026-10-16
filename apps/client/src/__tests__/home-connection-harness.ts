@@ -192,7 +192,7 @@ const e2ee = await import('@/lib/e2ee');
 
 // --- Fixtures ---
 
-/** A home joinServer response for the home server `id`. */
+/** A home openSession response for the home server `id`. */
 export function homeJoinData(id: number, extra: Record<string, unknown> = {}) {
   return {
     serverId: `home-${id}`,
@@ -210,7 +210,7 @@ export function homeJoinData(id: number, extra: Record<string, unknown> = {}) {
   };
 }
 
-/** A remote joinServer response for the federated server `id`. */
+/** A remote openSession response for the federated server `id`. */
 export function remoteJoinData(domain: string, id: number) {
   return {
     serverId: `srv-${domain}-${id}`,
@@ -240,7 +240,7 @@ export function remoteJoinData(domain: string, id: number) {
 export function homeHandlers(servers: { id: number; name: string }[]): RouteHandlers {
   return {
     'others.handshake': () => ({ handshakeHash: 'hash' }),
-    'others.joinServer': (input) => {
+    'others.openSession': (input) => {
       const { serverId } = input as { serverId?: number };
       return homeJoinData(serverId ?? servers[0]?.id ?? 1);
     },
@@ -263,7 +263,7 @@ export function homeHandlers(servers: { id: number; name: string }[]): RouteHand
 /** Handlers a federated switch fans out to. */
 export function remoteHandlers(domain: string): RouteHandlers {
   return {
-    'others.joinServer': (input) => {
+    'others.openSession': (input) => {
       const { serverId } = input as { serverId: number };
       return remoteJoinData(domain, serverId);
     },

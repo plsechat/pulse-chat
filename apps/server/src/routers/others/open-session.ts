@@ -45,10 +45,15 @@ import { relayPresenceConnected } from '../../utils/federation-user-info-dispatc
 import { invariant } from '../../utils/invariant';
 import { publicProcedure } from '../../utils/trpc';
 
+// The WebSocket session bootstrap: authenticates the socket against the
+// handshake and selects the active server (one the user is already a
+// member of). Becoming a member is servers.joinByInvite / joinDiscover /
+// joinFederated.
+//
 // publicProcedure (not protectedProcedure): this IS the route that sets
 // `authenticated`; it still runs through timingMiddleware so the
 // bootstrap call carries a requestId / route in the logs.
-const joinServerRoute = publicProcedure
+const openSessionRoute = publicProcedure
   .input(
     z.object({
       handshakeHash: z.string(),
@@ -197,13 +202,13 @@ const joinServerRoute = publicProcedure
       getServerPublicSettings(targetServer.id)
     ]);
 
-    logger.info(`%s joined the server`, ctx.user.name);
+    logger.info(`%s connected to the server`, ctx.user.name);
 
-    // Publish USER_JOIN to members of this server
+    // Publish USER_CONNECTED to members of this server
     const ownPublicUser = await getPublicUserById(ctx.user.id);
     if (ownPublicUser) {
       const memberIds = await getServerMemberIds(targetServer.id);
-      ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN, {
+      ctx.pubsub.publishFor(memberIds, ServerEvents.USER_CONNECTED, {
         serverId: targetServer.id,
         serverPublicId: targetServer.publicId,
         user: {
@@ -216,8 +221,8 @@ const joinServerRoute = publicProcedure
       });
     }
 
-    // USER_JOIN is server-scoped, so DM partners and friends who share
-    // no server never learn the user came online. Publish a global
+    // USER_CONNECTED is server-scoped, so DM partners and friends who
+    // share no server never learn the user came online. Publish a global
     // status update for them — publishUser fans out to every
     // presence-interested id (co-members, DM partners, friends), and the
     // client handlers (updateUser/updateFriend) are idempotent. Not
@@ -246,11 +251,16 @@ const joinServerRoute = publicProcedure
       ip: connectionInfo?.ip
     });
 
-    eventBus.emit('user:joined', {
+    const connectedPayload = {
       userId: ctx.user.id,
       username: ctx.user.name,
       serverId: targetServer.id
-    });
+    };
+    eventBus.emit('user:connected', connectedPayload);
+    // Deprecated alias of user:connected, emitted for one release so
+    // plugins written against the old name keep working. v0.4.0 ships
+    // both; delete this emit in v0.5.0.
+    eventBus.emit('user:joined', connectedPayload);
 
     // Aggregate unread counts for forum channels from their child threads
     const forumChannels = channelsForUser.filter((c) => c.type === ChannelType.FORUM);
@@ -293,4 +303,4 @@ const joinServerRoute = publicProcedure
     };
   });
 
-export { joinServerRoute };
+export { openSessionRoute };

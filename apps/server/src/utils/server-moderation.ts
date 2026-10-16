@@ -12,11 +12,11 @@ import {
   removeServerMember
 } from '../db/queries/servers';
 import { users } from '../db/schema';
-import { eventBus } from '../plugins/event-bus';
 import { enqueueActivityLog } from '../queues/activity-log';
 import { markBanned } from './banned-cache';
 import { relayFederatedModeration } from './federation-moderation-dispatch';
 import { invariant } from './invariant';
+import { announceMemberLeft } from './membership-events';
 import type { Context } from './trpc';
 
 /**
@@ -41,20 +41,6 @@ const assertModerationTarget = async (
   invariant(!server || server.ownerId !== targetUserId, {
     code: 'FORBIDDEN',
     message: 'The server owner cannot be moderated'
-  });
-};
-
-const emitUserLeft = async (userId: number, serverId: number) => {
-  const [target] = await db
-    .select({ name: users.name })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  eventBus.emit('user:left', {
-    userId,
-    username: target?.name ?? '',
-    serverId
   });
 };
 
@@ -110,7 +96,7 @@ const kickFromServer = async (opts: {
     opts.reason
   );
 
-  await emitUserLeft(opts.targetUserId, opts.serverId);
+  await announceMemberLeft({ userId: opts.targetUserId, serverId: opts.serverId });
 
   enqueueActivityLog({
     type: ActivityLogType.USER_KICKED,
@@ -177,7 +163,7 @@ const banServerMember = async (opts: {
     opts.reason
   );
 
-  await emitUserLeft(opts.targetUserId, opts.serverId);
+  await announceMemberLeft({ userId: opts.targetUserId, serverId: opts.serverId });
 
   enqueueActivityLog({
     type: ActivityLogType.USER_BANNED,
