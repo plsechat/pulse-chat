@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmChannelMembers, dmChannels } from '../../db/schema';
+import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 /**
  * Leave a DM channel — works for both groups and 1:1s. Earlier this
@@ -35,6 +37,24 @@ const leaveGroupRoute = protectedProcedure
       code: 'FORBIDDEN',
       message: 'Not a member of this DM channel'
     });
+
+    // Leaving the conversation leaves its call: a user in THIS channel's
+    // call is removed (peers get the leave/ended events) before the
+    // member row goes, so the fan-out still reaches them. A call in some
+    // other room is untouched.
+    const ownRuntime = VoiceRuntime.findRuntimeByUserId(ctx.userId);
+    if (
+      ownRuntime &&
+      ownRuntime.isDmVoice &&
+      ownRuntime.id === input.dmChannelId
+    ) {
+      await removeUserFromVoice(ctx.userId);
+      if (ctx.currentDmVoiceChannelId === input.dmChannelId) {
+        ctx.currentDmVoiceChannelId = undefined;
+        ctx.currentVoiceChannelId = undefined;
+        ctx.setWsVoiceKey(undefined);
+      }
+    }
 
     // Remove the user
     await db

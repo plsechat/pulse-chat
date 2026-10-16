@@ -14,6 +14,11 @@ import {
   useState
 } from 'react';
 import { useAvailableDevices } from './hooks/use-available-devices';
+import {
+  DEVICE_SETTINGS_SCHEMA_VERSION,
+  migrateStoredDeviceSettings,
+  type TStoredDeviceSettings
+} from './migrate';
 
 const DEFAULT_DEVICE_SETTINGS: TDeviceSettings = {
   microphoneId: undefined,
@@ -25,9 +30,12 @@ const DEFAULT_DEVICE_SETTINGS: TDeviceSettings = {
   noiseSuppressionMode: 'automatic',
   noiseGateThreshold: DEFAULT_NOISE_GATE_THRESHOLD_DB,
   autoGainControl: true,
-  shareSystemAudio: false,
+  // ON preserves what every share did before the toggle existed.
+  shareSystemAudio: true,
   screenResolution: Resolution['720p'],
-  screenFramerate: 30,
+  // Screen content is mostly static; 15 fps keeps text crisp at a
+  // fraction of the encoder load of 30 (the laptop-heat complaint).
+  screenFramerate: 15,
   screenAudioBitrate: 128
 };
 
@@ -56,34 +64,23 @@ const DevicesProvider = memo(({ children }: TDevicesProviderProps) => {
 
   const saveDevices = useCallback((newDevices: TDeviceSettings) => {
     setDevices(newDevices);
-    setLocalStorageItemAsJSON<TDeviceSettings>(
+    setLocalStorageItemAsJSON<TStoredDeviceSettings>(
       LocalStorageKey.DEVICES_SETTINGS,
-      newDevices
+      { ...newDevices, schemaVersion: DEVICE_SETTINGS_SCHEMA_VERSION }
     );
   }, []);
 
   useEffect(() => {
     if (devicesLoading) return;
 
-    const savedSettings = getLocalStorageItemAsJSON<TDeviceSettings>(
+    const savedSettings = getLocalStorageItemAsJSON<TStoredDeviceSettings>(
       LocalStorageKey.DEVICES_SETTINGS
     );
 
     if (savedSettings) {
-      // Migrate the pre-noise-gate shape: `noiseSuppression: boolean`
-      // becomes `noiseSuppressionMode`, preserving the user's choice.
-      const legacy = savedSettings as Partial<TDeviceSettings> & {
-        noiseSuppression?: boolean;
-      };
-      setDevices({
-        ...DEFAULT_DEVICE_SETTINGS,
-        ...savedSettings,
-        noiseSuppressionMode:
-          legacy.noiseSuppressionMode ??
-          (legacy.noiseSuppression ? 'automatic' : 'off'),
-        noiseGateThreshold:
-          legacy.noiseGateThreshold ?? DEFAULT_NOISE_GATE_THRESHOLD_DB
-      });
+      setDevices(
+        migrateStoredDeviceSettings(savedSettings, DEFAULT_DEVICE_SETTINGS)
+      );
     }
 
     setLoading(false);

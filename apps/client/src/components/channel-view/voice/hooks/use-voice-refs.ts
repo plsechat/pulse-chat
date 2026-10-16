@@ -1,3 +1,4 @@
+import { useOutputSinkId, applySinkId } from '@/components/voice-provider/output-sink';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
 import { useIsOwnUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
@@ -5,11 +6,13 @@ import { StreamKind } from '@pulse/shared';
 import { useEffect, useMemo } from 'react';
 import { useAudioLevel } from './use-audio-level';
 
-const useVoiceRefs = (
-  remoteId: number,
-  pluginId?: string,
-  streamKey?: string
-) => {
+/**
+ * Stream references for one card (a user, or a plugin stream by its
+ * stream id). Audio playback of every remote stream lives in
+ * PersistentAudioStreams — the cards attach video and read the
+ * has-* flags; a card that also played audio was heard twice.
+ */
+const useVoiceRefs = (remoteId: number) => {
   const {
     remoteUserStreams,
     externalStreams,
@@ -17,19 +20,17 @@ const useVoiceRefs = (
     localVideoStream,
     localScreenShareStream,
     ownVoiceState,
-    realOutputSinkId,
     getOrCreateRefs
   } = useVoice();
   const isOwnUser = useIsOwnUser(remoteId);
-  const { getVolume, getUserVolumeKey, getExternalVolumeKey } =
-    useVolumeControl();
+  const { getVolume, getUserVolumeKey } = useVolumeControl();
+  const sinkId = useOutputSinkId();
 
   const {
     videoRef,
     audioRef,
     screenShareRef,
     screenShareAudioRef,
-    externalAudioRef,
     externalVideoRef
   } = getOrCreateRefs(remoteId);
 
@@ -79,8 +80,7 @@ const useVoiceRefs = (
     return external?.videoStream;
   }, [externalStreams, remoteId, isOwnUser]);
 
-  const { audioLevel, isSpeaking, speakingIntensity } =
-    useAudioLevel(audioStreamForLevel);
+  const { isSpeaking, speakingIntensity } = useAudioLevel(audioStreamForLevel);
 
   const userVolumeKey = getUserVolumeKey(remoteId);
   const userVolume = getVolume(userVolumeKey);
@@ -88,11 +88,6 @@ const useVoiceRefs = (
   // Screen share audio playback is handled by PersistentAudioStreams
   // (via AudioContext to avoid Chrome "communications" ducking).
   // We only need the stream reference here for the hasScreenShareAudioStream flag.
-
-  const externalVolumeKey =
-    pluginId && streamKey ? getExternalVolumeKey(pluginId, streamKey) : null;
-
-  const externalVolume = externalVolumeKey ? getVolume(externalVolumeKey) : 100;
 
   useEffect(() => {
     if (!videoStream || !videoRef.current) return;
@@ -111,16 +106,11 @@ const useVoiceRefs = (
     audioRef.current.volume = userVolume / 100;
   }, [audioStream, audioRef, userVolume]);
 
-  // When capturing system audio on macOS, route voice audio directly to the
-  // real output device via setSinkId. This bypasses the aggregate device so
-  // remote voices are audible but not re-captured by the virtual device.
+  // Same output routing as the persistent players (user's Output Device,
+  // overridden by the system-audio capture bypass).
   useEffect(() => {
-    const el = audioRef.current;
-    if (!el || !('setSinkId' in el)) return;
-
-    const sinkId = realOutputSinkId ?? '';
-    (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {});
-  }, [audioRef, realOutputSinkId]);
+    applySinkId(audioRef.current, sinkId);
+  }, [audioRef, sinkId]);
 
   useEffect(() => {
     if (!screenShareStream || !screenShareRef.current) return;
@@ -129,16 +119,6 @@ const useVoiceRefs = (
       screenShareRef.current.srcObject = screenShareStream;
     }
   }, [screenShareStream, screenShareRef]);
-
-  useEffect(() => {
-    if (!externalAudioStream || !externalAudioRef.current) return;
-
-    if (externalAudioRef.current.srcObject !== externalAudioStream) {
-      externalAudioRef.current.srcObject = externalAudioStream;
-    }
-
-    externalAudioRef.current.volume = externalVolume / 100;
-  }, [externalAudioStream, externalAudioRef, externalVolume]);
 
   useEffect(() => {
     if (!externalVideoStream || !externalVideoRef.current) return;
@@ -154,21 +134,11 @@ const useVoiceRefs = (
     audioRef.current.muted = ownVoiceState.soundMuted;
   }, [ownVoiceState.soundMuted, audioRef]);
 
-  // Route external audio to real output device during system audio capture
-  useEffect(() => {
-    const el = externalAudioRef.current;
-    if (!el || !('setSinkId' in el)) return;
-
-    const sinkId = realOutputSinkId ?? '';
-    (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {});
-  }, [externalAudioRef, realOutputSinkId]);
-
   return {
     videoRef,
     audioRef,
     screenShareRef,
     screenShareAudioRef,
-    externalAudioRef,
     externalVideoRef,
     hasAudioStream: !!audioStream,
     hasVideoStream: !!videoStream,
@@ -176,7 +146,6 @@ const useVoiceRefs = (
     hasScreenShareAudioStream: !!screenShareAudioStream,
     hasExternalAudioStream: !!externalAudioStream,
     hasExternalVideoStream: !!externalVideoStream,
-    audioLevel,
     isSpeaking,
     speakingIntensity
   };

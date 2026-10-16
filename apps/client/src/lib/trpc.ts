@@ -9,6 +9,7 @@ import { clearSession, getAccessToken } from '@/lib/supabase';
 import { connectionManager } from '@/lib/connection-manager';
 import { createHomeSocketManager } from '@/lib/home-socket';
 import { startReconnecting, stopReconnecting, isCurrentlyReconnecting } from '@/lib/reconnect';
+import { resolveVoiceTRPCClient } from '@/lib/voice-client';
 import { DisconnectCode, type AppRouter } from '@pulse/shared';
 
 import { toast } from 'sonner';
@@ -106,6 +107,20 @@ function getHomeTRPCClient(): ReturnType<typeof homeSocket.getClient> {
   return homeSocket.getClient();
 }
 
+// The client for the instance HOSTING the live voice session (pinned at
+// join time in server.voiceInstanceDomain; undefined = home). Every voice
+// mutation and voice subscription goes through this, not getTRPCClient:
+// the user can browse another instance mid-call, and the call must keep
+// talking to the server it was joined on. Null while that instance is
+// not connected; callers must guard.
+function getVoiceTRPCClient(): ReturnType<typeof homeSocket.getClient> {
+  return resolveVoiceTRPCClient(
+    store.getState().server.voiceInstanceDomain,
+    (instanceDomain) => connectionManager.getRemoteTRPCClient(instanceDomain),
+    () => homeSocket.getClient()
+  );
+}
+
 const cleanup = (signOut = false) => {
   stopReconnecting();
   homeSocket.close();
@@ -122,4 +137,11 @@ const cleanup = (signOut = false) => {
   }
 };
 
-export { cleanup, connectToTRPC, getHomeTRPCClient, getTRPCClient, type AppRouter };
+export {
+  cleanup,
+  connectToTRPC,
+  getHomeTRPCClient,
+  getTRPCClient,
+  getVoiceTRPCClient,
+  type AppRouter
+};

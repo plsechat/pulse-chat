@@ -1,17 +1,29 @@
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
+import { setSoundOutputSinkId } from '@/features/server/sounds/actions';
 import { useOwnVoiceState } from '@/features/server/voice/hooks';
+import { externalStreamByIdSelector } from '@/features/server/voice/selectors';
+import type { IRootState } from '@/features/store';
 import { StreamKind } from '@pulse/shared';
 import { memo, useEffect, useRef } from 'react';
+import { useSelector } from 'react-redux';
 import { useVoice } from '@/features/server/voice/hooks';
+import { applySinkId, useOutputSinkId } from './output-sink';
 
 /**
  * Renders hidden audio elements for each remote user's streams.
  * Driven by the VoiceProvider's remoteUserStreams (mediasoup state),
  * NOT by Redux voiceMap — so audio persists across server navigation.
  *
+ * This is the ONLY place remote audio is played: the voice/stream cards
+ * render video and indicators but no <audio>, so a stream is never
+ * heard twice while its channel view is open.
+ *
  * Voice audio uses <audio> elements directly.
  * Screen share audio uses AudioContext with "playback" latency hint to
  * avoid Chrome's "communications" audio category ducking.
+ *
+ * Every player is routed to the resolved output sink (the user's Output
+ * Device, overridden by the capture bypass) — see output-sink.ts.
  */
 
 const ensurePlaying = (audio: HTMLAudioElement) => {
@@ -25,14 +37,14 @@ const ensurePlaying = (audio: HTMLAudioElement) => {
 type TRemoteUserAudioProps = {
   userId: number;
   audioStream: MediaStream;
+  sinkId: string;
 };
 
 const RemoteUserAudio = memo(
-  ({ userId, audioStream }: TRemoteUserAudioProps) => {
+  ({ userId, audioStream, sinkId }: TRemoteUserAudioProps) => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const { getVolume, getUserVolumeKey } = useVolumeControl();
     const ownVoiceState = useOwnVoiceState();
-    const { realOutputSinkId } = useVoice();
 
     const volumeKey = getUserVolumeKey(userId);
     const volume = getVolume(volumeKey);
@@ -49,17 +61,9 @@ const RemoteUserAudio = memo(
       audioRef.current.muted = ownVoiceState.soundMuted;
     }, [ownVoiceState.soundMuted]);
 
-    // Route voice audio directly to real output device when capturing system
-    // audio, so remote voices don't get re-captured by the virtual device
     useEffect(() => {
-      const el = audioRef.current;
-      if (!el || !('setSinkId' in el)) return;
-
-      const sinkId = realOutputSinkId ?? '';
-      (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {
-        // setSinkId can fail if device disconnected — not critical
-      });
-    }, [realOutputSinkId]);
+      applySinkId(audioRef.current, sinkId);
+    }, [sinkId]);
 
     return (
       <audio
@@ -80,16 +84,16 @@ const RemoteUserAudio = memo(
 type TRemoteScreenShareAudioProps = {
   userId: number;
   audioStream: MediaStream;
+  sinkId: string;
 };
 
 const RemoteScreenShareAudio = memo(
-  ({ userId, audioStream }: TRemoteScreenShareAudioProps) => {
+  ({ userId, audioStream, sinkId }: TRemoteScreenShareAudioProps) => {
     const audioCtxRef = useRef<AudioContext | null>(null);
     const gainRef = useRef<GainNode | null>(null);
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const { getVolume, getScreenVolumeKey } = useVolumeControl();
     const ownVoiceState = useOwnVoiceState();
-    const { realOutputSinkId } = useVoice();
 
     // Screen-specific key — stream audio volume is independent of the
     // user's voice volume.
@@ -128,13 +132,10 @@ const RemoteScreenShareAudio = memo(
       };
     }, [audioStream]);
 
-    // Route to real output device during system audio capture
+    // Runs after the effect above on first render, so the context exists.
     useEffect(() => {
-      if (!audioCtxRef.current) return;
-      if (realOutputSinkId && 'setSinkId' in audioCtxRef.current) {
-        (audioCtxRef.current as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(realOutputSinkId).catch(() => {});
-      }
-    }, [realOutputSinkId]);
+      applySinkId(audioCtxRef.current, sinkId);
+    }, [sinkId, audioStream]);
 
     // Update volume via gain node
     useEffect(() => {
@@ -162,33 +163,38 @@ const RemoteScreenShareAudio = memo(
 type TExternalStreamAudioProps = {
   streamId: number;
   audioStream: MediaStream;
+  sinkId: string;
 };
 
 const ExternalStreamAudio = memo(
-  ({ streamId, audioStream }: TExternalStreamAudioProps) => {
+  ({ streamId, audioStream, sinkId }: TExternalStreamAudioProps) => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const ownVoiceState = useOwnVoiceState();
-    const { realOutputSinkId } = useVoice();
+    const { getVolume, getExternalVolumeKey } = useVolumeControl();
+    // The card's slider stores the volume under the plugin/key pair the
+    // stream was announced with; the media itself only knows its id.
+    const stream = useSelector((state: IRootState) =>
+      externalStreamByIdSelector(state, streamId)
+    );
+    const volume = stream
+      ? getVolume(getExternalVolumeKey(stream.pluginId, stream.key))
+      : 100;
 
     useEffect(() => {
       if (!audioRef.current) return;
       audioRef.current.srcObject = audioStream;
+      audioRef.current.volume = volume / 100;
       ensurePlaying(audioRef.current);
-    }, [audioStream]);
+    }, [audioStream, volume]);
 
     useEffect(() => {
       if (!audioRef.current) return;
       audioRef.current.muted = ownVoiceState.soundMuted;
     }, [ownVoiceState.soundMuted]);
 
-    // Route to real output device during system audio capture
     useEffect(() => {
-      const el = audioRef.current;
-      if (!el || !('setSinkId' in el)) return;
-
-      const sinkId = realOutputSinkId ?? '';
-      (el as unknown as { setSinkId(id: string): Promise<void> }).setSinkId(sinkId).catch(() => {});
-    }, [realOutputSinkId]);
+      applySinkId(audioRef.current, sinkId);
+    }, [sinkId]);
 
     return (
       <audio
@@ -204,6 +210,14 @@ const ExternalStreamAudio = memo(
 
 const PersistentAudioStreams = memo(() => {
   const { remoteUserStreams, externalStreams } = useVoice();
+  const sinkId = useOutputSinkId();
+
+  // The app's own sounds (join/leave cues, message pings, the call ring)
+  // follow the same output as voice; this is the one always-mounted
+  // place that sees both the device setting and the capture bypass.
+  useEffect(() => {
+    setSoundOutputSinkId(sinkId);
+  }, [sinkId]);
 
   return (
     <>
@@ -218,12 +232,14 @@ const PersistentAudioStreams = memo(() => {
               <RemoteUserAudio
                 userId={userId}
                 audioStream={audioStream}
+                sinkId={sinkId}
               />
             )}
             {screenAudioStream && (
               <RemoteScreenShareAudio
                 userId={userId}
                 audioStream={screenAudioStream}
+                sinkId={sinkId}
               />
             )}
           </span>
@@ -239,6 +255,7 @@ const PersistentAudioStreams = memo(() => {
             key={streamId}
             streamId={streamId}
             audioStream={stream.audioStream}
+            sinkId={sinkId}
           />
         );
       })}

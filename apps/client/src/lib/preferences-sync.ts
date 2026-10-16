@@ -1,5 +1,4 @@
 import type { TUserPreferences } from '@pulse/shared';
-import { getHomeTRPCClient } from '@/lib/trpc';
 
 type DeepPartial<T> = {
   [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
@@ -20,15 +19,21 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let inFlight: Promise<void> | null = null;
 let debounceMs = 1000;
 let retryMs = 5000;
-// Resolved at call time, never captured at module evaluation: this module
-// sits inside the @/lib/trpc → features/app/actions → … → preferences-sync
-// → @/lib/trpc cycle, and getHomeTRPCClient is a const binding in trpc.ts
-// that is still in its temporal dead zone when the graph is entered from
-// the trpc side.
-type ClientResolver = () => ReturnType<typeof getHomeTRPCClient>;
+// The home client is reached through a dynamic import at flush time, not
+// a static one: a static edge closes the cycle preference-store →
+// preferences-sync → lib/trpc → features/app/actions → … → the hooks that
+// create preference stores at module top level, and whichever module the
+// graph is entered from then sees a binding still in its temporal dead
+// zone (observed as "Cannot access 'createPreferenceStore' before
+// initialization" when a test loaded this side first). The type is
+// taken from the module without importing it at runtime.
+type HomeClient = ReturnType<typeof import('@/lib/trpc').getHomeTRPCClient>;
+type ClientResolver = () => HomeClient | Promise<HomeClient>;
 let clientOverride: ClientResolver | null = null;
 const resolveClient: ClientResolver = () =>
-  (clientOverride ?? getHomeTRPCClient)();
+  clientOverride
+    ? clientOverride()
+    : import('@/lib/trpc').then((m) => m.getHomeTRPCClient());
 
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
   const result = { ...target };
@@ -82,23 +87,25 @@ const flush = async (): Promise<void> => {
   const update = pendingUpdate;
   pendingUpdate = {};
 
-  const trpc = resolveClient();
-  if (!trpc) {
-    requeue(update);
-    return;
-  }
-
-  inFlight = trpc.users.updatePreferences
-    .mutate(update as Parameters<typeof trpc.users.updatePreferences.mutate>[0])
-    .then(
-      () => undefined,
-      () => {
-        requeue(update);
-      }
-    )
-    .finally(() => {
-      inFlight = null;
-    });
+  // inFlight is set before the first await so a second flush that lands
+  // while the client is still being resolved joins this one instead of
+  // racing it.
+  inFlight = (async () => {
+    const trpc = await resolveClient();
+    if (!trpc) {
+      requeue(update);
+      return;
+    }
+    try {
+      await trpc.users.updatePreferences.mutate(
+        update as Parameters<typeof trpc.users.updatePreferences.mutate>[0]
+      );
+    } catch {
+      requeue(update);
+    }
+  })().finally(() => {
+    inFlight = null;
+  });
   return inFlight;
 };
 

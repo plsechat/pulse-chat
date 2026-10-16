@@ -25,6 +25,13 @@ import type {
   TMessagesMap,
   TServerPreviewMeta
 } from './types';
+import {
+  dmVoiceEntries,
+  rekeyServerVoiceMap,
+  voiceMapKey,
+  type TClientVoiceMap,
+  type TVoiceKind
+} from './voice/keys';
 
 /**
  * ID-keying convention (federation ID-collision fix):
@@ -55,6 +62,9 @@ export interface IServerState {
   ownUserId: number | undefined;
   selectedChannelId: number | undefined;
   currentVoiceChannelId: number | undefined;
+  // Whether currentVoiceChannelId names a server voice channel or a DM
+  // call — the two id spaces overlap, so the id alone is ambiguous.
+  currentVoiceKind: TVoiceKind | undefined;
   currentVoiceServerId: number | undefined;
   // Globally-unique publicId of the channel the user is in voice on. Voice
   // persists across server/instance navigation, so voice-active UI must match
@@ -65,6 +75,12 @@ export interface IServerState {
   // voice badge): the numeric currentVoiceServerId collides across federated
   // instances and would light up the wrong rail icon.
   currentVoiceServerPublicId: string | undefined;
+  // Instance hosting the live voice session (undefined = home), pinned
+  // when the join succeeds. getVoiceTRPCClient routes every voice
+  // mutation/subscription by this, not by the instance in focus — the
+  // user keeps browsing other servers mid-call and the call must keep
+  // talking to the server it was joined on.
+  voiceInstanceDomain: string | undefined;
   messagesMap: TMessagesMap;
   users: TJoinedPublicUser[];
   roles: TJoinedRole[];
@@ -74,7 +90,8 @@ export interface IServerState {
   typingMap: {
     [channelId: number]: number[];
   };
-  voiceMap: TVoiceMap;
+  // Keyed by `${kind}:${id}` (voiceMapKey) — see voice/keys.ts.
+  voiceMap: TClientVoiceMap;
   externalStreamsMap: TExternalStreamsMap;
   ownVoiceState: TVoiceUserState;
   pinnedCard: TPinnedCard | undefined;
@@ -119,9 +136,11 @@ const initialState: IServerState = {
   emojis: [],
   selectedChannelId: undefined,
   currentVoiceChannelId: undefined,
+  currentVoiceKind: undefined,
   currentVoiceServerId: undefined,
   currentVoiceChannelPublicId: undefined,
   currentVoiceServerPublicId: undefined,
+  voiceInstanceDomain: undefined,
   messagesMap: {},
   users: [],
   roles: [],
@@ -166,6 +185,9 @@ const initialState: IServerState = {
  * so they deliberately survive.
  */
 const clearSessionVoiceFlags = (state: IServerState) => {
+  // The session is over on every path that reaches here, so the instance
+  // pin goes with it — the next join pins afresh.
+  state.voiceInstanceDomain = undefined;
   state.ownVoiceState = {
     ...state.ownVoiceState,
     webcamEnabled: false,
@@ -205,9 +227,11 @@ export const serverSlice = createSlice({
         reconnectAttempt: state.reconnectAttempt,
         disconnectInfo: state.disconnectInfo,
         currentVoiceChannelId: state.currentVoiceChannelId,
+        currentVoiceKind: state.currentVoiceKind,
         currentVoiceServerId: state.currentVoiceServerId,
         currentVoiceChannelPublicId: state.currentVoiceChannelPublicId,
         currentVoiceServerPublicId: state.currentVoiceServerPublicId,
+        voiceInstanceDomain: state.voiceInstanceDomain,
         ownVoiceState: state.ownVoiceState,
         pinnedCard: state.pinnedCard
       });
@@ -274,7 +298,10 @@ export const serverSlice = createSlice({
       // Clear deferred state from previous server (will be populated by separate fetches)
       state.users = [];
       state.emojis = [];
-      state.voiceMap = {};
+      // The server's channel rosters are replaced by the deferred fetch;
+      // DM calls belong to the home account, not the server, and
+      // survive the switch (the call panel/banner still needs them).
+      state.voiceMap = dmVoiceEntries(state.voiceMap);
       state.externalStreamsMap = {};
       state.usersLoaded = false;
       state.emojisLoaded = false;
@@ -560,12 +587,21 @@ export const serverSlice = createSlice({
         state.mentionStatesMap[action.payload] = 0;
       }
     },
+    // A bare number is a server voice channel; a DM call passes its kind
+    // explicitly. undefined ends the session whichever kind it was.
     setCurrentVoiceChannelId: (
       state,
-      action: PayloadAction<number | undefined>
+      action: PayloadAction<
+        number | { channelId: number; kind: TVoiceKind } | undefined
+      >
     ) => {
-      state.currentVoiceChannelId = action.payload;
-      if (action.payload === undefined) {
+      const session =
+        typeof action.payload === 'number'
+          ? { channelId: action.payload, kind: 'channel' as const }
+          : action.payload;
+      state.currentVoiceChannelId = session?.channelId;
+      state.currentVoiceKind = session?.kind;
+      if (session === undefined) {
         clearSessionVoiceFlags(state);
       }
       // Capture the channel's globally-unique publicId at join time (while the
@@ -573,22 +609,40 @@ export const serverSlice = createSlice({
       // switches, so the voice-active highlight matches by publicId, not the
       // colliding numeric id. Server channels only; DM voice leaves it unset.
       const voiceChannel =
-        action.payload != null
-          ? state.channels.find((c) => c.id === action.payload)
+        session?.kind === 'channel'
+          ? state.channels.find((c) => c.id === session.channelId)
           : undefined;
       state.currentVoiceChannelPublicId = voiceChannel?.publicId ?? undefined;
     },
     setCurrentVoiceServerId: (
       state,
-      action: PayloadAction<number | undefined>
+      action: PayloadAction<
+        number | undefined | { id: number; publicId: string | undefined }
+      >
     ) => {
-      state.currentVoiceServerId = action.payload;
+      const payload = action.payload;
+      if (payload !== undefined && typeof payload === 'object') {
+        // A reconnect rejoin restores a session on a server that is not
+        // necessarily the one in focus, so the hosting server's publicId
+        // travels with the restore instead of being read off the
+        // connected server (which would light up the wrong rail icon).
+        state.currentVoiceServerId = payload.id;
+        state.currentVoiceServerPublicId = payload.publicId;
+        return;
+      }
+      state.currentVoiceServerId = payload;
       // Capture the hosting server's globally-unique publicId alongside the
-      // numeric id. Voice joins always happen while the hosting server is
-      // the connected one, so state.serverId (its publicId) is correct here
-      // and survives later server/instance switches.
+      // numeric id. User-driven voice joins always happen while the hosting
+      // server is the connected one, so state.serverId (its publicId) is
+      // correct here and survives later server/instance switches.
       state.currentVoiceServerPublicId =
-        action.payload != null ? state.serverId : undefined;
+        payload != null ? state.serverId : undefined;
+    },
+    setVoiceInstanceDomain: (
+      state,
+      action: PayloadAction<string | undefined>
+    ) => {
+      state.voiceInstanceDomain = action.payload;
     },
     setChannelPermissions: (
       state,
@@ -689,7 +743,12 @@ export const serverSlice = createSlice({
         externalStreamsMap: TExternalStreamsMap;
       }>
     ) => {
-      state.voiceMap = action.payload.voiceMap;
+      // The snapshot is the server's channels only (keyed by bare id);
+      // DM-call entries are the home account's and stay.
+      state.voiceMap = {
+        ...dmVoiceEntries(state.voiceMap),
+        ...rekeyServerVoiceMap(action.payload.voiceMap)
+      };
       state.externalStreamsMap = action.payload.externalStreamsMap;
 
       // Reset voice state if the user is no longer in voice on this server
@@ -700,6 +759,7 @@ export const serverSlice = createSlice({
       // fired.) Only runs while viewing the voice-hosting server, so a
       // session on another instance is never clobbered by this fetch.
       if (
+        state.currentVoiceKind === 'channel' &&
         state.currentVoiceServerPublicId !== undefined &&
         state.currentVoiceServerPublicId === state.serverId
       ) {
@@ -710,6 +770,7 @@ export const serverSlice = createSlice({
           );
           if (!stillInVoice) {
             state.currentVoiceChannelId = undefined;
+            state.currentVoiceKind = undefined;
             state.currentVoiceServerId = undefined;
             state.currentVoiceChannelPublicId = undefined;
             state.currentVoiceServerPublicId = undefined;
@@ -723,55 +784,65 @@ export const serverSlice = createSlice({
       state,
       action: PayloadAction<{
         channelId: number;
+        kind: TVoiceKind;
         userId: number;
         state: TVoiceUserState;
         startedAt?: number;
       }>
     ) => {
-      const { channelId, userId, state: userState, startedAt } = action.payload;
+      const { channelId, kind, userId, state: userState, startedAt } =
+        action.payload;
+      const key = voiceMapKey(kind, channelId);
 
-      if (!state.voiceMap[channelId]) {
-        state.voiceMap[channelId] = { users: {} };
-      }
+      const session = state.voiceMap[key] ?? { users: {} };
+      state.voiceMap[key] = session;
 
-      state.voiceMap[channelId].users[userId] = userState;
+      session.users[userId] = userState;
 
       if (startedAt !== undefined) {
-        state.voiceMap[channelId].startedAt = startedAt;
+        session.startedAt = startedAt;
       }
     },
     removeUserFromVoiceChannel: (
       state,
-      action: PayloadAction<{ channelId: number; userId: number; startedAt?: number }>
+      action: PayloadAction<{
+        channelId: number;
+        kind: TVoiceKind;
+        userId: number;
+        startedAt?: number;
+      }>
     ) => {
-      const { channelId, userId, startedAt } = action.payload;
+      const { channelId, kind, userId, startedAt } = action.payload;
+      const session = state.voiceMap[voiceMapKey(kind, channelId)];
 
-      if (!state.voiceMap[channelId]) return;
+      if (!session) return;
 
-      delete state.voiceMap[channelId].users[userId];
+      delete session.users[userId];
 
       if (startedAt !== undefined) {
-        state.voiceMap[channelId].startedAt = startedAt;
+        session.startedAt = startedAt;
       } else {
         // No startedAt means session ended (no users left)
-        delete state.voiceMap[channelId].startedAt;
+        delete session.startedAt;
       }
     },
     updateVoiceUserState: (
       state,
       action: PayloadAction<{
         channelId: number;
+        kind: TVoiceKind;
         userId: number;
         newState: Partial<TVoiceUserState>;
       }>
     ) => {
-      const { channelId, userId, newState } = action.payload;
+      const { channelId, kind, userId, newState } = action.payload;
+      const session = state.voiceMap[voiceMapKey(kind, channelId)];
 
-      if (!state.voiceMap[channelId]) return;
-      if (!state.voiceMap[channelId].users[userId]) return;
+      if (!session) return;
+      if (!session.users[userId]) return;
 
-      state.voiceMap[channelId].users[userId] = {
-        ...state.voiceMap[channelId].users[userId],
+      session.users[userId] = {
+        ...session.users[userId],
         ...newState
       };
     },

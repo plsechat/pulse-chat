@@ -20,7 +20,8 @@
  * `installConnectionMocks()`.
  */
 
-import { mock, spyOn } from 'bun:test';
+import { afterAll, mock, spyOn } from 'bun:test';
+import { __testing as preferencesSync } from '@/lib/preferences-sync';
 import { configureStore } from '@reduxjs/toolkit';
 import { appSliceActions, appSliceReducer } from '@/features/app/slice';
 import { dialogSliceReducer } from '@/features/dialogs/slice';
@@ -145,11 +146,28 @@ export const clients: {
 
 /** Register (or re-register) this harness's module replacements. */
 export function installConnectionMocks(): void {
+  // A home join seeds the user's preferences through lib/preferences-sync,
+  // whose flush is debounced and, when no client answers, re-armed every
+  // few seconds for good. Left alone after a file's last test, that
+  // timer outlives the file and the flush lands on whatever fake home a
+  // LATER file installs — an unexplained `users.updatePreferences` in the
+  // middle of someone else's assertions. Registered here (called at the
+  // top of every harness file) so each file drains its own queue.
+  afterAll(() => {
+    preferencesSync.reset();
+  });
   mock.module('@/features/store', () => ({ store: testStore }));
   mock.module('@/lib/trpc', () => ({
     getHomeTRPCClient: () => clients.home?.trpc ?? null,
     getTRPCClient: () => {
       const domain = testStore.getState().app.activeInstanceDomain;
+      if (domain) return clients.remotes[domain]?.trpc ?? null;
+      return clients.home?.trpc ?? null;
+    },
+    // Voice calls route by the session's pinned instance, not the one in
+    // focus (same resolver shape as lib/trpc's getVoiceTRPCClient).
+    getVoiceTRPCClient: () => {
+      const domain = testStore.getState().server.voiceInstanceDomain;
       if (domain) return clients.remotes[domain]?.trpc ?? null;
       return clients.home?.trpc ?? null;
     },
@@ -330,6 +348,9 @@ export function resetConnectionState(): void {
   testStore.dispatch(appSliceActions.setServerMentionCounts({}));
   testStore.dispatch(appSliceActions.setActiveView('home'));
   localStorage.clear();
+  // See installConnectionMocks: no queued preference flush from an earlier
+  // test may surface in this one.
+  preferencesSync.reset();
 }
 
 /** Let fire-and-forget fetches and queued microtasks settle. */

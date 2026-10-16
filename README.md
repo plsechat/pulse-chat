@@ -81,8 +81,8 @@ Pulse listens on `5443`; the bundled `postgres:16-alpine` is on `5432`. Open `ht
 ```bash
 docker run \
   -p 5443:5443/tcp \
-  -p 40000-40020:40000-40020/tcp \
-  -p 40000-40020:40000-40020/udp \
+  -p 40000:40000/tcp \
+  -p 40000:40000/udp \
   -v ./data:/root/.config/pulse \
   -e AUTH_BACKEND=local \
   -e AUTH_SECRET="$(openssl rand -base64 48 | tr -d '\n')" \
@@ -106,7 +106,7 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 
 ### Deployment model
 
-Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-user cache, the in-flight upload registry and plugin state all live in that process's memory, and the voice SFU binds its port range locally. A second process pointed at the same database would not share any of that: its users would miss events, bans and uploads made through the other one. Scale vertically (CPU, RAM, the voice port range); horizontal scaling behind a load balancer is not supported.
+Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-user cache, the in-flight upload registry and plugin state all live in that process's memory, and the voice SFU binds its media port locally. A second process pointed at the same database would not share any of that: its users would miss events, bans and uploads made through the other one. Scale vertically (CPU, RAM, bandwidth — and cap voice with `MEDIASOUP_MAX_PARTICIPANTS` if needed); horizontal scaling behind a load balancer is not supported.
 
 ### After first launch
 
@@ -125,7 +125,13 @@ Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-u
 | `DATABASE_URL` | always | Full Postgres connection string |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | `AUTH_BACKEND=supabase` | Managed or self-hosted Supabase Auth |
 | `SUPABASE_PUBLIC_URL` | `AUTH_BACKEND=supabase` when `SUPABASE_URL` is an internal hostname | Browser-facing Supabase URL handed to the client via `/info`. Falls back to `SUPABASE_URL`; the bundled compose sets it from `SITE_URL`. |
-| `PUBLIC_IP` | production behind NAT | Public IP for WebRTC ICE candidates |
+| `PUBLIC_IP` | production behind NAT | Public IP (or hostname) announced to voice clients as the media address. Auto-detected when unset. |
+| `MEDIASOUP_PORT` | optional | The single voice media port, UDP **and** TCP (default `40000`). Map/open exactly this port in both protocols. |
+| `MEDIASOUP_MODE` | optional | `single-port` (default) or `range`. Range mode binds one UDP and one TCP port per transport from `MEDIASOUP_RTC_MIN_PORT`–`MEDIASOUP_RTC_MAX_PORT` (default `40000`–`40020`) — the pre-0.4 behaviour, for networks that depend on it; it caps the instance at about half the range size in participants. |
+| `MEDIASOUP_MAX_PARTICIPANTS` | optional | Instance-wide cap on concurrent voice participants across every channel and DM call; joins beyond it are refused with "Voice capacity reached". Default `0` = unlimited. |
+| `WEBRTC_TURN_URLS` | optional | Comma-separated `turn:` / `turns:` (or `stun:`) URLs of a relay for clients that cannot reach the media port directly (at most 8). Handed to clients via `/info`; Pulse itself never needs a relay. See [docs/voice.md](docs/voice.md#networking). |
+| `WEBRTC_TURN_USERNAME` / `WEBRTC_TURN_CREDENTIAL` | optional | Relay credentials. They are sent to every client, so use time-limited TURN credentials or a relay you control. |
+| `WEBRTC_ICE_TRANSPORT_POLICY` | optional | `all` (default) or `relay` to force every client through the relay (diagnostics / locked-down networks). |
 | `REGISTRATION_DISABLED` | optional | Lock down registration instance-wide (all methods; invites still work) |
 | `REGISTRATION_PASSWORD_ENABLED` / `REGISTRATION_OIDC_ENABLED` / `REGISTRATION_SOCIAL_ENABLED` | optional | Per-method signup switches (default `true`). Set to `false` to disable that method's self-registration; a valid invite still bypasses it. For OIDC-only signups, set the password + social ones to `false`. |
 | `FEDERATION_ALLOW_PRIVATE_CIDRS` | optional | Comma-separated IPv4 and IPv6 CIDRs to allow as federation peers (e.g. `192.168.1.0/24,fd00::/8`). Default: all RFC1918 / ULA / loopback / link-local blocked. Listing `127.0.0.0/8` also admits `::1`, so `localhost` peers work without a separate v6 entry. Allowlisted IP-literal and bare-hostname peers are dialled over plain HTTP. |
@@ -146,7 +152,7 @@ Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-u
 | `DEBUG_LOG_INCLUDE_BODY` | optional | Set `false` to strip request bodies from debug events (default `true`) |
 | `REDACT_EXTRA` | optional | Comma-separated extra keys to redact in logs, on top of the built-in secret/token denylist |
 
-The debug/redaction variables override the matching `config.ini` keys below; env always wins over the INI file.
+The debug/redaction, voice-networking and TURN variables override the matching `config.ini` keys below; env always wins over the INI file.
 
 Full, commented templates — copy the one that matches your setup to `.env`:
 
@@ -172,13 +178,19 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 | server | `debugLogIncludeBody` | `true` | Include request bodies in debug events (`DEBUG_LOG_INCLUDE_BODY=false` overrides) |
 | server | `redactExtra` | — | Extra keys to redact in logs; INI list syntax `redactExtra[]=key` (`REDACT_EXTRA` overrides) |
 | server | `retentionDays` | `90` | Days to keep sign-in records (`logins`) and the audit trail (`activity_log`); a daily job deletes older rows. `0` keeps them forever |
-| mediasoup | `worker.rtcMinPort` | `40000` | WebRTC port range start |
-| mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC port range end |
+| mediasoup | `worker.mode` | `single-port` | `single-port`: every transport multiplexes over `worker.port`; `range`: one UDP + one TCP port per transport from the range below (`MEDIASOUP_MODE` overrides) |
+| mediasoup | `worker.port` | `40000` | The voice media port, UDP and TCP (`MEDIASOUP_PORT` overrides) |
+| mediasoup | `worker.rtcMinPort` | `40000` | Range mode: port range start; also used by plugin RTP ingest transports (`MEDIASOUP_RTC_MIN_PORT` overrides) |
+| mediasoup | `worker.rtcMaxPort` | `40020` | Range mode: port range end (`MEDIASOUP_RTC_MAX_PORT` overrides) |
+| mediasoup | `maxParticipants` | `0` | Instance-wide concurrent voice participant cap, `0` = unlimited (`MEDIASOUP_MAX_PARTICIPANTS` overrides) |
 | mediasoup | `audio.maxBitrate` | `510000` | Opus max bitrate (bps) |
 | mediasoup | `audio.stereo` | `true` | Opus stereo |
 | mediasoup | `audio.fec` | `true` | Opus in-band forward error correction |
 | mediasoup | `audio.dtx` | `true` | Opus discontinuous transmission (silence suppression) |
 | mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Initial estimated outgoing bandwidth per transport (bps) |
+| webrtc | `turn.urls[]` | — | TURN relay URLs for clients that cannot reach the media port; INI list syntax `urls[]=turn:…` (`WEBRTC_TURN_URLS` overrides) |
+| webrtc | `turn.username` / `turn.credential` | — | Relay credentials, handed to every client (`WEBRTC_TURN_USERNAME` / `WEBRTC_TURN_CREDENTIAL` override) |
+| webrtc | `iceTransportPolicy` | `all` | `relay` forces clients through the relay (`WEBRTC_ICE_TRANSPORT_POLICY` overrides) |
 | federation | `enabled` | `false` | Turn on federation |
 | federation | `domain` | — | Your public domain (required for federation) |
 | federation | `allowUserFederatableServers` | `false` | `true` lets any server owner mark their server federatable; otherwise only the instance owner can |
@@ -188,7 +200,7 @@ Upload limits (max file size, per-user quota, overflow action) are server settin
 Attachment links in private channels and DMs are signed and expire after 24 hours; the client refreshes them whenever it loads messages, so a copied link stops working once its window passes. Removing someone's access to a private channel (kick, ban, leaving, a role or permission change, or flipping the channel private) rotates that channel's signing key, so links they still hold stop resolving at once. Files in public channels and profile media (avatars, emojis, logos) are served without a token and cached by the browser indefinitely under their immutable names.
 
 > [!IMPORTANT]
-> **Voice ports.** Every voice participant gets two WebRTC transports (send + receive), and each transport binds one UDP port **and** one TCP port from `rtcMinPort`–`rtcMaxPort`. The range is shared by every voice channel and DM call on the instance, so the default 21-port range caps the instance at roughly 10 concurrent voice participants in total; widen the range (plus the Docker mapping and firewall rules) for more. Open the range for both UDP and TCP — UDP is preferred, TCP is the fallback. Pulse runs no STUN/TURN relay: clients must reach `PUBLIC_IP` on those ports directly. See [docs/voice.md](docs/voice.md#networking) for details.
+> **Voice port.** All voice media — every channel and DM call, send and receive — runs over **one port, `40000`, in both UDP and TCP** (`MEDIASOUP_PORT`). Map and open exactly that port for both protocols: UDP is preferred, TCP is the fallback for clients whose UDP is blocked. There is no per-port participant ceiling; use `MEDIASOUP_MAX_PARTICIPANTS` to bound voice load. Clients connect straight to `PUBLIC_IP` on that port — Pulse needs no STUN and runs no TURN relay; only clients that can reach it over neither UDP nor TCP need a relay, which you can point them at with `WEBRTC_TURN_URLS`. Existing deployments that mapped `40000-40020` keep working (the port lives inside the range); set `MEDIASOUP_MODE=range` only if your network relies on per-transport ports. See [docs/voice.md](docs/voice.md#networking).
 
 ## Single Sign-On (OIDC)
 

@@ -16,6 +16,7 @@ import type {
   TPublicServerSettings,
   TServerSummary,
   TThreadInfo,
+  TVoiceKind,
   TVoiceUserState
 } from '@pulse/shared';
 import type { Unsubscribable } from '@trpc/server/observable';
@@ -73,19 +74,25 @@ type Events = {
     mentionCount: number;
   };
 
+  // Roster events carry `kind` next to the numeric channelId: a server
+  // voice channel and a DM call can share one id (independent serial
+  // sequences), and the client keys its voice map by `${kind}:${id}`.
   [ServerEvents.USER_JOIN_VOICE]: {
     channelId: number;
+    kind: TVoiceKind;
     userId: number;
     state: TVoiceUserState;
     startedAt: number;
   };
   [ServerEvents.USER_LEAVE_VOICE]: {
     channelId: number;
+    kind: TVoiceKind;
     userId: number;
     startedAt?: number;
   };
   [ServerEvents.USER_VOICE_STATE_UPDATE]: {
     channelId: number;
+    kind: TVoiceKind;
     userId: number;
     state: TVoiceUserState;
   };
@@ -320,8 +327,12 @@ class PubSub {
     number,
     Map<string, Set<(data: Events[keyof Events]) => void>>
   > = new Map();
+  // Keyed by the voice runtime key ("channel:5" / "dm:5"), never by the
+  // bare numeric id: a DM call and a server voice channel with the same
+  // id are different rooms, and sharing a topic leaked one room's
+  // producer events (and participant ids) into the other.
   private channelListeners: Map<
-    number,
+    string,
     Map<string, Set<(data: Events[keyof Events]) => void>>
   > = new Map();
 
@@ -442,11 +453,11 @@ class PubSub {
   }
 
   public publishForChannel<TTopic extends keyof Events>(
-    channelId: number,
+    runtimeKey: string,
     topic: TTopic,
     payload: Events[TTopic]
   ): void {
-    const channelTopics = this.channelListeners.get(channelId);
+    const channelTopics = this.channelListeners.get(runtimeKey);
 
     if (!channelTopics) return;
 
@@ -460,7 +471,7 @@ class PubSub {
   }
 
   public subscribeForChannel<TTopic extends keyof Events>(
-    channelId: number,
+    runtimeKey: string,
     topic: TTopic
   ): Observable<Events[TTopic], unknown> {
     return observable((observer) => {
@@ -468,11 +479,11 @@ class PubSub {
         observer.next(data);
       };
 
-      if (!this.channelListeners.has(channelId)) {
-        this.channelListeners.set(channelId, new Map());
+      if (!this.channelListeners.has(runtimeKey)) {
+        this.channelListeners.set(runtimeKey, new Map());
       }
 
-      const channelTopics = this.channelListeners.get(channelId)!;
+      const channelTopics = this.channelListeners.get(runtimeKey)!;
 
       if (!channelTopics.has(topic)) {
         channelTopics.set(topic, new Set());
@@ -484,7 +495,7 @@ class PubSub {
 
       const unsubscribable: Unsubscribable = {
         unsubscribe: () => {
-          const channelTopics = this.channelListeners.get(channelId);
+          const channelTopics = this.channelListeners.get(runtimeKey);
 
           if (!channelTopics) return;
 
@@ -499,7 +510,7 @@ class PubSub {
           }
 
           if (channelTopics.size === 0) {
-            this.channelListeners.delete(channelId);
+            this.channelListeners.delete(runtimeKey);
           }
         }
       };

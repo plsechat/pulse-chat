@@ -5,12 +5,14 @@ import { updateOwnVoiceState } from '@/features/server/voice/actions';
 import { useOwnVoiceState } from '@/features/server/voice/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { LocalStorageKey } from '@/helpers/storage';
-import { getTRPCClient } from '@/lib/trpc';
+import { getVoiceTRPCClient } from '@/lib/trpc';
 import { useCallback } from 'react';
 import { toast } from 'sonner';
 
 type TUseVoiceControlsParams = {
-  attachMicStream: () => Promise<void>;
+  /** Resolves false when no microphone could be sent (the provider has
+   *  already muted the user and told them why). */
+  attachMicStream: () => Promise<boolean>;
   detachMicStream: () => Promise<void>;
 
   startWebcamStream: () => Promise<void>;
@@ -21,6 +23,9 @@ type TUseVoiceControlsParams = {
   changeScreenShareSource: () => Promise<MediaStreamTrack>;
 };
 
+// Every mutation here goes to the instance HOSTING the session
+// (getVoiceTRPCClient), never the one in focus — the user keeps
+// browsing other servers mid-call.
 const useVoiceControls = ({
   attachMicStream,
   detachMicStream,
@@ -43,7 +48,7 @@ const useVoiceControls = ({
       return;
     }
 
-    const trpc = getTRPCClient();
+    const trpc = getVoiceTRPCClient();
     if (!trpc) return;
 
     updateOwnVoiceState({ micMuted: newState });
@@ -59,7 +64,10 @@ const useVoiceControls = ({
     if (newState) {
       await detachMicStream();
     } else {
-      await attachMicStream();
+      const attached = await attachMicStream();
+      // No mic to send: the provider has flipped us back to muted (locally
+      // and on the server) and explained why — nothing to report here.
+      if (!attached) return;
     }
 
     try {
@@ -86,7 +94,7 @@ const useVoiceControls = ({
       return;
     }
 
-    const trpc = getTRPCClient();
+    const trpc = getVoiceTRPCClient();
     if (!trpc) return;
 
     updateOwnVoiceState({ soundMuted: newState });
@@ -115,7 +123,7 @@ const useVoiceControls = ({
     if (!currentVoiceChannelId) return;
 
     const newState = !ownVoiceState.webcamEnabled;
-    const trpc = getTRPCClient();
+    const trpc = getVoiceTRPCClient();
     if (!trpc) return;
 
     updateOwnVoiceState({ webcamEnabled: newState });
@@ -148,7 +156,7 @@ const useVoiceControls = ({
 
   const toggleScreenShare = useCallback(async () => {
     const newState = !ownVoiceState.sharingScreen;
-    const trpc = getTRPCClient();
+    const trpc = getVoiceTRPCClient();
     if (!trpc) return;
 
     if (newState) {
@@ -196,7 +204,8 @@ const useVoiceControls = ({
           sharingScreen: true
         });
 
-        // handle native screen share end
+        // The browser's native "Stop sharing" — this is the ONE owner of
+        // the track's onended (the provider wires none of its own).
         video.onended = async () => {
           stopScreenShareStream();
           updateOwnVoiceState({ sharingScreen: false });
@@ -234,7 +243,7 @@ const useVoiceControls = ({
   const changeScreenShare = useCallback(async () => {
     if (!ownVoiceState.sharingScreen) return;
 
-    const trpc = getTRPCClient();
+    const trpc = getVoiceTRPCClient();
     if (!trpc) return;
 
     try {

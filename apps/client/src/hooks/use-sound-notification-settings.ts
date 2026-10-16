@@ -7,13 +7,17 @@ import { useCallback, useSyncExternalStore } from 'react';
 // Types
 // ---------------------------------------------------------------------------
 
-export type SoundCategory = 'messages' | 'voice' | 'actions';
+export type SoundCategory = 'messages' | 'voice' | 'actions' | 'calls';
 
 export type SoundNotificationSettings = {
   masterVolume: number;
   messageSoundsEnabled: boolean;
   voiceSoundsEnabled: boolean;
   actionSoundsEnabled: boolean;
+  /** The incoming-call ring. Its own switch: the ring loops while a call
+   *  invitation is open and is the one sound people want off at night
+   *  while still hearing who joins their channel. */
+  callSoundsEnabled: boolean;
   desktopNotificationsEnabled: boolean;
   /** Per-event selected sound variant id (see SOUND_VARIANTS in
    *  sounds/actions.ts). Missing key = that event's default variant. */
@@ -60,20 +64,30 @@ export const SOUND_CATEGORIES: Record<
       SoundType.OWN_USER_STOPPED_SCREENSHARE
     ],
     preview: SoundType.OWN_USER_MUTED_MIC
+  },
+  calls: {
+    label: 'Calls',
+    description: 'Ring for incoming calls',
+    types: [SoundType.INCOMING_CALL],
+    preview: SoundType.INCOMING_CALL
   }
 };
 
+/** The settings flag that enables each category. */
+export const SOUND_CATEGORY_SETTING_KEY = {
+  messages: 'messageSoundsEnabled',
+  voice: 'voiceSoundsEnabled',
+  actions: 'actionSoundsEnabled',
+  calls: 'callSoundsEnabled'
+} as const satisfies Record<SoundCategory, keyof SoundNotificationSettings>;
+
 // Pre-compute a reverse lookup: SoundType → category key for the enabled flag
-const soundToCategoryKey: Record<string, keyof SoundNotificationSettings> = {};
-for (const [, cat] of Object.entries(SOUND_CATEGORIES)) {
-  const key =
-    cat === SOUND_CATEGORIES.messages
-      ? 'messageSoundsEnabled'
-      : cat === SOUND_CATEGORIES.voice
-        ? 'voiceSoundsEnabled'
-        : 'actionSoundsEnabled';
-  for (const t of cat.types) {
-    soundToCategoryKey[t] = key;
+const soundToCategoryKey: Partial<
+  Record<SoundType, keyof SoundNotificationSettings>
+> = {};
+for (const category of Object.keys(SOUND_CATEGORIES) as SoundCategory[]) {
+  for (const t of SOUND_CATEGORIES[category].types) {
+    soundToCategoryKey[t] = SOUND_CATEGORY_SETTING_KEY[category];
   }
 }
 
@@ -86,6 +100,7 @@ const defaultSettings: SoundNotificationSettings = {
   messageSoundsEnabled: true,
   voiceSoundsEnabled: true,
   actionSoundsEnabled: true,
+  callSoundsEnabled: true,
   desktopNotificationsEnabled: false,
   soundVariants: {}
 };
@@ -105,8 +120,13 @@ export const getSoundNotificationSettings = store.getSettings;
 export const isCategoryEnabledForSound = (type: SoundType): boolean => {
   const key = soundToCategoryKey[type];
   if (!key) return true;
-  return store.getSettings()[key] as boolean;
+  // A flag added after the settings were persisted is absent from the
+  // stored object: treat it as its default (on) rather than as off.
+  return store.getSettings()[key] !== false;
 };
+
+/** Non-React updater (the hook's setters wrap it). */
+export const updateSoundNotificationSettings = store.updateSettings;
 
 export const getMasterVolumeMultiplier = (): number =>
   store.getSettings().masterVolume / 100;
@@ -140,6 +160,10 @@ export const useSoundNotificationSettings = () => {
     (value: boolean) => store.updateSettings({ actionSoundsEnabled: value }),
     []
   );
+  const setCallSoundsEnabled = useCallback(
+    (value: boolean) => store.updateSettings({ callSoundsEnabled: value }),
+    []
+  );
   const setDesktopNotificationsEnabled = useCallback(
     (value: boolean) =>
       store.updateSettings({ desktopNotificationsEnabled: value }),
@@ -162,6 +186,7 @@ export const useSoundNotificationSettings = () => {
     setMessageSoundsEnabled,
     setVoiceSoundsEnabled,
     setActionSoundsEnabled,
+    setCallSoundsEnabled,
     setDesktopNotificationsEnabled,
     setSoundVariant
   };

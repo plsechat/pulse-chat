@@ -154,15 +154,11 @@ const produceRoute = protectedProcedure
       await runtime.setAudioPaused(ctx.user.id, true);
     }
 
-    ctx.pubsub.publishForChannel(
-      ctx.currentVoiceChannelId,
-      ServerEvents.VOICE_NEW_PRODUCER,
-      {
-        channelId: ctx.currentVoiceChannelId,
-        remoteId: ctx.user.id,
-        kind: input.kind
-      }
-    );
+    ctx.pubsub.publishForChannel(runtime.key, ServerEvents.VOICE_NEW_PRODUCER, {
+      channelId: runtime.id,
+      remoteId: ctx.user.id,
+      kind: input.kind
+    });
 
     return producer.id;
   });

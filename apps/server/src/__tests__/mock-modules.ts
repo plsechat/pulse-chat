@@ -35,9 +35,22 @@ mock.module('../config', () => ({
       redactExtra: [] as string[]
     },
     mediasoup: {
-      worker: { rtcMinPort: 40000, rtcMaxPort: 40020 },
+      // TEST_MEDIASOUP_PORT lets suites run side by side on one machine
+      // (the WebRtcServer binds this UDP+TCP port for the whole process);
+      // the range only matters for tests that flip mode to 'range'.
+      worker: {
+        mode: 'single-port' as 'single-port' | 'range',
+        port: Number(process.env.TEST_MEDIASOUP_PORT ?? 40000),
+        rtcMinPort: 40000,
+        rtcMaxPort: 40020
+      },
+      maxParticipants: 0,
       audio: { maxBitrate: 510000, stereo: true, fec: true, dtx: true },
       video: { initialAvailableOutgoingBitrate: 6000000 }
+    },
+    webrtc: {
+      turn: { urls: [] as string[], username: '', credential: '' },
+      iceTransportPolicy: 'all' as 'all' | 'relay'
     },
     federation: { enabled: false, domain: 'test.local' }
   },

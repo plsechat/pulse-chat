@@ -10,8 +10,6 @@ import { useUnpinOnEscape } from '@/components/channel-view/voice/hooks/use-unpi
 import { useVoice } from '@/features/server/voice/hooks';
 import { useVoiceUsersByChannelId } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
-import { ChannelPermission } from '@pulse/shared';
-import { useChannelCan } from '@/features/server/hooks';
 import { Monitor, MonitorOff, Video, VideoOff } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
@@ -20,11 +18,15 @@ type TDmVoicePanelProps = {
   dmChannelId: number;
 };
 
+// A DM call has no channel permission model (the server skips the
+// per-channel checks for DM voice), so camera and screen share are
+// always available here. Resolving `dmChannelId` against the server's
+// channel permissions looked up an unrelated server channel that
+// happens to share the number.
 const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
-  const voiceUsers = useVoiceUsersByChannelId(dmChannelId);
+  const voiceUsers = useVoiceUsersByChannelId(dmChannelId, 'dm');
   const { pinnedCard, pinCard, unpinCard, isPinned } = usePinCardController();
   const { ownVoiceState, toggleWebcam, toggleScreenShare } = useVoice();
-  const channelCan = useChannelCan(dmChannelId);
 
   useUnpinOnEscape(!!pinnedCard, unpinCard);
   useAutoFocusScreenShare(voiceUsers, pinnedCard, pinCard, unpinCard);
@@ -103,7 +105,6 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
               ? 'Turn off camera'
               : 'Turn on camera'
           }
-          disabled={!channelCan(ChannelPermission.WEBCAM)}
         >
           {ownVoiceState.webcamEnabled ? (
             <Video className="h-4 w-4" />
@@ -127,7 +128,6 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
               ? 'Stop screen share'
               : 'Start screen share'
           }
-          disabled={!channelCan(ChannelPermission.SHARE_SCREEN)}
         >
           {ownVoiceState.sharingScreen ? (
             <Monitor className="h-4 w-4" />

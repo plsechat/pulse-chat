@@ -57,7 +57,14 @@ const updateVoiceStateRoute = protectedProcedure
       }
     }
 
-    const runtime = VoiceRuntime.requireByCtx(ctx);
+    // A connection whose session was evicted (channel deleted, removed
+    // from the group, disconnected by a moderator) still carries its
+    // markers; it must not publish state for a room it is no longer in.
+    const runtime = VoiceRuntime.findByCtx(ctx);
+    invariant(runtime && runtime.getUser(ctx.user.id), {
+      code: 'BAD_REQUEST',
+      message: 'User is not in a voice channel'
+    });
 
     // A moderator server-mute/deafen overrides the user's own controls:
     // they cannot lift it themselves. Drop any attempt to unmute/undeafen
@@ -81,6 +88,7 @@ const updateVoiceStateRoute = protectedProcedure
       const dmMemberIds = await getDmChannelMemberIds(ctx.currentDmVoiceChannelId);
       ctx.pubsub.publishFor(dmMemberIds, ServerEvents.USER_VOICE_STATE_UPDATE, {
         channelId: ctx.currentVoiceChannelId,
+        kind: runtime.kind,
         userId: ctx.user.id,
         state: newState
       });
@@ -94,6 +102,7 @@ const updateVoiceStateRoute = protectedProcedure
         const memberIds = await getServerMemberIds(ch.serverId);
         ctx.pubsub.publishFor(memberIds, ServerEvents.USER_VOICE_STATE_UPDATE, {
           channelId: ctx.currentVoiceChannelId,
+          kind: runtime.kind,
           userId: ctx.user.id,
           state: newState
         });

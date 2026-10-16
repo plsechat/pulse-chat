@@ -5,6 +5,15 @@ import type {
 } from "mediasoup/types";
 import type { TExternalStreamTracks } from "./types";
 
+/**
+ * Which keyspace a voice session lives in. Server voice channels and DM
+ * calls draw ids from independent serial sequences (channels.id vs
+ * dmChannels.id), so a numeric id alone never identifies a call: every
+ * roster event carries `kind` next to `channelId`, and both server and
+ * client key their voice maps by `${kind}:${id}`.
+ */
+export type TVoiceKind = "channel" | "dm";
+
 export type TVoiceUserState = {
   micMuted: boolean;
   soundMuted: boolean;
@@ -96,8 +105,14 @@ export const screenFrameratesAtOrBelow = (max: number): TScreenFramerate[] =>
 
 /**
  * Clamp a requested resolution to the cap. Returns the cap when the
- * request outranks it or is unknown; the request otherwise. Unknown cap
- * (older/absent config) leaves the request untouched.
+ * request outranks it; the request otherwise. Unknown cap (older/absent
+ * config) leaves the request untouched.
+ *
+ * A request the ladder does not know (a rung persisted by an older client
+ * that offered more of them) cannot be ranked against the cap, so it
+ * resolves to the LOWEST known rung — never to the cap: a cap is the
+ * operator's ceiling, and promoting an unranked (historically tiny)
+ * request straight up to it is the opposite of what the user picked.
  */
 export const clampScreenResolution = (
   requested: string | undefined,
@@ -107,8 +122,9 @@ export const clampScreenResolution = (
   const mi = SCREEN_RESOLUTIONS.indexOf(max as TScreenResolution);
   if (mi === -1) return requested;
   const ri = SCREEN_RESOLUTIONS.indexOf(requested as TScreenResolution);
-  // Unknown request, or one ranked above the cap (lower index = higher res).
-  return ri === -1 || ri < mi ? max : requested;
+  if (ri === -1) return SCREEN_RESOLUTIONS[SCREEN_RESOLUTIONS.length - 1];
+  // Ranked above the cap (lower index = higher res).
+  return ri < mi ? max : requested;
 };
 
 /** Clamp a requested framerate to the cap. */

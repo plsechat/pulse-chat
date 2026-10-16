@@ -2,16 +2,21 @@ import { createSelector } from '@reduxjs/toolkit';
 import { OWNER_ROLE_ID } from '@pulse/shared';
 import { createCachedSelector } from 're-reselect';
 import type { IRootState } from '../store';
-import { currentVoiceChannelIdSelector } from './channels/selectors';
+import {
+  currentVoiceChannelIdSelector,
+  currentVoiceKindSelector
+} from './channels/selectors';
 import { typingMapSelector } from './messages/selectors';
 import { rolesSelector } from './roles/selectors';
 import type { TVoiceUser } from './types';
 import {
+  homeOwnUserIdSelector,
   ownPublicUserSelector,
   ownUserIdSelector,
   userByIdSelector,
   usersSelector
 } from './users/selectors';
+import { voiceMapKey, type TVoiceKind } from './voice/keys';
 import { voiceChannelStateSelector } from './voice/selectors';
 
 export const connectedSelector = (state: IRootState) => state.server.connected;
@@ -116,17 +121,25 @@ export const voiceUsersByChannelIdSelector = createCachedSelector(
 
     return voiceUsers;
   }
-)((_: IRootState, channelId: number) => channelId);
+)((_: IRootState, channelId: number, kind: TVoiceKind) =>
+  voiceMapKey(kind, channelId)
+);
 
 export const ownVoiceUserSelector = createSelector(
   [
-    ownUserIdSelector,
+    // A DM call's participants are home-account ids; a server channel's
+    // are the ambient (possibly remote shadow) ids.
+    (state: IRootState) =>
+      currentVoiceKindSelector(state) === 'dm'
+        ? homeOwnUserIdSelector(state)
+        : ownUserIdSelector(state),
     (state: IRootState) => {
       const channelId = currentVoiceChannelIdSelector(state);
+      const kind = currentVoiceKindSelector(state);
 
-      if (channelId === undefined) return undefined;
+      if (channelId === undefined || kind === undefined) return undefined;
 
-      return voiceUsersByChannelIdSelector(state, channelId);
+      return voiceUsersByChannelIdSelector(state, channelId, kind);
     }
   ],
   (ownUserId, voiceUsers) =>

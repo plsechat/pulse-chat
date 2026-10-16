@@ -62,7 +62,7 @@ const subscribeToDms = () => {
       trpc.dms.onCallUserJoined,
       ({ dmChannelId, userId, state }) => {
         dmCallUserJoined(dmChannelId, userId, state);
-        addUserToVoiceChannel(userId, dmChannelId, state);
+        addUserToVoiceChannel(userId, dmChannelId, 'dm', state);
       }
     ),
     subscribe('onDmTyping', trpc.dms.onTyping, ({ dmChannelId, userId }) =>
@@ -73,7 +73,7 @@ const subscribeToDms = () => {
       trpc.dms.onCallUserLeft,
       ({ dmChannelId, userId }) => {
         dmCallUserLeft(dmChannelId, userId);
-        removeUserFromVoiceChannel(userId, dmChannelId);
+        removeUserFromVoiceChannel(userId, dmChannelId, 'dm');
       }
     ),
     subscribe(

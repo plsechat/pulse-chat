@@ -7,6 +7,7 @@ import {
   channelMentionCountByIdSelector,
   channelReadStateByIdSelector
 } from './channels/selectors';
+import type { TVoiceKind } from './voice/keys';
 import { hasAnyVoiceUsersSelector } from './voice/selectors';
 import {
   connectedSelector,
@@ -149,9 +150,12 @@ export const useTypingUsersByChannelId = (channelId: number) =>
     typingUsersByChannelIdSelector(state, channelId)
   );
 
-export const useVoiceUsersByChannelId = (channelId: number) =>
+export const useVoiceUsersByChannelId = (
+  channelId: number,
+  kind: TVoiceKind = 'channel'
+) =>
   useSelector((state: IRootState) =>
-    voiceUsersByChannelIdSelector(state, channelId)
+    voiceUsersByChannelIdSelector(state, channelId, kind)
   );
 
 export const useOwnVoiceUser = () => useSelector(ownVoiceUserSelector);

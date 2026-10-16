@@ -101,7 +101,10 @@ services:
         condition: service_healthy
     ports:
       - "${PULSE_PORT:-5443}:5443"
-      - "40000-40020:40000-40020/udp"
+      # Voice media: one port, UDP and TCP (MEDIASOUP_PORT). Map a range
+      # only with MEDIASOUP_MODE=range.
+      - "40000:40000/udp"
+      - "40000:40000/tcp"
     env_file: .env
     environment:
       RUNNING_IN_DOCKER: "true"

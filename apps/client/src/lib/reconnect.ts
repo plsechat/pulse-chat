@@ -6,6 +6,10 @@ import {
   connect
 } from '@/features/server/actions';
 import { loadFederatedServers } from '@/features/app/actions';
+import {
+  captureVoiceSession,
+  rejoinVoiceAfterReconnect
+} from '@/features/server/voice/rejoin';
 import { store } from '@/features/store';
 import { isNonRecoverable } from '@/lib/home-socket';
 import { getAccessToken } from '@/lib/supabase';
@@ -53,6 +57,11 @@ const attemptReconnect = async () => {
   );
 
   try {
+    // Taken before connect(): its fresh voice snapshots wipe the dead
+    // session from Redux, and the client's own state is the only record
+    // that a call was live when the socket dropped.
+    const voiceSession = captureVoiceSession(store.getState());
+
     await connect();
 
     // Re-establish federated connections
@@ -61,6 +70,8 @@ const attemptReconnect = async () => {
     // Success — clear reconnecting state
     console.log('[reconnect] reconnected successfully');
     stopReconnecting();
+
+    void rejoinVoiceAfterReconnect(voiceSession);
   } catch (error) {
     console.warn('[reconnect] attempt failed:', error);
 

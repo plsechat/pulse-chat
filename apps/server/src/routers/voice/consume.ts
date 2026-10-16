@@ -6,6 +6,8 @@ import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 import { rtpCapabilitiesSchema } from './schemas';
 
+const consumer_kind_is_audio = (kind: 'audio' | 'video') => kind === 'audio';
+
 const consumeRoute = protectedProcedure
   .input(
     z.object({
@@ -51,22 +53,29 @@ const consumeRoute = protectedProcedure
       message: 'Cannot consume this producer with the given RTP capabilities'
     });
 
+    // A server-deafened user must not receive audio: the consumer is
+    // born paused at the SFU and resumed only when a moderator lifts
+    // the override (runtime.setConsumersPaused).
     const consumer = await userConsumerTransport.consume({
       producerId: producer.id,
       rtpCapabilities: input.rtpCapabilities as RtpCapabilities,
-      paused: false
+      paused:
+        consumer_kind_is_audio(producer.kind) &&
+        runtime.getUserState(ctx.user.id).serverDeafened
     });
 
-    runtime.addConsumer(ctx.user.id, input.remoteId, consumer);
+    runtime.addConsumer(ctx.user.id, consumer);
+
+    // The room key is captured now: the handler fires later, when this
+    // connection's markers may already point elsewhere.
+    const { key: runtimeKey, id: runtimeId } = runtime;
 
     consumer.on('producerclose', () => {
-      if (!ctx.currentVoiceChannelId) return;
-
       ctx.pubsub.publishForChannel(
-        ctx.currentVoiceChannelId,
+        runtimeKey,
         ServerEvents.VOICE_PRODUCER_CLOSED,
         {
-          channelId: ctx.currentVoiceChannelId,
+          channelId: runtimeId,
           remoteId: input.remoteId,
           kind: input.kind
         }

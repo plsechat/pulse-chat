@@ -17,15 +17,22 @@ import {
   removeLocalStorageItem,
   setLocalStorageItem
 } from '@/helpers/storage';
-import { requireHomeTRPCClient } from '@/lib/not-connected-error';
-import { getHomeTRPCClient } from '@/lib/trpc';
+import {
+  NotConnectedError,
+  requireHomeTRPCClient
+} from '@/lib/not-connected-error';
+import { getHomeTRPCClient, getVoiceTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
 import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
 import { homeOwnUserIdSelector } from '../server/users/selectors';
-import { addUserToVoiceChannel } from '../server/voice/actions';
+import {
+  addUserToVoiceChannel,
+  endOwnVoiceSession,
+  setVoiceInstanceDomain
+} from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
 import { emitAppEvent } from '@/lib/events';
@@ -219,6 +226,30 @@ export const fetchActiveDmCalls = async () => {
   if (!trpc) return;
   try {
     const activeCalls = await trpc.dms.getActiveCalls.query();
+
+    // Snapshot first: a call we still think we are in but which the
+    // server no longer lists us in (socket-close eviction before a
+    // reconnect, or a call that ended while we were away) is dead, and
+    // the session ids that point at it go with it.
+    const before = store.getState();
+    const deadCallId = before.dms.ownDmCallChannelId;
+    store.dispatch(
+      dmsSliceActions.reconcileActiveCalls({
+        calls: activeCalls,
+        ownUserId: homeOwnUserIdSelector(before)
+      })
+    );
+    const after = store.getState();
+    if (
+      deadCallId !== undefined &&
+      after.dms.ownDmCallChannelId === undefined &&
+      after.server.currentVoiceChannelId === deadCallId &&
+      after.server.currentVoiceKind === 'dm'
+    ) {
+      setCurrentVoiceChannelId(undefined);
+      setCurrentVoiceServerId(undefined);
+    }
+
     for (const call of activeCalls) {
       store.dispatch(
         dmsSliceActions.dmCallStarted({
@@ -234,7 +265,7 @@ export const fetchActiveDmCalls = async () => {
             state: user.state
           })
         );
-        addUserToVoiceChannel(user.userId, call.dmChannelId, user.state);
+        addUserToVoiceChannel(user.userId, call.dmChannelId, 'dm', user.state);
       }
     }
   } catch (err) {
@@ -862,10 +893,21 @@ export const deleteDmMessageAction = async (messageId: number) => {
 };
 
 export const removeDmChannel = (dmChannelId: number) => {
+  const state = store.getState();
   // The reducer clears selectedChannelId when it matches; mirror that in
   // storage or a reload would reopen a DM that no longer exists.
-  if (store.getState().dms.selectedChannelId === dmChannelId) {
+  if (state.dms.selectedChannelId === dmChannelId) {
     removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  }
+  // A call cannot outlive its channel: the server tears the runtime
+  // down with the row, so drop our own session with it — leaving it set
+  // showed a live call UI whose Leave could only fail ("not in a call").
+  const inItsCall =
+    state.dms.ownDmCallChannelId === dmChannelId ||
+    (state.server.currentVoiceKind === 'dm' &&
+      state.server.currentVoiceChannelId === dmChannelId);
+  if (inItsCall) {
+    endOwnVoiceSession();
   }
   return store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
 };
@@ -1026,25 +1068,56 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
     }
   }
 
+  // DM calls are hosted by the home instance by construction (dms.* is a
+  // home router), so the join itself goes to home …
   const trpc = requireHomeTRPCClient();
   const result = await trpc.dms.voiceJoin.mutate({
     dmChannelId,
     state: { micMuted: false, soundMuted: false }
   });
+  // … and the session is pinned there BEFORE the channel id is set, so
+  // every later voice mutation/subscription (getVoiceTRPCClient) keeps
+  // hitting home while the user browses federated servers mid-call.
+  setVoiceInstanceDomain(undefined);
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(dmChannelId));
   // Joining covers an in-flight ring — drop it from the modal.
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
-  // Also set the server voice channel ID so useVoiceEvents subscribes
-  setCurrentVoiceChannelId(dmChannelId);
+  // Also set the server voice channel ID so useVoiceEvents subscribes —
+  // in the DM keyspace, so a same-id server channel is not mistaken
+  // for this call.
+  setCurrentVoiceChannelId(dmChannelId, 'dm');
   return result;
 };
 
 export const leaveDmVoiceCall = async () => {
-  const trpc = requireHomeTRPCClient();
-  await trpc.dms.voiceLeave.mutate();
+  const state = store.getState();
+  const inDmCall =
+    state.dms.ownDmCallChannelId !== undefined ||
+    state.server.currentVoiceKind === 'dm';
+
+  if (!inDmCall) {
+    return;
+  }
+
+  // The session's client is read BEFORE the local clear drops the
+  // instance pin; a DM call is always pinned to home, so a missing client
+  // means the home socket is down (NotConnectedError, as before).
+  const trpc = getVoiceTRPCClient();
+
+  // Redux first, then the mutate (mirrors leaveVoice): the local session
+  // must end even when the server no longer has it — a call whose
+  // channel was deleted makes voiceLeave throw "not in a call", and
+  // clearing only on success left the user stuck in a dead call UI.
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(undefined));
   setCurrentVoiceChannelId(undefined);
   setCurrentVoiceServerId(undefined);
+
+  if (!trpc) throw new NotConnectedError();
+  try {
+    await trpc.dms.voiceLeave.mutate();
+  } catch (error) {
+    toast.error(getTrpcError(error, 'Failed to leave the call'));
+  }
 };
 
 export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
@@ -1065,10 +1138,17 @@ export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
 };
 
 export const dmCallEnded = (dmChannelId: number) => {
+  // Our own voluntary leave clears this marker before the mutate, so a
+  // marker still set means the server ended the call under us (its
+  // channel was deleted, we were evicted) and the session must go too.
+  const wasOwnCall = store.getState().dms.ownDmCallChannelId === dmChannelId;
   store.dispatch(dmsSliceActions.dmCallEnded({ dmChannelId }));
   // Auto-dismiss any incoming-call modal for this channel — the call
   // is over, no point ringing for it.
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+  if (wasOwnCall) {
+    endOwnVoiceSession();
+  }
 };
 
 export const dismissRingingCall = (dmChannelId: number) =>

@@ -1,4 +1,7 @@
-import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import {
+  useCurrentVoiceChannelId,
+  useCurrentVoiceKind
+} from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
 import { leaveCurrentVoice } from '@/features/server/voice/actions';
 import { useVoice } from '@/features/server/voice/hooks';
@@ -19,9 +22,18 @@ import { memo, useMemo } from 'react';
 import { Button } from '../ui/button';
 import { StatsPopover } from './stats-popover';
 
+const alwaysAllowed = () => true;
+
 const VoiceControl = memo(() => {
   const voiceChannelId = useCurrentVoiceChannelId();
-  const channelCan = useChannelCan(voiceChannelId);
+  const voiceKind = useCurrentVoiceKind();
+  // Channel permissions exist for server channels only; a DM call has
+  // none, and looking its id up among the server's channels found an
+  // unrelated channel with the same number.
+  const channelCan = useChannelCan(
+    voiceKind === 'channel' ? voiceChannelId : undefined
+  );
+  const can = voiceKind === 'dm' ? alwaysAllowed : channelCan;
   const { ownVoiceState, toggleWebcam, toggleScreenShare, connectionStatus } =
     useVoice();
 
@@ -92,7 +104,7 @@ const VoiceControl = memo(() => {
                 ? 'Turn off camera'
                 : 'Turn on camera'
             }
-            disabled={!channelCan(ChannelPermission.WEBCAM)}
+            disabled={!can(ChannelPermission.WEBCAM)}
           >
             {ownVoiceState.webcamEnabled ? (
               <Video className="h-4 w-4" />
@@ -116,7 +128,7 @@ const VoiceControl = memo(() => {
                 ? 'Stop screen share'
                 : 'Start screen share'
             }
-            disabled={!channelCan(ChannelPermission.SHARE_SCREEN)}
+            disabled={!can(ChannelPermission.SHARE_SCREEN)}
           >
             {ownVoiceState.sharingScreen ? (
               <Monitor className="h-4 w-4" />

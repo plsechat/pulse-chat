@@ -16,6 +16,7 @@ import { eventBus } from '../plugins/event-bus';
 import { enqueueActivityLog } from '../queues/activity-log';
 import { markBanned } from './banned-cache';
 import { relayFederatedModeration } from './federation-moderation-dispatch';
+import { invariant } from './invariant';
 import type { Context } from './trpc';
 
 /**
@@ -24,6 +25,24 @@ import type { Context } from './trpc';
  * no-op (returning false) when the target isn't a member, so resolvers
  * can call them on a target who already left.
  */
+
+/**
+ * Owner protection, shared by every server-scoped moderation action
+ * (kick, ban, voice mute/deafen, voice disconnect): the server owner is
+ * never a valid target. MANAGE_USERS is delegated by the owner, and a
+ * delegate who could remove or silence the owner would own the server
+ * in practice.
+ */
+const assertModerationTarget = async (
+  serverId: number,
+  targetUserId: number
+): Promise<void> => {
+  const server = await getServerById(serverId);
+  invariant(!server || server.ownerId !== targetUserId, {
+    code: 'FORBIDDEN',
+    message: 'The server owner cannot be moderated'
+  });
+};
 
 const emitUserLeft = async (userId: number, serverId: number) => {
   const [target] = await db
@@ -49,6 +68,8 @@ const kickFromServer = async (opts: {
 }): Promise<boolean> => {
   const isMember = await isServerMember(opts.serverId, opts.targetUserId);
   if (!isMember) return false;
+
+  await assertModerationTarget(opts.serverId, opts.targetUserId);
 
   const userConnections = opts.getUserWs(opts.targetUserId);
   if (userConnections) {
@@ -113,6 +134,8 @@ const banServerMember = async (opts: {
   const isMember = await isServerMember(opts.serverId, opts.targetUserId);
   if (!isMember) return false;
 
+  await assertModerationTarget(opts.serverId, opts.targetUserId);
+
   const userConnections = opts.getUserWs(opts.targetUserId);
   if (userConnections) {
     for (const ws of userConnections) {
@@ -168,4 +191,4 @@ const banServerMember = async (opts: {
   return true;
 };
 
-export { banServerMember, kickFromServer };
+export { assertModerationTarget, banServerMember, kickFromServer };

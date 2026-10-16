@@ -1,6 +1,13 @@
 import type { IRootState } from '@/features/store';
 import { createSelector } from '@reduxjs/toolkit';
 import { createCachedSelector } from 're-reselect';
+import { findExternalStream } from './external-streams';
+import {
+  channelIdFromVoiceKey,
+  isChannelVoiceKey,
+  voiceMapKey,
+  type TVoiceKind
+} from './keys';
 
 const DEFAULT_OBJECT = {};
 
@@ -11,20 +18,18 @@ const channelsSelector = (state: IRootState) => state.server.channels;
 /**
  * "Are there any voice users in the *active server's* channels?"
  *
- * voiceMap is shared between server voice channels and DM call
- * channels — addUserToVoiceChannel from dms/subscriptions writes to
- * the same map. Walking the whole map without scoping caused DM
- * voice activity to make the active server's icon light up with
- * the call indicator. Filter to channel ids that actually belong
- * to the active server.
+ * USER_JOIN_VOICE reaches every member of the hosting server whichever
+ * server they are viewing, so the roster also holds channels of other
+ * servers the user belongs to; only the active server's channels may
+ * light its rail icon.
  */
 export const hasAnyVoiceUsersSelector = createSelector(
   [voiceMapSelector, channelsSelector],
   (voiceMap, channels) => {
     const serverChannelIds = new Set(channels.map((c) => c.id));
-    for (const [id, ch] of Object.entries(voiceMap)) {
-      if (!ch) continue;
-      if (!serverChannelIds.has(Number(id))) continue;
+    for (const [key, ch] of Object.entries(voiceMap)) {
+      if (!ch || !isChannelVoiceKey(key)) continue;
+      if (!serverChannelIds.has(channelIdFromVoiceKey(key))) continue;
       if (Object.keys(ch.users).length > 0) return true;
     }
     return false;
@@ -40,13 +45,28 @@ export const pinnedCardSelector = (state: IRootState) =>
 
 export const voiceChannelStateSelector = (
   state: IRootState,
-  channelId: number
-) => state.server.voiceMap[channelId];
+  channelId: number,
+  kind: TVoiceKind
+) => state.server.voiceMap[voiceMapKey(kind, channelId)];
+
+export const voiceSessionStartedAtSelector = (
+  state: IRootState,
+  channelId: number,
+  kind: TVoiceKind
+) => state.server.voiceMap[voiceMapKey(kind, channelId)]?.startedAt;
 
 export const voiceChannelExternalStreamsSelector = (
   state: IRootState,
   channelId: number
 ) => state.server.externalStreamsMap[channelId];
+
+const externalStreamsMapSelector = (state: IRootState) =>
+  state.server.externalStreamsMap;
+
+export const externalStreamByIdSelector = createCachedSelector(
+  [externalStreamsMapSelector, (_: IRootState, streamId: number) => streamId],
+  findExternalStream
+)((_: IRootState, streamId: number) => streamId);
 
 export const voiceChannelExternalStreamsListSelector = createCachedSelector(
   voiceChannelExternalStreamsSelector,

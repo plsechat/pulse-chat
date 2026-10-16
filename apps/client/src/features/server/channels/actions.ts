@@ -8,6 +8,7 @@ import { syncPreference } from '@/lib/preferences-sync';
 import { getTRPCClient } from '@/lib/trpc';
 import { ChannelType, type TChannel, type TChannelUserPermissionsMap } from '@pulse/shared';
 import { serverSliceActions } from '../slice';
+import type { TVoiceKind } from '../voice/keys';
 import { channelByIdSelector, channelReadStateByIdSelector, selectedChannelIdSelector } from './selectors';
 
 
@@ -45,11 +46,20 @@ export const setSelectedChannelId = (channelId: number | undefined) => {
   store.dispatch(serverSliceActions.setSelectedChannelId(channelId));
 };
 
-export const setCurrentVoiceChannelId = (channelId: number | undefined) =>
-  store.dispatch(serverSliceActions.setCurrentVoiceChannelId(channelId));
+/** Server voice channels are the default kind; a DM call passes 'dm'. */
+export const setCurrentVoiceChannelId = (
+  channelId: number | undefined,
+  kind: TVoiceKind = 'channel'
+) =>
+  store.dispatch(
+    serverSliceActions.setCurrentVoiceChannelId(
+      channelId === undefined ? undefined : { channelId, kind }
+    )
+  );
 
-export const setCurrentVoiceServerId = (serverId: number | undefined) =>
-  store.dispatch(serverSliceActions.setCurrentVoiceServerId(serverId));
+export const setCurrentVoiceServerId = (
+  server: number | undefined | { id: number; publicId: string | undefined }
+) => store.dispatch(serverSliceActions.setCurrentVoiceServerId(server));
 
 export const addChannel = (channel: TChannel) => {
   store.dispatch(serverSliceActions.addChannel(channel));

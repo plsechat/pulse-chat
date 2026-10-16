@@ -84,6 +84,14 @@ export const dmsSlice = createSlice({
       }
       delete state.messagesMap[action.payload];
       delete state.dmTypingMap[action.payload];
+      // Its call goes with the channel: no runtime survives the row.
+      delete state.activeCalls[action.payload];
+      if (state.ownDmCallChannelId === action.payload) {
+        state.ownDmCallChannelId = undefined;
+      }
+      state.ringingCalls = state.ringingCalls.filter(
+        (id) => id !== action.payload
+      );
     },
     // Presence transitions arrive as USER_JOIN/USER_LEAVE/USER_UPDATE
     // events; without mirroring them onto the cached member projections
@@ -245,6 +253,45 @@ export const dmsSlice = createSlice({
       action: PayloadAction<number | undefined>
     ) => {
       state.ownDmCallChannelId = action.payload;
+    },
+    // A fresh dms.getActiveCalls snapshot, taken on every (re)connect. The
+    // socket close that precedes a reconnect evicts us from voice
+    // server-side, and a call can end entirely while we are away — so a
+    // call we still think we are in, but whose roster no longer lists us,
+    // is dead. Dropping it here is what makes the banner's Leave button
+    // and the home-view "in call" state stop describing a session that
+    // does not exist (the reconnect rejoin re-enters it when it can).
+    reconcileActiveCalls: (
+      state,
+      action: PayloadAction<{
+        calls: {
+          dmChannelId: number;
+          users: { userId: number; state: TVoiceUserState }[];
+        }[];
+        ownUserId: number | undefined;
+      }>
+    ) => {
+      const next: TDmCallsMap = {};
+      for (const call of action.payload.calls) {
+        next[call.dmChannelId] = {
+          dmChannelId: call.dmChannelId,
+          users: Object.fromEntries(
+            call.users.map((u) => [u.userId, u.state])
+          )
+        };
+      }
+      state.activeCalls = next;
+
+      const own = state.ownDmCallChannelId;
+      if (own === undefined) return;
+      const roster = next[own]?.users;
+      const stillIn =
+        roster !== undefined &&
+        action.payload.ownUserId !== undefined &&
+        action.payload.ownUserId in roster;
+      if (!stillIn) {
+        state.ownDmCallChannelId = undefined;
+      }
     },
     // DM_READ_STATE_UPDATE from another device/tab of the same user.
     // Clear when the marker covers the newest message we know about;

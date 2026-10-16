@@ -1,6 +1,7 @@
 import type { TServerInfo } from '@pulse/shared';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { testsBaseUrl } from '../../__tests__/setup';
+import { config } from '../../config';
 import { authBackend } from '../../utils/auth';
 
 // Social OAuth providers are advertised only under AUTH_BACKEND=supabase.
@@ -18,6 +19,8 @@ describe('/info', () => {
   };
 
   afterEach(() => {
+    config.webrtc.turn = { urls: [], username: '', credential: '' };
+    config.webrtc.iceTransportPolicy = 'all';
     delete process.env.GOOGLE_OAUTH_ENABLED;
     delete process.env.OIDC_OAUTH_ENABLED;
     delete process.env.OIDC_LABEL;
@@ -139,6 +142,48 @@ describe('/info', () => {
     expect(
       (data.enabledAuthProviders ?? []).some((p) => p.name === 'oidc')
     ).toBe(false);
+  });
+
+  test('ICE block is absent when no TURN relay is configured', async () => {
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+
+    expect(data).not.toHaveProperty('iceServers');
+    expect(data).not.toHaveProperty('iceTransportPolicy');
+  });
+
+  test('ICE block carries the relay (credential included) and a non-default policy', async () => {
+    // The mocked config is a plain object: the env parsing itself is
+    // covered by helpers/__tests__/webrtc-ice.test.ts.
+    config.webrtc.turn = {
+      urls: ['turn:relay.example.com:3478?transport=udp', 'turns:relay.example.com:5349'],
+      username: 'pulse',
+      credential: 'time-limited-secret'
+    };
+    config.webrtc.iceTransportPolicy = 'relay';
+
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+
+    expect(data.iceServers).toEqual([
+      {
+        urls: ['turn:relay.example.com:3478?transport=udp', 'turns:relay.example.com:5349'],
+        username: 'pulse',
+        credential: 'time-limited-secret'
+      }
+    ]);
+    expect(data.iceTransportPolicy).toBe('relay');
+  });
+
+  test('ICE block omits empty credentials and the default "all" policy', async () => {
+    config.webrtc.turn = {
+      urls: ['stun:stun.example.com:3478'],
+      username: '',
+      credential: ''
+    };
+
+    const data = (await (await fetch(`${testsBaseUrl}/info`)).json()) as TServerInfo;
+
+    expect(data.iceServers).toEqual([{ urls: ['stun:stun.example.com:3478'] }]);
+    expect(data).not.toHaveProperty('iceTransportPolicy');
   });
 
   test('OIDC provider is absent unless enabled', async () => {

@@ -248,9 +248,8 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
       const response = await joinVoice(channelId);
 
       if (!response) {
-        // joining voice failed
+        // joinVoice has already told the user why.
         setSelectedChannelId(undefined);
-        toast.error('Failed to join voice channel');
 
         return;
       }

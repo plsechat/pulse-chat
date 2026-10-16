@@ -145,7 +145,24 @@ export type TServerInfo = Pick<
    * advertised (older servers); the client falls back to its own defaults. */
   maxScreenResolution?: string;
   maxScreenFramerate?: number;
+  /** Optional ICE relay configuration the operator set for clients that
+   * cannot reach the media port directly (UDP and TCP both blocked). The
+   * SFU is ICE-lite with an announced public address, so STUN is never
+   * needed and the server itself never uses a relay; the client passes
+   * these to both WebRTC transports as-is. Absent = no relay. */
+  iceServers?: TIceServer[];
+  /** `relay` forces every client through the configured TURN servers
+   * (diagnostics / locked-down networks); default `all`. */
+  iceTransportPolicy?: TIceTransportPolicy;
 };
+
+export type TIceServer = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+};
+
+export type TIceTransportPolicy = "all" | "relay";
 
 export type TArtifact = {
   name: string;

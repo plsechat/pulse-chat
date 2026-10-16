@@ -1,3 +1,4 @@
+import { isChannelVoiceKey } from '@/features/server/voice/keys';
 import {
   ContextMenu,
   ContextMenuCheckboxItem,
@@ -72,8 +73,12 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const currentVolume = getVolume(volumeKey);
   const isMuted = currentVolume === 0;
 
+  // Server voice channels only: a DM call the user is on also lives in
+  // voiceMap (under a dm: key) and must not expose server moderation
+  // items — voice.moderateMember would be aimed at a DM runtime.
   const voiceState = useMemo(() => {
-    for (const ch of Object.values(voiceMap)) {
+    for (const [key, ch] of Object.entries(voiceMap)) {
+      if (!isChannelVoiceKey(key)) continue;
       const state = ch?.users[userId];
       if (state) return state;
     }

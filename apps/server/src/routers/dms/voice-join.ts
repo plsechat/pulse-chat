@@ -48,6 +48,10 @@ const dmVoiceJoinRoute = protectedProcedure
       await removeUserFromVoice(ctx.user.id);
     }
 
+    // Instance-wide cap, checked after the self-heal so a rejoin does not
+    // count its own stale session.
+    VoiceRuntime.assertCapacity();
+
     // Get or create a voice runtime for this DM channel
     let runtime = VoiceRuntime.findById(input.dmChannelId, 'dm');
     const isNewCall = !runtime;

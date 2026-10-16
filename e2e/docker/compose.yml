@@ -53,6 +53,12 @@ services:
     container_name: pulse-e2e-core
     ports:
       - "14991:4991"
+      # WebRTC media port (the server's single-port default; PUBLIC_IP is
+      # 127.0.0.1, so the host browser's ICE reaches it through this
+      # mapping). Only the core instance carries voice specs; the other
+      # instances keep media container-internal.
+      - "40000:40000/udp"
+      - "40000:40000/tcp"
     environment:
       <<: *pulse-env
       AUTH_SECRET: e2e-core-secret-0123456789abcdef0123456789abcdef

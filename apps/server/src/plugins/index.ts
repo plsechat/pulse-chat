@@ -842,7 +842,7 @@ class PluginManager {
 
             if (options.producers.audio) {
               pubsub.publishForChannel(
-                options.channelId,
+                channel.key,
                 ServerEvents.VOICE_NEW_PRODUCER,
                 {
                   channelId: options.channelId,
@@ -854,7 +854,7 @@ class PluginManager {
 
             if (options.producers.video) {
               pubsub.publishForChannel(
-                options.channelId,
+                channel.key,
                 ServerEvents.VOICE_NEW_PRODUCER,
                 {
                   channelId: options.channelId,

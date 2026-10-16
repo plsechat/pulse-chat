@@ -19,6 +19,7 @@ import {
 import { SoundType } from '@/features/server/types';
 import {
   SOUND_CATEGORIES,
+  SOUND_CATEGORY_SETTING_KEY,
   useSoundNotificationSettings,
   type SoundCategory
 } from '@/hooks/use-sound-notification-settings';
@@ -59,17 +60,12 @@ const VARIANT_EVENTS: { type: SoundType; label: string; hint: string }[] = [
   }
 ];
 
-const categorySettingKeys = {
-  messages: 'messageSoundsEnabled',
-  voice: 'voiceSoundsEnabled',
-  actions: 'actionSoundsEnabled'
-} as const;
-
 const categorySetters = {
   messages: 'setMessageSoundsEnabled',
   voice: 'setVoiceSoundsEnabled',
-  actions: 'setActionSoundsEnabled'
-} as const;
+  actions: 'setActionSoundsEnabled',
+  calls: 'setCallSoundsEnabled'
+} as const satisfies Record<SoundCategory, string>;
 
 const SoundsNotifications = memo(() => {
   const {
@@ -78,6 +74,7 @@ const SoundsNotifications = memo(() => {
     setMessageSoundsEnabled,
     setVoiceSoundsEnabled,
     setActionSoundsEnabled,
+    setCallSoundsEnabled,
     setDesktopNotificationsEnabled,
     setSoundVariant
   } = useSoundNotificationSettings();
@@ -116,7 +113,8 @@ const SoundsNotifications = memo(() => {
   const setters = {
     setMessageSoundsEnabled,
     setVoiceSoundsEnabled,
-    setActionSoundsEnabled
+    setActionSoundsEnabled,
+    setCallSoundsEnabled
   };
 
   const handleDesktopNotificationToggle = useCallback(
@@ -228,7 +226,7 @@ const SoundsNotifications = memo(() => {
       >
         {(Object.keys(SOUND_CATEGORIES) as SoundCategory[]).map((key) => {
           const cat = SOUND_CATEGORIES[key];
-          const settingKey = categorySettingKeys[key];
+          const settingKey = SOUND_CATEGORY_SETTING_KEY[key];
           const setterKey = categorySetters[key];
           const enabled = settings[settingKey];
 

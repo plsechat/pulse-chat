@@ -11,14 +11,21 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import { useInfo } from '@/features/server/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import {
   Resolution,
   type NoiseSuppressionMode,
   type TDeviceSettings
 } from '@/types';
+import {
+  DEFAULT_SCREEN_MAX_FRAMERATE,
+  DEFAULT_SCREEN_MAX_RESOLUTION,
+  screenFrameratesAtOrBelow,
+  screenResolutionsAtOrBelow
+} from '@pulse/shared';
 import { Download, Trash2, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   SettingRow,
@@ -30,19 +37,25 @@ import { MicMeter } from './mic-meter';
 
 const DEFAULT_NAME = 'default';
 
-const RESOLUTIONS = ['144p', '240p', '360p', '720p', '1080p', '1440p', '2160p'];
-const FRAMERATES = [10, 15, 24, 30, 60, 120];
+// The camera keeps its own ladder; the screen-share pair below is built
+// from the shared ladder, capped by the instance.
+const WEBCAM_RESOLUTIONS = ['240p', '360p', '720p', '1080p', '1440p', '2160p'];
+const WEBCAM_FRAMERATES = [15, 24, 30, 60];
 
 /** Resolution + framerate pair, sized for a row's right rail. */
 const QualityPair = memo(
   ({
     resolution,
     framerate,
+    resolutions,
+    framerates,
     onResolutionChange,
     onFramerateChange
   }: {
     resolution: string;
     framerate: number;
+    resolutions: readonly string[];
+    framerates: readonly number[];
     onResolutionChange: (value: string) => void;
     onFramerateChange: (value: number) => void;
   }) => (
@@ -53,7 +66,7 @@ const QualityPair = memo(
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {RESOLUTIONS.map((r) => (
+            {resolutions.map((r) => (
               <SelectItem key={r} value={r}>
                 {r}
               </SelectItem>
@@ -70,7 +83,7 @@ const QualityPair = memo(
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {FRAMERATES.map((f) => (
+            {framerates.map((f) => (
               <SelectItem key={f} value={f.toString()}>
                 {f} fps
               </SelectItem>
@@ -90,6 +103,26 @@ const Devices = memo(() => {
     loading: availableDevicesLoading
   } = useAvailableDevices();
   const { devices, saveDevices, loading: devicesLoading } = useDevices();
+  const info = useInfo();
+
+  // Screen-share rungs the instance operator permits — the same ladder and
+  // cap the in-call Stream Quality menu uses, so this screen can no longer
+  // offer a rung the capture would silently clamp (or, for one the ladder
+  // did not know, bounce up to the cap).
+  const screenResolutions = useMemo(
+    () =>
+      screenResolutionsAtOrBelow(
+        info?.maxScreenResolution ?? DEFAULT_SCREEN_MAX_RESOLUTION
+      ),
+    [info?.maxScreenResolution]
+  );
+  const screenFramerates = useMemo(
+    () =>
+      screenFrameratesAtOrBelow(
+        info?.maxScreenFramerate ?? DEFAULT_SCREEN_MAX_FRAMERATE
+      ),
+    [info?.maxScreenFramerate]
+  );
 
   // Settings apply the moment they change — persisted immediately and,
   // mid-call, picked up live by the voice provider's device-diff effect.
@@ -234,6 +267,8 @@ const Devices = memo(() => {
           <QualityPair
             resolution={values.webcamResolution}
             framerate={values.webcamFramerate}
+            resolutions={WEBCAM_RESOLUTIONS}
+            framerates={WEBCAM_FRAMERATES}
             onResolutionChange={(value) =>
               onChange('webcamResolution', value as Resolution)
             }
@@ -257,10 +292,22 @@ const Devices = memo(() => {
           <QualityPair
             resolution={values.screenResolution}
             framerate={values.screenFramerate}
+            resolutions={screenResolutions}
+            framerates={screenFramerates}
             onResolutionChange={(value) =>
               onChange('screenResolution', value as Resolution)
             }
             onFramerateChange={(value) => onChange('screenFramerate', value)}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Share system audio"
+          description="Send what your computer is playing along with the picture. Takes effect on the next share."
+        >
+          <Switch
+            checked={!!values.shareSystemAudio}
+            onCheckedChange={(checked) => onChange('shareSystemAudio', checked)}
           />
         </SettingRow>
 

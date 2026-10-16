@@ -1,5 +1,6 @@
 import { ServerEvents, type StreamKind } from '@pulse/shared';
 import { observable } from '@trpc/server/observable';
+import { VoiceRuntime } from '../../runtimes/voice';
 import { protectedProcedure, userSubscription } from '../../utils/trpc';
 
 type TVoiceProducerEvent = {
@@ -24,16 +25,21 @@ const onVoiceRemoveExternalStreamRoute = userSubscription(
   ServerEvents.VOICE_REMOVE_EXTERNAL_STREAM
 );
 
-// these events are channel-scoped (only sent to users in the same voice channel)
-// they relate to actual media streaming, not UI state
+// These events are room-scoped (only sent to users in the same voice
+// runtime) and relate to actual media streaming, not UI state. The topic
+// is the runtime KEY ("channel:5" / "dm:5"), never the bare id: a DM call
+// and a server channel with the same id are different rooms. No runtime
+// for this connection's session → an empty observable.
 const onVoiceNewProducerRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    if (!ctx.currentVoiceChannelId) {
+    const runtime = VoiceRuntime.findByCtx(ctx);
+
+    if (!runtime) {
       return observable<TVoiceProducerEvent>(() => () => {});
     }
 
     return ctx.pubsub.subscribeForChannel(
-      ctx.currentVoiceChannelId,
+      runtime.key,
       ServerEvents.VOICE_NEW_PRODUCER
     );
   }
@@ -41,12 +47,14 @@ const onVoiceNewProducerRoute = protectedProcedure.subscription(
 
 const onVoiceProducerClosedRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
-    if (!ctx.currentVoiceChannelId) {
+    const runtime = VoiceRuntime.findByCtx(ctx);
+
+    if (!runtime) {
       return observable<TVoiceProducerEvent>(() => () => {});
     }
 
     return ctx.pubsub.subscribeForChannel(
-      ctx.currentVoiceChannelId,
+      runtime.key,
       ServerEvents.VOICE_PRODUCER_CLOSED
     );
   }

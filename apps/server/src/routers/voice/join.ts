@@ -66,6 +66,10 @@ const joinVoiceRoute = protectedProcedure
       await removeUserFromVoice(ctx.user.id);
     }
 
+    // Instance-wide cap, checked after the self-heal so a rejoin does not
+    // count its own stale session.
+    VoiceRuntime.assertCapacity();
+
     // Re-create runtime if it was destroyed when the last user left
     let runtime = VoiceRuntime.findById(input.channelId);
 
@@ -81,7 +85,14 @@ const joinVoiceRoute = protectedProcedure
 
     runtime.addUser(ctx.user.id, input.state);
 
+    // addUser merged any standing moderation override into the state;
+    // (re)apply the SFU enforcement for media that already exists. Fresh
+    // producers/consumers honour the flags at creation (produce/consume).
     const state = runtime.getUserState(ctx.user.id);
+    if (state.serverMuted) await runtime.setAudioPaused(ctx.user.id, true);
+    if (state.serverDeafened) {
+      await runtime.setConsumersPaused(ctx.user.id, true);
+    }
 
     ctx.currentVoiceChannelId = channel.id;
     // A stale DM-call marker here would make the shared voice routes
@@ -93,6 +104,7 @@ const joinVoiceRoute = protectedProcedure
     const memberIds = await getServerMemberIds(channel.serverId);
     ctx.pubsub.publishFor(memberIds, ServerEvents.USER_JOIN_VOICE, {
       channelId: input.channelId,
+      kind: runtime.kind,
       userId: ctx.user.id,
       state,
       startedAt

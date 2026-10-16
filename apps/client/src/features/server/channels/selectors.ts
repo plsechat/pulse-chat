@@ -18,6 +18,9 @@ export const selectedChannelTypeSelector = createSelector(
 export const currentVoiceChannelIdSelector = (state: IRootState) =>
   state.server.currentVoiceChannelId;
 
+export const currentVoiceKindSelector = (state: IRootState) =>
+  state.server.currentVoiceKind;
+
 export const currentVoiceChannelPublicIdSelector = (state: IRootState) =>
   state.server.currentVoiceChannelPublicId;
 
@@ -65,9 +68,16 @@ export const selectedChannelSelector = createSelector(
     channels.find((channel) => channel.id === selectedChannelId)
 );
 
+// The selected channel is a SERVER channel; a DM call whose id happens
+// to match it is not "selected" (its id lives in the dm keyspace).
 export const isCurrentVoiceChannelSelectedSelector = createSelector(
-  [selectedChannelIdSelector, currentVoiceChannelIdSelector],
-  (selectedChannelId, currentVoiceChannelId) =>
+  [
+    selectedChannelIdSelector,
+    currentVoiceChannelIdSelector,
+    currentVoiceKindSelector
+  ],
+  (selectedChannelId, currentVoiceChannelId, currentVoiceKind) =>
+    currentVoiceKind === 'channel' &&
     currentVoiceChannelId !== undefined &&
     selectedChannelId === currentVoiceChannelId
 );

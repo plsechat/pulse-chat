@@ -45,11 +45,11 @@ const buildState = (): IRootState => {
   const voice = { micMuted: false, soundMuted: false, webcamEnabled: false, sharingScreen: false, serverMuted: false, serverDeafened: false };
   server = serverSliceReducer(
     server,
-    serverSliceActions.addUserToVoiceChannel({ userId: 1, channelId: 10, state: voice })
+    serverSliceActions.addUserToVoiceChannel({ userId: 1, channelId: 10, kind: 'channel', state: voice })
   );
   server = serverSliceReducer(
     server,
-    serverSliceActions.addUserToVoiceChannel({ userId: 2, channelId: 11, state: voice })
+    serverSliceActions.addUserToVoiceChannel({ userId: 2, channelId: 11, kind: 'channel', state: voice })
   );
   return {
     app: appSliceReducer(undefined, init),
@@ -74,13 +74,13 @@ describe('per-id memoisation', () => {
 
   test('voiceUsersByChannelIdSelector keeps identity per channel', () => {
     const state = buildState();
-    const c10 = voiceUsersByChannelIdSelector(state, 10);
-    const c11 = voiceUsersByChannelIdSelector(state, 11);
-    expect(voiceUsersByChannelIdSelector(state, 10)).toBe(c10);
-    expect(voiceUsersByChannelIdSelector(state, 11)).toBe(c11);
+    const c10 = voiceUsersByChannelIdSelector(state, 10, 'channel');
+    const c11 = voiceUsersByChannelIdSelector(state, 11, 'channel');
+    expect(voiceUsersByChannelIdSelector(state, 10, 'channel')).toBe(c10);
+    expect(voiceUsersByChannelIdSelector(state, 11, 'channel')).toBe(c11);
     expect(c10.map((u) => u.id)).toEqual([1]);
     expect(c11.map((u) => u.id)).toEqual([2]);
-    expect(voiceUsersByChannelIdSelector(state, 99)).toEqual([]);
+    expect(voiceUsersByChannelIdSelector(state, 99, 'channel')).toEqual([]);
   });
 
   test('userStatusSelector resolves each id independently', () => {

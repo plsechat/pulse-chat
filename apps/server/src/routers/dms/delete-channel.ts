@@ -7,6 +7,7 @@ import { dmChannels } from '../../db/schema';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { evictRuntime } from '../../utils/voice-cleanup';
 
 const deleteChannelRoute = protectedProcedure
   .input(z.object({ dmChannelId: z.number().int().positive() }))
@@ -38,10 +39,12 @@ const deleteChannelRoute = protectedProcedure
       );
     }
 
-    // Destroy any active voice runtime for this DM channel
+    // End any live call first (participants get USER_LEAVE_VOICE and
+    // DM_CALL_ENDED) — the fan-out needs the member rows that the delete
+    // below cascades away.
     const voiceRuntime = VoiceRuntime.findById(input.dmChannelId, 'dm');
     if (voiceRuntime) {
-      await voiceRuntime.destroy();
+      await evictRuntime(voiceRuntime);
     }
 
     // Delete the channel — cascades to members, messages, files, reactions, read states

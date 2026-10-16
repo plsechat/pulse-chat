@@ -139,6 +139,15 @@ export function installModuleMocks(): void {
       if (domain) return clients.remotes[domain]?.trpc ?? null;
       return clients.home?.trpc ?? null;
     },
+    // Voice calls route by the session's pinned instance, not the one in
+    // focus. Listed here because the replacement must carry every named
+    // export a module in the e2ee graph imports, or that import fails to
+    // link (same shape as the home-connection harness).
+    getVoiceTRPCClient: (): AnyClient | null => {
+      const domain = testStore.getState().server.voiceInstanceDomain;
+      if (domain) return clients.remotes[domain]?.trpc ?? null;
+      return clients.home?.trpc ?? null;
+    },
     connectToTRPC: () => {
       throw new Error('connectToTRPC is not available under the e2ee test harness');
     },

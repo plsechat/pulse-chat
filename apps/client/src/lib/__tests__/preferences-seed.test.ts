@@ -7,7 +7,7 @@
  */
 
 import '../e2ee/__tests__/instance-dom-stubs';
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { DEFAULT_USER_PREFERENCES } from '@pulse/shared';
 import { LocalStorageKey } from '@/helpers/storage';
 import * as preferencesSync from '@/lib/preferences-sync';
@@ -22,6 +22,9 @@ const KEYS = [
 ];
 
 const sync = spyOn(preferencesSync, 'syncPreference');
+// Namespace spies are process-wide: a later test file that asserts on the
+// REAL syncPreference (preference-store.test.ts) would see this stub.
+afterAll(() => sync.mockRestore());
 
 beforeEach(() => {
   sync.mockReset();

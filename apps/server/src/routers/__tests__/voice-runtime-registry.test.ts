@@ -1,5 +1,7 @@
+import { ServerEvents, StreamKind } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { VoiceRuntime } from '../../runtimes/voice';
+import { pubsub } from '../../utils/pubsub';
 
 // Server voice channels and DM calls draw ids from independent serial
 // sequences (channels.id vs dmChannels.id), so one numeric id can name
@@ -85,5 +87,54 @@ describe('VoiceRuntime registry keyspaces', () => {
       await channelRuntime.destroy();
       await dmRuntime.destroy();
     }
+  });
+});
+
+describe('room-scoped pubsub topics are keyed by runtime key', () => {
+  // The media-event bus (VOICE_NEW_PRODUCER / VOICE_PRODUCER_CLOSED) used
+  // to be keyed by the bare numeric id, so a DM call and a server channel
+  // with the same id shared one topic: server members received the DM
+  // call's producer events (leaking who was in a private call) and a
+  // producer close in one room tore down a same-id stream in the other.
+  test('a publish on dm:5 never reaches a channel:5 subscriber, channel:5 does', () => {
+    const received: unknown[] = [];
+    const subscription = pubsub
+      .subscribeForChannel('channel:5', ServerEvents.VOICE_NEW_PRODUCER)
+      .subscribe({ next: (event) => received.push(event) });
+
+    try {
+      pubsub.publishForChannel('dm:5', ServerEvents.VOICE_NEW_PRODUCER, {
+        channelId: 5,
+        remoteId: 42,
+        kind: StreamKind.AUDIO
+      });
+      expect(received).toHaveLength(0);
+
+      pubsub.publishForChannel('channel:5', ServerEvents.VOICE_NEW_PRODUCER, {
+        channelId: 5,
+        remoteId: 7,
+        kind: StreamKind.AUDIO
+      });
+      expect(received).toEqual([
+        { channelId: 5, remoteId: 7, kind: StreamKind.AUDIO }
+      ]);
+    } finally {
+      subscription.unsubscribe();
+    }
+  });
+
+  test('a subscription stops receiving after unsubscribe', () => {
+    const received: unknown[] = [];
+    const subscription = pubsub
+      .subscribeForChannel('dm:6', ServerEvents.VOICE_PRODUCER_CLOSED)
+      .subscribe({ next: (event) => received.push(event) });
+    subscription.unsubscribe();
+
+    pubsub.publishForChannel('dm:6', ServerEvents.VOICE_PRODUCER_CLOSED, {
+      channelId: 6,
+      remoteId: 1,
+      kind: StreamKind.VIDEO
+    });
+    expect(received).toHaveLength(0);
   });
 });

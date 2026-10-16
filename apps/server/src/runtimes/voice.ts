@@ -6,9 +6,11 @@ import {
   type TExternalStreamsMap,
   type TRemoteProducerIds,
   type TTransportParams,
+  type TVoiceKind,
   type TVoiceMap,
   type TVoiceUserState
 } from '@pulse/shared';
+import { TRPCError } from '@trpc/server';
 import type {
   AppData,
   Consumer,
@@ -19,15 +21,18 @@ import type {
   WebRtcTransportOptions
 } from 'mediasoup/types';
 import { eq } from 'drizzle-orm';
-import { config, SERVER_PUBLIC_IP } from '../config';
+import { config } from '../config';
 import { db } from '../db';
 import { getServerMemberIds } from '../db/queries/servers';
 import { channels } from '../db/schema';
 import { logger } from '../logger';
 import { eventBus } from '../plugins/event-bus';
-import { IS_PRODUCTION } from '../utils/env';
 import { invariant } from '../utils/invariant';
-import { mediaSoupWorker } from '../utils/mediasoup';
+import {
+  getMediaListenInfo,
+  getWebRtcServer,
+  mediaSoupWorker
+} from '../utils/mediasoup';
 import { pubsub } from '../utils/pubsub';
 
 /**
@@ -36,8 +41,8 @@ import { pubsub } from '../utils/pubsub';
  * collides: a DM call could overwrite — or resolve to — a live server
  * channel's runtime. Keys are therefore kind-qualified ("channel:5" /
  * "dm:5") and every by-id lookup states which keyspace it means.
+ * (TVoiceKind is shared so the client keys its voice map the same way.)
  */
-type TVoiceKind = 'channel' | 'dm';
 
 const runtimeKey = (channelId: number, kind: TVoiceKind): string =>
   `${kind}:${channelId}`;
@@ -83,28 +88,56 @@ const defaultRouterOptions: RouterOptions<AppData> = {
   ]
 };
 
+const VOICE_CAPACITY_MESSAGE = 'Voice capacity reached';
+
+const voiceCapacityError = () =>
+  new TRPCError({ code: 'PRECONDITION_FAILED', message: VOICE_CAPACITY_MESSAGE });
+
+/**
+ * Range mode runs out of ports long before anything else does, and the
+ * worker reports it as a generic error ("no more available ports …").
+ * Clients get the same PRECONDITION_FAILED the participant cap raises,
+ * so one message covers "the instance is full" however it happened.
+ */
+const isPortExhaustionError = (err: unknown): boolean =>
+  err instanceof Error && /no more available ports/i.test(err.message);
+
 const getRtcTransportOptions = (): WebRtcTransportOptions<AppData> => {
-  const ip = IS_PRODUCTION ? '0.0.0.0' : '127.0.0.1';
-  const announcedAddress = IS_PRODUCTION ? SERVER_PUBLIC_IP : undefined;
-
-  const listenInfo = announcedAddress
-    ? { ip, announcedAddress }
-    : { ip };
-
-  logger.debug(
-    `WebRTC transport options: ip=${ip}, announcedAddress=${announcedAddress ?? 'none'}, IS_PRODUCTION=${IS_PRODUCTION}`
-  );
-
-  return {
-    listenInfos: [
-      { protocol: 'udp' as const, ...listenInfo },
-      { protocol: 'tcp' as const, ...listenInfo }
-    ],
+  const common = {
     enableUdp: true,
     enableTcp: true,
     preferUdp: true,
     preferTcp: false,
-    initialAvailableOutgoingBitrate: config.mediasoup.video.initialAvailableOutgoingBitrate
+    initialAvailableOutgoingBitrate:
+      config.mediasoup.video.initialAvailableOutgoingBitrate
+  };
+
+  // Single-port mode: every transport multiplexes over the worker's
+  // WebRtcServer socket pair — no per-transport port, no port ceiling.
+  const webRtcServer =
+    config.mediasoup.worker.mode === 'single-port'
+      ? getWebRtcServer()
+      : undefined;
+  if (webRtcServer) {
+    return { webRtcServer, ...common };
+  }
+
+  // Range mode: each transport binds its own UDP and TCP port from the
+  // operator's range. The range is given per listenInfo (the worker-level
+  // rtcMinPort/rtcMaxPort pair is deprecated for transports) so it is
+  // read from config at creation time.
+  const listen = getMediaListenInfo();
+  const portRange = {
+    min: config.mediasoup.worker.rtcMinPort,
+    max: config.mediasoup.worker.rtcMaxPort
+  };
+
+  return {
+    listenInfos: [
+      { protocol: 'udp' as const, ...listen, portRange },
+      { protocol: 'tcp' as const, ...listen, portRange }
+    ],
+    ...common
   };
 };
 
@@ -125,10 +158,18 @@ type TProducerMap = {
   [userId: number]: Producer<AppData>;
 };
 
+// Keyed by consumer id: a user holds several consumers per remote peer
+// (mic, webcam, screen, screen audio), so a remoteId key would have let
+// each new consumer shadow the previous one.
 type TConsumerMap = {
   [userId: number]: {
-    [remoteId: number]: Consumer<AppData>;
+    [consumerId: string]: Consumer<AppData>;
   };
+};
+
+type TModerationOverride = {
+  serverMuted: boolean;
+  serverDeafened: boolean;
 };
 
 type TExternalStreamProducers = {
@@ -163,6 +204,10 @@ class VoiceRuntime {
   private screenProducers: TProducerMap = {};
   private screenAudioProducers: TProducerMap = {};
   private consumers: TConsumerMap = {};
+  // Moderator server-mute/deafen, kept for the runtime's lifetime
+  // independent of membership: without this a muted user lifted the
+  // mute by leaving and rejoining (or simply refreshing the page).
+  private moderationOverrides = new Map<number, TModerationOverride>();
 
   private _destroying = false;
   // Ephemeral screen-share hover thumbnails, pull model: the sharer
@@ -220,14 +265,42 @@ class VoiceRuntime {
    * currentDmVoiceChannelId and both leave routes clear it, so its
    * presence IS the "this socket's session is a DM call" bit.
    */
+  public static findByCtx = (ctx: {
+    currentVoiceChannelId: number | undefined;
+    currentDmVoiceChannelId: number | undefined;
+  }): VoiceRuntime | undefined => {
+    if (ctx.currentVoiceChannelId === undefined) return undefined;
+    return VoiceRuntime.findById(
+      ctx.currentVoiceChannelId,
+      ctx.currentDmVoiceChannelId !== undefined ? 'dm' : 'channel'
+    );
+  };
+
   public static requireByCtx = (ctx: {
     currentVoiceChannelId: number | undefined;
     currentDmVoiceChannelId: number | undefined;
   }): VoiceRuntime => {
-    return VoiceRuntime.requireById(
-      ctx.currentVoiceChannelId,
-      ctx.currentDmVoiceChannelId !== undefined ? 'dm' : 'channel'
-    );
+    const runtime = VoiceRuntime.findByCtx(ctx);
+    invariant(runtime, {
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Voice runtime not found for this channel'
+    });
+    return runtime;
+  };
+
+  /**
+   * Instance-wide participant cap (config.mediasoup.maxParticipants,
+   * 0 = unlimited) across every channel and DM call: mediasoup runs on
+   * one worker, so the cap is the operator's CPU/bandwidth guard. Join
+   * routes call this AFTER the self-heal removal so a rejoin never
+   * counts its own stale session against the cap.
+   */
+  public static assertCapacity = (): void => {
+    const cap = config.mediasoup.maxParticipants;
+    if (!cap) return;
+    if (VoiceRuntime.getStats().participants >= cap) {
+      throw voiceCapacityError();
+    }
   };
 
   public static getAll = (): VoiceRuntime[] => {
@@ -424,13 +497,40 @@ class VoiceRuntime {
       this.state.startedAt = Date.now();
     }
 
+    // A standing moderation override is re-applied on (re)join; the
+    // published join state already carries it so peers' rosters agree.
     this.state.users.push({
       userId,
       state: {
         ...defaultUserState,
-        ...state
+        ...state,
+        ...(this.moderationOverrides.get(userId) ?? {})
       }
     });
+  };
+
+  /**
+   * Record a moderator server-mute/deafen and mirror it into the live
+   * state. The override outlives membership (see moderationOverrides);
+   * it is dropped once both flags are cleared.
+   */
+  public setModerationOverride = (
+    userId: number,
+    patch: Partial<TModerationOverride>
+  ) => {
+    const current = this.moderationOverrides.get(userId) ?? {
+      serverMuted: false,
+      serverDeafened: false
+    };
+    const next: TModerationOverride = { ...current, ...patch };
+
+    if (next.serverMuted || next.serverDeafened) {
+      this.moderationOverrides.set(userId, next);
+    } else {
+      this.moderationOverrides.delete(userId);
+    }
+
+    this.updateUserState(userId, next);
   };
 
   public removeUser = (userId: number) => {
@@ -445,6 +545,20 @@ class VoiceRuntime {
   };
 
   private cleanupUserResources = (userId: number) => {
+    // Captured before the producers close so the other users' consumers
+    // of this user's streams can be matched below (mediasoup also closes
+    // them on producer close; this keeps the map exact either way).
+    const ownProducerIds = new Set(
+      [
+        this.audioProducers[userId],
+        this.videoProducers[userId],
+        this.screenProducers[userId],
+        this.screenAudioProducers[userId]
+      ]
+        .filter((producer): producer is Producer<AppData> => !!producer)
+        .map((producer) => producer.id)
+    );
+
     this.removeProducerTransport(userId);
     this.removeConsumerTransport(userId);
 
@@ -461,14 +575,14 @@ class VoiceRuntime {
       delete this.consumers[userId];
     }
 
-    Object.keys(this.consumers).forEach((consumerUserIdStr) => {
-      const consumerId = parseInt(consumerUserIdStr);
+    Object.entries(this.consumers).forEach(([consumerUserIdStr, byId]) => {
+      if (parseInt(consumerUserIdStr) === userId) return;
 
-      if (consumerId !== userId && this.consumers[consumerId]?.[userId]) {
-        this.consumers[consumerId][userId].close();
-
-        delete this.consumers[consumerId][userId];
-      }
+      Object.entries(byId).forEach(([consumerId, consumer]) => {
+        if (!ownProducerIds.has(consumer.producerId)) return;
+        consumer.close();
+        delete byId[consumerId];
+      });
     });
   };
 
@@ -521,6 +635,27 @@ class VoiceRuntime {
     }
   };
 
+  /**
+   * Pause or resume every audio consumer a user holds — the enforcement
+   * behind a moderator server-deafen. Pausing at the SFU stops audio
+   * (mic, screen audio, plugin streams alike) from reaching them
+   * regardless of what their client does. Consumers created while the
+   * flag is set start paused (see consume.ts).
+   */
+  public setConsumersPaused = async (userId: number, paused: boolean) => {
+    const consumers = Object.values(this.consumers[userId] ?? {}).filter(
+      (consumer) => consumer.kind === 'audio' && !consumer.closed
+    );
+
+    await Promise.all(
+      consumers.map((consumer) => {
+        if (paused && !consumer.paused) return consumer.pause();
+        if (!paused && consumer.paused) return consumer.resume();
+        return undefined;
+      })
+    );
+  };
+
   public getRouter = (): Router<AppData> => {
     if (!this.router) {
       throw new Error('Router not initialized yet');
@@ -538,9 +673,13 @@ class VoiceRuntime {
   public createTransport = async () => {
     const router = this.getRouter();
 
-    const transport = await router.createWebRtcTransport(
-      getRtcTransportOptions()
-    );
+    let transport: WebRtcTransport<AppData>;
+    try {
+      transport = await router.createWebRtcTransport(getRtcTransportOptions());
+    } catch (err) {
+      if (isPortExhaustionError(err)) throw voiceCapacityError();
+      throw err;
+    }
 
     logger.debug(
       `Transport created: id=${transport.id}, iceCandidates=${JSON.stringify(transport.iceCandidates)}`
@@ -723,20 +862,21 @@ class VoiceRuntime {
     }
   }
 
-  public addConsumer = (
-    userId: number,
-    remoteId: number,
-    consumer: Consumer<AppData>
-  ) => {
+  public addConsumer = (userId: number, consumer: Consumer<AppData>) => {
     if (!this.consumers[userId]) {
       this.consumers[userId] = {};
     }
 
-    this.consumers[userId][remoteId] = consumer;
+    this.consumers[userId][consumer.id] = consumer;
 
     consumer.observer.on('close', () => {
-      delete this.consumers[userId]?.[remoteId];
+      delete this.consumers[userId]?.[consumer.id];
     });
+  };
+
+  /** Test/diagnostic view of a user's live consumers. */
+  public getConsumers = (userId: number): Consumer<AppData>[] => {
+    return Object.values(this.consumers[userId] ?? {});
   };
 
   public createExternalStream = (options: {
@@ -915,7 +1055,7 @@ class VoiceRuntime {
             options.producers.audio
           );
 
-          pubsub.publishForChannel(this.id, ServerEvents.VOICE_NEW_PRODUCER, {
+          pubsub.publishForChannel(this.key, ServerEvents.VOICE_NEW_PRODUCER, {
             channelId: this.id,
             remoteId: streamId,
             kind: StreamKind.EXTERNAL_AUDIO
@@ -941,7 +1081,7 @@ class VoiceRuntime {
             options.producers.video
           );
 
-          pubsub.publishForChannel(this.id, ServerEvents.VOICE_NEW_PRODUCER, {
+          pubsub.publishForChannel(this.key, ServerEvents.VOICE_NEW_PRODUCER, {
             channelId: this.id,
             remoteId: streamId,
             kind: StreamKind.EXTERNAL_VIDEO
@@ -1010,12 +1150,12 @@ class VoiceRuntime {
     };
   };
 
+  /** Plugins open PlainTransports with the same ip/announcedAddress pair. */
   public static getListenInfo = () => {
-    const ip = IS_PRODUCTION ? '0.0.0.0' : '127.0.0.1';
-    const announcedAddress = IS_PRODUCTION ? SERVER_PUBLIC_IP : undefined;
+    const { ip, announcedAddress } = getMediaListenInfo();
 
     return { ip, announcedAddress };
   };
 }
 
-export { VoiceRuntime };
+export { VOICE_CAPACITY_MESSAGE, VoiceRuntime };

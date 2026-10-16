@@ -11,6 +11,27 @@ const audioCtx = new (window.AudioContext ||
 
 const SOUNDS_VOLUME = 5;
 
+let soundOutputSinkId = '';
+
+/**
+ * Route the app's own sounds to an output device ('' = the browser
+ * default). Driven by PersistentAudioStreams from the same resolved sink
+ * as voice playback, so the Output Device setting (and the system-audio
+ * capture bypass) covers cues and the call ring too. AudioContext
+ * routing needs Chromium 110+; elsewhere the default output stays.
+ */
+export const setSoundOutputSinkId = (sinkId: string) => {
+  if (sinkId === soundOutputSinkId) return;
+  soundOutputSinkId = sinkId;
+  const routable = audioCtx as AudioContext & {
+    setSinkId?: (id: string) => Promise<void>;
+  };
+  if (typeof routable.setSinkId !== 'function') return;
+  routable.setSinkId(sinkId).catch(() => {
+    // Device gone or id unknown — the default output keeps playing.
+  });
+};
+
 const now = () => audioCtx.currentTime;
 
 const createOsc = (type: OscillatorType, freq: number) => {

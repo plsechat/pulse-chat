@@ -21,7 +21,10 @@ import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
 import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { openServerScreen } from '@/features/server-screens/actions';
-import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import {
+  useCurrentVoiceChannelId,
+  useCurrentVoiceKind
+} from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
@@ -58,8 +61,15 @@ const statusOptions = [
 const UserControl = memo(() => {
   const ownPublicUser = useOwnPublicUser();
   const currentVoiceChannelId = useCurrentVoiceChannelId();
+  const currentVoiceKind = useCurrentVoiceKind();
   const { ownVoiceState, toggleMic, toggleSound } = useVoice();
-  const channelCan = useChannelCan(currentVoiceChannelId);
+  // SPEAK is a server-channel permission; a DM call has none, and its id
+  // must not be resolved against the server's channels (same-id clash).
+  const channelCan = useChannelCan(
+    currentVoiceKind === 'channel' ? currentVoiceChannelId : undefined
+  );
+  const canSpeak =
+    currentVoiceKind === 'dm' || channelCan(ChannelPermission.SPEAK);
   const { inputDevices, playbackDevices } = useAvailableDevices();
   const { devices, saveDevices } = useDevices();
   const [customStatusDialogOpen, setCustomStatusDialogOpen] = useState(false);
@@ -328,7 +338,7 @@ const UserControl = memo(() => {
                 ? 'Unmute microphone (Ctrl+Shift+M)'
                 : 'Mute microphone (Ctrl+Shift+M)'
             }
-            disabled={!channelCan(ChannelPermission.SPEAK)}
+            disabled={!canSpeak}
           >
             {ownVoiceState.micMuted ? (
               <MicOff className="h-4 w-4 icon-anim-wiggle" />

@@ -6,11 +6,14 @@
  * in TAppEventMap, so a typo'd name or wrong payload is a compile
  * error instead of a listener that silently never fires.
  *
- * Zero imports on purpose — lib/e2ee and lib/preference-store emit and
- * listen here without dragging Redux into their layer. A throwing
- * handler is isolated so it can't starve the others (same rule as
- * combineUnsubscribes in subscription-helpers).
+ * Zero runtime imports on purpose — lib/e2ee and lib/preference-store
+ * emit and listen here without dragging Redux into their layer (the
+ * type-only import below is erased). A throwing handler is isolated so
+ * it can't starve the others (same rule as combineUnsubscribes in
+ * subscription-helpers).
  */
+
+import type { RtpCapabilities } from 'mediasoup-client/types';
 
 type TAppEventMap = {
   'mention-user': { userId: number; username: string };
@@ -29,6 +32,9 @@ type TAppEventMap = {
   'preferences-loaded': undefined;
   'e2ee-identity-mismatch': undefined;
   'e2ee-setup-needed': { resolve: () => void; reject: (err: Error) => void };
+  // A reconnect re-joined the voice session server-side; the voice
+  // provider (the only owner of the media transports) has to run init.
+  'voice-rejoin': { routerRtpCapabilities: RtpCapabilities; channelId: number };
 };
 
 type TAppEvent = keyof TAppEventMap;

@@ -6,14 +6,15 @@ import { channels } from '../../db/schema';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
+import { assertModerationTarget } from '../../utils/server-moderation';
 import { protectedProcedure } from '../../utils/trpc';
 import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 /**
  * Moderator action: force-remove a user from a voice channel of the
- * active server. Rides the same MANAGE_USERS permission as kick/ban.
- * DM calls are deliberately excluded — there is no moderation concept
- * in DMs.
+ * active server. Rides the same MANAGE_USERS permission as kick/ban, and
+ * like them never targets the server owner. DM calls are deliberately
+ * excluded — there is no moderation concept in DMs.
  */
 const disconnectUserRoute = protectedProcedure
   .input(
@@ -49,6 +50,8 @@ const disconnectUserRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'User is not in a voice channel'
     });
+
+    await assertModerationTarget(ch.serverId, input.userId);
 
     await removeUserFromVoice(input.userId);
 

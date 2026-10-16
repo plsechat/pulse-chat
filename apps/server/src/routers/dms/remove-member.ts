@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
 import { dmChannelMembers, dmChannels, users } from '../../db/schema';
+import { VoiceRuntime } from '../../runtimes/voice';
 import { announceFederatedGroupRemoveMember } from '../../utils/federation-dm-group-dispatch';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
+import { removeUserFromVoice } from '../../utils/voice-cleanup';
 
 const removeMemberRoute = protectedProcedure
   .input(
@@ -55,6 +57,19 @@ const removeMemberRoute = protectedProcedure
     const removedPublicId = removedUser?.isFederated
       ? removedUser.federatedPublicId ?? removedUser.publicId
       : removedUser?.publicId ?? null;
+
+    // A removed member must not keep hearing the group's call. Evicted
+    // before the member row goes so the leave fan-out (which resolves
+    // the audience through membership) still reaches everyone,
+    // including the removed user.
+    const targetRuntime = VoiceRuntime.findRuntimeByUserId(input.userId);
+    if (
+      targetRuntime &&
+      targetRuntime.isDmVoice &&
+      targetRuntime.id === input.dmChannelId
+    ) {
+      await removeUserFromVoice(input.userId);
+    }
 
     await db
       .delete(dmChannelMembers)
