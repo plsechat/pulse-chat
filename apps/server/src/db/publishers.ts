@@ -12,8 +12,8 @@ import { pubsub } from '../utils/pubsub';
 import {
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
-  getChannelsReadStatesForUser,
-  getForumUnreadForUser
+  getChannelUnreadForUsers,
+  getForumUnreadForUsers
 } from './queries/channels';
 import { getEmojiById } from './queries/emojis';
 import { getMessage } from './queries/messages';
@@ -72,7 +72,8 @@ const _publishMessageInner = async (
   const [channelInfo] = await db
     .select({
       type: channels.type,
-      parentChannelId: channels.parentChannelId
+      parentChannelId: channels.parentChannelId,
+      serverId: channels.serverId
     })
     .from(channels)
     .where(eq(channels.id, channelId))
@@ -113,72 +114,66 @@ const _publishMessageInner = async (
   // only send count updates to users OTHER than the message author
   const usersToNotify = messageRecipients.filter((id) => id !== message.userId);
 
-  const promises = usersToNotify.map(async (userId) => {
-    const { readStates, mentionStates } = await getChannelsReadStatesForUser(userId, channelId);
-    const count = readStates[channelId] ?? 0;
-    const mentionCount = mentionStates[channelId] ?? 0;
+  // One grouped statement for every recipient (a user with no read-state
+  // row, or no newer messages, is simply absent and reads as 0/0) — the
+  // per-recipient aggregate this replaced was O(members x messages) per
+  // message. The query count here is independent of the recipient count.
+  const unreadByUser = await getChannelUnreadForUsers(usersToNotify, channelId);
+
+  for (const userId of usersToNotify) {
+    const counts = unreadByUser.get(userId);
 
     pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
       channelId,
-      count,
-      mentionCount
+      count: counts?.count ?? 0,
+      mentionCount: counts?.mentionCount ?? 0
     });
-  });
-
-  await Promise.all(promises);
+  }
 
   // Also update the parent forum channel's aggregated unread count
   if (forumParentId) {
-    const forumPromises = usersToNotify.map(async (userId) => {
-      const { unreadCount, mentionCount } = await getForumUnreadForUser(userId, forumParentId!);
+    const forumByUser = await getForumUnreadForUsers(usersToNotify, forumParentId);
+
+    for (const userId of usersToNotify) {
+      const counts = forumByUser.get(userId);
 
       pubsub.publishFor(userId, ServerEvents.CHANNEL_READ_STATES_UPDATE, {
         channelId: forumParentId,
-        count: unreadCount,
-        mentionCount
+        count: counts?.count ?? 0,
+        mentionCount: counts?.mentionCount ?? 0
       });
-    });
-
-    await Promise.all(forumPromises);
+    }
   }
 
   // Signal server-level unread increment without extra DB queries.
   // publishMessage is fire-and-forget (not awaited by callers), so heavy DB
   // queries here risk deadlocking with concurrent table operations in tests.
   // Exact counts are computed on initial join and on mark-as-read.
-  if (type === 'create') {
-    const [channelRow] = await db
-      .select({ serverId: channels.serverId })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .limit(1);
+  if (type === 'create' && channelInfo) {
+    // Determine which users have direct mentions (not @all) for the red server badge
+    const directMentionedSet = new Set<number>(
+      message.mentionedUserIds && !message.mentionsAll
+        ? (message.mentionedUserIds as number[]).filter((id) => id !== message.userId)
+        : []
+    );
 
-    if (channelRow) {
-      // Determine which users have direct mentions (not @all) for the red server badge
-      const directMentionedSet = new Set<number>(
-        message.mentionedUserIds && !message.mentionsAll
-          ? (message.mentionedUserIds as number[]).filter((id) => id !== message.userId)
-          : []
+    const nonMentioned = usersToNotify.filter((id) => !directMentionedSet.has(id));
+    const mentioned = usersToNotify.filter((id) => directMentionedSet.has(id));
+
+    if (nonMentioned.length > 0) {
+      pubsub.publishFor(
+        nonMentioned,
+        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+        { serverId: channelInfo.serverId, count: -1, mentionCount: 0 }
       );
+    }
 
-      const nonMentioned = usersToNotify.filter((id) => !directMentionedSet.has(id));
-      const mentioned = usersToNotify.filter((id) => directMentionedSet.has(id));
-
-      if (nonMentioned.length > 0) {
-        pubsub.publishFor(
-          nonMentioned,
-          ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-          { serverId: channelRow.serverId, count: -1, mentionCount: 0 }
-        );
-      }
-
-      if (mentioned.length > 0) {
-        pubsub.publishFor(
-          mentioned,
-          ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
-          { serverId: channelRow.serverId, count: -1, mentionCount: -1 }
-        );
-      }
+    if (mentioned.length > 0) {
+      pubsub.publishFor(
+        mentioned,
+        ServerEvents.SERVER_UNREAD_COUNT_UPDATE,
+        { serverId: channelInfo.serverId, count: -1, mentionCount: -1 }
+      );
     }
   }
 };

@@ -11,7 +11,7 @@ import path from 'path';
 import { db } from '../db';
 import { removeFile } from '../db/mutations/files';
 import { getExceedingOldFiles, getUsedFileQuota } from '../db/queries/files';
-import { getSettings } from '../db/queries/server';
+import { getInstanceServerSettings } from '../db/queries/server';
 import { getStorageUsageByUserId } from '../db/queries/users';
 import { files } from '../db/schema';
 import { PUBLIC_PATH, TMP_PATH, UPLOADS_PATH } from '../helpers/paths';
@@ -221,7 +221,7 @@ class TemporaryFileManager {
 }
 
 type TStorageSnapshot = {
-  settings: Awaited<ReturnType<typeof getSettings>>;
+  settings: Awaited<ReturnType<typeof getInstanceServerSettings>>;
   userStorage: number;
   serverStorage: number;
 };
@@ -241,7 +241,7 @@ class FileManager {
 
   private readStorage = async (userId: number): Promise<TStorageSnapshot> => {
     const [settings, userStorage, serverStorage] = await Promise.all([
-      getSettings(),
+      getInstanceServerSettings(),
       getStorageUsageByUserId(userId),
       getUsedFileQuota()
     ]);

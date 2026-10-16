@@ -21,7 +21,11 @@ import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
-import { checkAutomod, executeAutomodActions } from '../../utils/automod';
+import {
+  assertNotTimedOut,
+  checkAutomod,
+  executeAutomodActions
+} from '../../utils/automod';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
@@ -90,6 +94,10 @@ const sendMessageRoute = serverProcedure()
       code: 'NOT_FOUND',
       message: 'Channel not found'
     });
+
+    // An automod timeout locks the member out of sending in this server
+    // until the deadline (MANAGE_USERS bypasses).
+    await assertNotTimedOut(ctx, channel.serverId);
 
     const isE2ee = !!input.e2ee;
 

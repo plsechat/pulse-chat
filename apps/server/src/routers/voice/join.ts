@@ -11,6 +11,7 @@ import { getServerMemberIds } from '../../db/queries/servers';
 import { channels } from '../../db/schema';
 import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
+import { assertNotTimedOut } from '../../utils/automod';
 import { invariant } from '../../utils/invariant';
 import { protectedProcedure } from '../../utils/trpc';
 import { removeUserFromVoice } from '../../utils/voice-cleanup';
@@ -46,6 +47,11 @@ const joinVoiceRoute = protectedProcedure
       code: 'BAD_REQUEST',
       message: 'Channel is not a voice channel'
     });
+
+    // An automod timeout keeps the member out of voice in this server
+    // until the deadline (MANAGE_USERS bypasses). Checked before any
+    // runtime is touched so a refused join leaves no state behind.
+    await assertNotTimedOut(ctx, channel.serverId);
 
     // Self-heal instead of hard-failing: a page refresh (or dropped
     // connection) leaves the previous session's runtime entry behind,

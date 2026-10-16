@@ -13,12 +13,21 @@ import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import {
+  activityLog,
+  channelUserPermissions,
   friendships,
+  logins,
   messages,
   serverMembers,
+  threadFollowers,
+  userBlocks,
+  userKeyBackups,
+  userNotes,
+  userPreferences,
   userRoles,
   users
 } from '../../db/schema';
+import { ChannelPermission, type TUserPreferences } from '@pulse/shared';
 import { createMockContext } from '../../__tests__/context';
 import { getMockedToken, initTest } from '../../__tests__/helpers';
 import { appRouter } from '../index';
@@ -222,5 +231,87 @@ describe('users.deleteAccount', () => {
       other.dms.getOrCreateChannel({ userId: 2 })
     ).rejects.toThrow();
     expect(other.friends.sendRequest({ userId: 2 })).rejects.toThrow();
+  });
+
+  test('purges per-user state and PII: logins, activity ip, key backup, preferences, notes, blocks, follows, overrides', async () => {
+    const { caller } = await initTest(2);
+    const [row] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, 2))
+      .limit(1);
+    const now = Date.now();
+
+    await db.insert(logins).values({
+      userId: 2,
+      ip: '203.0.113.9',
+      city: 'Somewhere',
+      userAgent: 'ua',
+      createdAt: now
+    });
+    await db.insert(activityLog).values([
+      { userId: 2, type: 'probe', ip: '203.0.113.9', createdAt: now },
+      { userId: 3, type: 'probe', ip: '198.51.100.7', createdAt: now }
+    ]);
+    await db.insert(userKeyBackups).values({
+      userId: 2,
+      encryptedData: 'blob',
+      createdAt: now,
+      updatedAt: now
+    });
+    await db.insert(userPreferences).values({
+      userId: 2,
+      data: {} as TUserPreferences,
+      updatedAt: now
+    });
+    await db.insert(userNotes).values([
+      { authorId: 2, targetUserId: 3, content: 'about 3', createdAt: now },
+      { authorId: 3, targetUserId: 2, content: 'about 2', createdAt: now },
+      { authorId: 3, targetUserId: 1, content: 'kept', createdAt: now }
+    ]);
+    await db.insert(userBlocks).values([
+      { blockerId: 2, blockedUserId: 3, createdAt: now },
+      { blockerId: 3, blockedUserId: 2, createdAt: now },
+      { blockerId: 3, blockedUserId: 1, createdAt: now }
+    ]);
+    await db.insert(threadFollowers).values({
+      threadId: 1,
+      userId: 2,
+      createdAt: now
+    });
+    await db.insert(channelUserPermissions).values({
+      channelId: 1,
+      userId: 2,
+      permission: ChannelPermission.VIEW_CHANNEL,
+      allow: true,
+      createdAt: now
+    });
+
+    await caller.users.deleteAccount({ confirmName: row!.name });
+
+    expect(await db.select().from(logins).where(eq(logins.userId, 2))).toHaveLength(0);
+
+    const activity = await db.select().from(activityLog);
+    const own = activity.filter((a) => a.userId === 2);
+    // The deletion itself logs an entry for the user; every row of theirs is ip-less.
+    expect(own.length).toBeGreaterThan(0);
+    expect(own.every((a) => a.ip === null)).toBe(true);
+    expect(activity.find((a) => a.userId === 3)!.ip).toBe('198.51.100.7');
+
+    expect(await db.select().from(userKeyBackups).where(eq(userKeyBackups.userId, 2))).toHaveLength(0);
+    expect(await db.select().from(userPreferences).where(eq(userPreferences.userId, 2))).toHaveLength(0);
+
+    const notes = await db.select().from(userNotes);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.content).toBe('kept');
+
+    const blocks = await db.select().from(userBlocks);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ blockerId: 3, blockedUserId: 1 });
+
+    expect(await db.select().from(threadFollowers).where(eq(threadFollowers.userId, 2))).toHaveLength(0);
+    expect(
+      await db.select().from(channelUserPermissions).where(eq(channelUserPermissions.userId, 2))
+    ).toHaveLength(0);
   });
 });

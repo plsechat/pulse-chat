@@ -20,8 +20,9 @@ type TEntry = {
   details: unknown;
   ip: string | null;
   createdAt: number;
-  userId: number;
-  userName: string;
+  /** null = system event with no human actor. */
+  userId: number | null;
+  userName: string | null;
   serverName: string | null;
 };
 
@@ -88,7 +89,9 @@ const InstanceActivity = () => {
             className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm"
           >
             <Badge variant="outline">{entry.type}</Badge>
-            <span className="text-foreground">{entry.userName}</span>
+            <span className="text-foreground">
+              {entry.userId === null ? 'System' : entry.userName}
+            </span>
             {entry.serverName && (
               <Badge variant="secondary">{entry.serverName}</Badge>
             )}

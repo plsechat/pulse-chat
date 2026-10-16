@@ -19,6 +19,10 @@ type TConfig = {
     debugLogMaxFiles: number;
     debugLogIncludeBody: boolean;
     redactExtra: string[];
+    // Days to keep `logins` and `activity_log` rows (both hold PII and grow
+    // with every request). The daily retention cron deletes older rows;
+    // 0 disables pruning.
+    retentionDays: number;
   };
   mediasoup: {
     worker: {
@@ -52,7 +56,8 @@ let config: TConfig = {
     debugLogMaxSizeMb: 200,
     debugLogMaxFiles: 10,
     debugLogIncludeBody: true,
-    redactExtra: []
+    redactExtra: [],
+    retentionDays: 90
   },
   mediasoup: {
     worker: {
@@ -115,6 +120,13 @@ config = {
 // Coerce INI string values back to proper types
 config.server.port = Number(config.server.port);
 config.server.debug = String(config.server.debug) === 'true';
+// A non-integer or negative value falls back to the default rather than
+// silently disabling pruning (0 is the explicit off switch).
+const parsedRetentionDays = Number(config.server.retentionDays);
+config.server.retentionDays =
+  Number.isInteger(parsedRetentionDays) && parsedRetentionDays >= 0
+    ? parsedRetentionDays
+    : 90;
 config.mediasoup.worker.rtcMinPort = Number(config.mediasoup.worker.rtcMinPort);
 config.mediasoup.worker.rtcMaxPort = Number(config.mediasoup.worker.rtcMaxPort);
 config.mediasoup.audio.maxBitrate = Number(config.mediasoup.audio.maxBitrate);

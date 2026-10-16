@@ -31,4 +31,16 @@ const loadMediasoup = async () => {
   );
 };
 
-export { loadMediasoup, mediaSoupWorker };
+/**
+ * Shutdown: close the worker subprocess so it does not outlive us and
+ * get reaped by the OS. `close()` is deliberate, so the 'died' handler
+ * above (which schedules a process exit) must not treat it as a crash.
+ */
+const closeMediasoup = () => {
+  if (!mediaSoupWorker || mediaSoupWorker.closed) return;
+
+  mediaSoupWorker.removeAllListeners('died');
+  mediaSoupWorker.close();
+};
+
+export { closeMediasoup, loadMediasoup, mediaSoupWorker };

@@ -30,6 +30,7 @@ mock.module('../config', () => ({
       debug: false,
       debugLogMaxSizeMb: 200,
       debugLogMaxFiles: 10,
+      retentionDays: 90,
       debugLogIncludeBody: true,
       redactExtra: [] as string[]
     },

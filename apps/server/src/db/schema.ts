@@ -5,6 +5,7 @@ import {
   type TUserPreferences
 } from '@pulse/shared';
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   index,
@@ -24,7 +25,12 @@ const files = pgTable(
     name: text('name').notNull().unique(),
     originalName: text('original_name').notNull(),
     md5: text('md5').notNull(),
-    userId: integer('user_id').notNull(),
+    // Uploads die with their uploader. Account deletion tombstones the
+    // users row (files untouched); only a hard DELETE of the row — manual
+    // SQL, tests — reaches this cascade.
+    userId: integer('user_id')
+      .notNull()
+      .references((): AnyPgColumn => users.id, { onDelete: 'cascade' }),
     size: integer('size').notNull(),
     mimeType: text('mime_type').notNull(),
     extension: text('extension').notNull(),
@@ -46,7 +52,7 @@ const settings = pgTable(
     name: text('name').notNull(),
     description: text('description'),
     password: text('password'),
-    serverId: text('server_id').notNull(),
+    serverId: text('server_id').primaryKey(),
     logoId: integer('logo_id').references(() => files.id, {
       onDelete: 'set null'
     }),
@@ -69,11 +75,7 @@ const settings = pgTable(
       .notNull()
       .default('1080p'),
     screenMaxFramerate: integer('screen_max_framerate').notNull().default(60)
-  },
-  (t) => [
-    index('settings_server_idx').on(t.serverId),
-    uniqueIndex('settings_server_unique_idx').on(t.serverId)
-  ]
+  }
 );
 
 const servers = pgTable(
@@ -88,8 +90,13 @@ const servers = pgTable(
     logoId: integer('logo_id').references(() => files.id, {
       onDelete: 'set null'
     }),
+    // RESTRICT, not SET NULL: a null owner re-opens the bootstrap
+    // "first registrant becomes owner" claim (http/register-user.ts), so
+    // a hard delete of an owner row must fail at the DB. Ownership is
+    // transferred first (servers.transferOwner); account deletion
+    // already refuses owners at the app layer.
     ownerId: integer('owner_id').references(() => users.id, {
-      onDelete: 'set null'
+      onDelete: 'restrict'
     }),
     allowNewUsers: boolean('allow_new_users').notNull(),
     storageUploadEnabled: boolean('storage_uploads_enabled').notNull(),
@@ -134,7 +141,11 @@ const serverMembers = pgTable(
     muted: boolean('muted').notNull().default(false),
     notificationLevel: text('notification_level').notNull().default('default'),
     position: integer('position').notNull().default(0),
-    nickname: text('nickname')
+    nickname: text('nickname'),
+    // Automod `timeout_user`: while this is in the future the member may
+    // neither send messages nor join voice in this server (MANAGE_USERS
+    // holders bypass). Null / past = not timed out.
+    timedOutUntil: bigint('timed_out_until', { mode: 'number' })
   },
   (t) => [
     primaryKey({ columns: [t.serverId, t.userId] }),
@@ -208,7 +219,11 @@ const channels = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     slowMode: integer('slow_mode').notNull().default(0),
-    parentChannelId: integer('parent_channel_id'),
+    // Threads and forum posts die with their parent channel.
+    parentChannelId: integer('parent_channel_id').references(
+      (): AnyPgColumn => channels.id,
+      { onDelete: 'cascade' }
+    ),
     archived: boolean('archived').notNull().default(false),
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
@@ -281,7 +296,10 @@ const users = pgTable(
       .notNull()
       .$defaultFn(() => Date.now()),
     isFederated: boolean('is_federated').notNull().default(false),
-    federatedInstanceId: integer('federated_instance_id'),
+    federatedInstanceId: integer('federated_instance_id').references(
+      (): AnyPgColumn => federationInstances.id,
+      { onDelete: 'set null' }
+    ),
     federatedUsername: text('federated_username'),
     publicId: text('public_id').notNull().unique(),
     federatedPublicId: text('federated_public_id'),
@@ -291,6 +309,9 @@ const users = pgTable(
   (t) => [
     uniqueIndex('users_supabase_id_idx').on(t.supabaseId),
     index('users_name_idx').on(t.name),
+    // Orphan-file scan (getOrphanedFileIds) probes these per file.
+    index('users_avatar_idx').on(t.avatarId),
+    index('users_banner_idx').on(t.bannerId),
     index('users_banned_idx').on(t.banned),
     index('users_last_login_idx').on(t.lastLoginAt),
     index('users_federated_idx').on(t.isFederated),
@@ -366,7 +387,11 @@ const messages = pgTable(
       .references(() => channels.id, { onDelete: 'cascade' }),
     editable: boolean('editable').default(true),
     metadata: jsonb('metadata').$type<TMessageMetadata[]>(),
-    replyToId: integer('reply_to_id'),
+    // Deleting the target leaves a "reply to a deleted message".
+    replyToId: integer('reply_to_id').references(
+      (): AnyPgColumn => messages.id,
+      { onDelete: 'set null' }
+    ),
     pinned: boolean('pinned').notNull().default(false),
     pinnedAt: bigint('pinned_at', { mode: 'number' }),
     pinnedBy: integer('pinned_by').references(() => users.id, {
@@ -375,7 +400,10 @@ const messages = pgTable(
     threadId: integer('thread_id').references(() => channels.id, {
       onDelete: 'set null'
     }),
-    webhookId: integer('webhook_id'),
+    webhookId: integer('webhook_id').references(
+      (): AnyPgColumn => webhooks.id,
+      { onDelete: 'set null' }
+    ),
     edited: boolean('edited').notNull().default(false),
     type: text('type').notNull().default('user'),
     mentionedUserIds: jsonb('mentioned_user_ids').$type<number[]>(),
@@ -403,7 +431,11 @@ const messages = pgTable(
     index('messages_pinned_idx').on(t.pinned),
     index('messages_channel_pinned_idx').on(t.channelId, t.pinned),
     index('messages_thread_idx').on(t.threadId),
-    index('messages_webhook_idx').on(t.webhookId)
+    index('messages_webhook_idx').on(t.webhookId),
+    // Unread counts filter `channel_id = ? AND id > last_read_id`.
+    index('messages_channel_id_idx').on(t.channelId, t.id),
+    // Mention counts filter `mentioned_user_ids @> '[<userId>]'`.
+    index('messages_mentioned_users_idx').using('gin', t.mentionedUserIds)
   ]
 );
 
@@ -509,7 +541,8 @@ const messageReactions = pgTable(
     index('reaction_msg_idx').on(t.messageId),
     index('reaction_emoji_idx').on(t.emoji),
     index('reaction_user_idx').on(t.userId),
-    index('reaction_msg_emoji_idx').on(t.messageId, t.emoji)
+    index('reaction_msg_emoji_idx').on(t.messageId, t.emoji),
+    index('reaction_file_idx').on(t.fileId)
   ]
 );
 
@@ -542,9 +575,12 @@ const activityLog = pgTable(
   'activity_log',
   {
     id: serial('id').primaryKey(),
-    userId: integer('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    // NULL = a system event with no human actor (SERVER_STARTED and the
+    // like). The old NOT NULL + default actor `1` violated the FK on a
+    // fresh database, where no user exists yet.
+    userId: integer('user_id').references(() => users.id, {
+      onDelete: 'cascade'
+    }),
     type: text('type').notNull(),
     details: jsonb('details').$type<
       TActivityLogDetailsMap[keyof TActivityLogDetailsMap]
@@ -773,7 +809,8 @@ const dmChannels = pgTable(
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
-    index('dm_channels_federation_group_id_idx').on(t.federationGroupId)
+    index('dm_channels_federation_group_id_idx').on(t.federationGroupId),
+    index('dm_channels_icon_file_idx').on(t.iconFileId)
   ]
 );
 
@@ -808,7 +845,10 @@ const dmMessages = pgTable(
       .notNull()
       .references(() => dmChannels.id, { onDelete: 'cascade' }),
     metadata: jsonb('metadata').$type<TMessageMetadata[]>(),
-    replyToId: integer('reply_to_id'),
+    replyToId: integer('reply_to_id').references(
+      (): AnyPgColumn => dmMessages.id,
+      { onDelete: 'set null' }
+    ),
     pinned: boolean('pinned').notNull().default(false),
     pinnedAt: bigint('pinned_at', { mode: 'number' }),
     pinnedBy: integer('pinned_by').references(() => users.id, {
@@ -872,7 +912,8 @@ const dmMessageReactions = pgTable(
     primaryKey({ columns: [t.dmMessageId, t.userId, t.emoji] }),
     index('dm_reaction_msg_idx').on(t.dmMessageId),
     index('dm_reaction_emoji_idx').on(t.emoji),
-    index('dm_reaction_user_idx').on(t.userId)
+    index('dm_reaction_user_idx').on(t.userId),
+    index('dm_reaction_file_idx').on(t.fileId)
   ]
 );
 
@@ -970,7 +1011,8 @@ const webhooks = pgTable(
   (t) => [
     uniqueIndex('webhooks_token_idx').on(t.token),
     index('webhooks_channel_idx').on(t.channelId),
-    index('webhooks_server_idx').on(t.serverId)
+    index('webhooks_server_idx').on(t.serverId),
+    index('webhooks_avatar_file_idx').on(t.avatarFileId)
   ]
 );
 
@@ -1284,6 +1326,15 @@ const dmE2eeSenderKeys = pgTable(
     index('dm_e2ee_sender_keys_channel_to_idx').on(
       t.dmChannelId,
       t.toUserId
+    ),
+    // Mirrors e2ee_sender_keys_unique_idx: one SKDM row per (channel,
+    // from, to, chain). The client's ensureDmGroupSenderKey is not
+    // single-flight, so dms.distributeSenderKeys upserts on this tuple.
+    uniqueIndex('dm_e2ee_sender_keys_unique_idx').on(
+      t.dmChannelId,
+      t.fromUserId,
+      t.toUserId,
+      t.senderKeyId
     )
   ]
 );

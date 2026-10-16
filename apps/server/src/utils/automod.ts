@@ -1,15 +1,17 @@
 import {
   AutomodRuleType,
   ChannelType,
+  Permission,
   type TAutomodAction,
   type TAutomodConfig
 } from '@pulse/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { automodRules, channels, messages } from '../db/schema';
+import { automodRules, channels, messages, serverMembers } from '../db/schema';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { logger } from '../logger';
 import { publishMessage } from '../db/publishers';
+import { invariant } from './invariant';
 
 type TAutomodResult = {
   blocked: boolean;
@@ -27,7 +29,47 @@ type TAutomodResult = {
 // for this message. Belt-and-braces alongside the create-time validator.
 const REGEX_RUNTIME_BUDGET_MS = 50;
 
+/** Default `timeout_user` duration when the action carries none. */
+const DEFAULT_TIMEOUT_DURATION_S = 60;
+
+// ── Compiled-regex cache ─────────────────────────────────────────────
+//
+// Every rule's patterns were compiled from source on every message.
+// Entries are keyed by rule id AND pattern text, so an edited pattern
+// is a cache miss by construction (no explicit invalidation hook is
+// needed when a rule changes) and a stale entry for a deleted or edited
+// rule is simply never looked up again. Bounded: once full, the oldest
+// insertion is evicted (Map preserves insertion order).
+const REGEX_CACHE_MAX_ENTRIES = 1000;
+const regexCache = new Map<string, RegExp>();
+let regexCompileCount = 0;
+
+const getCompiledRegex = (ruleId: number, pattern: string): RegExp => {
+  const key = `${ruleId}:${pattern}`;
+  const cached = regexCache.get(key);
+  if (cached) return cached;
+
+  const compiled = new RegExp(pattern, 'i');
+  regexCompileCount++;
+
+  if (regexCache.size >= REGEX_CACHE_MAX_ENTRIES) {
+    const oldest = regexCache.keys().next().value;
+    if (oldest !== undefined) regexCache.delete(oldest);
+  }
+  regexCache.set(key, compiled);
+
+  return compiled;
+};
+
+/** Test hooks: how many patterns were compiled, and a reset. */
+export const getAutomodRegexCompileCount = () => regexCompileCount;
+export const resetAutomodRegexCache = () => {
+  regexCache.clear();
+  regexCompileCount = 0;
+};
+
 const checkKeywordFilter = (
+  ruleId: number,
   content: string,
   config: TAutomodConfig
 ): boolean => {
@@ -44,7 +86,9 @@ const checkKeywordFilter = (
   if (config.regexPatterns) {
     for (const pattern of config.regexPatterns) {
       try {
-        const regex = new RegExp(pattern, 'i');
+        const regex = getCompiledRegex(ruleId, pattern);
+        // A cached regex has no sticky/global flag, so lastIndex never
+        // carries state between messages.
         const start = performance.now();
         const matched = regex.test(content);
         const elapsed = performance.now() - start;
@@ -148,7 +192,7 @@ export const checkAutomod = async (
 
     switch (rule.type) {
       case AutomodRuleType.KEYWORD_FILTER:
-        matched = checkKeywordFilter(content, config);
+        matched = checkKeywordFilter(rule.id, content, config);
         break;
       case AutomodRuleType.MENTION_SPAM:
         matched = checkMentionSpam(content, config);
@@ -283,14 +327,98 @@ export const executeAutomodActions = async (
       case 'delete_message':
         // Message was never inserted, so nothing to delete
         break;
-      case 'timeout_user':
-        // Timeout would require a timeout field on users - logged for now
+      case 'timeout_user': {
+        const durationS = action.duration ?? DEFAULT_TIMEOUT_DURATION_S;
+        await timeoutMember(context.serverId, context.userId, durationS);
         logger.info(
-          '[Automod] Would timeout user %d for %ds',
+          '[Automod] Rule "%s" timed out user %d in server %d for %ds',
+          context.ruleName,
           context.userId,
-          action.duration ?? 60
+          context.serverId,
+          durationS
         );
         break;
+      }
     }
   }
+};
+
+// ── Timeouts ─────────────────────────────────────────────────────────
+
+/**
+ * Stamp (or extend) the member's timeout deadline. A later, shorter
+ * timeout never cuts an active longer one short: the deadline only
+ * ever moves forward.
+ */
+const timeoutMember = async (
+  serverId: number,
+  userId: number,
+  durationS: number
+) => {
+  const until = Date.now() + Math.max(0, durationS) * 1000;
+
+  await db
+    .update(serverMembers)
+    .set({
+      timedOutUntil: sql`GREATEST(COALESCE(${serverMembers.timedOutUntil}, 0), ${until})`
+    })
+    .where(
+      and(
+        eq(serverMembers.serverId, serverId),
+        eq(serverMembers.userId, userId)
+      )
+    );
+};
+
+/**
+ * Milliseconds left on the member's timeout in `serverId`, or 0 when
+ * not (or no longer) timed out. A membership row that does not exist
+ * reads as 0 — non-members are refused by the permission checks that
+ * run before this.
+ */
+const getTimeoutRemainingMs = async (
+  serverId: number,
+  userId: number
+): Promise<number> => {
+  const [row] = await db
+    .select({ timedOutUntil: serverMembers.timedOutUntil })
+    .from(serverMembers)
+    .where(
+      and(
+        eq(serverMembers.serverId, serverId),
+        eq(serverMembers.userId, userId)
+      )
+    )
+    .limit(1);
+
+  if (!row?.timedOutUntil) return 0;
+  return Math.max(0, row.timedOutUntil - Date.now());
+};
+
+/**
+ * Refuse the gated action (sending a message, joining voice) while the
+ * caller is timed out in `serverId`. MANAGE_USERS holders — the people
+ * who could lift the timeout — are never locked out by it; the stamp is
+ * left in place so the member list still shows it.
+ */
+export const assertNotTimedOut = async (
+  ctx: {
+    userId: number;
+    hasPermission: (
+      permission: Permission | Permission[],
+      serverId?: number
+    ) => Promise<boolean>;
+  },
+  serverId: number
+): Promise<void> => {
+  const remainingMs = await getTimeoutRemainingMs(serverId, ctx.userId);
+  if (remainingMs === 0) return;
+
+  if (await ctx.hasPermission(Permission.MANAGE_USERS, serverId)) return;
+
+  const remainingS = Math.ceil(remainingMs / 1000);
+  invariant(false, {
+    code: 'FORBIDDEN',
+    message: `You are timed out in this server. Try again in ${remainingS} second${remainingS === 1 ? '' : 's'}.`
+  });
 };

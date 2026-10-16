@@ -7,78 +7,194 @@ import { validateFederationUrl } from '../../utils/validate-url';
 
 type TLinkPreview = Awaited<ReturnType<typeof getLinkPreview>>;
 
-const metadataCache = new Map<string, TLinkPreview>();
+/** Fetches one preview; injectable so tests count calls without network. */
+type TLinkPreviewFetcher = (url: string) => Promise<TLinkPreview | undefined>;
 
-setInterval(
-  () => metadataCache.clear(),
-  1000 * 60 * 60 * 2 // clear cache every 2 hours
-);
+/** Most URLs previewed per message — the rest are posted as plain links. */
+const MAX_PREVIEW_URLS_PER_MESSAGE = 5;
+/** Per-URL network budget inside the library. */
+const LINK_PREVIEW_FETCH_TIMEOUT_MS = 5000;
+/** One deadline for the whole message's batch of fetches. */
+const LINK_PREVIEW_DEADLINE_MS = 8000;
+/** Queue job timeout; must stay ABOVE the deadline (see queue index). */
+const LINK_PREVIEW_JOB_TIMEOUT_MS = 10_000;
+
+const CACHE_MAX_ENTRIES = 1000;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 2;
+
+const URL_PATTERN = /https?:\/\/[^\s]+/g;
+
+/**
+ * Cheap pre-check for enqueue sites: a message without an http(s) URL
+ * has nothing to preview and must not cost a job, an UPDATE and a
+ * MESSAGE_UPDATE fan-out.
+ */
+const hasLinkPreviewCandidate = (content: string): boolean =>
+  /https?:\/\//i.test(content);
+
+/**
+ * Bounded LRU with a TTL: the old unbounded Map wiped every 2 h held
+ * hours of previews (KBs each) between clears.
+ */
+class PreviewCache {
+  private entries = new Map<string, { value: TLinkPreview; expires: number }>();
+
+  constructor(
+    private readonly maxEntries: number,
+    private readonly ttlMs: number
+  ) {}
+
+  get(url: string): TLinkPreview | undefined {
+    const entry = this.entries.get(url);
+
+    if (!entry) return undefined;
+
+    if (entry.expires <= Date.now()) {
+      this.entries.delete(url);
+      return undefined;
+    }
+
+    // Map iteration order is insertion order; re-inserting marks the
+    // entry as most recently used.
+    this.entries.delete(url);
+    this.entries.set(url, entry);
+
+    return entry.value;
+  }
+
+  set(url: string, value: TLinkPreview) {
+    this.entries.delete(url);
+    this.entries.set(url, { value, expires: Date.now() + this.ttlMs });
+
+    while (this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value;
+
+      if (oldest === undefined) break;
+
+      this.entries.delete(oldest);
+    }
+  }
+
+  get size() {
+    return this.entries.size;
+  }
+
+  clear() {
+    this.entries.clear();
+  }
+}
+
+const metadataCache = new PreviewCache(CACHE_MAX_ENTRIES, CACHE_TTL_MS);
+
+// link-preview-js follows redirects and re-resolves DNS by default. The
+// URL is validated before this runs, but a 302 Location to a private IP
+// would bypass that check, so redirects are refused and execution is
+// bounded. DNS rebinding between validation and the library's connect is
+// a separate hardening item (needs the hardened fetch helper + IP pin).
+const defaultFetcher: TLinkPreviewFetcher = (url) =>
+  getLinkPreview(url, {
+    followRedirects: 'manual',
+    handleRedirects: () => false,
+    timeout: LINK_PREVIEW_FETCH_TIMEOUT_MS
+  });
+
+/**
+ * Candidate URLs for preview: unique, giphy excluded (rendered inline
+ * by the client already), capped at MAX_PREVIEW_URLS_PER_MESSAGE.
+ */
+const extractPreviewUrls = (content: string): string[] => {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+
+  for (const url of content.match(URL_PATTERN) ?? []) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+
+    try {
+      const parsed = new URL(url);
+      // Block giphy domains by checking the registered domain
+      const parts = parsed.hostname.split('.');
+      const baseDomain = parts.slice(-2).join('.');
+      if (baseDomain === 'giphy.com') continue;
+    } catch {
+      continue;
+    }
+
+    urls.push(url);
+
+    if (urls.length >= MAX_PREVIEW_URLS_PER_MESSAGE) break;
+  }
+
+  return urls;
+};
+
+/** Rejects when the shared deadline passes, whatever the fetch is doing. */
+const withDeadline = <T>(promise: Promise<T>, signal: AbortSignal): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('Timed out'));
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
+  });
 
 export const urlMetadataParser = async (
-  content: string
+  content: string,
+  fetchPreview: TLinkPreviewFetcher = defaultFetcher
 ): Promise<TMessageMetadata[]> => {
-  try {
-    const urls = content
-      .match(/(https?:\/\/[^\s]+)/g)
-      ?.filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i)
-      .filter((url) => {
-        try {
-          const parsed = new URL(url);
-          // Block giphy domains by checking the registered domain
-          const parts = parsed.hostname.split('.');
-          const baseDomain = parts.slice(-2).join('.');
-          return baseDomain !== 'giphy.com';
-        } catch {
-          return false;
-        }
-      });
+  const urls = extractPreviewUrls(content);
 
-    if (!urls) return [];
+  if (urls.length === 0) return [];
 
-    const promises = urls.map(async (url) => {
-      if (metadataCache.has(url)) return metadataCache.get(url);
+  const deadline = AbortSignal.timeout(LINK_PREVIEW_DEADLINE_MS);
+
+  const results = await Promise.allSettled(
+    urls.map(async (url) => {
+      const cached = metadataCache.get(url);
+
+      if (cached) return cached;
 
       // Validate URL is not targeting internal/private resources.
-      try {
-        await validateFederationUrl(url);
-      } catch {
-        return;
-      }
+      await validateFederationUrl(url);
 
-      // link-preview-js follows redirects and re-resolves DNS by default.
-      // We've validated `url` above, but a 302 Location to a private IP would
-      // bypass the check. Disable redirects and bound execution time.
-      // DNS rebinding between our validation and the library's connect is a
-      // separate Phase 4 hardening item (would need resolveDNSHost + IP-pin).
-      const metadata = await getLinkPreview(url, {
-        followRedirects: 'manual',
-        handleRedirects: () => false,
-        timeout: 5000
-      });
+      const metadata = await withDeadline(fetchPreview(url), deadline);
 
-      if (!metadata) return;
+      if (!metadata) return undefined;
 
       metadataCache.set(url, metadata);
 
       return metadata;
-    });
+    })
+  );
 
-    const metadata = (await Promise.all(promises)).filter(Boolean) as TMessageMetadata[];
-
-    return metadata;
-  } catch {
-    // ignore
-  }
-
-  return [];
+  // A failed or slow URL only loses its own preview; the others still
+  // land (allSettled, not all).
+  return results.flatMap((result) =>
+    result.status === 'fulfilled' && result.value
+      ? [result.value as TMessageMetadata]
+      : []
+  );
 };
 
+/**
+ * Resolves previews and stores them on the message. Returns null when
+ * there is nothing to store — the caller then skips the MESSAGE_UPDATE
+ * fan-out (mirrors the DM twin).
+ */
 export const processMessageMetadata = async (
   content: string,
-  messageId: number
+  messageId: number,
+  fetchPreview?: TLinkPreviewFetcher
 ) => {
-  const metadata = await urlMetadataParser(content);
+  const metadata = await urlMetadataParser(content, fetchPreview);
+
+  if (metadata.length === 0) return null;
 
   const [updatedMessage] = await db
     .update(messages)
@@ -89,5 +205,13 @@ export const processMessageMetadata = async (
     .where(eq(messages.id, messageId))
     .returning();
 
-  return updatedMessage;
+  return updatedMessage ?? null;
+};
+
+export {
+  hasLinkPreviewCandidate,
+  LINK_PREVIEW_JOB_TIMEOUT_MS,
+  MAX_PREVIEW_URLS_PER_MESSAGE,
+  metadataCache,
+  PreviewCache
 };

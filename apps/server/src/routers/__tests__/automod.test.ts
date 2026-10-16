@@ -1,15 +1,17 @@
 import { AutomodRuleType, ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   createEmptyTextChannel,
   createTestChannel,
   createTestRole,
-  insertOtherServer
+  insertOtherServer,
+  insertVoiceChannel
 } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { automodRules, channels, messages } from '../../db/schema';
+import { automodRules, channels, messages, serverMembers } from '../../db/schema';
+import { VoiceRuntime } from '../../runtimes/voice';
 
 const keywordRule = (name: string, keyword: string) => ({
   name,
@@ -299,6 +301,95 @@ describe('automod router', () => {
         .from(messages)
         .where(eq(messages.channelId, alertChannel.id));
       expect(alerts).toHaveLength(1);
+    });
+  });
+
+  describe('timeouts', () => {
+    const membership = (userId: number) =>
+      and(eq(serverMembers.serverId, 1), eq(serverMembers.userId, userId));
+
+    test('timeout_user locks the offender out of sending until the deadline', async () => {
+      const tdb = getTestDb();
+      const { caller: owner } = await initTest(1);
+      const { caller: member } = await initTest(2);
+
+      await owner.automod.createRule({
+        ...keywordRule('no-pineapple', 'pineapple'),
+        actions: [{ type: 'timeout_user', duration: 120 }]
+      });
+
+      await expect(
+        member.messages.send({ channelId: 1, content: 'pineapple' })
+      ).rejects.toThrow('Message blocked by auto-moderation');
+
+      const [row] = await tdb
+        .select({ timedOutUntil: serverMembers.timedOutUntil })
+        .from(serverMembers)
+        .where(membership(2));
+      expect(row!.timedOutUntil).toBeGreaterThan(Date.now() + 100_000);
+
+      // Innocent content is refused too, with the remaining time.
+      await expect(
+        member.messages.send({ channelId: 1, content: 'hello' })
+      ).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: expect.stringMatching(/timed out .* \d+ seconds/)
+      });
+
+      // Deadline passed → sending works again.
+      await tdb
+        .update(serverMembers)
+        .set({ timedOutUntil: Date.now() - 1000 })
+        .where(membership(2));
+      await member.messages.send({ channelId: 1, content: 'hello again' });
+    });
+
+    test('a timed-out member cannot join voice', async () => {
+      const tdb = getTestDb();
+      const { caller: member } = await initTest(2);
+      const voice = await insertVoiceChannel();
+      await tdb
+        .update(serverMembers)
+        .set({ timedOutUntil: Date.now() + 60_000 })
+        .where(membership(2));
+
+      try {
+        await expect(
+          member.voice.join({
+            channelId: voice.id,
+            state: { micMuted: false, soundMuted: false }
+          })
+        ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+        // Refused before any runtime was created.
+        expect(VoiceRuntime.findById(voice.id)).toBeUndefined();
+      } finally {
+        await VoiceRuntime.findById(voice.id)?.destroy();
+      }
+    });
+
+    test('MANAGE_USERS holders bypass an active timeout', async () => {
+      const tdb = getTestDb();
+      const { caller: owner } = await initTest(1);
+      await tdb
+        .update(serverMembers)
+        .set({ timedOutUntil: Date.now() + 60_000 })
+        .where(membership(1));
+
+      await owner.messages.send({ channelId: 1, content: 'moderators still talk' });
+    });
+
+    test('the member list exposes timedOutUntil', async () => {
+      const tdb = getTestDb();
+      const { caller } = await initTest(1);
+      const until = Date.now() + 60_000;
+      await tdb
+        .update(serverMembers)
+        .set({ timedOutUntil: until })
+        .where(membership(2));
+
+      const members = await caller.others.getServerMembers();
+      expect(members.find((m) => m.id === 2)!.timedOutUntil).toBe(until);
+      expect(members.find((m) => m.id === 3)!.timedOutUntil).toBeNull();
     });
   });
 });

@@ -11,7 +11,8 @@ enum ModViewScreen {
 
 type TAuditLogEntry = {
   id: number;
-  userId: number;
+  /** null = a system event (server start, cron) with no acting user. */
+  userId: number | null;
   type: string;
   details: unknown;
   ip: string | null;

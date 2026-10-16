@@ -6,6 +6,7 @@ import path from 'path';
 import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
 import { loadCrons } from '../../crons';
+import { ORPHAN_GRACE_MS } from '../../crons/cleanup-files';
 import { getOrphanedFileIds, isFileOrphaned } from '../../db/queries/files';
 import {
   channels,
@@ -584,6 +585,15 @@ describe('/public', () => {
     await caller.channels.delete({
       channelId: 1
     });
+
+    // The cleanup sweep leaves rows younger than its grace window alone
+    // (a just-uploaded file may not be linked yet — see
+    // crons/cleanup-files.ts); age this one past it so the sweep treats
+    // it as the real orphan the channel deletion made it.
+    await tdb
+      .update(files)
+      .set({ createdAt: Date.now() - ORPHAN_GRACE_MS - 1 })
+      .where(eq(files.id, dbFile!.id));
 
     // load crons here, it will run the file cleanup cron job
     await loadCrons();

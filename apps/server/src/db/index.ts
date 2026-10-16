@@ -44,8 +44,9 @@ const loadDb = async () => {
       : false
   });
 
-  // Serialize migration across concurrently-booting instances so two
-  // replicas don't race `migrate()` against the same database.
+  // Serialize migration across concurrently-booting processes so an
+  // accidental second process (unsupported — one process per database,
+  // see README "Deployment model") cannot race `migrate()`.
   const MIGRATION_LOCK_ID = 827394827;
 
   await client`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID})`;

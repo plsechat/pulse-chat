@@ -65,6 +65,8 @@ const createServerRoute = protectedProcedure
           color: '#e74c3c',
           isPersistent: true,
           isDefault: false,
+          // Hierarchy rank: above the default role (0); custom roles slot in between.
+          position: 1,
           serverId,
           createdAt: now
         })

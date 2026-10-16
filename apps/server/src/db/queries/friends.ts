@@ -1,7 +1,7 @@
 import { and, eq, or } from 'drizzle-orm';
 import { db } from '..';
 import { friendRequests, friendships } from '../schema';
-import { getPublicUserById } from './users';
+import { getPublicUsersByIds } from './users';
 import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
 
 const getFriends = async (userId: number): Promise<TJoinedPublicUser[]> => {
@@ -16,10 +16,13 @@ const getFriends = async (userId: number): Promise<TJoinedPublicUser[]> => {
     r.userId === userId ? r.friendId : r.userId
   );
 
+  // One batched projection for the whole list (was one 3-query lookup
+  // per friend); order follows the friendship rows.
+  const usersById = await getPublicUsersByIds(friendIds);
   const friends: TJoinedPublicUser[] = [];
 
   for (const friendId of friendIds) {
-    const user = await getPublicUserById(friendId);
+    const user = usersById.get(friendId);
     if (user) friends.push(user);
   }
 
@@ -60,11 +63,14 @@ const getPendingRequests = async (
       )
     );
 
+  const usersById = await getPublicUsersByIds(
+    rows.flatMap((row) => [row.senderId, row.receiverId])
+  );
   const joined: TJoinedFriendRequest[] = [];
 
   for (const row of rows) {
-    const sender = await getPublicUserById(row.senderId);
-    const receiver = await getPublicUserById(row.receiverId);
+    const sender = usersById.get(row.senderId);
+    const receiver = usersById.get(row.receiverId);
 
     if (sender && receiver) {
       joined.push({ ...row, sender, receiver });
@@ -85,8 +91,9 @@ const getJoinedFriendRequest = async (
 
   if (!row) return null;
 
-  const sender = await getPublicUserById(row.senderId);
-  const receiver = await getPublicUserById(row.receiverId);
+  const usersById = await getPublicUsersByIds([row.senderId, row.receiverId]);
+  const sender = usersById.get(row.senderId);
+  const receiver = usersById.get(row.receiverId);
 
   if (!sender || !receiver) return null;
 

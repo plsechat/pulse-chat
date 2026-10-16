@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'path';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { settings, users } from '../../db/schema';
+import { servers, users } from '../../db/schema';
 import { PLUGINS_PATH } from '../../helpers/paths';
 import { eventBus } from '../event-bus';
 import { pluginManager } from '..';
@@ -40,11 +40,75 @@ const writePlugin = async ({ id, sdk, entrySource }: TFixture) => {
   return () => fs.rm(dir, { recursive: true, force: true });
 };
 
-const enablePluginsSetting = async () => {
-  await getTestDb().update(settings).set({ enablePlugins: true });
+// Instance-level plugin enablement is the BOOTSTRAP server row's flag
+// (the `settings` copy is written by nothing).
+const setInstancePlugins = async (enablePlugins: boolean) => {
+  await getTestDb()
+    .update(servers)
+    .set({ enablePlugins })
+    .where(eq(servers.id, 1));
 };
 
+const enablePluginsSetting = () => setInstancePlugins(true);
+
 describe('plugin manager', () => {
+  test('loadPlugins loads a fixture plugin when the bootstrap server row enables plugins', async () => {
+    await initTest(1);
+    await setInstancePlugins(true);
+
+    const id = 'loader-bootstrap-enabled';
+    const cleanup = await writePlugin({
+      id,
+      entrySource: 'export const onLoad = () => {};'
+    });
+
+    try {
+      // Mark it enabled in plugin state without loading (toggle would
+      // load it itself), then run the boot-time loader.
+      await pluginManager.togglePlugin(id, true);
+      await pluginManager.unload(id);
+      expect(pluginManager.isPluginLoaded(id)).toBe(false);
+
+      await pluginManager.loadPlugins();
+
+      expect(pluginManager.isPluginLoaded(id)).toBe(true);
+      const info = await pluginManager.getPluginInfo(id);
+      expect(info.enabled).toBe(true);
+      expect(info.loadError).toBeUndefined();
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+
+  test('loadPlugins is a no-op when the bootstrap row disables plugins, but toggle still loads on explicit intent', async () => {
+    await initTest(1);
+    await setInstancePlugins(false);
+
+    const id = 'loader-bootstrap-disabled';
+    const cleanup = await writePlugin({
+      id,
+      entrySource: 'export const onLoad = () => {};'
+    });
+
+    try {
+      await pluginManager.loadPlugins();
+      expect(pluginManager.isPluginLoaded(id)).toBe(false);
+
+      // togglePlugin is the instance owner saying "run this now": it
+      // loads regardless of the boot-time flag.
+      await pluginManager.togglePlugin(id, true);
+      expect(pluginManager.isPluginLoaded(id)).toBe(true);
+      expect((await pluginManager.getPluginInfo(id)).loadError).toBeUndefined();
+
+      await pluginManager.togglePlugin(id, false);
+      expect(pluginManager.isPluginLoaded(id)).toBe(false);
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+
   test('refuses to load a plugin whose pulse.sdk range the SDK does not satisfy', async () => {
     await initTest(1);
     await enablePluginsSetting();

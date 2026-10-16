@@ -1,5 +1,6 @@
+import { ChannelType } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { eq } from 'drizzle-orm';
+import { eq, ne } from 'drizzle-orm';
 import {
   activityLog,
   categories,
@@ -7,7 +8,10 @@ import {
   channelRolePermissions,
   channels,
   channelUserPermissions,
+  dmChannels,
+  dmMessages,
   emojis,
+  federationInstances,
   files,
   invites,
   logins,
@@ -16,10 +20,54 @@ import {
   messages,
   rolePermissions,
   roles,
+  servers,
+  settings,
   userRoles,
-  users
+  users,
+  webhooks
 } from '../db/schema';
 import { tdb } from './setup';
+
+// servers.owner_id is ON DELETE RESTRICT (0032): the seeded owner cannot
+// be hard-deleted while server 1 points at them, so the user-cascade
+// cases below pick a member instead.
+const seededOwnerId = async () => {
+  const [server] = await tdb
+    .select({ ownerId: servers.ownerId })
+    .from(servers)
+    .where(eq(servers.id, 1));
+  return server!.ownerId!;
+};
+
+// Drizzle wraps the postgres error; the SQLSTATE lives on `.cause`.
+const pgErrorCode = async (run: Promise<unknown>): Promise<string> => {
+  try {
+    await run;
+  } catch (err) {
+    let cur: unknown = err;
+    for (let depth = 0; cur && depth < 4; depth++) {
+      const code = (cur as { code?: string }).code;
+      if (code) return code;
+      cur = (cur as { cause?: unknown }).cause;
+    }
+    return 'unknown';
+  }
+  return 'no-error';
+};
+
+const FOREIGN_KEY_VIOLATION = '23503';
+const UNIQUE_VIOLATION = '23505';
+
+const nonOwnerUserId = async () => {
+  const ownerId = await seededOwnerId();
+  const [user] = await tdb
+    .select({ id: users.id })
+    .from(users)
+    .where(ne(users.id, ownerId))
+    .orderBy(users.id)
+    .limit(1);
+  return user!.id;
+};
 
 describe('database cascades', async () => {
   test('initial data is seeded correctly', async () => {
@@ -70,8 +118,15 @@ describe('database cascades', async () => {
   });
 
   test('deleting a user cascades to messages, logins, invites, activity logs', async () => {
-    const usersBefore = await tdb.select().from(users);
-    const userId = usersBefore[0]!.id;
+    const userId = await nonOwnerUserId();
+    const channelsBefore = await tdb.select().from(channels);
+
+    await tdb.insert(messages).values({
+      userId,
+      channelId: channelsBefore[0]!.id,
+      content: 'by the member',
+      createdAt: Date.now()
+    });
 
     await tdb.insert(logins).values({
       userId,
@@ -95,17 +150,25 @@ describe('database cascades', async () => {
     const loginsBefore = await tdb.select().from(logins);
     const invitesBefore = await tdb.select().from(invites);
     const activityLogBefore = await tdb.select().from(activityLog);
+    const messagesBefore = await tdb
+      .select()
+      .from(messages)
+      .where(eq(messages.userId, userId));
 
     expect(loginsBefore.length).toBeGreaterThan(0);
     expect(invitesBefore.length).toBeGreaterThan(0);
     expect(activityLogBefore.length).toBeGreaterThan(0);
+    expect(messagesBefore.length).toBeGreaterThan(0);
 
     await tdb.delete(users).where(eq(users.id, userId));
 
     const loginsAfter = await tdb.select().from(logins);
     const invitesAfter = await tdb.select().from(invites);
     const activityLogAfter = await tdb.select().from(activityLog);
-    const messagesAfter = await tdb.select().from(messages);
+    const messagesAfter = await tdb
+      .select()
+      .from(messages)
+      .where(eq(messages.userId, userId));
 
     expect(loginsAfter.length).toBe(0);
     expect(invitesAfter.length).toBe(0);
@@ -113,9 +176,47 @@ describe('database cascades', async () => {
     expect(messagesAfter.length).toBe(0);
   });
 
+  test('deleting a user that owns a server is refused by the owner FK', async () => {
+    const ownerId = await seededOwnerId();
+
+    expect(
+      await pgErrorCode(tdb.delete(users).where(eq(users.id, ownerId)).execute())
+    ).toBe(FOREIGN_KEY_VIOLATION);
+
+    const [owner] = await tdb.select().from(users).where(eq(users.id, ownerId));
+    expect(owner).toBeDefined();
+    const [server] = await tdb.select().from(servers).where(eq(servers.id, 1));
+    expect(server!.ownerId).toBe(ownerId);
+  });
+
+  test('deleting a user cascades to their files', async () => {
+    const userId = await nonOwnerUserId();
+
+    const [file] = await tdb
+      .insert(files)
+      .values({
+        name: 'owned.txt',
+        originalName: 'owned.txt',
+        md5: 'owned123',
+        userId,
+        size: 100,
+        mimeType: 'text/plain',
+        extension: 'txt',
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await tdb.delete(users).where(eq(users.id, userId));
+
+    const filesAfter = await tdb
+      .select()
+      .from(files)
+      .where(eq(files.id, file!.id));
+    expect(filesAfter.length).toBe(0);
+  });
+
   test('deleting a user cascades to user_roles', async () => {
-    const usersBefore = await tdb.select().from(users);
-    const userId = usersBefore[0]!.id;
+    const userId = await nonOwnerUserId();
 
     const userRolesBefore = await tdb
       .select()
@@ -279,9 +380,8 @@ describe('database cascades', async () => {
   });
 
   test('deleting a user cascades to channel_read_states and channel_user_permissions', async () => {
-    const usersBefore = await tdb.select().from(users);
     const channelsBefore = await tdb.select().from(channels);
-    const userId = usersBefore[0]!.id;
+    const userId = await nonOwnerUserId();
 
     await tdb.insert(channelReadStates).values({
       channelId: channelsBefore[0]!.id,
@@ -449,9 +549,8 @@ describe('database cascades', async () => {
   });
 
   test('deleting a user cascades to emojis and message_reactions', async () => {
-    const usersBefore = await tdb.select().from(users);
     const messagesBefore = await tdb.select().from(messages);
-    const userId = usersBefore[0]!.id;
+    const userId = await nonOwnerUserId();
 
     const [file] = await tdb
       .insert(files)
@@ -509,5 +608,187 @@ describe('database cascades', async () => {
 
     expect(emojisAfter.length).toBe(0);
     expect(messageReactionsAfter.length).toBe(0);
+  });
+
+  test('deleting a parent channel cascades to its threads', async () => {
+    const channelsBefore = await tdb.select().from(channels);
+    const parent = channelsBefore[0]!;
+
+    const [thread] = await tdb
+      .insert(channels)
+      .values({
+        type: ChannelType.THREAD,
+        name: 'thread',
+        position: 0,
+        fileAccessToken: crypto.randomUUID(),
+        fileAccessTokenUpdatedAt: Date.now(),
+        publicId: crypto.randomUUID(),
+        serverId: parent.serverId,
+        parentChannelId: parent.id,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await tdb.delete(channels).where(eq(channels.id, parent.id));
+
+    const threadsAfter = await tdb
+      .select()
+      .from(channels)
+      .where(eq(channels.id, thread!.id));
+    expect(threadsAfter.length).toBe(0);
+  });
+
+  test('deleting a replied-to message nulls reply_to_id on the reply', async () => {
+    const messagesBefore = await tdb.select().from(messages);
+    const target = messagesBefore[0]!;
+
+    const [reply] = await tdb
+      .insert(messages)
+      .values({
+        userId: target.userId,
+        channelId: target.channelId,
+        content: 'reply',
+        replyToId: target.id,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await tdb.delete(messages).where(eq(messages.id, target.id));
+
+    const [replyAfter] = await tdb
+      .select()
+      .from(messages)
+      .where(eq(messages.id, reply!.id));
+    expect(replyAfter).toBeDefined();
+    expect(replyAfter!.replyToId).toBeNull();
+  });
+
+  test('deleting a webhook nulls webhook_id on its messages', async () => {
+    const messagesBefore = await tdb.select().from(messages);
+    const channelsBefore = await tdb.select().from(channels);
+    const seeded = messagesBefore[0]!;
+
+    const [webhook] = await tdb
+      .insert(webhooks)
+      .values({
+        name: 'hook',
+        channelId: channelsBefore[0]!.id,
+        token: crypto.randomUUID(),
+        createdBy: seeded.userId,
+        serverId: channelsBefore[0]!.serverId,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const [message] = await tdb
+      .insert(messages)
+      .values({
+        userId: seeded.userId,
+        channelId: channelsBefore[0]!.id,
+        content: 'from webhook',
+        webhookId: webhook!.id,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await tdb.delete(webhooks).where(eq(webhooks.id, webhook!.id));
+
+    const [messageAfter] = await tdb
+      .select()
+      .from(messages)
+      .where(eq(messages.id, message!.id));
+    expect(messageAfter).toBeDefined();
+    expect(messageAfter!.webhookId).toBeNull();
+  });
+
+  test('deleting a replied-to DM message nulls reply_to_id on the reply', async () => {
+    const userId = await nonOwnerUserId();
+
+    const [channel] = await tdb
+      .insert(dmChannels)
+      .values({ createdAt: Date.now() })
+      .returning();
+
+    const [target] = await tdb
+      .insert(dmMessages)
+      .values({
+        userId,
+        dmChannelId: channel!.id,
+        content: 'target',
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const [reply] = await tdb
+      .insert(dmMessages)
+      .values({
+        userId,
+        dmChannelId: channel!.id,
+        content: 'reply',
+        replyToId: target!.id,
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await tdb.delete(dmMessages).where(eq(dmMessages.id, target!.id));
+
+    const [replyAfter] = await tdb
+      .select()
+      .from(dmMessages)
+      .where(eq(dmMessages.id, reply!.id));
+    expect(replyAfter).toBeDefined();
+    expect(replyAfter!.replyToId).toBeNull();
+  });
+
+  test('deleting a federation instance nulls federated_instance_id on its shadow users', async () => {
+    const [instance] = await tdb
+      .insert(federationInstances)
+      .values({
+        domain: 'peer.example',
+        status: 'active',
+        direction: 'outbound',
+        createdAt: Date.now()
+      })
+      .returning();
+
+    const [shadow] = await tdb
+      .insert(users)
+      .values({
+        name: 'shadow',
+        supabaseId: `shadow-${crypto.randomUUID()}`,
+        publicId: crypto.randomUUID(),
+        isFederated: true,
+        federatedInstanceId: instance!.id,
+        federatedUsername: 'shadow',
+        createdAt: Date.now()
+      })
+      .returning();
+
+    await tdb
+      .delete(federationInstances)
+      .where(eq(federationInstances.id, instance!.id));
+
+    const [shadowAfter] = await tdb
+      .select()
+      .from(users)
+      .where(eq(users.id, shadow!.id));
+    expect(shadowAfter).toBeDefined();
+    expect(shadowAfter!.federatedInstanceId).toBeNull();
+  });
+
+  test('settings is keyed by server_id', async () => {
+    const [existing] = await tdb.select().from(settings);
+
+    expect(
+      await pgErrorCode(
+        tdb
+          .insert(settings)
+          .values({ ...existing!, name: 'duplicate' })
+          .execute()
+      )
+    ).toBe(UNIQUE_VIOLATION);
+
+    const rows = await tdb.select().from(settings);
+    expect(rows.length).toBe(1);
   });
 });

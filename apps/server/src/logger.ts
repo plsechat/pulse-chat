@@ -4,7 +4,7 @@ import { config } from './config';
 import { ensureDir } from './helpers/fs';
 import { LOGS_PATH } from './helpers/paths';
 import { getLogContext } from './utils/log-context';
-import { redact } from './utils/log-redact';
+import { redact, redactLogRecord } from './utils/log-redact';
 
 declare module 'winston' {
   interface Logger {
@@ -160,14 +160,27 @@ const ringTap = format((info) => {
 
 const getRecentLogs = (): readonly TRecentLog[] => recentLogs;
 
+/**
+ * Redaction runs TWICE in the default chain, and nothing is emitted
+ * before it: first on the raw record (template, splat args by pattern
+ * or key, meta), then again once splat() and errors() have produced the
+ * final message/stack strings — a secret split across a template and
+ * its argument (`'%s %s', 'Bearer', token`) only takes shape after
+ * substitution. Every transport, the admin ring and debug.log's JSON
+ * format all sit downstream of both passes.
+ */
+const redactTap = format((info) => redactLogRecord(info));
+
 const logger = createLogger({
   level: currentLevel,
   // Default format applies to console + app.log + error.log. Plain
   // human-readable; the JSON format is set per-transport on debugFile.
   format: combine(
-    colorize(),
+    redactTap(),
     splat(),
     errors({ stack: true }),
+    redactTap(),
+    colorize(),
     ringTap(),
     consoleFormat
   ),

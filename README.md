@@ -104,6 +104,10 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/pulse
 ./pulse
 ```
 
+### Deployment model
+
+Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-user cache, the in-flight upload registry and plugin state all live in that process's memory, and the voice SFU binds its port range locally. A second process pointed at the same database would not share any of that: its users would miss events, bans and uploads made through the other one. Scale vertically (CPU, RAM, the voice port range); horizontal scaling behind a load balancer is not supported.
+
 ### After first launch
 
 1. Open `http://localhost:5443` and register.
@@ -167,6 +171,7 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 | server | `debugLogMaxFiles` | `10` | Rotated debug-log files to keep (`DEBUG_LOG_MAX_FILES` overrides) |
 | server | `debugLogIncludeBody` | `true` | Include request bodies in debug events (`DEBUG_LOG_INCLUDE_BODY=false` overrides) |
 | server | `redactExtra` | — | Extra keys to redact in logs; INI list syntax `redactExtra[]=key` (`REDACT_EXTRA` overrides) |
+| server | `retentionDays` | `90` | Days to keep sign-in records (`logins`) and the audit trail (`activity_log`); a daily job deletes older rows. `0` keeps them forever |
 | mediasoup | `worker.rtcMinPort` | `40000` | WebRTC port range start |
 | mediasoup | `worker.rtcMaxPort` | `40020` | WebRTC port range end |
 | mediasoup | `audio.maxBitrate` | `510000` | Opus max bitrate (bps) |

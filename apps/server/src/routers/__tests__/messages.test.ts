@@ -14,11 +14,16 @@ import {
 } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
+import { countQueries } from '../../__tests__/query-count';
+import { publishMessage } from '../../db/publishers';
 import {
+  channelReadStates,
   channelUserPermissions,
   channels,
   messages,
-  userRoles
+  serverMembers,
+  userRoles,
+  users
 } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 import {
@@ -1246,6 +1251,125 @@ describe('messages router', () => {
       );
       expect(typing).toHaveLength(1);
       expect(typing[0]![2]).toEqual({ channelId: channel.id, userId: 1 });
+    });
+  });
+
+  describe('publishMessage unread fan-out', () => {
+    /** CHANNEL_READ_STATES_UPDATE payloads keyed by recipient. */
+    const readStateUpdates = (
+      calls: unknown[][],
+      channelId: number
+    ): Map<number, { count: number; mentionCount: number }> => {
+      const out = new Map<number, { count: number; mentionCount: number }>();
+      for (const call of calls) {
+        if (call[1] !== ServerEvents.CHANNEL_READ_STATES_UPDATE) continue;
+        const payload = call[2] as {
+          channelId: number;
+          count: number;
+          mentionCount: number;
+        };
+        if (payload.channelId !== channelId) continue;
+        out.set(call[0] as number, {
+          count: payload.count,
+          mentionCount: payload.mentionCount
+        });
+      }
+      return out;
+    };
+
+    test('query count is independent of the recipient count; counts are exact', async () => {
+      const tdb = getTestDb();
+      const now = Date.now();
+      const [seeded] = await tdb
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.channelId, 1))
+        .limit(1);
+
+      // Users 2 and 3 have read up to the seeded message.
+      await tdb.insert(channelReadStates).values([
+        { userId: 2, channelId: 1, lastReadMessageId: seeded!.id, lastReadAt: now },
+        { userId: 3, channelId: 1, lastReadMessageId: seeded!.id, lastReadAt: now }
+      ]);
+      const [first] = await tdb
+        .insert(messages)
+        .values({
+          content: 'hi <@2>',
+          userId: 1,
+          channelId: 1,
+          mentionedUserIds: [2],
+          createdAt: now
+        })
+        .returning({ id: messages.id });
+
+      const publishFor = spyOn(pubsub, 'publishFor');
+      try {
+        const baseline = await countQueries(() =>
+          publishMessage(first!.id, 1, 'create')
+        );
+        const small = readStateUpdates(publishFor.mock.calls, 1);
+        expect(small.get(2)).toEqual({ count: 1, mentionCount: 1 });
+        expect(small.get(3)).toEqual({ count: 1, mentionCount: 0 });
+        expect(small.has(1)).toBe(false); // never the author
+
+        // 50 more members, all read up to `first`.
+        const extraIds: number[] = [];
+        for (let i = 0; i < 50; i++) {
+          const [u] = await tdb
+            .insert(users)
+            .values({
+              name: `fanout-${i}-${randomUUIDv7().slice(0, 6)}`,
+              supabaseId: `fanout-${randomUUIDv7()}`,
+              publicId: randomUUIDv7(),
+              createdAt: now
+            })
+            .returning({ id: users.id });
+          extraIds.push(u!.id);
+        }
+        await tdb.insert(serverMembers).values(
+          extraIds.map((userId) => ({ serverId: 1, userId, joinedAt: now }))
+        );
+        await tdb.insert(channelReadStates).values(
+          extraIds.map((userId) => ({
+            userId,
+            channelId: 1,
+            lastReadMessageId: first!.id,
+            lastReadAt: now
+          }))
+        );
+        const mentioned = extraIds.slice(0, 5);
+        const [second] = await tdb
+          .insert(messages)
+          .values({
+            content: 'again',
+            userId: 1,
+            channelId: 1,
+            mentionedUserIds: mentioned,
+            createdAt: now + 1
+          })
+          .returning({ id: messages.id });
+
+        publishFor.mockClear();
+        const big = await countQueries(() =>
+          publishMessage(second!.id, 1, 'create')
+        );
+
+        expect(big.queries).toBe(baseline.queries);
+        expect(big.queries).toBeLessThanOrEqual(12);
+
+        const large = readStateUpdates(publishFor.mock.calls, 1);
+        expect(large.size).toBe(52);
+        expect(large.get(2)).toEqual({ count: 2, mentionCount: 1 });
+        expect(large.get(3)).toEqual({ count: 2, mentionCount: 0 });
+        for (const id of extraIds) {
+          expect(large.get(id)).toEqual({
+            count: 1,
+            mentionCount: mentioned.includes(id) ? 1 : 0
+          });
+        }
+      } finally {
+        publishFor.mockRestore();
+      }
     });
   });
 });

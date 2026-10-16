@@ -234,6 +234,18 @@ class VoiceRuntime {
     return [...voiceRuntimes.values()];
   };
 
+  /**
+   * Shutdown only: tear down every runtime (routers, transports,
+   * producers, consumers) so mediasoup can close its worker cleanly.
+   * Each runtime's failure is isolated — one broken room must not keep
+   * the others open.
+   */
+  public static destroyAll = async (): Promise<void> => {
+    await Promise.allSettled(
+      [...voiceRuntimes.values()].map((runtime) => runtime.destroy())
+    );
+  };
+
   /** Occupancy totals for the admin health panel. */
   public static getStats = () => {
     let serverRooms = 0;

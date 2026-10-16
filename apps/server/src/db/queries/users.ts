@@ -37,13 +37,26 @@ const statusTrio = (row: {
   };
 };
 
-const getPublicUserById = async (
-  userId: number
-): Promise<TJoinedPublicUser | undefined> => {
+/**
+ * Shape of the per-user roles aggregate: `json_agg` over user_roles in a
+ * correlated subquery, so a batch of users resolves in ONE round-trip
+ * (users + both file aliases + federation instance + roles) instead of
+ * three. Postgres returns the aggregate as a JSON array of ints; an
+ * absent row set yields `[]` via COALESCE.
+ */
+const roleIdsAggregate = sql<number[]>`
+  COALESCE(
+    (SELECT json_agg(${userRoles.roleId}) FROM ${userRoles}
+      WHERE ${userRoles.userId} = ${users.id}),
+    '[]'::json
+  )
+`.as('role_ids');
+
+const selectPublicUsers = (userIds: number[]) => {
   const avatarFiles = alias(files, 'avatarFiles');
   const bannerFiles = alias(files, 'bannerFiles');
 
-  const [results] = await db
+  return db
     .select({
       id: users.id,
       name: users.name,
@@ -65,159 +78,69 @@ const getPublicUserById = async (
       banner: bannerFiles,
       createdAt: users.createdAt,
       isFederated: users.isFederated,
-      federatedInstanceId: users.federatedInstanceId
+      instanceDomain: federationInstances.domain,
+      roleIds: roleIdsAggregate
     })
     .from(users)
     .leftJoin(avatarFiles, eq(users.avatarId, avatarFiles.id))
     .leftJoin(bannerFiles, eq(users.bannerId, bannerFiles.id))
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  if (!results) return undefined;
-
-  const roles = await db
-    .select({ roleId: userRoles.roleId })
-    .from(userRoles)
-    .where(eq(userRoles.userId, userId));
-
-  // Resolve federation identity
-  let identity: string | undefined;
-  if (results.isFederated && results.federatedInstanceId) {
-    const [instance] = await db
-      .select({ domain: federationInstances.domain })
-      .from(federationInstances)
-      .where(eq(federationInstances.id, results.federatedInstanceId))
-      .limit(1);
-    if (instance) {
-      identity = `${results.name}@${instance.domain}`;
-    }
-  }
-
-  return {
-    id: results.id,
-    name: results.name,
-    publicId: results.publicId,
-    bannerColor: results.bannerColor,
-    bio: results.bio,
-    ...statusTrio(results),
-    nameplate: results.nameplate,
-    avatarDecoration: results.avatarDecoration,
-    nameStyle: results.nameStyle,
-    avatarId: results.avatarId,
-    bannerId: results.bannerId,
-    avatar: slimFile(results.avatar),
-    banner: slimFile(results.banner),
-    createdAt: results.createdAt,
-    banned: results.banned,
-    deletedAt: results.deletedAt,
-    _identity: identity,
-    roleIds: roles.map((r) => r.roleId)
-  };
+    .leftJoin(
+      federationInstances,
+      eq(users.federatedInstanceId, federationInstances.id)
+    )
+    .where(inArray(users.id, userIds));
 };
 
+type TPublicUserRow = Awaited<ReturnType<typeof selectPublicUsers>>[number];
+
+const toPublicUser = (row: TPublicUserRow): TJoinedPublicUser => ({
+  id: row.id,
+  name: row.name,
+  publicId: row.publicId,
+  bannerColor: row.bannerColor,
+  bio: row.bio,
+  ...statusTrio(row),
+  nameplate: row.nameplate,
+  avatarDecoration: row.avatarDecoration,
+  nameStyle: row.nameStyle,
+  avatarId: row.avatarId,
+  bannerId: row.bannerId,
+  avatar: slimFile(row.avatar),
+  banner: slimFile(row.banner),
+  createdAt: row.createdAt,
+  banned: row.banned,
+  deletedAt: row.deletedAt,
+  _identity:
+    row.isFederated && row.instanceDomain
+      ? `${row.name}@${row.instanceDomain}`
+      : undefined,
+  roleIds: Array.isArray(row.roleIds) ? row.roleIds : []
+});
+
+/**
+ * Public projection of many users in ONE statement. Every list view
+ * (friends, pending requests, blocked users, message authors) goes
+ * through here so the query count never scales with the list length.
+ */
 const getPublicUsersByIds = async (
   userIds: number[]
 ): Promise<Map<number, TJoinedPublicUser>> => {
   const result = new Map<number, TJoinedPublicUser>();
   if (userIds.length === 0) return result;
 
-  const avatarFiles = alias(files, 'avatarFiles');
-  const bannerFiles = alias(files, 'bannerFiles');
-
-  const rows = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      publicId: users.publicId,
-      bannerColor: users.bannerColor,
-      bio: users.bio,
-      customStatus: users.customStatus,
-      deletedAt: users.deletedAt,
-      customStatusEmoji: users.customStatusEmoji,
-      customStatusExpiresAt: users.customStatusExpiresAt,
-      pronouns: users.pronouns,
-      nameplate: users.nameplate,
-      avatarDecoration: users.avatarDecoration,
-      nameStyle: users.nameStyle,
-      banned: users.banned,
-      avatarId: users.avatarId,
-      bannerId: users.bannerId,
-      avatar: avatarFiles,
-      banner: bannerFiles,
-      createdAt: users.createdAt,
-      isFederated: users.isFederated,
-      federatedInstanceId: users.federatedInstanceId
-    })
-    .from(users)
-    .leftJoin(avatarFiles, eq(users.avatarId, avatarFiles.id))
-    .leftJoin(bannerFiles, eq(users.bannerId, bannerFiles.id))
-    .where(inArray(users.id, userIds));
-
-  if (rows.length === 0) return result;
-
-  // Batch-fetch roles for all users
-  const roleRows = await db
-    .select({ userId: userRoles.userId, roleId: userRoles.roleId })
-    .from(userRoles)
-    .where(inArray(userRoles.userId, userIds));
-
-  const rolesMap: Record<number, number[]> = {};
-  for (const r of roleRows) {
-    if (!rolesMap[r.userId]) rolesMap[r.userId] = [];
-    rolesMap[r.userId]!.push(r.roleId);
-  }
-
-  // Batch-fetch federation instances if any federated users
-  const federatedInstanceIds = [
-    ...new Set(
-      rows
-        .filter((r) => r.isFederated && r.federatedInstanceId)
-        .map((r) => r.federatedInstanceId!)
-    )
-  ];
-
-  const instanceDomainMap: Record<number, string> = {};
-  if (federatedInstanceIds.length > 0) {
-    const instances = await db
-      .select({ id: federationInstances.id, domain: federationInstances.domain })
-      .from(federationInstances)
-      .where(inArray(federationInstances.id, federatedInstanceIds));
-    for (const inst of instances) {
-      instanceDomainMap[inst.id] = inst.domain;
-    }
-  }
+  const rows = await selectPublicUsers([...new Set(userIds)]);
 
   for (const row of rows) {
-    let identity: string | undefined;
-    if (row.isFederated && row.federatedInstanceId) {
-      const domain = instanceDomainMap[row.federatedInstanceId];
-      if (domain) identity = `${row.name}@${domain}`;
-    }
-
-    result.set(row.id, {
-      id: row.id,
-      name: row.name,
-      publicId: row.publicId,
-      bannerColor: row.bannerColor,
-      bio: row.bio,
-      ...statusTrio(row),
-      nameplate: row.nameplate,
-      avatarDecoration: row.avatarDecoration,
-      nameStyle: row.nameStyle,
-      avatarId: row.avatarId,
-      bannerId: row.bannerId,
-      avatar: slimFile(row.avatar),
-      banner: slimFile(row.banner),
-      createdAt: row.createdAt,
-      banned: row.banned,
-      deletedAt: row.deletedAt,
-      _identity: identity,
-      roleIds: rolesMap[row.id] || []
-    });
+    result.set(row.id, toPublicUser(row));
   }
 
   return result;
 };
+
+const getPublicUserById = async (
+  userId: number
+): Promise<TJoinedPublicUser | undefined> =>
+  (await getPublicUsersByIds([userId])).get(userId);
 
 const getStorageUsageByUserId = async (
   userId: number
@@ -496,9 +419,17 @@ const getUsers = async (serverId?: number): Promise<TJoinedUser[]> => {
   }));
 };
 
+/**
+ * A server member as the member list shows them: the public projection
+ * plus the per-membership fields (nickname, automod timeout deadline).
+ */
+type TServerMemberPublicUser = TJoinedPublicUser & {
+  timedOutUntil: number | null;
+};
+
 const getPublicUsersForServer = async (
   serverId: number
-): Promise<TJoinedPublicUser[]> => {
+): Promise<TServerMemberPublicUser[]> => {
   const avatarFiles = alias(files, 'avatarFiles');
   const bannerFiles = alias(files, 'bannerFiles');
 
@@ -526,7 +457,8 @@ const getPublicUsersForServer = async (
       _identity: sql<string | null>`NULL`.as('_identity'),
       isFederated: users.isFederated,
       federatedInstanceId: users.federatedInstanceId,
-      nickname: serverMembers.nickname
+      nickname: serverMembers.nickname,
+      timedOutUntil: serverMembers.timedOutUntil
     })
     .from(users)
     .innerJoin(serverMembers, eq(users.id, serverMembers.userId))
@@ -602,7 +534,8 @@ const getPublicUsersForServer = async (
       createdAt: result.createdAt,
       _identity: identity,
       roleIds: rolesMap[result.id] || [],
-      nickname: result.nickname
+      nickname: result.nickname,
+      timedOutUntil: result.timedOutUntil
     };
   });
 };
@@ -623,6 +556,7 @@ const isDisplayNameTaken = async (
   return true;
 };
 
+export type { TServerMemberPublicUser };
 export {
   getPublicUserById,
   getPublicUsersByIds,

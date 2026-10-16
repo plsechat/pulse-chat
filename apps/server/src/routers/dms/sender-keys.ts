@@ -91,16 +91,37 @@ const distributeSenderKeysRoute = protectedProcedure
     );
 
     if (localDists.length > 0) {
-      await db.insert(dmE2eeSenderKeys).values(
-        localDists.map((d) => ({
-          dmChannelId: input.dmChannelId,
-          senderKeyId: input.senderKeyId,
-          fromUserId: ctx.userId,
-          toUserId: d.toUserId,
-          distributionMessage: d.distributionMessage,
-          createdAt: Date.now()
-        }))
-      );
+      const now = Date.now();
+      // Same upsert as e2ee.distributeSenderKeysBatch, on the
+      // dm_e2ee_sender_keys_unique_idx tuple (0032). The client's
+      // ensureDmGroupSenderKey is not single-flight, so the same chain
+      // can be distributed twice within milliseconds; DO UPDATE keeps one
+      // row per (channel, from, to, chain) and lets a re-sent
+      // distribution after a chain rebuild win instead of being dropped.
+      await db
+        .insert(dmE2eeSenderKeys)
+        .values(
+          localDists.map((d) => ({
+            dmChannelId: input.dmChannelId,
+            senderKeyId: input.senderKeyId,
+            fromUserId: ctx.userId,
+            toUserId: d.toUserId,
+            distributionMessage: d.distributionMessage,
+            createdAt: now
+          }))
+        )
+        .onConflictDoUpdate({
+          target: [
+            dmE2eeSenderKeys.dmChannelId,
+            dmE2eeSenderKeys.fromUserId,
+            dmE2eeSenderKeys.toUserId,
+            dmE2eeSenderKeys.senderKeyId
+          ],
+          set: {
+            distributionMessage: sql`excluded.distribution_message`,
+            createdAt: now
+          }
+        });
 
       for (const d of localDists) {
         pubsub.publishFor(d.toUserId, ServerEvents.DM_SENDER_KEY_DISTRIBUTION, {

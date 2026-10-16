@@ -13,9 +13,10 @@ const loginsQueue = new Queue({
 
 loginsQueue.autostart = true;
 
-// A rejected job (ipinfo timeout, insert failure) only surfaces as a
-// queue 'error' event; without a listener the login row is dropped in
-// silence. Log it — a missing login record is an operator-visible gap.
+// A rejected job makes queue@7 `end(error)` — every queued login record
+// is discarded with it. Jobs catch their own failures below; this
+// listener only remains for anything that still escapes, so a missing
+// login record is never silent.
 loginsQueue.addEventListener('error', (event) => {
   const error = event.detail.error;
   logger.warn(
@@ -26,23 +27,34 @@ loginsQueue.addEventListener('error', (event) => {
 
 const enqueueLogin = (userId: number, info: TConnectionInfo | undefined) => {
   loginsQueue.push(async (callback) => {
-    if (!info) {
-      logger.warn('No connection info provided for login of user %d', userId);
-      callback?.();
-      return;
-    }
-    const { ip, ...rest } = info;
-    const ipInfo = ip ? await getIpInfo(ip) : undefined;
+    try {
+      if (!info) {
+        logger.warn(
+          'No connection info provided for login of user %d',
+          userId
+        );
+        callback?.();
+        return;
+      }
+      const { ip, ...rest } = info;
+      const ipInfo = ip ? await getIpInfo(ip) : undefined;
 
-    await db
-      .insert(logins)
-      .values({
+      await db
+        .insert(logins)
+        .values({
+          userId,
+          ip,
+          ...rest,
+          ...ipInfo,
+          createdAt: Date.now()
+        });
+    } catch (error) {
+      logger.warn(
+        'Failed to record login of user %d: %s',
         userId,
-        ip,
-        ...rest,
-        ...ipInfo,
-        createdAt: Date.now()
-      });
+        error instanceof Error ? error.message : String(error)
+      );
+    }
 
     callback?.();
   });

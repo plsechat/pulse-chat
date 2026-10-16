@@ -5,7 +5,7 @@ import {
   type TMentionStateMap,
   type TReadStateMap
 } from '@pulse/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   channelReadStates,
@@ -417,6 +417,125 @@ const getForumUnreadForUser = async (
   };
 };
 
+type TUnreadCounts = { count: number; mentionCount: number };
+
+/**
+ * Unread + mention counts of ONE channel for MANY users in a single
+ * grouped statement — the message fan-out path (publishMessage) used to
+ * run the full per-channel aggregate once per recipient per message,
+ * i.e. O(members x messages-in-channel) on the single pool.
+ *
+ * Semantics match getChannelsReadStatesForUser exactly: only messages
+ * newer than the user's last-read marker and not authored by the user
+ * count, and a user with no read-state row (or a NULL marker) reads as
+ * 0 unread. Users absent from the returned map are therefore 0/0.
+ */
+const getChannelUnreadForUsers = async (
+  userIds: number[],
+  channelId: number
+): Promise<Map<number, TUnreadCounts>> => {
+  const result = new Map<number, TUnreadCounts>();
+  if (userIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      userId: channelReadStates.userId,
+      unreadCount: sql<number>`
+        COUNT(*) FILTER (WHERE ${messages.userId} != ${channelReadStates.userId})
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(*) FILTER (
+          WHERE ${messages.userId} != ${channelReadStates.userId}
+            AND ${messages.mentionedUserIds}::jsonb @> jsonb_build_array(${channelReadStates.userId})
+        )
+      `.as('mention_count')
+    })
+    .from(channelReadStates)
+    .innerJoin(
+      messages,
+      and(
+        eq(messages.channelId, channelReadStates.channelId),
+        gt(messages.id, channelReadStates.lastReadMessageId)
+      )
+    )
+    .where(
+      and(
+        eq(channelReadStates.channelId, channelId),
+        inArray(channelReadStates.userId, userIds),
+        isNotNull(channelReadStates.lastReadMessageId)
+      )
+    )
+    .groupBy(channelReadStates.userId);
+
+  for (const row of rows) {
+    result.set(row.userId, {
+      count: Number(row.unreadCount),
+      mentionCount: Number(row.mentionCount)
+    });
+  }
+
+  return result;
+};
+
+/**
+ * Batch twin of getForumUnreadForUser: aggregated unread + mention
+ * counts across every child THREAD of one forum, for many users, in one
+ * statement. Same per-user semantics as the single-user variant.
+ */
+const getForumUnreadForUsers = async (
+  userIds: number[],
+  forumChannelId: number
+): Promise<Map<number, TUnreadCounts>> => {
+  const result = new Map<number, TUnreadCounts>();
+  if (userIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      userId: channelReadStates.userId,
+      unreadCount: sql<number>`
+        COUNT(*) FILTER (WHERE ${messages.userId} != ${channelReadStates.userId})
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(*) FILTER (
+          WHERE ${messages.userId} != ${channelReadStates.userId}
+            AND ${messages.mentionedUserIds}::jsonb @> jsonb_build_array(${channelReadStates.userId})
+        )
+      `.as('mention_count')
+    })
+    .from(channelReadStates)
+    .innerJoin(
+      channels,
+      and(
+        eq(channels.id, channelReadStates.channelId),
+        eq(channels.parentChannelId, forumChannelId),
+        eq(channels.type, 'THREAD')
+      )
+    )
+    .innerJoin(
+      messages,
+      and(
+        eq(messages.channelId, channelReadStates.channelId),
+        gt(messages.id, channelReadStates.lastReadMessageId)
+      )
+    )
+    .where(
+      and(
+        inArray(channelReadStates.userId, userIds),
+        isNotNull(channelReadStates.lastReadMessageId)
+      )
+    )
+    .groupBy(channelReadStates.userId);
+
+  for (const row of rows) {
+    result.set(row.userId, {
+      count: Number(row.unreadCount),
+      mentionCount: Number(row.mentionCount)
+    });
+  }
+
+  return result;
+};
+
 /**
  * A channel row as it may leave the server. `fileAccessToken` is the
  * per-channel secret that mints file tokens and must never reach a
@@ -432,6 +551,8 @@ export {
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
   getChannelsReadStatesForUser,
+  getChannelUnreadForUsers,
   getForumUnreadForUser,
+  getForumUnreadForUsers,
   toWireChannel
 };

@@ -34,7 +34,9 @@ const getActivityLogRoute = instanceOwnerProcedure
         serverName: servers.name
       })
       .from(activityLog)
-      .innerJoin(users, eq(activityLog.userId, users.id))
+      // LEFT: system events (SERVER_STARTED, ...) have no actor —
+      // userId and userName come back null and the client shows "System".
+      .leftJoin(users, eq(activityLog.userId, users.id))
       .leftJoin(servers, eq(activityLog.serverId, servers.id))
       .where(scope !== undefined ? and(scope) : undefined)
       .orderBy(desc(activityLog.createdAt), desc(activityLog.id))

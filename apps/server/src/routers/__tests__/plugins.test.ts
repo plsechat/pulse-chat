@@ -5,7 +5,7 @@ import path from 'path';
 import { insertMemberUser, insertOtherServer } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { servers, settings } from '../../db/schema';
+import { servers } from '../../db/schema';
 import { PLUGINS_PATH } from '../../helpers/paths';
 import { pluginManager } from '../../plugins';
 
@@ -219,9 +219,9 @@ describe('plugins router — per-server command execution', () => {
 
   test('sensitive command arguments are redacted in the plugin log and the activity log', async () => {
     await initTest(1);
-    // Loader gate (instance settings flag) — the per-server flag only
-    // gates execution.
-    await getTestDb().update(settings).set({ enablePlugins: true });
+    // Instance-level enablement lives on the bootstrap server row; the
+    // per-server flag only gates execution.
+    await setServerPlugins(1, true);
 
     const id = 'redact-sensitive-args';
     const cleanup = await writeCommandPlugin(id);

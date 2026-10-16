@@ -19,9 +19,19 @@ import { startMetricsSampler } from './utils/metrics';
 import { enqueueActivityLog } from './queues/activity-log';
 import { initVoiceRuntimes } from './runtimes';
 import { createServers } from './utils/create-servers';
-import { loadMediasoup } from './utils/mediasoup';
+import { closeMediasoup, loadMediasoup } from './utils/mediasoup';
 import { logger } from './logger';
 import { printDebug } from './utils/print-debug';
+import { activityLogQueue } from './queues/activity-log';
+import { dmMessageMetadataQueue } from './queues/dm-message-metadata';
+import { drainQueue } from './queues/drain';
+import { loginsQueue } from './queues/logins';
+import { messageMetadataQueue } from './queues/message-metadata';
+import { VoiceRuntime } from './runtimes/voice';
+import { db } from './db';
+import { runShutdownSequence } from './utils/shutdown';
+import type http from 'http';
+import type { Sql } from 'postgres';
 
 console.log('[pulse] Connecting to database...');
 try {
@@ -64,8 +74,9 @@ try {
 }
 
 console.log('[pulse] Starting HTTP and WebSocket servers...');
+let httpServer: http.Server;
 try {
-  await createServers();
+  httpServer = await createServers();
 } catch (e) {
   console.error('[pulse] FATAL: Server creation failed:', e);
   process.exit(1);
@@ -116,3 +127,57 @@ printDebug();
 enqueueActivityLog({
   type: ActivityLogType.SERVER_STARTED
 });
+
+// ── Graceful shutdown ────────────────────────────────────────────────
+// Docker sends SIGTERM (STOPSIGNAL) on stop/upgrade; Ctrl-C is SIGINT.
+// Without this, in-flight activity-log/login/preview writes, plugin
+// `onUnload`, the mediasoup worker and the DB pool were all dropped
+// mid-flight. The sequence lives in utils/shutdown.ts (unit-tested);
+// this is only the wiring. Guarded so a second signal during the
+// sequence does not start it twice.
+const QUEUE_DRAIN_CAP_MS = 5000;
+let shuttingDown = false;
+
+const shutdown = (signal: NodeJS.Signals) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  logger.info(`Received ${signal}, shutting down...`);
+
+  void runShutdownSequence({
+    closeHttp: () =>
+      new Promise<void>((resolve) => {
+        // Stop accepting; idle keep-alive sockets are released so
+        // close() does not wait on them. Live WS sessions end with the
+        // process — clients reconnect to the replacement.
+        httpServer.close(() => resolve());
+        httpServer.closeIdleConnections();
+      }),
+    drainQueues: async () => {
+      await Promise.all(
+        [
+          activityLogQueue,
+          loginsQueue,
+          messageMetadataQueue,
+          dmMessageMetadataQueue
+        ].map((queue) => drainQueue(queue, QUEUE_DRAIN_CAP_MS))
+      );
+    },
+    unloadPlugins: () => pluginManager.unloadPlugins(),
+    destroyVoiceRuntimes: () => VoiceRuntime.destroyAll(),
+    closeMediasoup: () => closeMediasoup(),
+    // drizzle's postgres-js driver attaches the raw client as `$client`
+    // (typed only on drizzle()'s return, not on PostgresJsDatabase).
+    closeDb: () =>
+      (db as typeof db & { $client: Sql }).$client.end({ timeout: 5 }),
+    exit: (code) => process.exit(code),
+    log: {
+      info: (message) => logger.info(message),
+      warn: (message) => logger.warn(message),
+      error: (message) => logger.error(message)
+    }
+  });
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

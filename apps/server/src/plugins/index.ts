@@ -25,7 +25,7 @@ import fs from 'node:fs/promises';
 import path from 'path';
 import semver from 'semver';
 import { db } from '../db';
-import { getSettings } from '../db/queries/server';
+import { getInstanceServerSettings } from '../db/queries/server';
 import { getServerMemberIds } from '../db/queries/servers';
 import { channels, pluginData, servers } from '../db/schema';
 import { PLUGINS_PATH } from '../helpers/paths';
@@ -182,10 +182,17 @@ class PluginManager {
     return result;
   };
 
+  /**
+   * Boot-time load of every plugin directory, gated on the BOOTSTRAP
+   * server row's `enablePlugins` (plugins are instance-level; the
+   * instance owner's server is the instance's row). The `settings`
+   * table has the same column, but nothing writes it, so gating on it
+   * meant plugins could never load on any install.
+   */
   public loadPlugins = async () => {
-    const settings = await getSettings();
+    const { enablePlugins } = await getInstanceServerSettings();
 
-    if (!settings.enablePlugins) return;
+    if (!enablePlugins) return;
 
     await this.loadPluginStates();
 
@@ -476,6 +483,10 @@ class PluginManager {
     }
   };
 
+  /** Whether the plugin's module is currently loaded (onLoad ran). */
+  public isPluginLoaded = (pluginId: string): boolean =>
+    this.loadedPlugins.has(pluginId);
+
   public unload = async (pluginId: string) => {
     const pluginModule = this.loadedPlugins.get(pluginId);
 
@@ -552,13 +563,13 @@ class PluginManager {
     };
   };
 
+  /**
+   * Loads one plugin. Deliberately NOT gated on the instance
+   * `enablePlugins` flag: `togglePlugin` is the instance owner's explicit
+   * intent to run this plugin now, so it loads even while the boot-time
+   * flag is off (the flag only decides what loads on the next start).
+   */
   public load = async (pluginId: string) => {
-    const { enablePlugins } = await getSettings();
-
-    if (!enablePlugins) {
-      throw new Error('Plugins are disabled.');
-    }
-
     if (!this.isPluginEnabled(pluginId)) {
       this.logPlugin(
         pluginId,

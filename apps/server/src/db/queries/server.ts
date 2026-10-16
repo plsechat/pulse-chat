@@ -29,6 +29,35 @@ const getSettings = async (): Promise<TJoinedSettings> => {
   };
 };
 
+/**
+ * Instance-wide limits that live on the BOOTSTRAP server row (lowest id):
+ * uploads are instance-global (one files table, one disk) and plugins
+ * load at the instance level, so the first server's row is the single
+ * source of truth for both. The `settings` table still carries the same
+ * columns but nothing writes them — reading them there applied the
+ * seeded defaults forever, whatever the owner set in the UI.
+ */
+const getInstanceServerSettings = async () => {
+  const [server] = await db
+    .select({
+      storageUploadEnabled: servers.storageUploadEnabled,
+      storageQuota: servers.storageQuota,
+      storageUploadMaxFileSize: servers.storageUploadMaxFileSize,
+      storageSpaceQuotaByUser: servers.storageSpaceQuotaByUser,
+      storageOverflowAction: servers.storageOverflowAction,
+      enablePlugins: servers.enablePlugins
+    })
+    .from(servers)
+    .orderBy(servers.id)
+    .limit(1);
+
+  if (!server) {
+    throw new Error('Bootstrap server not found in database');
+  }
+
+  return server;
+};
+
 const getServerPublicSettings = async (
   serverId: number
 ): Promise<TPublicServerSettings> => {
@@ -102,6 +131,7 @@ const warmFileHmacSecret = async (): Promise<string> => {
 
 export {
   getFileHmacSecretSync,
+  getInstanceServerSettings,
   getServerPublicSettings,
   getSettings,
   warmFileHmacSecret

@@ -1,7 +1,7 @@
 import { and, eq, or } from 'drizzle-orm';
 import { db } from '..';
 import { userBlocks } from '../schema';
-import { getPublicUserById } from './users';
+import { getPublicUsersByIds } from './users';
 import type { TJoinedPublicUser } from '@pulse/shared';
 
 /**
@@ -43,9 +43,10 @@ const getBlockedUsers = async (
     .from(userBlocks)
     .where(eq(userBlocks.blockerId, blockerId));
 
+  const usersById = await getPublicUsersByIds(rows.map((row) => row.id));
   const out: TJoinedPublicUser[] = [];
   for (const row of rows) {
-    const user = await getPublicUserById(row.id);
+    const user = usersById.get(row.id);
     if (user) out.push(user);
   }
   return out;

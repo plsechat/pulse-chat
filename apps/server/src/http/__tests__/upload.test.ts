@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import path from 'path';
 import { login, uploadFile } from '../../__tests__/helpers';
 import { tdb, testsBaseUrl } from '../../__tests__/setup';
-import { servers, settings } from '../../db/schema';
+import { servers } from '../../db/schema';
 import { TMP_PATH } from '../../helpers/paths';
 import { fileExists, fileManager } from '../../utils/file-manager';
 
@@ -179,7 +179,7 @@ describe('/upload', () => {
 
   test('rejects an upload over the user quota with 413 before any bytes are written', async () => {
     const token = await loginOwner();
-    await tdb.update(settings).set({ storageSpaceQuotaByUser: 10 });
+    await tdb.update(servers).set({ storageSpaceQuotaByUser: 10 });
 
     const safePathSpy = spyOn(fileManager, 'getSafeUploadPath');
     const response = await uploadFile(
@@ -198,7 +198,7 @@ describe('/upload', () => {
 
   test('rejects an upload over the server quota with 413 when overflow action is PREVENT_UPLOADS', async () => {
     const token = await loginOwner();
-    await tdb.update(settings).set({
+    await tdb.update(servers).set({
       storageQuota: 10,
       storageOverflowAction: StorageOverflowAction.PREVENT_UPLOADS
     });
@@ -220,7 +220,7 @@ describe('/upload', () => {
   test('accepts an upload over the server quota when overflow action is DELETE_OLD_FILES', async () => {
     // saveFile frees the space in this mode, so intake must not refuse.
     const token = await loginOwner();
-    await tdb.update(settings).set({
+    await tdb.update(servers).set({
       storageQuota: 10,
       storageOverflowAction: StorageOverflowAction.DELETE_OLD_FILES
     });

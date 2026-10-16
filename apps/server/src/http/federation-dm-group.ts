@@ -24,7 +24,7 @@
  */
 
 import { ServerEvents } from '@pulse/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
 import {
@@ -450,14 +450,30 @@ const federationDmSenderKeyHandler = async (
     return jsonResponse(res, 404, { error: 'Local recipient not found' });
   }
 
-  await db.insert(dmE2eeSenderKeys).values({
-    dmChannelId: mirror.id,
-    senderKeyId,
-    fromUserId: shadowSender.id,
-    toUserId: localRecipient.id,
-    distributionMessage,
-    createdAt: Date.now()
-  });
+  // Same tuple relayed twice (peer retry) updates the stored distribution
+  // instead of tripping the unique index.
+  await db
+    .insert(dmE2eeSenderKeys)
+    .values({
+      dmChannelId: mirror.id,
+      senderKeyId,
+      fromUserId: shadowSender.id,
+      toUserId: localRecipient.id,
+      distributionMessage,
+      createdAt: Date.now()
+    })
+    .onConflictDoUpdate({
+      target: [
+        dmE2eeSenderKeys.dmChannelId,
+        dmE2eeSenderKeys.fromUserId,
+        dmE2eeSenderKeys.toUserId,
+        dmE2eeSenderKeys.senderKeyId
+      ],
+      set: {
+        distributionMessage: sql`excluded.distribution_message`,
+        createdAt: Date.now()
+      }
+    });
 
   pubsub.publishFor(
     localRecipient.id,
