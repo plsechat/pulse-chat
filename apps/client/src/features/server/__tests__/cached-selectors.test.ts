@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { UserStatus } from '@pulse/shared';
-import type { TJoinedPublicUser, TJoinedRole } from '@pulse/shared';
+import type { TJoinedPublicUser, TJoinedRole } from '@pulse/server/types';
 import { appSliceReducer } from '@/features/app/slice';
 import { dmsSliceReducer } from '@/features/dms/slice';
 import { friendsSliceReducer } from '@/features/friends/slice';

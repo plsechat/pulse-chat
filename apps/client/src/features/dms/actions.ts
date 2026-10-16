@@ -23,7 +23,12 @@ import {
 } from '@/lib/not-connected-error';
 import { getHomeTRPCClient, getVoiceTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
-import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
+import { TYPING_MS } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedDmChannel,
+  TJoinedDmMessage
+} from '@pulse/server/types';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
@@ -366,6 +371,42 @@ export const fetchLatestDmMessages = async (dmChannelId: number) => {
 
     store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
     markDmChannelAsRead(dmChannelId);
+  } catch (err) {
+    console.error('Failed to fetch DM messages:', err);
+  }
+};
+
+/**
+ * Page a detached window toward the present: the messages newer than
+ * `after` (the newest loaded createdAt). Reaching the tail re-attaches
+ * the window, and that is the moment the conversation has been read:
+ * live messages that arrived while it was detached were counted unread
+ * (addDmMessages), so the badge clears and the server marker advances
+ * exactly as opening the conversation does. The server writes no read
+ * state for a forward page itself.
+ */
+export const fetchNewerDmMessages = async (
+  dmChannelId: number,
+  after: number
+) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  try {
+    const result = await trpc.dms.getMessages.query({ dmChannelId, after });
+
+    const decryptedMessages = await decryptDmMessages(result.messages);
+    // Appending past the cap trims the oldest end and flags hasOlder in
+    // the reducer; only the newer edge is news here.
+    await addDmMessages(dmChannelId, decryptedMessages);
+    const attached = result.afterCursor == null;
+    store.dispatch(
+      dmsSliceActions.setMessageWindow({ dmChannelId, hasNewer: !attached })
+    );
+
+    if (attached) {
+      store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+      markDmChannelAsRead(dmChannelId);
+    }
   } catch (err) {
     console.error('Failed to fetch DM messages:', err);
   }

@@ -13,7 +13,7 @@
 
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 
 // The e2ee store reads the Redux singleton; other test files in this
 // suite replace that module process-wide with a stub whose dispatch is

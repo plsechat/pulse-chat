@@ -1,5 +1,5 @@
 import { PaginatedTable } from '@/components/paginated-table';
-import type { TJoinedInvite } from '@pulse/shared';
+import type { TJoinedInvite } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { TableInvite } from './table-invite';
 

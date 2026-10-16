@@ -54,7 +54,7 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmMessage } from '@pulse/server/types';
 import { MAX_MESSAGE_CONTENT_LENGTH, TYPING_MS } from '@pulse/shared';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import {
@@ -111,6 +111,7 @@ const DmConversation = memo(
     fetching,
     hasMore,
     loadMore,
+    loadNewer,
     reattach,
     detached,
     groupedMessages
@@ -123,7 +124,9 @@ const DmConversation = memo(
     messages,
     fetching,
     hasMore,
-    loadMore
+    loadMore,
+    detached,
+    loadNewer
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownDmCallChannelId = useOwnDmCallChannelId();
@@ -453,8 +456,9 @@ const DmConversation = memo(
           })}
           {detached && (
             // The loaded window is mid-history (paged up past the
-            // 300-message cap). The DM route has no forward paging, so
-            // the way back to the present is to refetch the latest page.
+            // 300-message cap). Scrolling toward the bottom pages forward
+            // (useChatScroll -> loadNewer); the pill is the shortcut
+            // straight to the latest page.
             <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
               <button
                 type="button"

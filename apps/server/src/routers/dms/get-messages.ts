@@ -1,6 +1,11 @@
-import type { TFile, TJoinedDmMessage, TMessageReplyPreview } from '@pulse/shared';
+import type {
+  TDmMessage,
+  TFile,
+  TJoinedDmMessage,
+  TMessageReplyPreview
+} from '../../types';
 import { ServerEvents } from '@pulse/shared';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -19,6 +24,12 @@ const getMessagesRoute = protectedProcedure
     z.object({
       dmChannelId: z.number().int().positive(),
       cursor: z.number().int().positive().nullish(),
+      // Pages FORWARD (ascending) from a createdAt cursor, the way
+      // messages.get does: a window that paged up past the client's
+      // message cap is detached from the live tail and fills back
+      // toward the present with this instead of refetching the latest
+      // page. Exclusive with `cursor`; `after` wins if both are given.
+      after: z.number().int().positive().nullish(),
       limit: z.number().int().min(1).max(100).default(DEFAULT_DM_MESSAGES_LIMIT)
     })
   )
@@ -30,35 +41,65 @@ const getMessagesRoute = protectedProcedure
       message: 'You are not a member of this DM channel'
     });
 
-    const { dmChannelId, cursor, limit } = input;
+    const { dmChannelId, cursor, after, limit } = input;
 
-    const rows = await db
-      .select()
-      .from(dmMessages)
-      .where(
-        cursor
-          ? and(
-              eq(dmMessages.dmChannelId, dmChannelId),
-              lt(dmMessages.createdAt, cursor)
-            )
-          : eq(dmMessages.dmChannelId, dmChannelId)
-      )
-      .orderBy(desc(dmMessages.createdAt))
-      .limit(limit + 1);
-
+    let rows: TDmMessage[];
     let nextCursor: number | null = null;
+    // Non-null when newer messages than the returned window exist — pass
+    // back as `after` to page toward the present. null = the window
+    // reaches the live tail.
+    let afterCursor: number | null = null;
 
-    if (rows.length > limit) {
-      // Cursor = createdAt of the last RETURNED row: pointing at the
-      // popped probe row made the next page's strict lt() skip it — one
-      // message silently lost at every page boundary (same fix as the
-      // channel messages route).
-      rows.pop();
-      nextCursor = rows[rows.length - 1]?.createdAt ?? null;
+    if (after != null) {
+      const newerRows = await db
+        .select()
+        .from(dmMessages)
+        .where(
+          and(
+            eq(dmMessages.dmChannelId, dmChannelId),
+            gt(dmMessages.createdAt, after)
+          )
+        )
+        .orderBy(asc(dmMessages.createdAt))
+        .limit(limit + 1);
+
+      let hasNewer = false;
+      if (newerRows.length > limit) {
+        newerRows.pop();
+        hasNewer = true;
+      }
+
+      // Newest-first like the cursor pages, so the client treats every
+      // page the same way.
+      rows = newerRows.reverse();
+      afterCursor = hasNewer && rows.length > 0 ? rows[0]!.createdAt : null;
+    } else {
+      rows = await db
+        .select()
+        .from(dmMessages)
+        .where(
+          cursor
+            ? and(
+                eq(dmMessages.dmChannelId, dmChannelId),
+                lt(dmMessages.createdAt, cursor)
+              )
+            : eq(dmMessages.dmChannelId, dmChannelId)
+        )
+        .orderBy(desc(dmMessages.createdAt))
+        .limit(limit + 1);
+
+      if (rows.length > limit) {
+        // Cursor = createdAt of the last RETURNED row: pointing at the
+        // popped probe row made the next page's strict lt() skip it — one
+        // message silently lost at every page boundary (same fix as the
+        // channel messages route).
+        rows.pop();
+        nextCursor = rows[rows.length - 1]?.createdAt ?? null;
+      }
     }
 
     if (rows.length === 0) {
-      return { messages: [], nextCursor };
+      return { messages: [], nextCursor, afterCursor };
     }
 
     const messageIds = rows.map((m) => m.id);
@@ -144,9 +185,11 @@ const getMessagesRoute = protectedProcedure
     // Update read state — first page only. Opening the conversation
     // is what reads it; paging back through history must not move the
     // marker to an older message (that re-flagged every newer message
-    // as unread on the next channel fetch). GREATEST keeps the marker
-    // monotonic even if a stale first-page response lands late.
-    if (!cursor) {
+    // as unread on the next channel fetch), and a forward page is read
+    // by the client when it reaches the tail (dms.markChannelAsRead),
+    // not here. GREATEST keeps the marker monotonic even if a stale
+    // first-page response lands late.
+    if (!cursor && after == null) {
       const latestId = Math.max(...rows.map((m) => m.id));
       const now = Date.now();
 
@@ -173,7 +216,7 @@ const getMessagesRoute = protectedProcedure
       });
     }
 
-    return { messages: messagesWithFiles, nextCursor };
+    return { messages: messagesWithFiles, nextCursor, afterCursor };
   });
 
 export { getMessagesRoute };

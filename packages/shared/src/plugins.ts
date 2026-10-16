@@ -1,24 +1,27 @@
-import z from "zod";
-
-export const zPluginPackageJson = z.object({
-  version: z
-    .string()
-    .regex(/^\d+\.\d+\.\d+(-[a-zA-Z0-9-.]+)?$/, "Invalid version format"),
-  name: z.string().min(1, "Package name is required"),
-  pulse: z.object({
-    entry: z.string().endsWith(".js", "Plugin entry file must be a .js file"),
-    // Semver range of @pulse/plugin-sdk the plugin was written against.
-    // Optional for one release; the server refuses to load a plugin whose
-    // range the running SDK version does not satisfy.
-    sdk: z.string().min(1).optional(),
-    author: z.string().min(1, "Plugin author is required"),
-    homepage: z.url().optional(),
-    description: z.string().min(1, "Plugin description is required"),
-    logo: z.string().optional(),
-  }),
-});
-
-export type TPluginPackageJson = z.infer<typeof zPluginPackageJson>;
+/**
+ * The plugin's package.json as the server loader reads it. Hand-written
+ * (not inferred from a schema) so @pulse/shared stays free of zod — the
+ * client bundles this package, and zod is server-only. The validating
+ * schema is the server's plugins/package-json-schema.ts, which is
+ * type-checked against this shape.
+ */
+export type TPluginPackageJson = {
+  version: string;
+  name: string;
+  pulse: {
+    entry: string;
+    /**
+     * Semver range of @pulse/plugin-sdk the plugin was written against.
+     * Optional for one release; the server refuses to load a plugin
+     * whose range the running SDK version does not satisfy.
+     */
+    sdk?: string;
+    author: string;
+    homepage?: string;
+    description: string;
+    logo?: string;
+  };
+};
 
 export type TPluginInfo = {
   id: string;
@@ -89,21 +92,21 @@ export type RegisteredCommand = {
   command: CommandDefinition<unknown>;
 };
 
-export const zParsedDomCommand = z.object({
-  pluginId: z.string().min(1),
-  commandName: z.string().min(1),
-  status: z.enum(["pending", "completed", "failed"]).default("pending"),
-  response: z.string().optional(),
-  logo: z.url().optional(),
-  args: z.array(
-    z.object({
-      name: z.string(),
-      value: z.unknown(),
-    }),
-  ),
-});
+export type TParsedDomCommandStatus = "pending" | "completed" | "failed";
 
-export type TParsedDomCommand = z.infer<typeof zParsedDomCommand>;
+/**
+ * A `<command>` element decoded from message HTML. Validated by
+ * helpers/command-parser.ts (parseDomCommand), which is what enforces
+ * this shape at runtime.
+ */
+export type TParsedDomCommand = {
+  pluginId: string;
+  commandName: string;
+  status: TParsedDomCommandStatus;
+  response?: string;
+  logo?: string;
+  args: { name: string; value: unknown }[];
+};
 
 export type TCommandElement = {
   attribs: {

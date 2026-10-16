@@ -19,7 +19,10 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
-import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
+import type {
+  TJoinedFriendRequest,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 import {
   Ban,
   Check,

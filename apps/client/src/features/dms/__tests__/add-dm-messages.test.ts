@@ -15,7 +15,11 @@ import { dmsSliceActions } from '@/features/dms/slice';
 import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
 import { LocalStorageKey } from '@/helpers/storage';
-import type { TJoinedDmChannel, TJoinedDmMessage, TJoinedPublicUser } from '@pulse/shared';
+import type {
+  TJoinedDmChannel,
+  TJoinedDmMessage,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 
 const user = (id: number, name: string) =>
   ({ id, name, roleIds: [] }) as unknown as TJoinedPublicUser;

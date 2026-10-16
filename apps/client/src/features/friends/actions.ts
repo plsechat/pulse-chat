@@ -1,6 +1,9 @@
 import { requireHomeTRPCClient } from '@/lib/not-connected-error';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
+import type {
+  TJoinedFriendRequest,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 import { store } from '../store';
 import { friendsSliceActions } from './slice';
 

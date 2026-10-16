@@ -4,7 +4,7 @@ import type { IRootState } from '@/features/store';
 import { store } from '@/features/store';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedFriendRequest } from '@pulse/shared';
+import type { TJoinedFriendRequest } from '@pulse/server/types';
 import {
   addFriend,
   addRequest,

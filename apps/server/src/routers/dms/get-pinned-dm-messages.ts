@@ -1,4 +1,8 @@
-import type { TFile, TJoinedDmMessage, TMessageReplyPreview } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedDmMessage,
+  TMessageReplyPreview
+} from '../../types';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';

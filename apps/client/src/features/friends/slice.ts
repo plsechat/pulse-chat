@@ -1,5 +1,8 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
+import type {
+  TJoinedFriendRequest,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 
 export interface TFriendsState {
   friends: TJoinedPublicUser[];

@@ -4,7 +4,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 

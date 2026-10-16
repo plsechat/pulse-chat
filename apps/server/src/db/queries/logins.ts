@@ -1,4 +1,4 @@
-import type { TLogin } from '@pulse/shared';
+import type { TLogin } from '../../types';
 import { desc, eq } from 'drizzle-orm';
 import { db } from '..';
 import { logins } from '../schema';

@@ -1,10 +1,10 @@
-import {
-  ChannelPermission,
-  type TFile,
-  type TJoinedMessage,
-  type TMessage,
-  type TMessageReplyPreview
-} from '@pulse/shared';
+import { ChannelPermission } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TMessage,
+  TMessageReplyPreview
+} from '../../types';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../../db';
 import { getReactionsForMessageIds } from '../../db/queries/messages';

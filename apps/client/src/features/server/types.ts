@@ -1,9 +1,9 @@
-import {
-  type TFile,
-  type TJoinedMessage,
-  type TJoinedPublicUser,
-  type TVoiceUserState
-} from '@pulse/shared';
+import { type TVoiceUserState } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 
 export enum SoundType {
   MESSAGE_RECEIVED = 'message_received',

@@ -1,5 +1,5 @@
 import { store } from '@/features/store';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { serverSliceActions } from '../slice';
 
 

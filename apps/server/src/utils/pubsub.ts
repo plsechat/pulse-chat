@@ -1,24 +1,26 @@
 import type {
   ServerEvents,
   StreamKind,
-  TCategory,
-  TChannel,
   TChannelUserPermissionsMap,
   TCommandsMapByPlugin,
   TExternalStream,
+  TLogEntry,
+  TThreadInfo,
+  TVoiceKind,
+  TVoiceUserState
+} from '@pulse/shared';
+import type {
+  TCategory,
+  TChannel,
   TJoinedDmMessage,
   TJoinedEmoji,
   TJoinedFriendRequest,
   TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
-  TLogEntry,
   TPublicServerSettings,
-  TServerSummary,
-  TThreadInfo,
-  TVoiceKind,
-  TVoiceUserState
-} from '@pulse/shared';
+  TServerSummary
+} from '../types';
 import type { Unsubscribable } from '@trpc/server/observable';
 import { observable, type Observable } from '@trpc/server/observable';
 import { EventEmitter } from 'events';

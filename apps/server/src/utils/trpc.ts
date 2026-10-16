@@ -2,15 +2,15 @@ import {
   ChannelPermission,
   ServerEvents,
   UserStatus,
-  type Permission,
-  type TUser
+  type Permission
 } from '@pulse/shared';
+import type { TUser } from '../types';
 import { initTRPC, TRPCError } from '@trpc/server';
 import chalk from 'chalk';
 import type WebSocket from 'ws';
 import { config } from '../config';
 import { logger } from '../logger';
-import type { TConnectionInfo } from '../types';
+import type { TConnectionInfo } from '../helpers/get-ws-info';
 import { isBanned } from './banned-cache';
 import { invariant } from './invariant';
 import {

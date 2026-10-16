@@ -1,4 +1,4 @@
-import { ChannelPermission, type TFile, type TServer, type TSettings, type TUser } from ".";
+import type { ChannelPermission } from "./statics/permissions";
 
 export enum ChannelType {
   TEXT = "TEXT",
@@ -31,25 +31,6 @@ export type TRemoteProducerIds = {
   remoteExternalStreamIds: number[];
 };
 
-export type TPublicServerSettings = Pick<
-  TServer,
-  | "id"
-  | "name"
-  | "description"
-  | "publicId"
-  | "storageUploadEnabled"
-  | "storageQuota"
-  | "storageUploadMaxFileSize"
-  | "storageSpaceQuotaByUser"
-  | "storageOverflowAction"
-  | "enablePlugins"
-> & {
-  /** Current server logo, so clients can live-update the server rail on
-   *  SERVER_SETTINGS_UPDATE without a refetch. Optional — older servers
-   *  don't send it. */
-  logo?: TFile | null;
-};
-
 export type TGenericObject = Record<string, unknown>;
 
 export type TMessageMetadata = {
@@ -73,8 +54,6 @@ export enum UserStatus {
   INVISIBLE = "invisible",
   OFFLINE = "offline",
 }
-
-export type TOwnUser = TUser;
 
 export type TConnectionParams = {
   accessToken: string;
@@ -117,43 +96,6 @@ export type TAuthProvider = {
   name: string;
   label: string;
   kind?: 'supabase' | 'oidc';
-};
-
-export type TServerInfo = Pick<
-  TSettings,
-  "serverId" | "name" | "description" | "allowNewUsers"
-> & {
-  id?: number;
-  logo: TFile | null;
-  version: string;
-  registrationDisabled?: boolean;
-  /** Whether email/password self-registration is enabled. When false, the
-   * client hides the Create Account form (unless an invite link is present).
-   * Absent = enabled (backwards compat with older servers). */
-  passwordRegistrationEnabled?: boolean;
-  /** Derived SSO-only flag: false when password registration is disabled
-   * AND at least one SSO provider is advertised. The client then hides the
-   * email/password login form (unless an invite link is present) and the
-   * server rejects password logins. Absent = enabled (backwards compat). */
-  passwordLoginEnabled?: boolean;
-  enabledAuthProviders?: TAuthProvider[];
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  giphyApiKey?: string;
-  /** Instance-global screen-share ceiling. The client offers every quality
-   * rung at or below these and clamps its capture to them. Absent = no cap
-   * advertised (older servers); the client falls back to its own defaults. */
-  maxScreenResolution?: string;
-  maxScreenFramerate?: number;
-  /** Optional ICE relay configuration the operator set for clients that
-   * cannot reach the media port directly (UDP and TCP both blocked). The
-   * SFU is ICE-lite with an announced public address, so STUN is never
-   * needed and the server itself never uses a relay; the client passes
-   * these to both WebRTC transports as-is. Absent = no relay. */
-  iceServers?: TIceServer[];
-  /** `relay` forces every client through the configured TURN servers
-   * (diagnostics / locked-down networks); default `all`. */
-  iceTransportPolicy?: TIceTransportPolicy;
 };
 
 export type TIceServer = {
@@ -306,17 +248,6 @@ export type TFederationConfig = {
   hasKeys: boolean;
   publicKey?: string;
   allowUserFederatableServers: boolean;
-};
-
-export type TRemoteServerSummary = {
-  publicId: string;
-  name: string;
-  description: string | null;
-  logo: TFile | null;
-  memberCount: number;
-  instanceDomain: string;
-  instanceName: string;
-  hasPassword?: boolean;
 };
 
 export enum AutomodRuleType {

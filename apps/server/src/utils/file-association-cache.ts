@@ -1,4 +1,4 @@
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '../types';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { getDmChannelIdByFileId } from '../db/queries/dms';

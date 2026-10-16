@@ -1,4 +1,4 @@
-import type { TJoinedDmChannel } from '@pulse/shared';
+import type { TJoinedDmChannel } from '../../types';
 import type { Context } from '../../utils/trpc';
 
 /**

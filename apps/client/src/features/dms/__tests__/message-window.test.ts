@@ -1,13 +1,13 @@
 /**
  * The DM slice's message window: same 300-message cap and detach rules
- * as the channel slice (features/message-window.ts), plus the DM-only
- * re-attach path — the DM route has no forward paging, so "Jump to
- * Present" replaces the window with the latest page.
+ * as the channel slice (features/message-window.ts): a forward page
+ * (dms.getMessages `after`) appends and trims the oldest end, and
+ * "Jump to Present" replaces the window with the latest page.
  *
  * Run via: bun test apps/client/src/features/dms/__tests__/message-window.test.ts
  */
 import { describe, expect, test } from 'bun:test';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmMessage } from '@pulse/server/types';
 import { dmsSliceActions, dmsSliceReducer as reducer } from '../slice';
 
 const initial = reducer(undefined, { type: '@@init' });
@@ -54,6 +54,28 @@ describe('DM message window cap', () => {
       dmsSliceActions.addMessages({ dmChannelId: 1, messages: [msg(900)], opts: { live: true } })
     );
     expect(s.messagesMap[1].map((m) => m.id)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('a forward page appended past the cap trims the oldest end; the tail re-attaches', () => {
+    let s = reducer(
+      initial,
+      dmsSliceActions.replaceMessages({ dmChannelId: 1, messages: page(1, 300), hasOlder: false })
+    );
+    s = reducer(s, dmsSliceActions.setMessageWindow({ dmChannelId: 1, hasNewer: true }));
+    // The page comes newest-first from the server, like every other page.
+    s = reducer(
+      s,
+      dmsSliceActions.addMessages({ dmChannelId: 1, messages: page(301, 350).reverse() })
+    );
+    expect(s.messagesMap[1]).toHaveLength(300);
+    expect(s.messagesMap[1][0].id).toBe(51);
+    expect(s.messagesMap[1][299].id).toBe(350);
+    // Trimming re-opened the older edge; the newer edge is the action's
+    // call (the reducer cannot know whether the page reached the tail).
+    expect(s.messageWindowMap[1]).toEqual({ hasOlder: true, hasNewer: true });
+
+    s = reducer(s, dmsSliceActions.setMessageWindow({ dmChannelId: 1, hasNewer: false }));
+    expect(s.messageWindowMap[1]).toEqual({ hasOlder: true, hasNewer: false });
   });
 
   test('the latest page re-attaches a detached window and clears it', () => {

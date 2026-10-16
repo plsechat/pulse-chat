@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import type {
   TChannelRolePermission,
   TChannelUserPermission
-} from '@pulse/shared';
+} from '@pulse/server/types';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { SearchPopover } from './search-popover';

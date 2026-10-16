@@ -20,7 +20,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Provider } from 'react-redux';
-import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
+import { DEFAULT_MESSAGES_LIMIT } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { MESSAGE_WINDOW_CAP } from '@/features/message-window';
 import { serverSliceActions } from '@/features/server/slice';
 import {

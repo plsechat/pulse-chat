@@ -6,7 +6,7 @@ import type {
   TJoinedDmMessage,
   TJoinedDmMessageReaction,
   TReactionUser
-} from '@pulse/shared';
+} from '../../types';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';

@@ -1,4 +1,4 @@
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import type { E2EEPlaintext } from './types';
 
 /**

@@ -10,9 +10,9 @@ import {
   audioExtensions,
   imageExtensions,
   videoExtensions,
-  type TFile,
   type TMessageMetadata
 } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
 import parse from 'html-react-parser';

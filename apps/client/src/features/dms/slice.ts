@@ -1,12 +1,11 @@
 import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { TVoiceUserState, UserStatus } from '@pulse/shared';
 import type {
   TJoinedDmChannel,
   TJoinedDmMessage,
-  TJoinedPublicUser,
-  TVoiceUserState,
-  UserStatus
-} from '@pulse/shared';
+  TJoinedPublicUser
+} from '@pulse/server/types';
 import {
   mergeMessageWindow,
   replaceMessageWindow,

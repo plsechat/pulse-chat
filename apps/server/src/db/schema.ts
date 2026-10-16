@@ -1,9 +1,9 @@
 import {
-  type TActivityLogDetailsMap,
   type TMessageMetadata,
   type TNameStyle,
   type TUserPreferences
 } from '@pulse/shared';
+import type { TActivityLogDetailsMap } from '../types';
 import {
   type AnyPgColumn,
   bigint,

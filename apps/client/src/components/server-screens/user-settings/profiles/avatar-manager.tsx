@@ -5,7 +5,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { Upload } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';

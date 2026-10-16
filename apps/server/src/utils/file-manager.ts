@@ -1,8 +1,5 @@
-import {
-  StorageOverflowAction,
-  type TFile,
-  type TTempFile
-} from '@pulse/shared';
+import { StorageOverflowAction, type TTempFile } from '@pulse/shared';
+import type { TFile } from '../types';
 import { randomUUIDv7 } from 'bun';
 import { createHash } from 'crypto';
 import { createReadStream } from 'fs';

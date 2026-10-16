@@ -1,4 +1,4 @@
-import type { TFile, TFileRef, TJoinedInvite } from '@pulse/shared';
+import type { TFile, TFileRef, TJoinedInvite } from '../../types';
 import { and, eq, gt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';

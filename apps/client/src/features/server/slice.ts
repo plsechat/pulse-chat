@@ -2,24 +2,26 @@ import type { TPinnedCard } from '@/components/channel-view/voice/hooks/use-pin-
 import { LocalStorageKey } from '@/helpers/storage';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
-  TCategory,
-  TChannel,
   TChannelUserPermissionsMap,
   TCommandsMapByPlugin,
   TExternalStream,
   TExternalStreamsMap,
+  TLastReadMessageIdMap,
+  TMentionStateMap,
+  TReadStateMap,
+  TVoiceMap,
+  TVoiceUserState
+} from '@pulse/shared';
+import type {
+  TCategory,
+  TChannel,
   TJoinedEmoji,
   TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
-  TLastReadMessageIdMap,
-  TMentionStateMap,
   TPublicServerSettings,
-  TReadStateMap,
-  TServerInfo,
-  TVoiceMap,
-  TVoiceUserState
-} from '@pulse/shared';
+  TServerInfo
+} from '@pulse/server/types';
 import {
   mergeMessageWindow,
   replaceMessageWindow,

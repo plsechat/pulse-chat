@@ -18,8 +18,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "drizzle-orm": "^0.44.6",
-    "js-sha256": "^0.11.1",
-    "zod": "^4.3.5"
+    "js-sha256": "^0.11.1"
   }
 }

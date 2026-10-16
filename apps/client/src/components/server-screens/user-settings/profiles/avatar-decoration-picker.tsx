@@ -3,7 +3,7 @@ import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { AVATAR_DECORATION_SLUGS } from '@pulse/shared';
 import { Check } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';

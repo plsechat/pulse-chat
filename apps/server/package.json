@@ -2,6 +2,9 @@
   "name": "@pulse/server",
   "version": "0.3.0",
   "module": "src/index.ts",
+  "exports": {
+    "./types": "./src/types.ts"
+  },
   "type": "module",
   "private": true,
   "scripts": {

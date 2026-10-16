@@ -21,7 +21,7 @@ import { getHostFromServer } from '@/helpers/get-file-url';
 import { applyServerPreferences } from '@/lib/preferences-apply';
 import { seedPreferencesFromLocalStorage } from '@/lib/preferences-seed';
 import { cleanup, connectToTRPC, getHomeTRPCClient } from '@/lib/trpc';
-import { type TPublicServerSettings, type TServerInfo } from '@pulse/shared';
+import type { TPublicServerSettings, TServerInfo } from '@pulse/server/types';
 import { store } from '../store';
 import { setPluginCommands } from './plugins/actions';
 import { infoSelector } from './selectors';

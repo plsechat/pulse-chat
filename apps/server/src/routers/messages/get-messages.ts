@@ -2,13 +2,15 @@ import {
   ChannelPermission,
   ChannelType,
   DEFAULT_MESSAGES_LIMIT,
-  ServerEvents,
-  type TFile,
-  type TJoinedMessage,
-  type TJoinedPublicUser,
-  type TMessage,
-  type TMessageReplyPreview
+  ServerEvents
 } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TJoinedPublicUser,
+  TMessage,
+  TMessageReplyPreview
+} from '../../types';
 import { and, asc, desc, eq, gt, inArray, lt, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';

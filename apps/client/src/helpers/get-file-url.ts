@@ -1,4 +1,4 @@
-import type { TFileRef } from '@pulse/shared';
+import type { TFileRef } from '@pulse/server/types';
 
 const getHostFromServer = () => {
   if (import.meta.env.MODE === 'development') {

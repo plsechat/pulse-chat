@@ -3,7 +3,7 @@
  * pagination invariants of addMessages (A10-10 #4, #5).
  */
 import { describe, expect, test } from 'bun:test';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import {
   type IServerState,
   serverSliceActions,

@@ -1,17 +1,22 @@
 import type { IRootState } from '@/features/store';
 import { windowOrDefault } from '@/features/message-window';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmMessage } from '@pulse/server/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { fetchDmMessages, fetchLatestDmMessages } from './actions';
+import {
+  fetchDmMessages,
+  fetchLatestDmMessages,
+  fetchNewerDmMessages
+} from './actions';
 import { dmMessagesSelector, dmMessageWindowSelector } from './selectors';
 
 /**
  * DM twin of features/server/messages/hooks useMessages. Both window
  * edges come from the store (features/message-window): paging up past
  * the 300-message cap trims the newest end and detaches the window
- * from the live tail. The DM route has no forward (`after`) paging, so
- * the only way back is `reattach` — refetch the latest page — which
+ * from the live tail. `loadNewer` pages back toward the present from
+ * the newest LOADED message (dms.getMessages `after`) as the user
+ * scrolls down; `reattach` — refetch the latest page — is the shortcut
  * the conversation's "Jump to Present" pill drives.
  */
 export const useDmMessages = (dmChannelId: number) => {
@@ -54,6 +59,21 @@ export const useDmMessages = (dmChannelId: number) => {
       setFetching(false);
     }
   }, [fetching, hasOlder, dmChannelId]);
+
+  /** Page forward (toward the present) while detached. */
+  const loadNewer = useCallback(async () => {
+    if (fetching || !hasNewer) return;
+
+    const newest = messagesRef.current[messagesRef.current.length - 1];
+    if (!newest) return;
+
+    setFetching(true);
+    try {
+      await fetchNewerDmMessages(dmChannelId, newest.createdAt);
+    } finally {
+      setFetching(false);
+    }
+  }, [fetching, hasNewer, dmChannelId]);
 
   const reattach = useCallback(async () => {
     if (fetching) return;
@@ -107,6 +127,7 @@ export const useDmMessages = (dmChannelId: number) => {
     fetching,
     hasMore: hasOlder,
     loadMore,
+    loadNewer,
     reattach,
     detached: hasNewer,
     groupedMessages

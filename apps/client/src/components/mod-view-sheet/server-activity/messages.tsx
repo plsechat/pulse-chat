@@ -1,6 +1,6 @@
 import { MessageRenderer } from '@/components/channel-view/text/renderer';
 import { PaginatedList } from '@/components/paginated-list';
-import type { TMessage } from '@pulse/shared';
+import type { TMessage } from '@pulse/server/types';
 import { fullDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { memo, useCallback } from 'react';

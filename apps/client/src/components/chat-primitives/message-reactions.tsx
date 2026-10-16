@@ -14,11 +14,8 @@ import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import {
-  Permission,
-  type TFile,
-  type TReactionUser
-} from '@pulse/shared';
+import { Permission } from '@pulse/shared';
+import type { TFile, TReactionUser } from '@pulse/server/types';
 import { gitHubEmojis } from '@tiptap/extension-emoji';
 import { SmilePlus } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';

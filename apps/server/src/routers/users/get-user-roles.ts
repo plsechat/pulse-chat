@@ -1,4 +1,5 @@
-import type { Permission, TJoinedRole } from '@pulse/shared';
+import type { Permission } from '@pulse/shared';
+import type { TJoinedRole } from '../../types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { rolePermissions, roles, userRoles } from '../../db/schema';

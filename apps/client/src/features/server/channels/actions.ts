@@ -6,7 +6,8 @@ import {
 } from '@/helpers/storage';
 import { syncPreference } from '@/lib/preferences-sync';
 import { getTRPCClient } from '@/lib/trpc';
-import { ChannelType, type TChannel, type TChannelUserPermissionsMap } from '@pulse/shared';
+import { ChannelType, type TChannelUserPermissionsMap } from '@pulse/shared';
+import type { TChannel } from '@pulse/server/types';
 import { serverSliceActions } from '../slice';
 import type { TVoiceKind } from '../voice/keys';
 import { channelByIdSelector, channelReadStateByIdSelector, selectedChannelIdSelector } from './selectors';

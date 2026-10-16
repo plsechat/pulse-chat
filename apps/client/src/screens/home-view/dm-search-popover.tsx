@@ -5,7 +5,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { useHomeUserById } from '@/features/server/users/hooks';
 import { longDateTime } from '@/helpers/time-format';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmMessage } from '@pulse/server/types';
 import { format } from 'date-fns';
 import parse from 'html-react-parser';
 import { Loader2, Search } from 'lucide-react';

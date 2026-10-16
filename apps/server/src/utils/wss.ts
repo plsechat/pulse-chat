@@ -12,11 +12,9 @@ import {
   ServerEvents,
   UserStatus,
   type TChannelUserPermissionsMap,
-  type TConnectionParams,
-  type TJoinedRole,
-  type TJoinedServer,
-  type TJoinedUser
+  type TConnectionParams
 } from '@pulse/shared';
+import type { TJoinedRole, TJoinedServer, TJoinedUser } from '../types';
 import { TRPCError } from '@trpc/server';
 import {
   applyWSSHandler,

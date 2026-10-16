@@ -22,9 +22,9 @@ import {
   ChannelPermission,
   MAX_MESSAGE_CONTENT_LENGTH,
   Permission,
-  TYPING_MS,
-  type TJoinedMessage
+  TYPING_MS
 } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { filesize } from 'filesize';
 import { throttle } from 'lodash-es';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';

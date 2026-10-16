@@ -1,9 +1,14 @@
 import { ServerEvents } from '@pulse/shared';
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
-import { dmMessageFiles, dmMessages, files } from '../../db/schema';
+import {
+  dmMessageFiles,
+  dmMessages,
+  dmReadStates,
+  files
+} from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 
 const insertFileRow = async (userId: number, name: string) => {
@@ -354,5 +359,118 @@ describe('dms.toggleReaction bounds', () => {
     expect(
       page.messages.find((m) => m.id === dmMessageId)!.reactions
     ).toHaveLength(1);
+  });
+});
+
+describe('dms.getMessages after (forward paging)', () => {
+  afterEach(() => mock.restore());
+
+  const readMarker = async (userId: number, dmChannelId: number) => {
+    const [row] = await getTestDb()
+      .select({ lastReadMessageId: dmReadStates.lastReadMessageId })
+      .from(dmReadStates)
+      .where(
+        and(
+          eq(dmReadStates.userId, userId),
+          eq(dmReadStates.dmChannelId, dmChannelId)
+        )
+      )
+      .limit(1);
+    return row?.lastReadMessageId ?? null;
+  };
+
+  const seedHistory = async (dmChannelId: number, count: number) => {
+    const base = Date.now() - 600_000;
+    // Distinct, increasing createdAt so the strict gt()/lt() cursors are
+    // unambiguous.
+    return getTestDb()
+      .insert(dmMessages)
+      .values(
+        Array.from({ length: count }, (_, i) => ({
+          dmChannelId,
+          userId: 2,
+          content: `m${i}`,
+          createdAt: base + i * 1000
+        }))
+      )
+      .returning({ id: dmMessages.id, createdAt: dmMessages.createdAt });
+  };
+
+  test('pages toward the present newest-first, reports afterCursor until the tail, never writes read state', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    const rows = await seedHistory(channel.id, 7);
+    const markerBefore = await readMarker(1, channel.id);
+
+    const spy = spyOn(pubsub, 'publishFor');
+    // Strictly newer than m1, three at a time: m2..m4, more remain.
+    const page1 = await caller1.dms.getMessages({
+      dmChannelId: channel.id,
+      after: rows[1]!.createdAt,
+      limit: 3
+    });
+    expect(page1.messages.map((m) => m.content)).toEqual(['m4', 'm3', 'm2']);
+    expect(page1.nextCursor).toBeNull();
+    // The cursor is the newest RETURNED row, so the next page's strict
+    // gt() starts exactly after it — nothing lost at the boundary.
+    expect(page1.afterCursor).toBe(rows[4]!.createdAt);
+
+    const page2 = await caller1.dms.getMessages({
+      dmChannelId: channel.id,
+      after: page1.afterCursor!,
+      limit: 3
+    });
+    expect(page2.messages.map((m) => m.content)).toEqual(['m6', 'm5']);
+    expect(page2.afterCursor).toBeNull();
+
+    // Past the tail: empty, attached.
+    const page3 = await caller1.dms.getMessages({
+      dmChannelId: channel.id,
+      after: rows[6]!.createdAt
+    });
+    expect(page3.messages).toEqual([]);
+    expect(page3.afterCursor).toBeNull();
+
+    // Forward pages are not "opening the conversation": no marker write,
+    // no read-state publish (the client marks read when it reaches the
+    // tail, through dms.markChannelAsRead).
+    expect(await readMarker(1, channel.id)).toBe(markerBefore);
+    const readStatePublishes = spy.mock.calls.filter(
+      ([, topic]) => topic === ServerEvents.DM_READ_STATE_UPDATE
+    );
+    expect(readStatePublishes).toHaveLength(0);
+
+    // The first page still does.
+    await caller1.dms.getMessages({ dmChannelId: channel.id, limit: 2 });
+    expect(await readMarker(1, channel.id)).toBe(rows[6]!.id);
+  });
+
+  test('after wins over cursor; membership and bounds apply', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    const rows = await seedHistory(channel.id, 3);
+
+    const page = await caller1.dms.getMessages({
+      dmChannelId: channel.id,
+      after: rows[1]!.createdAt,
+      cursor: rows[2]!.createdAt
+    });
+    expect(page.messages.map((m) => m.content)).toEqual(['m2']);
+
+    await expect(
+      caller3.dms.getMessages({ dmChannelId: channel.id, after: 1 })
+    ).rejects.toThrow('You are not a member of this DM channel');
+    await expect(
+      caller1.dms.getMessages({ dmChannelId: channel.id, after: 1.5 })
+    ).rejects.toThrow();
+    await expect(
+      caller1.dms.getMessages({ dmChannelId: channel.id, after: 0 })
+    ).rejects.toThrow();
+    await expect(
+      caller1.dms.getMessages({ dmChannelId: channel.id, after: 1, limit: 101 })
+    ).rejects.toThrow();
   });
 });

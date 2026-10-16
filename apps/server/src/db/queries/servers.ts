@@ -1,4 +1,5 @@
-import { OWNER_ROLE_ID, type TJoinedServer, type TServerSummary } from '@pulse/shared';
+import { OWNER_ROLE_ID } from '@pulse/shared';
+import type { TJoinedServer, TServerSummary } from '../../types';
 import { and, asc, eq, inArray, max, or, sql } from 'drizzle-orm';
 import { db } from '..';
 import {

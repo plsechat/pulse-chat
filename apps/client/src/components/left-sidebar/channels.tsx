@@ -37,12 +37,8 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import {
-  ChannelPermission,
-  ChannelType,
-  Permission,
-  type TChannel
-} from '@pulse/shared';
+import { ChannelPermission, ChannelType, Permission } from '@pulse/shared';
+import type { TChannel } from '@pulse/server/types';
 import { Hash, LayoutList, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';

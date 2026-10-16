@@ -1,7 +1,7 @@
 import type { IRootState } from '@/features/store';
 import { createSelector } from '@reduxjs/toolkit';
 import { UserStatus } from '@pulse/shared';
-import type { TJoinedPublicUser, TJoinedRole } from '@pulse/shared';
+import type { TJoinedPublicUser, TJoinedRole } from '@pulse/server/types';
 import { createCachedSelector } from 're-reselect';
 import { rolesSelector } from '../roles/selectors';
 

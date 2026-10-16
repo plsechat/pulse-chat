@@ -1,4 +1,5 @@
-import { DisconnectCode, type AppRouter } from '@pulse/shared';
+import { DisconnectCode } from '@pulse/shared';
+import type { AppRouter } from '@pulse/server/types';
 import { createTRPCProxyClient, createWSClient, wsLink } from '@trpc/client';
 
 /**

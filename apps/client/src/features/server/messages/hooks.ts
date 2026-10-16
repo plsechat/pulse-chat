@@ -1,6 +1,7 @@
 import type { IRootState } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
-import { DEFAULT_MESSAGES_LIMIT, type TJoinedMessage } from '@pulse/shared';
+import { DEFAULT_MESSAGES_LIMIT } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { windowOrDefault } from '@/features/message-window';

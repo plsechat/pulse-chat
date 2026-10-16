@@ -1,8 +1,5 @@
-import {
-  ActivityLogType,
-  OWNER_ROLE_ID,
-  type TJoinedUser
-} from '@pulse/shared';
+import { ActivityLogType, OWNER_ROLE_ID } from '@pulse/shared';
+import type { TJoinedUser } from '../types';
 import { randomUUIDv7 } from 'bun';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db';

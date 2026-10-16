@@ -6,14 +6,16 @@ import {
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MIN_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
-  STORAGE_QUOTA,
-  type TICategory,
-  type TIChannel,
-  type TIMessage,
-  type TIRole,
-  type TISettings,
-  type TIUser
+  STORAGE_QUOTA
 } from '@pulse/shared';
+import type {
+  TICategory,
+  TIChannel,
+  TIMessage,
+  TIRole,
+  TISettings,
+  TIUser
+} from '../types';
 import { randomUUIDv7 } from 'bun';
 import { sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';

@@ -1,4 +1,4 @@
-import type { TStorageSettings } from '@pulse/shared';
+import type { TStorageSettings } from '../../types';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';

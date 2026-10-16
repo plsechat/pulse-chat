@@ -1,4 +1,5 @@
-import { ServerEvents, type TUser } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
+import type { TUser } from '../../types';
 import { randomUUIDv7 } from 'bun';
 import { and, eq, inArray } from 'drizzle-orm';
 import path from 'path';

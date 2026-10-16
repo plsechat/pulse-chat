@@ -2,7 +2,7 @@ import { and, eq, or } from 'drizzle-orm';
 import { db } from '..';
 import { friendRequests, friendships } from '../schema';
 import { getPublicUsersByIds } from './users';
-import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedFriendRequest, TJoinedPublicUser } from '../../types';
 
 const getFriends = async (userId: number): Promise<TJoinedPublicUser[]> => {
   const rows = await db

@@ -8,20 +8,22 @@ import {
   STORAGE_OVERFLOW_ACTION,
   STORAGE_QUOTA,
   StorageOverflowAction,
-  type TCategory,
-  type TChannel,
-  type TChannelRolePermission,
-  type TChannelUserPermission,
-  type TDiskMetrics,
-  type TFile,
-  type TJoinedEmoji,
-  type TJoinedInvite,
-  type TJoinedRole,
-  type TJoinedUser,
-  type TLogin,
-  type TMessage,
-  type TStorageSettings
+  type TDiskMetrics
 } from '@pulse/shared';
+import type {
+  TCategory,
+  TChannel,
+  TChannelRolePermission,
+  TChannelUserPermission,
+  TFile,
+  TJoinedEmoji,
+  TJoinedInvite,
+  TJoinedRole,
+  TJoinedUser,
+  TLogin,
+  TMessage,
+  TStorageSettings
+} from '@pulse/server/types';
 import { filesize } from 'filesize';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';

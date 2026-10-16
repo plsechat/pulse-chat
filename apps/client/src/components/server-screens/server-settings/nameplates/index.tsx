@@ -18,7 +18,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFiles } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedNameplate } from '@pulse/shared';
+import type { TJoinedNameplate } from '@pulse/server/types';
 import { Trash2, Upload } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';

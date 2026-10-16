@@ -1,10 +1,10 @@
-import {
-  type TFile,
-  type TFileRef,
-  type TJoinedPublicUser,
-  type TJoinedUser,
-  type TStorageData
-} from '@pulse/shared';
+import { type TStorageData } from '@pulse/shared';
+import type {
+  TFile,
+  TFileRef,
+  TJoinedPublicUser,
+  TJoinedUser
+} from '../../types';
 import { count, eq, inArray, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';

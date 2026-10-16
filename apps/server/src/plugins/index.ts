@@ -9,7 +9,6 @@ import {
 import {
   ServerEvents,
   StreamKind,
-  zPluginPackageJson,
   type CommandDefinition,
   type RegisteredCommand,
   type TCommandsMapByPlugin,
@@ -28,6 +27,7 @@ import { db } from '../db';
 import { getInstanceServerSettings } from '../db/queries/server';
 import { getServerMemberIds } from '../db/queries/servers';
 import { channels, pluginData, servers } from '../db/schema';
+import { zPluginPackageJson } from './package-json-schema';
 import { PLUGINS_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 import { VoiceRuntime } from '../runtimes/voice';

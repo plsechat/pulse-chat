@@ -1,4 +1,4 @@
-import type { TServerInfo } from '@pulse/shared';
+import type { TServerInfo } from '../../types';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { testsBaseUrl } from '../../__tests__/setup';
 import { config } from '../../config';

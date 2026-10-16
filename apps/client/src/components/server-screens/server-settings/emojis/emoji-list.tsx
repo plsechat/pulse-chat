@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import Spinner from '@/components/ui/spinner';
 import { getFileUrl } from '@/helpers/get-file-url';
-import type { TJoinedEmoji } from '@pulse/shared';
+import type { TJoinedEmoji } from '@pulse/server/types';
 import { Plus, Search } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { Emoji } from './emoji';

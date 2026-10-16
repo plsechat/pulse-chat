@@ -10,7 +10,8 @@ import { connectionManager } from '@/lib/connection-manager';
 import { createHomeSocketManager } from '@/lib/home-socket';
 import { startReconnecting, stopReconnecting, isCurrentlyReconnecting } from '@/lib/reconnect';
 import { resolveVoiceTRPCClient } from '@/lib/voice-client';
-import { DisconnectCode, type AppRouter } from '@pulse/shared';
+import { DisconnectCode } from '@pulse/shared';
+import type { AppRouter } from '@pulse/server/types';
 
 import { toast } from 'sonner';
 

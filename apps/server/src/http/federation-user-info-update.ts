@@ -36,8 +36,7 @@
 import {
   AVATAR_DECORATION_SLUGS,
   NAMEPLATE_PRESET_SLUGS,
-  UserStatus,
-  nameStyleSchema
+  UserStatus
 } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import http from 'http';
@@ -46,6 +45,7 @@ import { syncShadowUserProfile } from '../db/mutations/federation';
 import { users } from '../db/schema';
 import { publishUser } from '../db/publishers';
 import { logger } from '../logger';
+import { nameStyleSchema } from '../utils/name-style-schema';
 import { signedJsonResponse } from '../utils/federation';
 import { setRuntimeUserStatus } from '../utils/wss';
 import {

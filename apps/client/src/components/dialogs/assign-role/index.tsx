@@ -22,7 +22,7 @@ import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import { type TJoinedUser } from '@pulse/shared';
+import type { TJoinedUser } from '@pulse/server/types';
 import { Info } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';

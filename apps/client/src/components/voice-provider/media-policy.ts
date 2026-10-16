@@ -1,4 +1,4 @@
-import type { TServerInfo } from '@pulse/shared';
+import type { TServerInfo } from '@pulse/server/types';
 import type { TransportOptions } from 'mediasoup-client/types';
 
 /**

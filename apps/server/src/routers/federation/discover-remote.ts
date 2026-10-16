@@ -1,4 +1,4 @@
-import type { TRemoteServerSummary } from '@pulse/shared';
+import type { TRemoteServerSummary } from '../../types';
 import z from 'zod';
 import { protectedProcedure } from '../../utils/trpc';
 import { config } from '../../config';

@@ -9,7 +9,7 @@ import {
   patchFilesWithE2eeMetadata,
   setFileKeys
 } from '@/lib/e2ee/file-key-store';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 
 /**
  * Single source of truth for "decrypt a batch of channel messages for

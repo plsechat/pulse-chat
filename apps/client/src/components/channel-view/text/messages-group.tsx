@@ -11,7 +11,7 @@ import { getNameStyleCss } from '@/helpers/name-style';
 import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
 import { cn } from '@/lib/utils';
 import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { fullDateTime, groupTimestamp, timeOnly } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { memo } from 'react';

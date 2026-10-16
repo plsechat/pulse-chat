@@ -40,7 +40,7 @@ Run `bun init` in a new folder (e.g. `my-plugin`) and set up `package.json` like
 }
 ```
 
-The server validates these fields (`zPluginPackageJson` in `@pulse/shared`):
+The server validates these fields (`zPluginPackageJson` in `apps/server/src/plugins/package-json-schema.ts`; the shape is `TPluginPackageJson` in `@pulse/shared`):
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ The server validates these fields (`zPluginPackageJson` in `@pulse/shared`):
 `@pulse/plugin-sdk` is a private workspace package and is not published to any registry. The SDK is type-only, so either:
 
 - build the plugin inside a checkout of the Pulse monorepo (any folder under `apps/*` or `packages/*` resolves `@pulse/plugin-sdk` through the Bun workspace), or
-- copy `packages/plugin-sdk/src/index.ts` and `packages/shared/src/plugins.ts` into your project, point the `@pulse/shared` import at your copy, and add `mediasoup` (the version pinned in `packages/plugin-sdk/package.json`) as a dev dependency for the re-exported mediasoup types.
+- copy `packages/plugin-sdk/src/index.ts` and `packages/shared/src/plugins.ts` into your project, point the `@pulse/shared` import at your copy, and add `mediasoup` (the version pinned in `packages/plugin-sdk/package.json`) as a dev dependency for the re-exported mediasoup types. Both files are plain TypeScript types with no runtime imports: `@pulse/shared` does not reach into the server and carries no validator library, so the copy type-checks on its own.
 
 Either way the compiled plugin has no runtime dependency on the SDK.
 

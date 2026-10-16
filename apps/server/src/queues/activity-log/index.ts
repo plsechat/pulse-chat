@@ -1,4 +1,5 @@
-import type { ActivityLogType, TActivityLogDetailsMap } from '@pulse/shared';
+import type { ActivityLogType } from '@pulse/shared';
+import type { TActivityLogDetailsMap } from '../../types';
 import chalk from 'chalk';
 import Queue from 'queue';
 import { db } from '../../db';

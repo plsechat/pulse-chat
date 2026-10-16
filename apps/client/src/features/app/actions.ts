@@ -19,7 +19,7 @@ import {
 } from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
-import type { TServerInfo, TServerSummary } from '@pulse/shared';
+import type { TServerInfo, TServerSummary } from '@pulse/server/types';
 import { toast } from 'sonner';
 import {
   beginServerJoin,

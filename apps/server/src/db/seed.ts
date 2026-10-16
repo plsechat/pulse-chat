@@ -6,9 +6,9 @@ import {
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MIN_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
-  STORAGE_QUOTA,
-  type TISettings
+  STORAGE_QUOTA
 } from '@pulse/shared';
+import type { TISettings } from '../types';
 import { randomUUIDv7 } from 'bun';
 import chalk from 'chalk';
 import { sql } from 'drizzle-orm';

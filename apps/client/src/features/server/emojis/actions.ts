@@ -1,5 +1,5 @@
 import { store } from '@/features/store';
-import type { TJoinedEmoji } from '@pulse/shared';
+import type { TJoinedEmoji } from '@pulse/server/types';
 import { serverSliceActions } from '../slice';
 
 

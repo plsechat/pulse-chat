@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { TJoinedDmChannel, TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmChannel, TJoinedDmMessage } from '@pulse/server/types';
 import { dmsSliceActions, dmsSliceReducer as reducer } from '../slice';
 
 const channel = (id: number, unreadCount = 0) =>

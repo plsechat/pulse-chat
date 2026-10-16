@@ -5,7 +5,7 @@ import { decryptChannelMessages } from '@/features/server/messages/decrypt';
 import { useUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { onAppEvent } from '@/lib/events';
 

@@ -1,5 +1,5 @@
 import { store } from '@/features/store';
-import type { TCategory } from '@pulse/shared';
+import type { TCategory } from '@pulse/server/types';
 import { serverSliceActions } from '../slice';
 
 

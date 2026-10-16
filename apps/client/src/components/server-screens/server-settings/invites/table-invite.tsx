@@ -12,7 +12,7 @@ import { getUrlFromServer } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TInvite } from '@pulse/shared';
+import type { TInvite } from '@pulse/server/types';
 import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Copy, Monitor, MoreVertical, Trash2 } from 'lucide-react';

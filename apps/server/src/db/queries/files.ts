@@ -1,4 +1,4 @@
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '../../types';
 import { and, asc, eq, gt, or, sql, sum } from 'drizzle-orm';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';

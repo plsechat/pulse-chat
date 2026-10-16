@@ -1,7 +1,4 @@
-import type {
-  TJoinedSettings,
-  TPublicServerSettings
-} from '@pulse/shared';
+import type { TJoinedSettings, TPublicServerSettings } from '../../types';
 import { eq } from 'drizzle-orm';
 import { db } from '..';
 import { files, servers, settings } from '../schema';

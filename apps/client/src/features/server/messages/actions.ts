@@ -1,11 +1,8 @@
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
-import {
-  TYPING_MS,
-  type TJoinedMessage,
-  type TJoinedPublicUser
-} from '@pulse/shared';
+import { TYPING_MS } from '@pulse/shared';
+import type { TJoinedMessage, TJoinedPublicUser } from '@pulse/server/types';
 import { activeThreadIdSelector, selectedChannelIdSelector } from '../channels/selectors';
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';

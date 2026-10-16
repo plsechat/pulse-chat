@@ -4,7 +4,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useModViewContext } from '../context';

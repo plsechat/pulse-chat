@@ -10,7 +10,8 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import type { TJoinedPublicUser, TVoiceUserState } from '@pulse/shared';
+import type { TVoiceUserState } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { appSliceReducer, appSliceActions } from '@/features/app/slice';
 import { dmsSliceReducer } from '@/features/dms/slice';
 import { friendsSliceReducer } from '@/features/friends/slice';

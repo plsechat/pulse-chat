@@ -2,7 +2,7 @@ import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-sh
 import { Button } from '@/components/ui/button';
 import { jumpToMessage } from '@/features/server/messages/jump';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { Loader2, Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SearchFilters, type TSearchFilters } from './search-filters';

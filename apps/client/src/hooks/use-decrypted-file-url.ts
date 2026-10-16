@@ -5,7 +5,7 @@ import {
 } from '@/lib/e2ee/file-key-store';
 import { decryptFile } from '@/lib/e2ee/file-crypto';
 import { getFileUrl } from '@/helpers/get-file-url';
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { useEffect, useState } from 'react';
 
 /**

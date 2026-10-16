@@ -6,7 +6,7 @@ import type {
   TMessage,
   TMessageReaction,
   TReactionUser
-} from '@pulse/shared';
+} from '../../types';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';

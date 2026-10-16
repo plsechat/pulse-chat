@@ -2,7 +2,14 @@ import type http from 'http';
 import net from 'net';
 import type { WebSocket } from 'ws';
 import { UAParser } from 'ua-parser-js';
-import type { TConnectionInfo } from '../types';
+
+/** What a login/session records about the connecting client. */
+export type TConnectionInfo = {
+  ip?: string;
+  os?: string;
+  device?: string;
+  userAgent?: string;
+};
 
 type WsWithInternals = WebSocket & {
   _socket?: { remoteAddress?: string };

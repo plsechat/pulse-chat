@@ -1,6 +1,6 @@
 import { getFileUrl } from '@/helpers/get-file-url';
 import { cn } from '@/lib/utils';
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { Upload } from 'lucide-react';
 import { memo } from 'react';
 import { Button, buttonVariants } from '../ui/button';

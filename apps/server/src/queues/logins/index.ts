@@ -2,7 +2,7 @@ import Queue from 'queue';
 import { db } from '../../db';
 import { logins } from '../../db/schema';
 import { logger } from '../../logger';
-import type { TConnectionInfo } from '../../types';
+import type { TConnectionInfo } from '../../helpers/get-ws-info';
 import { getIpInfo } from '../../utils/logins';
 
 const loginsQueue = new Queue({

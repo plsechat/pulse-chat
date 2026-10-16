@@ -1,4 +1,5 @@
-import { ChannelType, type TFile, type TTempFile } from '@pulse/shared';
+import { ChannelType, type TTempFile } from '@pulse/shared';
+import type { TFile } from '../../types';
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';

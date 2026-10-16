@@ -6,7 +6,8 @@ import { appSliceActions } from '@/features/app/slice';
 import { requestTextInput } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import { ChannelType, type TCategory, type TChannel } from '@pulse/shared';
+import { ChannelType } from '@pulse/shared';
+import type { TCategory, TChannel } from '@pulse/server/types';
 import { toast } from 'sonner';
 import { store } from '../../store';
 import {

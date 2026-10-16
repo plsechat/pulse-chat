@@ -2,16 +2,18 @@ import {
   ActivityLogType,
   ChannelType,
   ServerEvents,
-  type TCategory,
-  type TChannel,
   type TChannelUserPermissionsMap,
   type TCommandsMapByPlugin,
-  type TJoinedRole,
   type TMentionStateMap,
-  type TPublicServerSettings,
   type TReadStateMap,
   type TUserPreferences
 } from '@pulse/shared';
+import type {
+  TCategory,
+  TChannel,
+  TJoinedRole,
+  TPublicServerSettings
+} from '../../types';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../../config';

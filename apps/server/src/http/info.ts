@@ -1,8 +1,8 @@
 import {
   DEFAULT_SCREEN_MAX_FRAMERATE,
-  DEFAULT_SCREEN_MAX_RESOLUTION,
-  type TServerInfo
+  DEFAULT_SCREEN_MAX_RESOLUTION
 } from '@pulse/shared';
+import type { TServerInfo } from '../types';
 import http from 'http';
 import { config } from '../config';
 import { db } from '../db';

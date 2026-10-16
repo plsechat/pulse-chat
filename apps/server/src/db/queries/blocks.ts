@@ -2,7 +2,7 @@ import { and, eq, or } from 'drizzle-orm';
 import { db } from '..';
 import { userBlocks } from '../schema';
 import { getPublicUsersByIds } from './users';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '../../types';
 
 /**
  * Symmetric "are these two users mutually invisible to each other?"

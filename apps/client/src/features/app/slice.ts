@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { TServerSummary } from '@pulse/shared';
+import type { TServerSummary } from '@pulse/server/types';
 
 export type TActiveView = 'home' | 'server' | 'discover';
 

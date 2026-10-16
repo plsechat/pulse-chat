@@ -19,7 +19,10 @@ import { store } from '@/features/store';
 import { appSliceActions } from '@/features/app/slice';
 import { serverSliceActions } from '@/features/server/slice';
 import { UserStatus } from '@pulse/shared';
-import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
+import type {
+  TJoinedFriendRequest,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 
 const user = (id: number, name: string) =>
   ({ id, name, roleIds: [] }) as unknown as TJoinedPublicUser;

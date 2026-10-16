@@ -31,7 +31,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
-import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/server/types';
 import {
   DoorOpen,
   Lock,

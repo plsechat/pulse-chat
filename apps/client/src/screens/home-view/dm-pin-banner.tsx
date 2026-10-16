@@ -4,7 +4,7 @@ import { decryptDmMessages } from '@/features/dms/actions';
 import { useHomeUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmMessage } from '@pulse/server/types';
 import parse from 'html-react-parser';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { onAppEvent } from '@/lib/events';

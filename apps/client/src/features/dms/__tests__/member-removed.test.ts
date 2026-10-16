@@ -21,7 +21,7 @@ import type {
   TJoinedDmChannel,
   TJoinedDmMessage,
   TJoinedPublicUser
-} from '@pulse/shared';
+} from '@pulse/server/types';
 
 const user = (id: number, name: string) =>
   ({ id, name, roleIds: [] }) as unknown as TJoinedPublicUser;

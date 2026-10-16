@@ -1,5 +1,5 @@
 import { PaginatedTable } from '@/components/paginated-table';
-import type { TJoinedUser } from '@pulse/shared';
+import type { TJoinedUser } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { TableUser } from './table-user';
 

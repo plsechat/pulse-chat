@@ -79,7 +79,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { AlertTriangle, Compass, Home, Plus, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import type { TServerSummary } from '@pulse/shared';
+import type { TServerSummary } from '@pulse/server/types';
 
 const ServerIcon = memo(
   ({
