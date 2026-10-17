@@ -275,8 +275,7 @@ describe('closing', () => {
     expect(closed.closedAt).not.toBeNull();
     const again = await member.polls.close({ pollId: poll.id });
     expect(again.closedAt).toBe(closed.closedAt);
-    await Bun.sleep(30);
-    expect(pollUpdates(spy)).toHaveLength(1);
+    expect(await waitForUpdates(spy, 1)).toHaveLength(1);
 
     // A moderator closes someone else's poll.
     const second = await newPoll(member, channel.id);

@@ -23,7 +23,7 @@ import {
   seedPeerInstance,
   spyOnFetch
 } from '../../__tests__/federation-fixtures';
-import { initTest } from '../../__tests__/helpers';
+import { initTest, waitUntil } from '../../__tests__/helpers';
 import { generateFederationKeys } from '../../utils/federation';
 
 const PEER_DOMAIN = 'home.reports.example.com';
@@ -81,7 +81,7 @@ describe('reports.create federated target', () => {
       reason: 'harassment',
       details: 'keeps pinging me'
     });
-    await sleep(80);
+    await waitUntil(async () => (await db.select().from(federationOutbox)).length >= 1);
 
     // Local row still created.
     const [local] = await db
@@ -131,7 +131,7 @@ describe('reports.create federated target', () => {
       targetId: msg!.id,
       reason: 'spam'
     });
-    await sleep(80);
+    await waitUntil(async () => (await db.select().from(federationOutbox)).length >= 1);
 
     const rows = await db.select().from(federationOutbox);
     expect(rows).toHaveLength(1);
@@ -156,7 +156,7 @@ describe('reports.create federated target', () => {
       targetId: 3,
       reason: 'other'
     });
-    await sleep(80);
+    await sleep(150);
 
     expect(await db.select().from(federationOutbox)).toHaveLength(0);
     expect(calls.filter((c) => c.url.includes('/federation/report-user'))).toHaveLength(0);

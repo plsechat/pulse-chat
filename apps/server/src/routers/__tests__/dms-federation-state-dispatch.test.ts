@@ -27,7 +27,7 @@ import {
   spyOnFetch
 } from '../../__tests__/federation-fixtures';
 import { seedLocalFriend } from '../../__tests__/fixtures';
-import { initTest } from '../../__tests__/helpers';
+import { initTest, waitUntil } from '../../__tests__/helpers';
 import { generateFederationKeys } from '../../utils/federation';
 import { relayFederatedDmChannelStateUpdate } from '../../utils/federation-dm-state-dispatch';
 
@@ -108,6 +108,17 @@ async function createDmChannel(
   return ch!.id;
 }
 
+/** The relay is fire-and-forget: wait for the expected calls (bounded). */
+const relaysAmong = <T extends { url: string }>(calls: T[]): T[] =>
+  calls.filter((c) => c.url.includes('/federation/dm-channel-state-update'));
+
+const waitForRelays = async <T extends { url: string }>(calls: T[], n: number): Promise<T[]> => {
+  // Expecting none: give a wrong relay a moment to show up before asserting.
+  if (n === 0) await new Promise((r) => setTimeout(r, 150));
+  await waitUntil(() => relaysAmong(calls).length >= n);
+  return relaysAmong(calls);
+};
+
 describe('relayFederatedDmChannelStateUpdate (E2)', () => {
   test('1:1 federated DM dispatches one relay to the peer with toPublicId/fromPublicId', async () => {
     await initTest(1);
@@ -121,11 +132,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
 
     await relayFederatedDmChannelStateUpdate(channelId, 1, { e2ee: true });
     // Allow the fire-and-forget call to enqueue.
-    await new Promise((r) => setTimeout(r, 20));
-
-    const stateCalls = calls.filter((c) =>
-      c.url.includes('/federation/dm-channel-state-update')
-    );
+    const stateCalls = await waitForRelays(calls, 1);
     expect(stateCalls).toHaveLength(1);
     expect(stateCalls[0]!.url).toContain(PEER_DOMAIN_A);
     expect(stateCalls[0]!.body.toPublicId).toBe('peerA-user-pid');
@@ -153,11 +160,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
     const { calls } = spyOnFetch();
 
     await relayFederatedDmChannelStateUpdate(channelId, 1, { e2ee: true });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const stateCalls = calls.filter((c) =>
-      c.url.includes('/federation/dm-channel-state-update')
-    );
+    const stateCalls = await waitForRelays(calls, 2);
     expect(stateCalls).toHaveLength(2);
     const domains = stateCalls.map((c) => new URL(c.url).host);
     expect(new Set(domains)).toEqual(new Set([PEER_DOMAIN_A, PEER_DOMAIN_B]));
@@ -177,11 +180,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
     const { calls } = spyOnFetch();
 
     await relayFederatedDmChannelStateUpdate(channelId, 1, { e2ee: true });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const stateCalls = calls.filter((c) =>
-      c.url.includes('/federation/dm-channel-state-update')
-    );
+    const stateCalls = await waitForRelays(calls, 0);
     expect(stateCalls).toHaveLength(0);
   });
 
@@ -199,11 +198,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
     const { calls } = spyOnFetch();
 
     await relayFederatedDmChannelStateUpdate(channelId, 1, { e2ee: true });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const stateCalls = calls.filter((c) =>
-      c.url.includes('/federation/dm-channel-state-update')
-    );
+    const stateCalls = await waitForRelays(calls, 0);
     expect(stateCalls).toHaveLength(0);
   });
 
@@ -218,11 +213,7 @@ describe('relayFederatedDmChannelStateUpdate (E2)', () => {
     const { calls } = spyOnFetch();
 
     await relayFederatedDmChannelStateUpdate(channelId, 1, {});
-    await new Promise((r) => setTimeout(r, 20));
-
-    const stateCalls = calls.filter((c) =>
-      c.url.includes('/federation/dm-channel-state-update')
-    );
+    const stateCalls = await waitForRelays(calls, 0);
     expect(stateCalls).toHaveLength(0);
   });
 });

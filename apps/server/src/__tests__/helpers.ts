@@ -167,11 +167,29 @@ const uploadFile = async (file: File, token: string) =>
     body: file
   });
 
+/**
+ * Poll a condition (bounded) instead of pausing a fixed time: fan-out
+ * and federation relays are fire-and-forget, and a loaded CI runner
+ * overruns any fixed pause. Returns once the condition holds or the
+ * budget is spent; the caller's assertion then reports the state.
+ */
+const waitUntil = async (
+  condition: () => boolean | Promise<boolean>,
+  { timeoutMs = 3000, stepMs = 10 } = {}
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() >= deadline) return;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+};
+
 export {
   firstSubscriptionEvent,
   getCaller,
   getMockedToken,
   initTest,
   login,
-  uploadFile
+  uploadFile,
+  waitUntil
 };
