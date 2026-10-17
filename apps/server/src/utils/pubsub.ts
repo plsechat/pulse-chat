@@ -23,7 +23,9 @@ import type {
   TJoinedRole,
   TPollUpdate,
   TPublicServerSettings,
-  TServerSummary
+  TServerSummary,
+  TSoundPlayEvent,
+  TJoinedServerSound
 } from '../types';
 import type { Unsubscribable } from '@trpc/server/observable';
 import { observable, type Observable } from '@trpc/server/observable';
@@ -375,6 +377,13 @@ type Events = {
   // "Refetch" pings for the Scheduled list and the Follows tab.
   [ServerEvents.SCHEDULED_POST_UPDATE]: { channelId: number };
   [ServerEvents.CHANNEL_FOLLOWS_UPDATE]: { channelId: number };
+
+  // Soundboard: the clip list of a server (members) and a trigger to
+  // the voice ROOM (runtime-key topic, publishForChannel).
+  [ServerEvents.SOUND_CREATE]: TJoinedServerSound;
+  [ServerEvents.SOUND_UPDATE]: TJoinedServerSound;
+  [ServerEvents.SOUND_DELETE]: { soundId: number; serverId: number };
+  [ServerEvents.VOICE_SOUND_PLAY]: TSoundPlayEvent;
 };
 
 class PubSub {

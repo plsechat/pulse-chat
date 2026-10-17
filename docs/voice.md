@@ -97,7 +97,8 @@ makes that harmless.
   encodings per producer; external (plugin) streams use the same
   audio/video ceilings. The client asks for less than the cap: a ladder
   per resolution and frame rate (`media-policy.ts`, 1080p15 ≈ 3.5 Mbps,
-  1440p60 ≈ 14 Mbps, 2160p60 = 16 Mbps) with `contentHint` `detail` at
+  1440p60 ≈ 14 Mbps, 2160p30 = 16 Mbps, 2160p60 clamped to the 20 Mbps
+  producer cap) with `contentHint` `detail` at
   15 fps and `motion` at 30/60, and a degradation preference that holds
   resolution at 15 fps and the frame rate above — a flat 2.5 Mbps cap
   used to turn high-resolution 60 fps shares into a slideshow.
@@ -106,6 +107,24 @@ makes that harmless.
   actually sharing); roster hover queries it (`getStreamPreview`,
   VIEW_CHANNEL-gated via `channelProcedure`, previews excluded). The
   thumbnail is dropped when sharing stops. Never fanned out.
+- **Soundboard** (`routers/sounds/`, `routers/voice/play-sound.ts`,
+  `utils/soundboard-limits.ts`): clips are server-scoped rows
+  (`server_sounds`, at most 50 per server, 512 KB and 5 s each, uploaded
+  by `MANAGE_SOUNDS` holders) that the clients play themselves. A
+  `USE_SOUNDBOARD` holder in a server voice channel triggers one; the
+  server checks the permission in the channel's server, refuses a
+  server-muted member, paces triggers (one per user every 2 s, ten per
+  room per minute, in memory) and fans one `VOICE_SOUND_PLAY` out to the
+  room. Nothing goes through mediasoup; a deafened client simply does
+  not play it.
+- **External streams** (`actions.voice.createStream` in the plugin SDK)
+  appear in the roster as synthetic participants. They carry either
+  producers on the channel's router (plugin RTP ingest) or a
+  shared-playback descriptor (`TExternalStreamMedia`: a file, HLS or
+  YouTube address plus `playing` / `position` / `updatedAt`) that every
+  client plays itself and re-syncs on each `VOICE_UPDATE_EXTERNAL_STREAM`;
+  the server never fetches or decodes the address. The official
+  watch-together plugin is the reference.
 
 ## Networking
 

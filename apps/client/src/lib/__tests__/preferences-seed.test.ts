@@ -18,7 +18,8 @@ const KEYS = [
   LocalStorageKey.SOUND_NOTIFICATION_SETTINGS,
   LocalStorageKey.VITE_UI_THEME,
   LocalStorageKey.SERVER_CHANNEL_MAP,
-  LocalStorageKey.RIGHT_SIDEBAR_STATE
+  LocalStorageKey.RIGHT_SIDEBAR_STATE,
+  LocalStorageKey.PRESENCE_SETTINGS
 ];
 
 const sync = spyOn(preferencesSync, 'syncPreference');
@@ -56,6 +57,10 @@ describe('seedPreferencesFromLocalStorage', () => {
     localStorage.setItem(LocalStorageKey.VITE_UI_THEME, 'nord');
     localStorage.setItem(LocalStorageKey.SERVER_CHANNEL_MAP, JSON.stringify({ 'srv-a': 12 }));
     localStorage.setItem(LocalStorageKey.RIGHT_SIDEBAR_STATE, 'true');
+    localStorage.setItem(
+      LocalStorageKey.PRESENCE_SETTINGS,
+      JSON.stringify({ shareGame: true, hiddenServers: [3, 'peer.example:srv'] })
+    );
 
     seedPreferencesFromLocalStorage();
 
@@ -64,7 +69,8 @@ describe('seedPreferencesFromLocalStorage', () => {
       soundNotification: { ...DEFAULT_USER_PREFERENCES.soundNotification, masterVolume: 30 },
       theme: 'nord',
       serverChannelMap: { 'srv-a': 12 },
-      rightSidebarOpen: true
+      rightSidebarOpen: true,
+      presence: { shareGame: true, hiddenServers: [3, 'peer.example:srv'] }
     });
   });
 

@@ -23,6 +23,7 @@ import { resolveByDescriptorRoute } from './resolve-by-descriptor';
 import { setNicknameRoute, setUserNicknameRoute } from './set-nickname';
 import { setAvatarDecorationRoute } from './set-avatar-decoration';
 import { setCustomStatusRoute } from './set-custom-status';
+import { setGamePresenceRoute } from './set-game-presence';
 import { setNameplateRoute } from './set-nameplate';
 import { setNameStyleRoute } from './set-name-style';
 import { setStatusRoute } from './set-status';
@@ -41,6 +42,7 @@ export const usersRouter = t.router({
   deleteAccount: deleteAccountRoute,
   setStatus: setStatusRoute,
   setCustomStatus: setCustomStatusRoute,
+  setGamePresence: setGamePresenceRoute,
   setNameplate: setNameplateRoute,
   setAvatarDecoration: setAvatarDecorationRoute,
   setNameStyle: setNameStyleRoute,

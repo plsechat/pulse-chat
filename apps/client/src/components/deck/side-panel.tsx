@@ -11,6 +11,7 @@ import {
   togglePanelExpanded,
   useDeck
 } from '@/features/app/deck';
+import { useActiveServerId } from '@/features/app/hooks';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
 import { useDmChannels, useSelectedDmChannelId } from '@/features/dms/hooks';
 import type { IRootState } from '@/features/store';
@@ -37,11 +38,19 @@ const DmConversation = lazy(() =>
     default: m.DmConversation
   }))
 );
+// The watch panel carries the video surfaces; it loads when a card is
+// first watched.
+const WatchPanel = lazy(() =>
+  import('@/components/watch-together/watch-panel').then((m) => ({
+    default: m.WatchPanel
+  }))
+);
 
 const PANEL_TITLES = {
   friends: 'Friends',
   messages: 'Messages',
-  inbox: 'Inbox'
+  inbox: 'Inbox',
+  watch: 'Watch together'
 } as const;
 
 /** Drag the panel's left edge to resize it; width is persisted. */
@@ -152,7 +161,14 @@ const MessagesPanel = memo(() => {
 });
 
 const DeckSidePanel = memo(() => {
-  const { panel, panelWidth, panelExpanded, messagesView } = useDeck();
+  const {
+    panel,
+    panelWidth,
+    panelExpanded,
+    messagesView,
+    friendsTabRequest,
+    watchTarget
+  } = useDeck();
 
   // "Open this DM" from anywhere (popovers, menus, accepting a call)
   // lands in the Messages panel.
@@ -169,7 +185,23 @@ const DeckSidePanel = memo(() => {
     openConversationPanel();
   }, []);
 
+  // A watch card belongs to its community: its player talks to that
+  // server's connection, so leaving the tab closes the panel.
+  const activeServerId = useActiveServerId();
+  useEffect(() => {
+    if (
+      panel === 'watch' &&
+      watchTarget?.serverId !== undefined &&
+      activeServerId !== watchTarget.serverId
+    ) {
+      setPanel(null);
+    }
+  }, [panel, watchTarget, activeServerId]);
+
   if (!panel) return null;
+  // A watch panel is only ever opened on a card; without one there is
+  // nothing to show.
+  if (panel === 'watch' && !watchTarget) return null;
 
   const width = panelExpanded
     ? Math.max(panelWidth, PANEL_EXPANDED)
@@ -201,7 +233,7 @@ const DeckSidePanel = memo(() => {
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
           {PANEL_TITLES[panel]}
         </span>
-        {panel === 'messages' && (
+        {(panel === 'messages' || panel === 'watch') && (
           <button
             type="button"
             aria-label={panelExpanded ? 'Shrink panel' : 'Expand panel'}
@@ -232,10 +264,16 @@ const DeckSidePanel = memo(() => {
       >
         <Suspense fallback={<LazyFallback />}>
           {panel === 'friends' && (
-            <FriendsPanel onDmSelect={handleFriendsDmSelect} />
+            <FriendsPanel
+              onDmSelect={handleFriendsDmSelect}
+              requestedTab={friendsTabRequest ?? undefined}
+            />
           )}
           {panel === 'messages' && <MessagesPanel />}
           {panel === 'inbox' && <InboxPanel />}
+          {panel === 'watch' && watchTarget && (
+            <WatchPanel key={watchTarget.messageId} target={watchTarget} />
+          )}
         </Suspense>
       </div>
     </aside>

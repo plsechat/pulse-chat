@@ -1,11 +1,17 @@
+import { ServerEvents } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import path from 'path';
-import { insertMemberUser, insertOtherServer } from '../../__tests__/fixtures';
-import { initTest } from '../../__tests__/helpers';
+import {
+  createEmptyTextChannel,
+  insertMemberUser,
+  insertOtherServer
+} from '../../__tests__/fixtures';
+import { firstSubscriptionEvent, initTest, waitUntil } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { servers } from '../../db/schema';
+import { pubsub } from '../../utils/pubsub';
+import { messages, servers } from '../../db/schema';
 import { PLUGINS_PATH } from '../../helpers/paths';
 import { pluginManager } from '../../plugins';
 
@@ -59,6 +65,55 @@ const writeCommandPlugin = async (id: string) => {
           { name: 'password', type: 'string', sensitive: true }
         ],
         executes: async (_ctx, args) => ({ ok: true, user: args.user })
+      });
+    };`
+  );
+
+  return () => fs.rm(dir, { recursive: true, force: true });
+};
+
+// Throwaway plugin whose one command `deploy` acts through sub-commands
+// (SDK 0.4.0): `ship <target>` with choices, `halt`, and a hidden
+// `report <channel-id>`. It has no arguments of its own, so `/deploy`
+// alone is answered with usage. `onLoad` records what each call got.
+const writeSubcommandPlugin = async (id: string, subcommandSource?: string) => {
+  const dir = path.join(PLUGINS_PATH, id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, 'package.json'),
+    JSON.stringify({
+      name: id,
+      version: '1.0.0',
+      pulse: {
+        entry: 'index.js',
+        author: 'test',
+        description: 'test plugin',
+        logo: 'https://example.com/deploy.png'
+      }
+    })
+  );
+  await fs.writeFile(
+    path.join(dir, 'index.js'),
+    `export const onLoad = (ctx) => {
+      ctx.commands.register({
+        name: 'deploy',
+        description: 'Ship a build',
+        subcommands: ${
+          subcommandSource ??
+          `[
+          { name: 'ship', description: 'Ship to a target', args: [
+            { name: 'target', type: 'string', required: true, choices: [{ value: 'prod', label: 'Production' }, { value: 'stage' }] },
+            { name: 'token', type: 'string', sensitive: true }
+          ] },
+          { name: 'halt', description: 'Stop the rollout' },
+          { name: 'report', hidden: true, args: [{ name: 'channel-id', type: 'number' }] }
+        ]`
+        },
+        executes: async (invoker, args) => ({
+          subcommand: invoker.subcommand ?? null,
+          // A reply is the plugin's own words: it must not echo a secret.
+          args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, k === 'token' ? '(kept)' : v]))
+        })
       });
     };`
   );
@@ -156,13 +211,23 @@ describe('plugins router — per-server command execution', () => {
     expect(commands).toEqual({});
   });
 
-  test('onCommandsChange yields a silent stream on a server with plugins disabled', async () => {
+  test('onCommandsChange stays live while plugins are off: an empty map then, the list once the switch flips', async () => {
     const member = await insertMemberUser();
     const { caller } = await initTest(member.id);
+    const { caller: owner } = await initTest(1);
     await setServerPlugins(1, false);
 
-    const stream = await caller.plugins.onCommandsChange();
-    expect(typeof stream.subscribe).toBe('function');
+    // A registry change while the switch is off reaches the member as nothing.
+    const whileOff = await firstSubscriptionEvent(caller, 'plugins', 'onCommandsChange', () =>
+      pubsub.publishFor([member.id], ServerEvents.PLUGIN_COMMANDS_CHANGE, pluginManager.getCommands())
+    );
+    expect(whileOff).toEqual({});
+
+    // The owner switching plugins on publishes the list to the members.
+    const onFlip = await firstSubscriptionEvent(caller, 'plugins', 'onCommandsChange', () =>
+      owner.others.updateSettings({ serverId: 1, enablePlugins: true })
+    );
+    expect(onFlip).toEqual(pluginManager.getCommands());
   });
 
   test('command args are bounded: too many keys, oversize values, nested objects', async () => {
@@ -252,6 +317,172 @@ describe('plugins router — per-server command execution', () => {
         expect(entry.message).not.toContain('hunter2');
         expect(entry.message).toContain('[redacted]');
       }
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+});
+
+describe('plugins router — sub-commands (SDK 0.4.0)', () => {
+  test('the command list carries visible sub-commands, choices and the logo; hidden ones stay out', async () => {
+    const { caller } = await initTest(1);
+    await setServerPlugins(1, true);
+    const id = 'subcommands-listing';
+    const cleanup = await writeSubcommandPlugin(id);
+
+    try {
+      await pluginManager.togglePlugin(id, true);
+      expect(pluginManager.isPluginLoaded(id)).toBe(true);
+
+      const listed = await caller.plugins.getCommands({ pluginId: id });
+      expect(listed[id]).toEqual([
+        {
+          pluginId: id,
+          name: 'deploy',
+          description: 'Ship a build',
+          logo: 'https://example.com/deploy.png',
+          subcommands: [
+            {
+              name: 'ship',
+              description: 'Ship to a target',
+              args: [
+                {
+                  name: 'target',
+                  type: 'string',
+                  required: true,
+                  choices: [{ value: 'prod', label: 'Production' }, { value: 'stage' }]
+                },
+                { name: 'token', type: 'string', sensitive: true }
+              ]
+            },
+            { name: 'halt', description: 'Stop the rollout' }
+          ]
+        }
+      ]);
+
+      // The hidden verb is still callable, through the route as well.
+      expect(pluginManager.hasCommand(id, 'deploy', 'report')).toBe(true);
+      expect(pluginManager.hasCommand(id, 'deploy', 'rewind')).toBe(false);
+      expect(pluginManager.hasCommand(id, 'deploy')).toBe(true);
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+
+  test('executeCommand runs a sub-command with its arguments; an unknown verb is BAD_REQUEST; bare /deploy answers with usage', async () => {
+    const { caller } = await initTest(1);
+    await setServerPlugins(1, true);
+    const id = 'subcommands-execute';
+    const cleanup = await writeSubcommandPlugin(id);
+
+    try {
+      await pluginManager.togglePlugin(id, true);
+
+      expect(
+        await caller.plugins.executeCommand({
+          pluginId: id,
+          commandName: 'deploy',
+          subcommand: 'ship',
+          args: { target: 'prod', token: 'hunter2' }
+        })
+      ).toEqual({ subcommand: 'ship', args: { target: 'prod', token: '(kept)' } });
+
+      expect(
+        await caller.plugins.executeCommand({
+          pluginId: id,
+          commandName: 'deploy',
+          subcommand: 'report',
+          args: { 'channel-id': 4 }
+        })
+      ).toEqual({ subcommand: 'report', args: { 'channel-id': 4 } });
+
+      await expect(
+        caller.plugins.executeCommand({
+          pluginId: id,
+          commandName: 'deploy',
+          subcommand: 'rewind'
+        })
+      ).rejects.toThrow('has no sub-command "rewind"');
+
+      // No sub-command and no arguments of its own: the usage, not a run.
+      expect(
+        await caller.plugins.executeCommand({ pluginId: id, commandName: 'deploy' })
+      ).toBe(
+        [
+          'Usage: /deploy <ship | halt>',
+          '/deploy ship <target> [token] — Ship to a target',
+          '/deploy halt — Stop the rollout'
+        ].join('\n')
+      );
+
+      // The sensitive argument of the sub-command is redacted in the log.
+      const executing = pluginManager
+        .getLogs(id)
+        .filter((l) => l.message.includes("Executing command 'deploy ship'"));
+      expect(executing.length).toBe(1);
+      expect(executing[0]!.message).not.toContain('hunter2');
+      expect(executing[0]!.message).toContain('[redacted]');
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+
+  test('a command typed into a channel resolves its sub-command; the stored element names it', async () => {
+    const { caller } = await initTest(1);
+    await setServerPlugins(1, true);
+    const id = 'subcommands-typed';
+    const cleanup = await writeSubcommandPlugin(id);
+    const channel = await createEmptyTextChannel('deploys');
+    const tdb = getTestDb();
+
+    try {
+      await pluginManager.togglePlugin(id, true);
+
+      const messageId = await caller.messages.send({ channelId: channel.id, content: '/deploy ship stage s3cret' });
+      await waitUntil(async () => {
+        const [row] = await tdb.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
+        return row?.content?.includes("data-status='completed'") ?? false;
+      });
+      const [row] = await tdb.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
+      expect(row!.content).toContain('data-command="deploy" data-subcommand="ship"');
+      expect(row!.content).toContain('{"name":"target","value":"stage","status":"completed"},{"name":"token","value":"****","status":"completed"}');
+      expect(row!.content).toContain('"subcommand": "ship"');
+      expect(row!.content).toContain('"target": "stage"');
+      expect(row!.content).not.toContain('s3cret');
+
+      // Bare `/deploy`: the usage is the reply, and the command completes.
+      const bareId = await caller.messages.send({ channelId: channel.id, content: '/deploy' });
+      await waitUntil(async () => {
+        const [bare] = await tdb.select({ content: messages.content }).from(messages).where(eq(messages.id, bareId));
+        return bare?.content?.includes("data-status='completed'") ?? false;
+      });
+      const [bare] = await tdb.select({ content: messages.content }).from(messages).where(eq(messages.id, bareId));
+      expect(bare!.content).toContain('Usage: /deploy <ship | halt>');
+      expect(bare!.content).not.toContain('data-subcommand');
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+
+  test('a declaration out of bounds is the plugin load error', async () => {
+    await initTest(1);
+    await setServerPlugins(1, true);
+    const id = 'subcommands-bounds';
+    const tooMany = JSON.stringify(Array.from({ length: 21 }, (_, i) => ({ name: `s${i}` })));
+    const cleanup = await writeSubcommandPlugin(id, tooMany);
+
+    try {
+      await pluginManager.togglePlugin(id, true);
+      expect(pluginManager.isPluginLoaded(id)).toBe(false);
+      expect(pluginManager.hasCommand(id, 'deploy')).toBe(false);
+      const info = await pluginManager.getPluginInfo(id);
+      expect(info.loadError).toBe(
+        "Command 'deploy' declares 21 sub-commands; at most 20 are allowed"
+      );
     } finally {
       await pluginManager.unload(id);
       await cleanup();

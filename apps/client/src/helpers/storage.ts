@@ -22,7 +22,13 @@ export enum LocalStorageKey {
   ACTIVE_DM_CHANNEL_ID = 'pulse-active-dm-channel-id',
   HOME_TAB = 'pulse-home-tab',
   DECK_TABS = 'pulse-deck-tabs',
-  DECK_PANEL_WIDTH = 'pulse-deck-panel-width'
+  DECK_PANEL_WIDTH = 'pulse-deck-panel-width',
+  /** Game presence sharing: the master switch + hidden communities. */
+  PRESENCE_SETTINGS = 'pulse-presence-settings',
+  /** Soundboard clip ids the user starred (shown first in the grid). */
+  SOUNDBOARD_FAVOURITES = 'pulse-soundboard-favourites',
+  /** The viewer's own level for the watch panel's player (0–100). */
+  WATCH_VOLUME = 'pulse-watch-volume'
 }
 
 const getLocalStorageItem = (key: LocalStorageKey): string | null => {

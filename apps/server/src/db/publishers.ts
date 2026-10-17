@@ -17,6 +17,7 @@ import {
   getForumUnreadForUsers
 } from './queries/channels';
 import { getEmojiById } from './queries/emojis';
+import { getSoundById } from './queries/sounds';
 import { getEventRosterCounts } from './queries/events';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
@@ -25,6 +26,7 @@ import {
   getServerMemberIds
 } from './queries/servers';
 import { getPublicUserById } from './queries/users';
+import { getGamePresenceState, visibleGamePresence } from './queries/game-presence';
 import {
   categories,
   channels,
@@ -220,6 +222,37 @@ const publishEmoji = async (
 
   const memberIds = await getServerMemberIds(emoji.serverId);
   pubsub.publishFor(memberIds, targetEvent, emoji);
+};
+
+/**
+ * Soundboard clip list changes go to every member of the server (the
+ * joined row, so a client patches its grid in place; a deletion carries
+ * the ids only — the row is already gone).
+ */
+const publishSound = async (
+  soundId: number,
+  type: 'create' | 'update' | 'delete',
+  serverId: number
+) => {
+  const memberIds = await getServerMemberIds(serverId);
+
+  if (type === 'delete') {
+    pubsub.publishFor(memberIds, ServerEvents.SOUND_DELETE, {
+      soundId,
+      serverId
+    });
+    return;
+  }
+
+  const sound = await getSoundById(soundId);
+
+  if (!sound) return;
+
+  pubsub.publishFor(
+    memberIds,
+    type === 'create' ? ServerEvents.SOUND_CREATE : ServerEvents.SOUND_UPDATE,
+    sound
+  );
 };
 
 const publishRole = async (
@@ -566,6 +599,33 @@ const publishImportProgress = async (view: TImportJobView) => {
   pubsub.publishFor([view.createdBy], ServerEvents.IMPORT_PROGRESS, view);
 };
 
+/**
+ * What a member is playing changed (reported, cleared, expired, or the
+ * sharing rule moved). One scoped USER_UPDATE per server the user is in:
+ * each carries the presence as THAT server may show it — null where
+ * the user hid it, so a community they just hid clears at once — and
+ * names the server (scopeServerPublicId) so a client viewing another
+ * roster leaves its own copy alone. The global publishUser never
+ * carries the field; a DM partner or friend without a shared, un-hidden
+ * server has nothing to receive.
+ */
+const publishGamePresence = async (userId: number) => {
+  const [user, state] = await Promise.all([
+    getPublicUserById(userId),
+    getGamePresenceState(userId)
+  ]);
+  if (!user) return;
+
+  for (const server of state.servers) {
+    const recipients = await getServerMemberIds(server.id);
+    pubsub.publishFor(recipients, ServerEvents.USER_UPDATE, {
+      ...user,
+      gamePresence: visibleGamePresence(state.presence, state.prefs, server.id),
+      scopeServerPublicId: server.publicId
+    });
+  }
+};
+
 const swallowRejection = <A extends unknown[], R>(
   name: string,
   fn: (...args: A) => Promise<R>
@@ -605,9 +665,15 @@ const guardedPublishPluginCommands = swallowRejection(
   publishPluginCommands
 );
 const guardedPublishRole = swallowRejection('publishRole', publishRole);
+const guardedPublishSound = swallowRejection('publishSound', publishSound);
 const guardedPublishUser = swallowRejection('publishUser', publishUser);
+const guardedPublishGamePresence = swallowRejection(
+  'publishGamePresence',
+  publishGamePresence
+);
 
 export {
+  guardedPublishGamePresence as publishGamePresence,
   guardedPublishCategory as publishCategory,
   guardedPublishChannel as publishChannel,
   guardedPublishChannelVisibility as publishChannelVisibility,
@@ -619,5 +685,6 @@ export {
   publishMessage,
   guardedPublishPluginCommands as publishPluginCommands,
   guardedPublishRole as publishRole,
+  guardedPublishSound as publishSound,
   guardedPublishUser as publishUser
 };

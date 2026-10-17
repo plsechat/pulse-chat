@@ -19,6 +19,17 @@ export type TUserPreferences = {
   theme: 'dark' | 'light' | 'onyx' | 'midnight' | 'sunset' | 'rose' | 'forest' | 'dracula' | 'nord' | 'sand' | 'system';
   serverChannelMap: Record<string, number>;
   rightSidebarOpen: boolean;
+  /**
+   * Game presence. `shareGame` is the master switch the desktop shell's
+   * detection is gated on (off by default — nothing leaves the machine
+   * until the user opts in). `hiddenServers` lists the communities that
+   * must not see it even then: numeric ids for home servers,
+   * `domain:publicId` strings for federated ones.
+   */
+  presence: {
+    shareGame: boolean;
+    hiddenServers: Array<number | string>;
+  };
 };
 
 export const DEFAULT_USER_PREFERENCES: TUserPreferences = {
@@ -40,5 +51,9 @@ export const DEFAULT_USER_PREFERENCES: TUserPreferences = {
   },
   theme: 'dark',
   serverChannelMap: {},
-  rightSidebarOpen: false
+  rightSidebarOpen: false,
+  presence: {
+    shareGame: false,
+    hiddenServers: []
+  }
 };

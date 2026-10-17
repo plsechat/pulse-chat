@@ -33,6 +33,15 @@ interface PulseDesktop {
     color?: string;
     symbolColor?: string;
   }): Promise<void>;
+  // Added in desktop 0.3.0 — game detection (docs/desktop-integration.md).
+  // The shell calls back with the game it currently detects (null when
+  // none), once right away and then on every change; the returned
+  // function stops the callbacks. Optional so older shells stay
+  // type-correct; the client only subscribes while "share what you're
+  // playing" is on.
+  onGamePresence?(
+    callback: (presence: { name: string } | null) => void
+  ): () => void;
 }
 
 // Extend the Window interface for global functions

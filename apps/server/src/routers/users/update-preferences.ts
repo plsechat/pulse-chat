@@ -2,7 +2,12 @@ import { DEFAULT_USER_PREFERENCES, type TUserPreferences } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import {
+  MAX_HIDDEN_SERVER_KEY_LENGTH,
+  MAX_HIDDEN_SERVERS
+} from '../../db/queries/game-presence';
 import { userPreferences } from '../../db/schema';
+import { reconcileGamePresenceWithPreference } from '../../utils/game-presence';
 import { protectedProcedure } from '../../utils/trpc';
 
 /**
@@ -49,7 +54,27 @@ const preferencesSchema = z.object({
       message: `serverChannelMap may hold at most ${MAX_SERVER_CHANNEL_MAP_ENTRIES} entries`
     })
     .optional(),
-  rightSidebarOpen: z.boolean().optional()
+  rightSidebarOpen: z.boolean().optional(),
+  presence: z
+    .object({
+      shareGame: z.boolean(),
+      // Numeric ids name home servers; `domain:publicId` strings name
+      // federated ones (the peer's publicId is what its roster rule
+      // keys on). Bounded both ways: the list and each key.
+      hiddenServers: z
+        .array(
+          z.union([
+            z.number().int().positive().max(2 ** 31 - 1),
+            z
+              .string()
+              .max(MAX_HIDDEN_SERVER_KEY_LENGTH)
+              .regex(/^[^\s:]+:[^\s:]+$/, 'expected domain:publicId')
+          ])
+        )
+        .max(MAX_HIDDEN_SERVERS)
+    })
+    .partial()
+    .optional()
 });
 
 const updatePreferencesRoute = protectedProcedure
@@ -77,7 +102,15 @@ const updatePreferencesRoute = protectedProcedure
               ...input.serverChannelMap
             })
           : current.serverChannelMap,
-      rightSidebarOpen: input.rightSidebarOpen ?? current.rightSidebarOpen
+      rightSidebarOpen: input.rightSidebarOpen ?? current.rightSidebarOpen,
+      // Rows written before the preference existed have no `presence`;
+      // the defaults fill it in rather than the spread producing a
+      // partial object.
+      presence: {
+        ...DEFAULT_USER_PREFERENCES.presence,
+        ...current.presence,
+        ...input.presence
+      }
     };
 
     await db
@@ -94,6 +127,15 @@ const updatePreferencesRoute = protectedProcedure
           updatedAt: Date.now()
         }
       });
+
+    // The sharing rule moved: what each roster (and each peer) may show
+    // is re-derived now, not at the next report.
+    if (input.presence !== undefined && !ctx.user.isFederated) {
+      await reconcileGamePresenceWithPreference(
+        ctx.userId,
+        merged.presence.shareGame
+      );
+    }
 
     return merged;
   });

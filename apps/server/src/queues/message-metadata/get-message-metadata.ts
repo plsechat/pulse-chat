@@ -1,4 +1,5 @@
 import type { TMessageMetadata } from '@pulse/shared';
+import { isLinkPreviewEntry } from '@pulse/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { messages } from '../../db/schema';
@@ -186,18 +187,19 @@ export const processMessageMetadata = async (
   if (previews.length === 0) return null;
 
   // A webhook or plugin persona (display name + avatar) rides in the
-  // same column as a `webhook` entry; previews are added next to it,
-  // never written over it, or the author line would revert to the
-  // account the row is stored under.
+  // same column as a `webhook` entry, a plugin's card state as a
+  // plugin-data entry; previews are added next to them, never written
+  // over them, or the author line would revert to the account the row
+  // is stored under and the card would go blank.
   const [current] = await db
     .select({ metadata: messages.metadata })
     .from(messages)
     .where(eq(messages.id, messageId))
     .limit(1);
-  const persona = (current?.metadata ?? []).filter(
-    (entry) => entry.mediaType === 'webhook'
+  const kept = (current?.metadata ?? []).filter(
+    (entry) => !isLinkPreviewEntry(entry)
   );
-  const metadata = [...persona, ...previews];
+  const metadata = [...kept, ...previews];
 
   // A message deleted while its previews were being fetched stays a
   // tombstone: the preview must not land on the cleared row.

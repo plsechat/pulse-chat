@@ -1,16 +1,16 @@
 # Pulse Plugin SDK
 
-TypeScript types for building Pulse server plugins. SDK version: `0.3.0` (see [CHANGELOG.md](./CHANGELOG.md)).
+TypeScript types for building Pulse server plugins. SDK version: `0.4.0` (see [CHANGELOG.md](./CHANGELOG.md)).
 
 > [!NOTE]
-> Plugins are experimental. The `PluginContext` API may change between minor versions. Declare the SDK range your plugin was built against (`pulse.sdk`, below) so the server refuses a mismatched plugin with a clear load error instead of failing at runtime. Every 0.x minor so far is a strict superset of the previous one: a `^0.1` or `^0.2` plugin loads unchanged on a 0.3 server.
+> Plugins are experimental. The `PluginContext` API may change between minor versions. Declare the SDK range your plugin was built against (`pulse.sdk`, below) so the server refuses a mismatched plugin with a clear load error instead of failing at runtime. Every 0.x minor so far is a strict superset of the previous one: a `^0.1`, `^0.2` or `^0.3` plugin loads unchanged on a 0.4 server.
 
 ## How plugins run
 
 - A plugin is a plain ES module that the server `import()`s **into its own process**. A plugin can do anything the server can — only install plugins you trust. The loader does not sandbox.
 - Plugins are instance-global: one plugin directory per Pulse data directory, shared by every server on the instance.
-- Plugins load at boot when the **Enable plugins** server setting is on, and are all unloaded or reloaded when that setting flips. Individual plugins are switched with the `plugins.toggle` procedure (instance owner) or the Instance → Plugins panel.
-- Everything a plugin does to chat (post, react, upload, create channels) is recorded under the **instance owner's account** — the one person who can enable a plugin — with an optional per-message display persona. That is the same split webhooks use: the row's user is who is accountable, the persona is what readers see.
+- Plugins load at boot when the **Plugins** switch (Server Settings → General) of the instance owner's own server is on; flipping it later only decides what loads on the next start. Individual plugins are switched with the `plugins.toggle` procedure (instance owner) or the Instance → Plugins panel, and a toggle loads or unloads the plugin at once whatever the boot flag says. On every other server that switch gates only whether members may run plugin commands there.
+- Everything a plugin does to chat (post, react, upload, create channels and threads, create events) is recorded under the **plugin's own account**: one system user per plugin, named after the manifest `name`, minted the first time the plugin acts and made a member of a server the first time it acts there (it shows in the member list labelled "Plugin"). It can never sign in; storage quotas land on it; auto-moderation treats it as the accountable user. What readers see on a message is still the optional per-post persona (`author`), the same split webhooks use.
 
 ## Creating a plugin
 
@@ -25,7 +25,7 @@ Run `bun init` in a new folder (e.g. `my-plugin`) and set up `package.json` like
   "type": "module",
   "pulse": {
     "entry": "index.js",
-    "sdk": "^0.3",
+    "sdk": "^0.4",
     "author": "Me",
     "description": "My first Pulse plugin",
     "homepage": "https://example.com/my-plugin",
@@ -49,7 +49,7 @@ The server validates these fields (`zPluginPackageJson` in `apps/server/src/plug
 | `name` | yes | Plugin name shown to admins |
 | `version` | yes | Semver (`1.2.3`, optional pre-release suffix) |
 | `pulse.entry` | yes | Compiled entry file; **must end in `.js`** |
-| `pulse.sdk` | recommended | Semver range of the plugin SDK the plugin targets, e.g. `^0.2`. The server checks its own SDK version (`PLUGIN_SDK_VERSION`) against it and records a load error — `requires @pulse/plugin-sdk ^0.3, server provides 0.2.0`, or `invalid pulse.sdk range` — instead of importing the module when it does not satisfy. A range that admits an older minor this SDK still fully contains (0.1.x today) is accepted. A plugin without the field loads with no check. |
+| `pulse.sdk` | recommended | Semver range of the plugin SDK the plugin targets, e.g. `^0.4`. The server checks its own SDK version (`PLUGIN_SDK_VERSION`) against it and records a load error — `requires @pulse/plugin-sdk ^0.5, server provides 0.4.0`, or `invalid pulse.sdk range` — instead of importing the module when it does not satisfy. A range that admits an older 0.x minor this SDK still fully contains is accepted. A plugin without the field loads with no check. |
 | `pulse.author` | yes | Author name |
 | `pulse.description` | yes | One-line description |
 | `pulse.homepage` | no | URL |
@@ -115,8 +115,8 @@ The plugin directory is `<data dir>/plugins/<plugin-id>/`, where the data direct
 - running the server from source: `apps/server/data/`
 
 1. Create `plugins/my-plugin/` there (the folder name is the plugin id) and copy the contents of `dist/` into it.
-2. Turn on **Enable plugins** in the server settings if it is off.
-3. Enable the plugin from Instance → Plugins (or `plugins.toggle({ pluginId: "my-plugin", enabled: true })`). A plugin that is already enabled is also picked up by a server restart.
+2. Turn on the **Plugins** switch under Server Settings → General if it is off (on the instance owner's server it lets enabled plugins load at boot; on any server it lets members run plugin commands).
+3. Enable the plugin from Instance → Plugins (or `plugins.toggle({ pluginId: "my-plugin", enabled: true })`). A plugin that is already enabled is also picked up by a server restart while that switch is on.
 4. Watch its log (the panel, or `plugins.getLogs`). A failed `onLoad` shows as `loadError` in the plugin list.
 
 ## Lifecycle
@@ -129,7 +129,7 @@ Called when the plugin is enabled (at boot, or when toggled on). Register event 
 
 ### `onUnload(ctx: UnloadPluginContext)` — optional
 
-Called on unload: when the plugin is toggled off, when the instance-wide **Enable plugins** setting is turned off, and after a failed `onLoad`. `UnloadPluginContext` only has `log` / `debug` / `error`. Event listeners, commands, settings definitions and HTTP routes are unregistered automatically after `onUnload` returns. Persist as you go — a process stop does not call `onUnload`.
+Called on unload: when the plugin is toggled off and after a failed `onLoad`. `UnloadPluginContext` only has `log` / `debug` / `error`. Event listeners, commands, settings definitions and HTTP routes are unregistered automatically after `onUnload` returns. Persist as you go — a process stop does not call `onUnload`.
 
 ## Errors from actions
 
@@ -177,8 +177,8 @@ Subscribe to a server event. Handlers may be async; listeners are removed on unl
 | `member:left` | `{ userId, username, serverId }` | a user leaves, or is kicked or banned from, a server |
 | `member:roles_changed` | `{ userId, serverId, roleIds }` | a member's role set in that server changed (granted, revoked, a held role deleted, ownership transferred); `roleIds` is the full set afterwards |
 | `user:joined` / `user:left` | as above | **deprecated** aliases of `user:connected` / `member:left`; removed in v0.5.0 |
-| `message:created` | `{ messageId, channelId, userId, content, pluginId? }` | a plaintext channel message is sent; `pluginId` set when a plugin posted it |
-| `message:updated` | `{ messageId, channelId, userId, content, pluginId? }` | a plaintext channel message is edited |
+| `message:created` | `{ messageId, channelId, userId, content, pluginId?, replyToId?, attachments? }` | a plaintext channel message is sent; `pluginId` set when a plugin posted it (`userId` is then that plugin's account); `attachments` are `{ name, url, size }` served at `url` relative to the instance |
+| `message:updated` | `{ messageId, channelId, userId, content, pluginId?, replyToId? }` | a plaintext channel message is edited |
 | `message:deleted` | `{ messageId, channelId }` | a channel message is deleted (single, bulk, report takedown, or by a plugin); the row stays as a "Message deleted" tombstone until the instance's retention sweep removes it |
 | `message:reaction` | `{ messageId, channelId, userId, emoji, added, pluginId? }` | a reaction is added (`added: true`) or removed, by a user or a plugin |
 | `thread:created` | `{ threadId, parentChannelId, serverId, name, creatorId, parentMessageId?, pluginId? }` | a thread is opened under a text channel (from a message) or a forum (a post) |
@@ -189,9 +189,9 @@ Subscribe to a server event. Handlers may be async; listeners are removed on unl
 
 ### `actions.messages`
 
-Posting goes down the same road as an inbound webhook message: stored under the instance owner, auto-moderated with the owner as the accountable user, fanned out like a user message, and the persona (`author`) shown to readers. Voice channels, forum channels (post into a forum thread instead) and end-to-end-encrypted channels are refused with `BAD_REQUEST`.
+Posting goes down the same road as an inbound webhook message: stored under the plugin's account, auto-moderated with that account as the accountable user, fanned out like a user message, and the persona (`author`) shown to readers. Voice channels, forum channels (post into a forum thread instead) and end-to-end-encrypted channels are refused with `BAD_REQUEST`.
 
-`post({ channelId, content, author?, replyToId?, attachments?, externalId? })` → `{ messageId }`
+`post({ channelId, content, author?, replyToId?, attachments?, externalId?, metadata? })` → `{ messageId }`
 
 ```typescript
 const { messageId } = await ctx.actions.messages.post({
@@ -207,8 +207,11 @@ const { messageId } = await ctx.actions.messages.post({
 - `replyToId` must be a message of the same channel.
 - `attachments` ≤ 10 `{ fileId }` of files this plugin uploaded (`files.upload`).
 - `externalId` ≤ 256 chars, unique per plugin, may not start with `__`. Re-posting it returns the existing message (idempotent re-delivery). Every post gets a link row, so `edit` / `delete` / `react` always work on your own posts by `messageId` too.
+- `metadata` (SDK 0.4) is structured card state for the client — plain JSON, ≤ 16 top-level keys, ≤ 8 KiB serialised. It is stored next to the message (one entry per plugin in the message's `metadata` column, next to link previews), never rendered as text, and travels with the ordinary message fan-out; the client renders the cards it knows. The official watch-together plugin keeps its text-channel session on the card this way (`metadata.watch`), so every control is one `edit` and late readers just read the card. Keep a text `content` as well: it is what search, notifications and clients without the card show.
 
-`edit({ messageId | externalId, content })`, `delete({ messageId | externalId })`, `react({ messageId | externalId, emoji, remove? })`
+`edit({ messageId | externalId, content?, metadata? })` (at least one), `delete({ messageId | externalId })`, `react({ messageId | externalId, emoji, remove? })`
+
+- `edit({ metadata })` replaces the plugin's card state whole and keeps the text; such an edit is not marked "(edited)" and emits no `message:updated` — nothing a bridge would mirror changed. `edit({ content })` is the familiar text edit (auto-moderated, mentions re-parsed, `message:updated` emitted); give both to change both at once.
 
 `delete` leaves a tombstone ("Message deleted", attributed to the plugin's actor) rather than removing the row: content, attachments, reactions and the link row go at once, so the same `externalId` may be posted again, while `edit` / `react` / a second `delete` on it are `NOT_FOUND` and a `post` replying to it is `BAD_REQUEST`.
 
@@ -220,7 +223,7 @@ await ctx.actions.messages.delete({ externalId: "ci-run-8812" });
 ```
 
 - Scoped to messages the plugin posted → `FORBIDDEN` on anyone else's, unless the manifest declares `capabilities: ["moderate-messages"]`.
-- `react` is explicit add/remove (not a toggle), idempotent, and the reaction is stored under the instance owner. `emoji` is a unicode emoji or a `:custom_name:` token, ≤ 64 chars.
+- `react` is explicit add/remove (not a toggle), idempotent, and the reaction is stored under the plugin's account. `emoji` is a unicode emoji or a `:custom_name:` token, ≤ 64 chars.
 - Edits run auto-moderation again and re-parse mentions; a `message:updated` / `message:deleted` / `message:reaction` event follows with `pluginId` set.
 
 ### `actions.channels`
@@ -238,7 +241,7 @@ const feed = await ctx.actions.channels.create({
 });
 ```
 
-Appends to the category (the server's first one when omitted), publishes it to every member's sidebar, logs the activity under the owner; a `VOICE` channel gets its media runtime at once.
+Appends to the category (the server's first one when omitted), publishes it to every member's sidebar, logs the activity under the plugin's account; a `VOICE` channel gets its media runtime at once.
 
 `createThread({ channelId, parentMessageId?, name })` → `TPluginChannel`
 
@@ -276,9 +279,9 @@ await ctx.actions.messages.post({ channelId, content: "", attachments: [{ fileId
 ```
 
 - Exactly one of `bytes` (`Uint8Array` / `ArrayBuffer`) or `url` (`http(s)` only).
-- Same gates as the upload route: uploads enabled, size ≤ the instance's max file size, extension not in the blocked list (`.html`, `.svg`, `.js`, `.exe`, …), quota room for the owner. `mime` picks an extension when `filename` has none.
+- Same gates as the upload route: uploads enabled, size ≤ the instance's max file size, extension not in the blocked list (`.html`, `.svg`, `.js`, `.exe`, …), quota room for the plugin's account. `mime` picks an extension when `filename` has none.
 - A URL is fetched with SSRF validation and DNS pinning, redirects refused, and the body capped at the max file size.
-- The file is stored under the owner; attach it to a message within five minutes or the orphan sweep removes it. `url` in the result is `/public/<name>` — usable as `author.avatarUrl`.
+- The file is stored under the plugin's account; attach it to a message within five minutes or the orphan sweep removes it. `url` in the result is `/public/<name>` — usable as `author.avatarUrl`.
 
 ### `actions.events`
 
@@ -360,9 +363,39 @@ ctx.commands.register({
 });
 ```
 
-- `args[].type` is `"string" | "number" | "boolean"`; `sensitive: true` masks the value in the UI and in logs.
-- `executes(invoker, args)` receives `{ userId, currentVoiceChannelId? }` and whatever it returns is shown to the invoker.
+- `args[].type` is `"string" | "number" | "boolean"`; `sensitive: true` masks the value in the UI and in logs. Typed from the composer, arguments are positional (`/greet Alice`) and quoted when they hold spaces (`/greet "Alice B"`).
+- `executes(invoker, args)` receives `{ userId, currentVoiceChannelId?, activeServerId?, canModerate?, channelId?, subcommand? }` — the server the command was run from, whether the invoker holds MANAGE_USERS there, and the text channel (or thread) whose composer the command was typed into (`channelId` is absent when it came through `plugins.executeCommand`: a button, the voice popover) (SDK 0.4; absent on older servers) — and whatever it returns is shown to the invoker.
 - Registering a name twice overwrites the first registration (and logs an error).
+
+**Sub-commands and choices (SDK 0.4.0).** A command that does several things declares them as `subcommands`, each with its own `args`; the composer then lists the verbs after `/name ` and the arguments of the one picked, so nobody has to guess what the command takes:
+
+```typescript
+ctx.commands.register({
+  name: "watch",
+  description: "Watch a video together",
+  subcommands: [
+    { name: "play", description: "Play a link, or resume", args: [{ name: "link", type: "string", placeholder: "YouTube link, .mp4, .m3u8" }] },
+    { name: "pause", description: "Pause for everyone" },
+    { name: "seek", description: "Jump to a position", args: [{ name: "seconds", type: "number", required: true }] },
+    { name: "quality", args: [{ name: "level", type: "string", required: true, choices: [{ value: "auto" }, { value: "720", label: "720p" }] }] },
+    { name: "watching", hidden: true, args: [{ name: "channelId", type: "number" }] },
+  ],
+  async executes(invoker, args: { link?: string; seconds?: number; level?: string }) {
+    switch (invoker.subcommand) {
+      case "play": /* args.link */ break;
+      case "seek": /* args.seconds */ break;
+      // …
+    }
+  },
+});
+```
+
+- `/watch seek 90` reaches `executes` with `invoker.subcommand === "seek"` and `args === { seconds: 90 }`; the sub-command's `args` are read positionally after the verb. Over `plugins.executeCommand` a client passes `{ commandName: "watch", subcommand: "seek", args: { seconds: 90 } }`.
+- `/watch` on its own runs the command with its own `args` when it declares any (the first token is then read as before — a plugin that accepted `/watch <address>` positionally keeps accepting it), else the reply is the generated usage (`Usage: /watch <play | pause | seek | quality>` with one line per verb). A first token that names no sub-command is treated the same way.
+- `hidden: true` keeps a sub-command out of the composer's list and the usage while leaving it callable (a client reporting state through the command).
+- `choices` on an argument are listed in the composer while that argument is typed (`value` is inserted; `label` and `description` are what the row reads); `placeholder` stands in for the name in the usage hint. The composer never completes an argument that has no choices.
+- Bounds, checked when the command is registered (a violation is the plugin's load error): at most 20 sub-commands, 8 arguments per sub-command, 32 choices per argument, sub-command and argument names `[a-z0-9-]{1,32}`.
+- `plugins.getCommands` and `onCommandsChange` carry `subcommands` (hidden ones left out), `choices`, `placeholder` and the plugin's `logo`. A plugin without sub-commands is listed exactly as before.
 
 ### `settings.register(definitions)` → `Promise<PluginSettings>`
 
@@ -375,7 +408,8 @@ The returned object has `get(key)` and `set(key, value)`; `set` persists asynchr
 ### `actions.voice`
 
 - `getRouter(channelId)` — the mediasoup `Router` of a **server** voice channel runtime (DM calls are not addressable). Throws if no runtime exists for the id.
-- `createStream({ channelId, title, key, avatarUrl?, producers: { audio?, video? } })` — publishes an external stream into the channel; it appears in the roster as a synthetic participant and every member gets the new producers announced. The producers must be created on that channel's router (typically via a `PlainTransport` you open yourself). Returns `{ streamId, remove(), update({ title?, avatarUrl?, producers? }) }`.
+- `createStream({ channelId, title, key, avatarUrl?, producers: { audio?, video? }, media? })` — publishes an external stream into the channel; it appears in the roster as a synthetic participant and every member gets the new producers announced. The producers must be created on that channel's router (typically via a `PlainTransport` you open yourself). Returns `{ streamId, remove(), update({ title?, avatarUrl?, producers?, media? }) }`.
+- `media` (SDK 0.4) is the other way to put something on screen: `{ url, kind: "file" | "hls" | "youtube", videoId?, playing, position, updatedAt, hostUserId }`. The server has no decoder and never touches the address — every client in the room plays it itself and follows the transport state, deriving the live position as `position + (now - updatedAt) / 1000` while `playing`. A `youtube` descriptor (`videoId` = the 11-character id, `url` = the canonical watch address) is played through that site's own embedded player, driven by the same position math. Keep the descriptor current through `update({ media })` on every play, pause and seek (one fan-out each); `update({ media: null })` takes it down without removing the stream. The official `watch-together` plugin is the reference.
 - `getListenInfo()` — `{ ip, announcedAddress }` the server's own WebRTC transports use, so your `PlainTransport` advertises the same address.
 
 The SDK re-exports the mediasoup types you need for this (`Router`, `Producer`, `PlainTransport`, `RtpParameters`, …).

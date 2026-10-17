@@ -10,6 +10,7 @@ import { directoryTick } from './directory';
 import { eventsTick } from './events';
 import { drainOutboxTick } from './federation-outbox';
 import { pruneFederationReplayState } from './federation-seen-jti';
+import { expireGamePresenceTick } from './game-presence';
 import { closeExpiredPollsTick } from './polls';
 import { pruneExpiredLogs } from './retention';
 import { scheduledPostsTick } from './scheduled-posts';
@@ -233,6 +234,17 @@ const loadCrons = () => {
     CRON_TIMES.EVERY_MINUTE,
     () => closeExpiredPollsTick(),
     CRON_LOCK_IDS.POLLS_CLOSE
+  );
+
+  // Game presence older than 6 h is a ghost (a shell that crashed, or a
+  // server restart that lost the last-socket clear). Five minutes keeps
+  // the overshoot short; the tick is one UPDATE over the few rows that
+  // carry a presence at all, plus a fan-out per cleared user.
+  scheduleCron(
+    'game-presence-expiry',
+    CRON_TIMES.EVERY_5_MINUTES,
+    () => expireGamePresenceTick(),
+    CRON_LOCK_IDS.GAME_PRESENCE_EXPIRY
   );
 };
 

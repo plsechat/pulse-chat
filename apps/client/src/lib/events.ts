@@ -45,6 +45,10 @@ type TAppEventMap = {
   // The channel's Scheduled list / Follows tab should refetch.
   'scheduled-posts-changed': { channelId: number };
   'channel-follows-changed': { channelId: number };
+  // The HOME session was (re)opened — first connect or a reconnect. State
+  // the server only holds while a socket lives (game presence) is
+  // re-reported on it.
+  'home-session-opened': undefined;
 };
 
 type TAppEvent = keyof TAppEventMap;

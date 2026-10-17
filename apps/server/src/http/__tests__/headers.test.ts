@@ -67,8 +67,17 @@ describe('security headers', () => {
     );
 
     const csp = response.headers.get('content-security-policy')!;
-    expect(csp).toContain("script-src 'self';");
+    // Scripts: the app's own, plus the YouTube player API the
+    // watch-together card loads — path-scoped on www.youtube.com.
+    expect(csp).toContain(
+      "script-src 'self' https://www.youtube.com/iframe_api https://www.youtube.com/s/player/ https://s.ytimg.com;"
+    );
     expect(csp).not.toContain('unsafe-eval');
+    // Images: link previews come from anywhere over https, which is
+    // also what the watch card's YouTube thumbnail (i.ytimg.com) needs;
+    // the directive stays exactly this wide and no wider.
+    expect(csp).toContain("img-src 'self' data: https: blob:;");
+    expect(csp).toContain("frame-src https://www.youtube-nocookie.com https://www.youtube.com ");
     expect(csp).toContain("frame-ancestors 'none'");
 
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');

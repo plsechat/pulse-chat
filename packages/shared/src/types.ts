@@ -33,6 +33,14 @@ export type TRemoteProducerIds = {
 
 export type TGenericObject = Record<string, unknown>;
 
+/**
+ * One entry of a message's `metadata` column. Link previews fill the
+ * descriptive fields; a webhook or plugin persona rides as a `webhook`
+ * entry; a plugin's structured card state rides as a
+ * `PLUGIN_DATA_MEDIA_TYPE` entry whose `pluginId` names the plugin and
+ * whose `data` is the plugin's own JSON (the watch-together card lives
+ * in `data.watch`). Readers that render previews skip the last two.
+ */
 export type TMessageMetadata = {
   url: string;
   title?: string;
@@ -42,6 +50,8 @@ export type TMessageMetadata = {
   images?: string[];
   videos?: string[];
   favicons?: string[];
+  pluginId?: string;
+  data?: Record<string, unknown>;
 };
 
 export type WithOptional<T, K extends keyof T> = Omit<T, K> &

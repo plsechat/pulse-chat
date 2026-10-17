@@ -5,16 +5,27 @@ import type {
   TParsedDomCommandStatus,
 } from "../plugins";
 
+/**
+ * The `<command>` element a command message is stored as. With a
+ * `subcommand` the arguments are named after that sub-command's
+ * declaration (`/watch seek 90` → `seconds: 90`), else after the
+ * command's own.
+ */
 const toDomCommand = (
   command: RegisteredCommand & {
     imageUrl?: string;
     status: "pending" | "completed" | "failed";
     response?: unknown;
+    subcommand?: string;
   },
   args: unknown[]
 ): string => {
+  const argDefs =
+    command.subcommand !== undefined
+      ? command.subcommands?.find((s) => s.name === command.subcommand)?.args
+      : command.args;
   const sanitizedArgs =
-    command.args?.map((argDef, index) => {
+    argDefs?.map((argDef, index) => {
       const argValue = args[index];
 
       if (argDef.sensitive) {
@@ -34,8 +45,11 @@ const toDomCommand = (
   const logoAttr = command.imageUrl
     ? ` data-plugin-logo="${command.imageUrl}"`
     : '';
+  const subcommandAttr = command.subcommand
+    ? ` data-subcommand="${command.subcommand}"`
+    : '';
 
-  return `<command data-plugin-id="${command.pluginId}"${logoAttr} data-command="${command.name}" data-args='${JSON.stringify(
+  return `<command data-plugin-id="${command.pluginId}"${logoAttr} data-command="${command.name}"${subcommandAttr} data-args='${JSON.stringify(
     sanitizedArgs
   )}' data-status='${command.status}' data-response='${responseString}'></command>`;
 };
@@ -132,6 +146,11 @@ const parseDomCommand = (domElement: TCommandElement): TParsedDomCommand => {
   );
   if (response !== undefined) parsed.response = response;
   if (parsedLogo !== undefined) parsed.logo = parsedLogo;
+  const subcommand = optionalString(
+    domElement.attribs["data-subcommand"],
+    "subcommand"
+  );
+  if (subcommand) parsed.subcommand = subcommand;
 
   return parsed;
 };

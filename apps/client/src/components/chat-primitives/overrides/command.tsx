@@ -7,129 +7,126 @@ import {
   Terminal,
   XCircle
 } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
-import { OverrideLayout } from '@/components/chat-primitives/overrides/layout';
+import { memo, useMemo, useState } from 'react';
 
 type TCommandOverrideProps = {
   command: TParsedDomCommand;
 };
 
+// A short reply is worth reading without a click; a long one (a log, a
+// listing) stays folded so the line does not swallow the channel.
+const SHORT_RESPONSE_CHARS = 200;
+
+/** An argument as it was typed: quoted when it holds a space. */
+const formatValue = (value: unknown): string => {
+  if (value === undefined || value === null || value === '') return '';
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return /\s/.test(text) ? `"${text}"` : text;
+};
+
+const STATUS_TEXT = {
+  pending: 'Running',
+  completed: 'Completed',
+  failed: 'Failed'
+} as const;
+
+/**
+ * A member's command, as the line it is rather than a message: "used
+ * /watch pause" in small muted type with the plugin's logo and the
+ * outcome, the reply underneath when there is one. What the server
+ * stores is unchanged; this is how the stored element reads.
+ */
 const CommandOverride = memo(({ command }: TCommandOverrideProps) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const response = command.response ?? '';
+  const [isExpanded, setIsExpanded] = useState(
+    () => response.length <= SHORT_RESPONSE_CHARS
+  );
+  const failed = command.status === 'failed';
 
-  const formatValue = useCallback((value: unknown): string => {
-    if (value === undefined || value === null || value === '') {
-      return 'undefined';
-    }
+  const invocation = useMemo(
+    () =>
+      [
+        `/${command.commandName}`,
+        ...(command.subcommand ? [command.subcommand] : []),
+        ...command.args.map((arg) => formatValue(arg.value)).filter(Boolean)
+      ].join(' '),
+    [command.commandName, command.subcommand, command.args]
+  );
 
-    if (typeof value === 'string') {
-      return value;
-    }
-
-    return JSON.stringify(value);
-  }, []);
-
-  const getStatusIcon = useCallback(() => {
-    switch (command.status) {
-      case 'completed':
-        return <CheckCircle2 className="size-3 text-green-500" />;
-      case 'failed':
-        return <XCircle className="size-3 text-red-500" />;
-      case 'pending':
-      default:
-        return (
-          <Loader2 className="size-3 animate-spin text-muted-foreground" />
-        );
-    }
-  }, [command.status]);
-
-  const getStatusText = useCallback(() => {
-    switch (command.status) {
-      case 'completed':
-        return 'Completed';
-      case 'failed':
-        return 'Failed';
-      case 'pending':
-      default:
-        return 'Pending';
-    }
-  }, [command.status]);
+  const statusIcon =
+    command.status === 'completed' ? (
+      <CheckCircle2 className="size-3 text-green-500" aria-hidden="true" />
+    ) : command.status === 'failed' ? (
+      <XCircle className="size-3 text-destructive" aria-hidden="true" />
+    ) : (
+      <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+    );
 
   return (
-    <OverrideLayout>
-      <div className="flex gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2.5">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded text-primary">
+    <div
+      data-testid="command-line"
+      data-status={command.status}
+      className="flex min-w-0 flex-col gap-0.5 py-0.5 text-xs text-muted-foreground"
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="flex size-4 shrink-0 items-center justify-center">
           {command.logo ? (
             <img
               src={command.logo}
               alt=""
-              className="size-5 rounded object-cover"
+              className="size-4 rounded-sm object-cover"
             />
           ) : (
-            <Terminal className="size-5" />
+            <Terminal className="size-3.5" aria-hidden="true" />
           )}
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">
-              {command.commandName}
-            </span>
-            <div className="flex items-center gap-1.5">
-              {getStatusIcon()}
-              <span className="text-xs font-medium text-muted-foreground">
-                {getStatusText()}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {command.pluginId}
-          </div>
-
-          {command.args.length > 0 && (
-            <div className="mt-0.5 flex flex-col gap-1 rounded-md bg-background/50 px-2 py-1.5">
-              {command.args.map((arg, index) => (
-                <div key={index} className="flex items-baseline gap-2">
-                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                    {arg.name}:
-                  </span>
-                  <span className="truncate font-mono text-xs text-foreground">
-                    {formatValue(arg.value)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {command.response && (
-            <div className="mt-0.5 flex flex-col rounded-md border border-border/50 bg-background/50">
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-muted/50"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-                )}
-                <span className="text-xs font-medium text-muted-foreground">
-                  Response
-                </span>
-              </button>
-
-              {isExpanded && (
-                <div className="border-t border-border/50 px-2 py-1.5">
-                  <pre className="whitespace-pre-wrap break-words break-all font-mono text-xs text-foreground">
-                    {command.response}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        </span>
+        <span className="shrink-0">used</span>{' '}
+        <span className="truncate font-mono text-foreground/85" title={invocation}>
+          {invocation}
+        </span>
+        <span className="flex shrink-0 items-center" title={STATUS_TEXT[command.status]}>
+          {statusIcon}
+          <span className="sr-only">{STATUS_TEXT[command.status]}</span>
+        </span>
       </div>
-    </OverrideLayout>
+
+      {/* The reason a command did not run is the one thing the line must
+          say out loud; it never hides behind the fold. */}
+      {failed && response && (
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 pl-[1.375rem] text-destructive"
+        >
+          <XCircle className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+          <span className="whitespace-pre-wrap break-words">{response}</span>
+        </p>
+      )}
+
+      {!failed && response && (
+        <div className="flex min-w-0 flex-col pl-[1.375rem]">
+          {response.length > SHORT_RESPONSE_CHARS && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded((open) => !open)}
+              aria-expanded={isExpanded}
+              className="flex w-fit items-center gap-1 rounded-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {isExpanded ? (
+                <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
+              ) : (
+                <ChevronRight className="size-3 shrink-0" aria-hidden="true" />
+              )}
+              {isExpanded ? 'Hide reply' : 'Show reply'}
+            </button>
+          )}
+          {isExpanded && (
+            <pre className="whitespace-pre-wrap break-words font-sans text-foreground/85">
+              {response}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
   );
 });
 

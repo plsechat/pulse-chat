@@ -13,6 +13,7 @@ import type { TPluginLogsDialogProps } from './plugin-logs';
 import type { TPluginSettingsDialogProps } from './plugin-settings';
 import type { TSchedulePostDialogProps } from './schedule-post';
 import type { TTextInputDialogProps } from './text-input';
+import type { TWatchTogetherDialogProps } from './watch-together';
 
 export type TDialogBaseProps = {
   close: () => void;
@@ -35,4 +36,5 @@ export type TDialogPropsMap = {
   [Dialog.GROUP_DM_SETTINGS]: TGroupDmSettingsDialogProps;
   [Dialog.CREATE_POLL]: TCreatePollDialogProps;
   [Dialog.SCHEDULE_POST]: TSchedulePostDialogProps;
+  [Dialog.WATCH_TOGETHER]: TWatchTogetherDialogProps;
 };

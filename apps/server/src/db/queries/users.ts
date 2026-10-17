@@ -12,6 +12,7 @@ import { authBackend } from '../../utils/auth';
 import { looksLikeOidcSession, verifySessionToken } from '../../utils/oidc';
 import { federationInstances, files, roles, serverMembers, userRoles, users } from '../schema';
 import { isPluginActorAuthId } from '../../plugins/actor-id';
+import { attachGamePresenceForServer } from './game-presence';
 
 const slimFile = (file: TFile | null): TFileRef | null =>
   file ? { id: file.id, name: file.name } : null;
@@ -459,6 +460,7 @@ const getPublicUsersForServer = async (
       nameplate: users.nameplate,
       avatarDecoration: users.avatarDecoration,
       nameStyle: users.nameStyle,
+      gamePresence: users.gamePresence,
       banned: users.banned,
       avatarId: users.avatarId,
       bannerId: users.bannerId,
@@ -516,7 +518,12 @@ const getPublicUsersForServer = async (
     }
   }
 
-  return results.map((result) => {
+  // The roster is a server-scoped projection: it is the one place (with
+  // the scoped USER_UPDATE) that carries what a member is playing, and
+  // only where the member shares it on THIS server.
+  const members = await attachGamePresenceForServer(serverId, results);
+
+  return members.map((result) => {
     let identity: string | undefined;
 
     // For federated users, set _identity to username@domain
@@ -538,6 +545,7 @@ const getPublicUsersForServer = async (
       nameplate: result.nameplate,
       avatarDecoration: result.avatarDecoration,
       nameStyle: result.nameStyle,
+      gamePresence: result.gamePresence,
       banned: result.banned,
       deletedAt: result.deletedAt,
       avatarId: result.avatarId,

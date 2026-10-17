@@ -11,7 +11,7 @@ import { isSealedSetting, unsealPluginSecret } from '../secret-settings';
 import { pluginManager } from '..';
 
 /**
- * `secret` settings (SDK 0.3): the plaintext reaches the plugin's
+ * `secret` settings (SDK 0.4): the plaintext reaches the plugin's
  * `settings.get` and nothing else — the row holds a sealed envelope,
  * the settings route says `{ set }`, the log never carries the value,
  * `null` clears it, and a value stored in the clear before the setting
@@ -46,7 +46,7 @@ const writePlugin = async (id: string) => {
     JSON.stringify({
       name: id,
       version: '1.0.0',
-      pulse: { entry: 'index.js', author: 'test', description: 'secret test plugin', sdk: '^0.3' }
+      pulse: { entry: 'index.js', author: 'test', description: 'secret test plugin', sdk: '^0.4' }
     })
   );
   await fs.writeFile(path.join(dir, 'index.js'), SOURCE);

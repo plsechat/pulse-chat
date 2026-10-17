@@ -10,7 +10,15 @@ const getPreferencesRoute = protectedProcedure.query(async ({ ctx }) => {
     .from(userPreferences)
     .where(eq(userPreferences.userId, ctx.userId));
 
-  return (row?.data ?? DEFAULT_USER_PREFERENCES) as TUserPreferences;
+  if (!row) return DEFAULT_USER_PREFERENCES;
+
+  // Rows written before `presence` existed read with its default, so
+  // the client never sees a partial preference object.
+  const data = row.data as TUserPreferences;
+  return {
+    ...data,
+    presence: { ...DEFAULT_USER_PREFERENCES.presence, ...data.presence }
+  };
 });
 
 export { getPreferencesRoute };

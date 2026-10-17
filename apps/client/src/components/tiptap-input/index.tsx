@@ -7,20 +7,26 @@ import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { isCoarsePointer } from '@/hooks/use-is-mobile';
 import { onAppEvent } from '@/lib/events';
 import type { TCommandInfo } from '@pulse/shared';
-import type { AnyExtension } from '@tiptap/core';
+import type { AnyExtension, Editor } from '@tiptap/core';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import Placeholder from '@tiptap/extension-placeholder';
 import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Smile } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { CommandHint } from './command-hint';
 import { FormatBar } from './format-bar';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
 import {
   CHANNEL_MENTION_STORAGE_KEY,
   ChannelMentionSuggestion
 } from './plugins/channel-mention-suggestion';
+import {
+  commandQueryFromText,
+  resolveUsageHint,
+  type TUsageHint
+} from './plugins/command-palette';
 import {
   COMMANDS_STORAGE_KEY,
   CommandSuggestion
@@ -93,6 +99,19 @@ const TiptapInput = memo(
     useEffect(() => {
       multilineModeRef.current = multilineMode;
     }, [multilineMode]);
+
+    // The usage line for the command being typed (`/watch seek <seconds>`),
+    // keyed by the query it was computed for; Escape puts that query
+    // aside until the text changes. Both are mirrored through refs for
+    // the key handler, which is bound once.
+    const [usage, setUsage] = useState<{ query: string; hint: TUsageHint } | null>(null);
+    const [dismissedQuery, setDismissedQuery] = useState<string | null>(null);
+    const usageRef = useRef(usage);
+    const dismissedRef = useRef(dismissedQuery);
+    useEffect(() => {
+      usageRef.current = usage;
+      dismissedRef.current = dismissedQuery;
+    }, [usage, dismissedQuery]);
 
     const mentionUsers = useMemo(
       () =>
@@ -209,6 +228,21 @@ const TiptapInput = memo(
       placeholder
     ]);
 
+    // What `/…` before the cursor means, for the hint above the editor.
+    const trackCommandUsage = (editor: Editor) => {
+      const commandList = editor.storage[COMMANDS_STORAGE_KEY]?.commands;
+      if (!commandList || commandList.length === 0) {
+        if (usageRef.current) setUsage(null);
+        return;
+      }
+      const { from } = editor.state.selection;
+      const query = commandQueryFromText(editor.state.doc.textBetween(0, from, '\n'));
+      const hint = query !== null ? resolveUsageHint(commandList, query) : null;
+      const next = hint && query !== null ? { query, hint } : null;
+      if (next?.query === usageRef.current?.query && (next === null) === (usageRef.current === null)) return;
+      setUsage(next);
+    };
+
     const editor = useEditor({
       extensions,
       content: value,
@@ -221,6 +255,11 @@ const TiptapInput = memo(
         if (!editor.isEmpty) {
           onTyping?.();
         }
+
+        trackCommandUsage(editor);
+      },
+      onSelectionUpdate: ({ editor }) => {
+        trackCommandUsage(editor);
       },
       editorProps: {
         handlePaste: (_view, event) => {
@@ -373,6 +412,18 @@ const TiptapInput = memo(
           }
 
           if (event.key === 'Escape') {
+            // A command palette or usage hint closes first; the
+            // suggestion plugin owns its list (returning false hands
+            // the key to it), the hint is ours.
+            const usageShown =
+              usageRef.current !== null &&
+              dismissedRef.current !== usageRef.current.query;
+            if (usageShown) setDismissedQuery(usageRef.current!.query);
+            if (hasSuggestions) return false;
+            if (usageShown) {
+              event.preventDefault();
+              return true;
+            }
             event.preventDefault();
             onCancel?.();
             return true;
@@ -523,12 +574,18 @@ const TiptapInput = memo(
       </div>
     );
 
-    if (!toolbar) return row;
+    const hint =
+      usage && dismissedQuery !== usage.query ? (
+        <CommandHint hint={usage.hint} />
+      ) : null;
+
+    if (!toolbar && !hint) return row;
 
     return (
       <div className="flex min-w-0 flex-1 flex-col">
+        {hint}
         {row}
-        <FormatBar editor={editor} disabled={disabled} />
+        {toolbar && <FormatBar editor={editor} disabled={disabled} />}
       </div>
     );
   }

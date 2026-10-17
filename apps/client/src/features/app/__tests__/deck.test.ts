@@ -4,12 +4,15 @@ import {
   canGoForward,
   closeTab,
   forgetTab,
+  getDeckState,
   moveTab,
   nextActiveAfterClose,
   openTab,
+  openWatchPanel,
   parseTabKey,
   recordVisit,
   resetDeckForTests,
+  setPanel,
   setPanelWidth,
   stepHistory,
   tabKeyFor,
@@ -104,6 +107,55 @@ describe('deck tabs', () => {
     togglePanel('inbox');
     togglePanel('inbox');
     expect(typeof useDeck).toBe('function');
+  });
+});
+
+describe('watch panel', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetDeckForTests();
+  });
+
+  const target = {
+    serverId: 1,
+    channelId: 12,
+    messageId: 100,
+    card: {
+      kind: 'file' as const,
+      url: 'https://cdn.example.com/a.mp4',
+      title: 'A',
+      startedBy: 7,
+      playing: true,
+      position: 0,
+      updatedAt: 1_000,
+      viewers: 0
+    }
+  };
+
+  test('opens on a card, a second card replaces the first, closing forgets it', () => {
+    openWatchPanel(target);
+    expect(getDeckState().panel).toBe('watch');
+    expect(getDeckState().watchTarget).toEqual(target);
+
+    const other = { ...target, messageId: 101 };
+    openWatchPanel(other);
+    expect(getDeckState().watchTarget).toEqual(other);
+
+    setPanel(null);
+    expect(getDeckState().panel).toBeNull();
+    expect(getDeckState().watchTarget).toBeNull();
+  });
+
+  test('switching to another panel drops the card; toggling watch closes it', () => {
+    openWatchPanel(target);
+    setPanel('inbox');
+    expect(getDeckState().panel).toBe('inbox');
+    expect(getDeckState().watchTarget).toBeNull();
+
+    openWatchPanel(target);
+    togglePanel('watch');
+    expect(getDeckState().panel).toBeNull();
+    expect(getDeckState().watchTarget).toBeNull();
   });
 });
 

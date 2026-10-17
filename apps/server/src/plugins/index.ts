@@ -9,6 +9,7 @@ import {
 import {
   ServerEvents,
   StreamKind,
+  commandUsage,
   type CommandDefinition,
   type RegisteredCommand,
   type TCommandsMapByPlugin,
@@ -42,6 +43,7 @@ import { createEventActions } from './actions/events';
 import { createFileActions } from './actions/files';
 import { createMemberActions } from './actions/members';
 import { createMessageActions } from './actions/messages';
+import { assertCommandDefinition } from './command-definition';
 import { eventBus } from './event-bus';
 import { createPluginFetch } from './fetch';
 import { parseActionInput, PluginActionError } from './errors';
@@ -131,6 +133,9 @@ class PluginManager {
   // Manifest names, read with the capabilities: the plugin's actor
   // account (plugins/actor.ts) is named after the manifest.
   private manifestNames = new Map<string, string>();
+  // Manifest logos, read the same way: the command list carries the
+  // logo so the composer can show whose command a row is.
+  private manifestLogos = new Map<string, string | undefined>();
   // Resolved lazily from plugin_data (minted on first use); the promise
   // is cached so concurrent first requests share one mint.
   private httpSecrets = new Map<string, Promise<string | undefined>>();
@@ -439,11 +444,19 @@ class PluginManager {
     );
   };
 
+  /**
+   * Runs a command. `subcommand` names the verb of a `/name sub …`
+   * invocation (SDK 0.4.0): it must be one the command declared (hidden
+   * ones included) and reaches the plugin as `invoker.subcommand`. A
+   * command that only acts through sub-commands, run without one, is
+   * answered with its usage instead of being executed.
+   */
   public executeCommand = async <TArgs = unknown>(
     pluginId: string,
     commandName: string,
     invokerCtx: TInvokerContext,
-    args: TArgs
+    args: TArgs,
+    subcommand?: string
   ): Promise<unknown> => {
     const isEnabled = this.isPluginEnabled(pluginId);
 
@@ -465,15 +478,35 @@ class PluginManager {
       );
     }
 
+    const label =
+      subcommand !== undefined ? `${commandName} ${subcommand}` : commandName;
+
+    if (subcommand !== undefined) {
+      const known = foundCommand.subcommands?.some((s) => s.name === subcommand);
+      if (!known) {
+        throw new Error(
+          `Command '${commandName}' of plugin '${pluginId}' has no sub-command '${subcommand}'.`
+        );
+      }
+    } else if (
+      (foundCommand.subcommands?.length ?? 0) > 0 &&
+      (foundCommand.args?.length ?? 0) === 0
+    ) {
+      return commandUsage(foundCommand);
+    }
+
     try {
       this.logPlugin(
         pluginId,
         'debug',
-        `Executing command '${commandName}' with args:`,
-        this.redactCommandArgs(pluginId, commandName, args)
+        `Executing command '${label}' with args:`,
+        this.redactCommandArgs(pluginId, commandName, args, subcommand)
       );
 
-      return await foundCommand.command.executes(invokerCtx, args);
+      const invoker: TInvokerContext =
+        subcommand !== undefined ? { ...invokerCtx, subcommand } : invokerCtx;
+
+      return await foundCommand.command.executes(invoker, args);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -481,7 +514,7 @@ class PluginManager {
       this.logPlugin(
         pluginId,
         'error',
-        `Error executing command '${commandName}': ${errorMessage}`
+        `Error executing command '${label}': ${errorMessage}`
       );
 
       throw error;
@@ -496,15 +529,20 @@ class PluginManager {
   public redactCommandArgs = <TArgs>(
     pluginId: string,
     commandName: string,
-    args: TArgs
+    args: TArgs,
+    subcommand?: string
   ): TArgs => {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
       return args;
     }
 
-    const definition = this.commands
+    const command = this.commands
       .get(pluginId)
-      ?.find((c) => c.name === commandName)?.command.args;
+      ?.find((c) => c.name === commandName);
+    const definition =
+      subcommand !== undefined
+        ? command?.subcommands?.find((s) => s.name === subcommand)?.args
+        : command?.command.args;
     const sensitiveNames = new Set(
       (definition ?? []).filter((a) => a.sensitive).map((a) => a.name)
     );
@@ -539,29 +577,58 @@ class PluginManager {
     return server?.enablePlugins === true;
   };
 
+  /**
+   * The commands as every member's composer sees them. Hidden
+   * sub-commands stay out (they are for clients that already know
+   * them); the plugin's manifest logo rides along for the list.
+   */
   public getCommands = (): TCommandsMapByPlugin => {
     const allCommands: TCommandsMapByPlugin = {};
 
     for (const [pluginId, commands] of this.commands.entries()) {
-      allCommands[pluginId] = commands.map(({ name, description, args }) => ({
-        pluginId,
-        name,
-        description,
-        args
-      }));
+      const logo = this.manifestLogos.get(pluginId);
+      allCommands[pluginId] = commands.map(
+        ({ name, description, args, subcommands }) => ({
+          pluginId,
+          name,
+          description,
+          args,
+          ...(subcommands && subcommands.length > 0
+            ? {
+                subcommands: subcommands
+                  .filter((sub) => !sub.hidden)
+                  .map(({ name, description, args }) => ({
+                    name,
+                    description,
+                    args
+                  }))
+              }
+            : {}),
+          ...(logo !== undefined ? { logo } : {})
+        })
+      );
     }
 
     return allCommands;
   };
 
-  public hasCommand = (pluginId: string, commandName: string): boolean => {
+  /** With `subcommand`, whether the command declares that verb (hidden ones count). */
+  public hasCommand = (
+    pluginId: string,
+    commandName: string,
+    subcommand?: string
+  ): boolean => {
     const commands = this.commands.get(pluginId);
 
     if (!commands) {
       return false;
     }
 
-    return commands.some((c) => c.name === commandName);
+    const command = commands.find((c) => c.name === commandName);
+    if (!command) return false;
+    if (subcommand === undefined) return true;
+
+    return command.subcommands?.some((s) => s.name === subcommand) ?? false;
   };
 
   public togglePlugin = async (pluginId: string, enabled: boolean) => {
@@ -754,6 +821,7 @@ class PluginManager {
 
     this.capabilities.set(pluginId, new Set(capabilities));
     this.manifestNames.set(pluginId, packageJson.name);
+    this.manifestLogos.set(pluginId, packageJson.pulse.logo);
 
     return {
       id: pluginId,
@@ -1284,7 +1352,8 @@ class PluginManager {
               key: options.key,
               pluginId,
               avatarUrl: options.avatarUrl,
-              producers: options.producers
+              producers: options.producers,
+              media: options.media
             });
 
             const stream = channel.getState().externalStreams[streamId]!;
@@ -1366,6 +1435,10 @@ class PluginManager {
       },
       commands: {
         register: <TArgs = void>(command: CommandDefinition<TArgs>) => {
+          // Out of bounds throws into the plugin's onLoad, which records
+          // the reason as its load error.
+          assertCommandDefinition(command as CommandDefinition<unknown>);
+
           if (!this.commands.has(pluginId)) {
             this.commands.set(pluginId, []);
           }
@@ -1390,6 +1463,7 @@ class PluginManager {
             name: command.name,
             description: command.description,
             args: command.args,
+            subcommands: command.subcommands,
             command
           });
 

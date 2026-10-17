@@ -3,6 +3,7 @@ import {
   LocalStorageKey,
   setLocalStorageItem
 } from '@/helpers/storage';
+import type { TWatchCard } from '@pulse/shared';
 import { useSyncExternalStore } from 'react';
 import type { TActiveView } from './slice';
 
@@ -16,8 +17,31 @@ import type { TActiveView } from './slice';
  * Tab keys: `home` · `discover` · `server:<id>` · `fed:<domain>:<id>`.
  */
 
-type TDeckPanel = 'friends' | 'messages' | 'inbox';
+/**
+ * `watch` has no tray button: it opens from a watch card in a channel
+ * (`openWatchPanel`) and closes like the others.
+ */
+type TDeckPanel = 'friends' | 'messages' | 'inbox' | 'watch';
 type TMessagesView = 'list' | 'conversation';
+/**
+ * The card a Watch panel (or dialog) plays: the message that carries it
+ * and a snapshot of the card for the first paint, before (or in case)
+ * the message is not in the loaded window of its channel.
+ */
+type TWatchTarget = {
+  serverId: number | undefined;
+  channelId: number;
+  messageId: number;
+  card: TWatchCard;
+};
+type TFriendsTab = 'all' | 'pending' | 'blocked' | 'add';
+/**
+ * "Open Friends on this tab", as a request the panel answers once: the
+ * sequence number makes a repeat of the same tab a new request, so a
+ * second click on "2 friend requests" lands on Pending again after the
+ * user moved to another tab inside the panel.
+ */
+type TFriendsTabRequest = { tab: TFriendsTab; seq: number };
 
 type TDeckState = {
   /** Open community tabs, in display order. `home` is implicit and first. */
@@ -26,6 +50,8 @@ type TDeckState = {
   panelWidth: number;
   panelExpanded: boolean;
   messagesView: TMessagesView;
+  friendsTabRequest: TFriendsTabRequest | null;
+  watchTarget: TWatchTarget | null;
   history: string[];
   historyIndex: number;
 };
@@ -114,6 +140,8 @@ let state: TDeckState = {
   panelWidth: readPanelWidth(),
   panelExpanded: false,
   messagesView: 'list',
+  friendsTabRequest: null,
+  watchTarget: null,
   history: [],
   historyIndex: -1
 };
@@ -167,11 +195,12 @@ const moveTab = (from: number, to: number) => {
 
 const setPanel = (panel: TDeckPanel | null) => {
   if (panel === state.panel) return;
-  setState({ panel });
+  // Leaving the Watch panel forgets its card: a later open names its own.
+  setState({ panel, ...(panel !== 'watch' ? { watchTarget: null } : {}) });
 };
 
 const togglePanel = (panel: TDeckPanel) => {
-  setState({ panel: state.panel === panel ? null : panel });
+  setPanel(state.panel === panel ? null : panel);
 };
 
 const setPanelWidth = (width: number) => {
@@ -192,6 +221,19 @@ const setMessagesView = (view: TMessagesView) => {
 /** Opens the Messages panel on one conversation. */
 const openConversationPanel = () => {
   setState({ panel: 'messages', messagesView: 'conversation' });
+};
+
+/** Opens the Watch panel on a card; a second card replaces the first. */
+const openWatchPanel = (target: TWatchTarget) => {
+  setState({ panel: 'watch', watchTarget: target });
+};
+
+let friendsTabSeq = 0;
+
+/** Opens the Friends panel on the given tab (Pending for requests, Add to find someone). */
+const openFriendsPanel = (tab: TFriendsTab) => {
+  friendsTabSeq += 1;
+  setState({ panel: 'friends', friendsTabRequest: { tab, seq: friendsTabSeq } });
 };
 
 // Back/forward navigate by re-activating a visited tab; the activation
@@ -245,6 +287,8 @@ const resetDeckForTests = () => {
     panelWidth: PANEL_DEFAULT,
     panelExpanded: false,
     messagesView: 'list',
+    friendsTabRequest: null,
+    watchTarget: null,
     history: [],
     historyIndex: -1
   };
@@ -256,10 +300,13 @@ export {
   canGoForward,
   closeTab,
   forgetTab,
+  getDeckState,
   moveTab,
   nextActiveAfterClose,
   openConversationPanel,
+  openFriendsPanel,
   openTab,
+  openWatchPanel,
   PANEL_EXPANDED,
   PANEL_MAX,
   PANEL_MIN,
@@ -275,4 +322,4 @@ export {
   togglePanelExpanded,
   useDeck
 };
-export type { TDeckPanel };
+export type { TDeckPanel, TFriendsTab, TFriendsTabRequest, TWatchTarget };

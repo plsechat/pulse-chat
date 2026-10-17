@@ -1,5 +1,6 @@
 import { ServerEvents, type StreamKind } from '@pulse/shared';
 import { observable } from '@trpc/server/observable';
+import type { TSoundPlayEvent } from '../../types';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { protectedProcedure, userSubscription } from '../../utils/trpc';
 
@@ -45,6 +46,23 @@ const onVoiceNewProducerRoute = protectedProcedure.subscription(
   }
 );
 
+// A soundboard trigger is for the people in the room alone (they play
+// the clip); the server-wide roster never sees it.
+const onVoiceSoundPlayRoute = protectedProcedure.subscription(
+  async ({ ctx }) => {
+    const runtime = VoiceRuntime.findByCtx(ctx);
+
+    if (!runtime) {
+      return observable<TSoundPlayEvent>(() => () => {});
+    }
+
+    return ctx.pubsub.subscribeForChannel(
+      runtime.key,
+      ServerEvents.VOICE_SOUND_PLAY
+    );
+  }
+);
+
 const onVoiceProducerClosedRoute = protectedProcedure.subscription(
   async ({ ctx }) => {
     const runtime = VoiceRuntime.findByCtx(ctx);
@@ -68,5 +86,6 @@ export {
   onVoiceNewProducerRoute,
   onVoiceProducerClosedRoute,
   onVoiceRemoveExternalStreamRoute,
+  onVoiceSoundPlayRoute,
   onVoiceUpdateExternalStreamRoute
 };

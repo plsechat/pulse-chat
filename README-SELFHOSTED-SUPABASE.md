@@ -328,8 +328,8 @@ sudo certbot --nginx -d your-domain.com
 sudo ufw allow 22/tcp    # SSH
 sudo ufw allow 80/tcp    # HTTP
 sudo ufw allow 443/tcp   # HTTPS
-sudo ufw allow 40000:40020/udp  # WebRTC voice/video
-sudo ufw allow 40000:40020/tcp  # WebRTC TCP fallback
+sudo ufw allow 40000/udp  # WebRTC voice/video
+sudo ufw allow 40000/tcp  # WebRTC TCP fallback
 sudo ufw enable
 ```
 
@@ -339,9 +339,9 @@ sudo ufw enable
 | 80 | TCP | HTTP (redirects to HTTPS) |
 | 443 | TCP | HTTPS (web + WebSocket) |
 | 5443 | TCP | Pulse (only if no reverse proxy) |
-| 40000-40020 | UDP + TCP | WebRTC media (voice/video/screen share) |
+| 40000 | UDP + TCP | WebRTC media (voice/video/screen share) |
 
-Each voice participant uses two transports (send + receive) and each transport takes one UDP and one TCP port from the range, shared across every voice channel and DM call on the instance — the default 21-port range supports roughly 10 concurrent voice participants. To allow more, widen `rtcMinPort`/`rtcMaxPort` in `config.ini`, the port mapping in the compose file and the firewall rule together. Pulse runs no STUN/TURN relay; clients need a direct path to the public IP on these ports.
+All voice media, every channel and DM call, send and receive, runs over the one port `40000` in both UDP and TCP (`MEDIASOUP_PORT` changes it); there is no per-port participant ceiling, so `MEDIASOUP_MAX_PARTICIPANTS` is the way to bound voice load. Pulse runs no STUN/TURN relay; clients need a direct path to the public IP on that port, and only clients that can reach it over neither UDP nor TCP need a relay (`WEBRTC_TURN_URLS`, see the [main README](README.md#environment)). An older deployment that mapped `40000-40020` keeps working; set `MEDIASOUP_MODE=range` only if your network relies on one port per transport.
 
 > **Note:** Docker manipulates iptables directly and can bypass ufw rules. Ports mapped in `docker-compose-supabase.yml` may be publicly accessible even if ufw doesn't allow them. The compose file binds Kong (port 8000) to `127.0.0.1` so it is only accessible from the reverse proxy — do not change this to `0.0.0.0`.
 
@@ -476,9 +476,11 @@ docker compose -f docker-compose-supabase.yml restart pulse
 
 ### Connect Two Instances
 
-On Instance A: Go to **Server Settings > Federation** > **Generate Keys** > **Add Instance** (enter Instance B's domain).
+On Instance A: Go to **Server Settings > Instance > Federation** > **Generate Keys** > **Add Instance** (enter Instance B's domain).
 
-On Instance B: **Server Settings > Federation** > **Generate Keys** > Accept Instance A's request.
+On Instance B: **Server Settings > Instance > Federation** > **Generate Keys** > Accept Instance A's request.
+
+Only the instance owner (the first registered account) sees the Instance section. Peers also exchange their public directory listings (Instance > Registration decides whether yours is exposed) and announcement-channel follows; see [docs/federation.md](docs/federation.md).
 
 ---
 
@@ -514,9 +516,9 @@ The DB container will re-sync the password automatically.
 
 ### WebRTC voice/video not working
 
-1. Check UDP ports are open: `sudo ufw status | grep 40000`
+1. Check the media port is open: `sudo ufw status | grep 40000`
 2. Check Docker port mapping: `docker port pulse`
-3. If behind NAT, forward ports 40000-40020/UDP from your router
+3. If behind NAT, forward port 40000 (UDP and TCP) from your router
 4. Check public IP detection: `docker logs pulse 2>&1 | grep -i "public ip"`
 
 ### Database issues

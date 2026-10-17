@@ -15,7 +15,11 @@ import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { messageFiles, messages } from '../../db/schema';
 import { getInvokerCtxFromTrpcCtx } from '../../helpers/get-invoker-ctx-from-trpc-ctx';
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
-import { parseCommandArgs } from '../../helpers/parse-command-args';
+import {
+  coerceCommandArgs,
+  parseCommandArgs,
+  resolveCommandInvocation
+} from '../../helpers/parse-command-args';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { logger } from '../../logger';
 import { pluginManager } from '../../plugins';
@@ -212,31 +216,42 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
       const enablePlugins = await pluginManager.commandsEnabledForServer(
         channel.serverId
       );
+      const plainText = getPlainTextFromHtml(content);
+      const { args, commandName } = parseCommandArgs(plainText);
+      const foundCommand = commandName
+        ? pluginManager.getCommandByName(commandName)
+        : undefined;
+
+      // A known command that cannot run here is refused with the reason;
+      // posting it as plain text looks like the command silently failed.
+      if (foundCommand && !enablePlugins) {
+        ctx.throwValidationError(
+          'content',
+          'Plugin commands are turned off in this community. A member with Manage settings can turn them on under Server Settings → General → Plugins.'
+        );
+      }
+      if (
+        foundCommand &&
+        !(await ctx.hasPermission(Permission.EXECUTE_PLUGIN_COMMANDS))
+      ) {
+        ctx.throwValidationError(
+          'content',
+          'You do not have permission to run plugin commands in this community.'
+        );
+      }
 
       if (enablePlugins) {
-        const plainText = getPlainTextFromHtml(content);
-        const { args, commandName } = parseCommandArgs(plainText);
-        const foundCommand = pluginManager.getCommandByName(commandName);
-
         if (foundCommand) {
-          if (await ctx.hasPermission(Permission.EXECUTE_PLUGIN_COMMANDS)) {
-            const argsObject: Record<string, unknown> = {};
-
-            if (foundCommand.args) {
-              foundCommand.args.forEach((argDef, index) => {
-                if (index < args.length) {
-                  const value = args[index];
-
-                  if (argDef.type === 'number') {
-                    argsObject[argDef.name] = Number(value);
-                  } else if (argDef.type === 'boolean') {
-                    argsObject[argDef.name] = value === 'true';
-                  } else {
-                    argsObject[argDef.name] = value;
-                  }
-                }
-              });
-            }
+          {
+            // `/watch seek 90`: the first token may name a sub-command,
+            // whose own arguments then follow it (SDK 0.4.0).
+            const invocation = resolveCommandInvocation(foundCommand, args);
+            const subcommand = invocation.subcommand?.name;
+            const commandArgs = invocation.tokens;
+            const argsObject = coerceCommandArgs(
+              invocation.argDefs,
+              commandArgs
+            );
 
             const plugin = await pluginManager.getPluginInfo(
               foundCommand?.pluginId || ''
@@ -244,8 +259,13 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
 
             editable = false;
             targetContent = toDomCommand(
-              { ...foundCommand, imageUrl: plugin?.logo, status: 'pending' },
-              args
+              {
+                ...foundCommand,
+                imageUrl: plugin?.logo,
+                status: 'pending',
+                subcommand
+              },
+              commandArgs
             );
 
             commandExecutor = (messageId: number) => {
@@ -258,9 +278,10 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
                     ...foundCommand,
                     imageUrl: plugin?.logo,
                     response,
-                    status
+                    status,
+                    subcommand
                   },
-                  args
+                  commandArgs
                 );
 
                 db.update(messages)
@@ -278,12 +299,17 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
                   });
               };
 
-              pluginManager
-                .executeCommand(
-                  foundCommand.pluginId,
-                  foundCommand.name,
-                  getInvokerCtxFromTrpcCtx(ctx),
-                  argsObject
+              // The composer's channel travels with the command: a plugin
+              // that answers in chat (the watch card) posts there.
+              getInvokerCtxFromTrpcCtx(ctx, { channelId: input.channelId })
+                .then((invoker) =>
+                  pluginManager.executeCommand(
+                    foundCommand.pluginId,
+                    foundCommand.name,
+                    invoker,
+                    argsObject,
+                    subcommand
+                  )
                 )
                 .then((response) => {
                   updateCommandStatus('completed', response);
@@ -301,7 +327,13 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
                     details: {
                       pluginId: foundCommand.pluginId,
                       commandName: foundCommand.name,
-                      args: argsObject
+                      ...(subcommand !== undefined ? { subcommand } : {}),
+                      args: pluginManager.redactCommandArgs(
+                        foundCommand.pluginId,
+                        foundCommand.name,
+                        argsObject,
+                        subcommand
+                      )
                     }
                   });
                 });

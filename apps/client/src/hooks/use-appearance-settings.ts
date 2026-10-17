@@ -122,5 +122,8 @@ export const useAppearanceSettings = () => {
 export const useLayoutMode = (): LayoutMode =>
   useSyncExternalStore(store.subscribe, () => store.getSettings().layout);
 
+/** Non-React getter for the shell layout (what opens a side panel vs a dialog). */
+export const getLayoutMode = (): LayoutMode => store.getSettings().layout;
+
 /** Non-React getter for current time format preference */
 export const getTimeFormat = (): TimeFormat => store.getSettings().timeFormat;

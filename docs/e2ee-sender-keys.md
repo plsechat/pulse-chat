@@ -106,6 +106,7 @@ All of this is current behaviour:
 | Visible to the server | Where |
 | --- | --- |
 | Who talks to whom, when and how often — sender, channel / DM, timestamps, edit and delete events | `messages`, `dm_messages` rows |
+| That a message was deleted, by whom and when: the row stays as a tombstone (`deleted_at`, `deleted_by`, content and attachments cleared) until the retention sweep removes it | `messages`, `dm_messages` columns (`crons/tombstones.ts`) |
 | Reactions: the emoji and who reacted | `message_reactions`, `dm_message_reactions` (`messages.toggleMessageReaction`, `dms.toggleReaction`) |
 | Pin state (`pinned`, `pinnedBy`, `pinnedAt`) | `messages` columns |
 | Reply graph (`replyToId`) and thread membership | `messages` columns |
@@ -123,10 +124,13 @@ Three further caveats:
   plaintext by construction, so `threads.createForumPost` refuses to
   create posts under an encrypted forum rather than storing them in the
   clear.
-- **Search excludes encrypted messages.** Channel search
+- **The server searches plaintext only.** Channel search
   (`search.searchMessages`) and DM search (`dms.searchMessages`) both
-  filter on `e2ee = false`; encrypted history is not searchable
-  anywhere today.
+  filter on `e2ee = false`. Encrypted channel history is not searchable
+  anywhere; for an encrypted DM the client's search popover matches
+  the query against the messages this device has already decrypted
+  (`screens/home-view/dm-search-match.ts`), so results there are only
+  as complete as the loaded, decryptable window.
 - **One device per identity.** The server holds one identity key per
   user and the client UI says so; see invariant 5 below for what that
   means in practice.

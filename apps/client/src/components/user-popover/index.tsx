@@ -30,7 +30,9 @@ import {
   useUserById
 } from '@/features/server/users/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { formatPlayingFor } from '@/helpers/game-presence';
 import { getNameStyleCss } from '@/helpers/name-style';
+import { useNow } from '@/hooks/use-now';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -46,6 +48,7 @@ import {
   Ellipsis,
   Fingerprint,
   Flag,
+  Gamepad2,
   Globe,
   Pencil,
   Plus,
@@ -121,6 +124,8 @@ const UserPopover = memo(
   // on a phone (the popper only shifts along the side axis): open it
   // below the trigger there, capped to the viewport width.
   const isMobile = useIsMobile();
+  // "for N min" ticks with the shared minute clock while the card is open.
+  const now = useNow();
   const isOwnUser = homeScope
     ? userId === homeOwnUserId
     : !activeInstanceDomain && userId === ownUserId;
@@ -558,6 +563,17 @@ const UserPopover = memo(
           {user.pronouns && (
             <p className="text-xs text-muted-foreground mt-0.5">
               {user.pronouns}
+            </p>
+          )}
+          {user.gamePresence && (
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-foreground/90">
+              <Gamepad2 className="h-3 w-3 shrink-0 text-primary" aria-hidden />
+              <span className="truncate">
+                Playing {user.gamePresence.name}
+              </span>
+              <span className="shrink-0 text-muted-foreground">
+                · {formatPlayingFor(user.gamePresence.startedAt, now)}
+              </span>
             </p>
           )}
           {(user.customStatus || user.customStatusEmoji) && (

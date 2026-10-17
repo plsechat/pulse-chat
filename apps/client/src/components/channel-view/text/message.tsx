@@ -3,6 +3,7 @@ import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { MessageTombstone } from '@/components/chat-primitives/message-tombstone';
 import { PollCard } from '@/components/chat-primitives/poll-card';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
+import { WatchCard } from '@/components/chat-primitives/watch-card';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { setActiveThreadId } from '@/features/server/channels/actions';
@@ -16,6 +17,7 @@ import {
 } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
 import { getDisplayName } from '@/helpers/get-display-name';
+import { watchCardOf } from '@/features/server/voice/watch-together';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { timeOnly } from '@/helpers/time-format';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
@@ -92,6 +94,9 @@ const Message = memo(
       [can, isFromOwnUser, previewMode]
     );
     const canPin = useMemo(() => can(Permission.PIN_MESSAGES), [can]);
+    // A watch-together session posted into this channel renders as its
+    // card; the message text is only the fallback for search.
+    const watchCard = useMemo(() => watchCardOf(message.metadata), [message.metadata]);
     const canReact = useMemo(() => can(Permission.REACT_TO_MESSAGES), [can]);
     const canCreateThreadPerm = useMemo(
       () => can(Permission.SEND_MESSAGES),
@@ -298,6 +303,13 @@ const Message = memo(
             <>
               {message.type === 'poll' ? (
                 <PollCard messageId={message.id} question={message.content} />
+              ) : watchCard ? (
+                <WatchCard
+                  channelId={message.channelId}
+                  messageId={message.id}
+                  card={watchCard}
+                  date={new Date(message.createdAt)}
+                />
               ) : (
                 <MessageRenderer message={message} />
               )}

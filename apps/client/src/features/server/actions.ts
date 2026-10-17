@@ -33,6 +33,7 @@ import {
 } from './subscriptions';
 import { type TDisconnectInfo } from './types';
 import { emitAppEvent } from '@/lib/events';
+import { stopGamePresenceBridge } from '@/lib/game-presence';
 
 let unsubscribeFromServer: (() => void) | null = null;
 let unsubscribeFromHome: (() => void) | null = null;
@@ -220,6 +221,10 @@ export const openSession = async (
     seedPreferencesFromLocalStorage();
   }
 
+  // First connect or a reconnect: socket-bound state (game presence) is
+  // re-reported by whoever holds it.
+  emitAppEvent('home-session-opened');
+
   // Track the active server's DB id
   if (data.serverDbId) {
     setActiveServerId(data.serverDbId);
@@ -263,6 +268,10 @@ export const reinitServerSubscriptions = () => {
 export const getHandshakeHash = () => currentHandshakeHash;
 
 export const disconnectFromServer = () => {
+  // What this device said it was playing goes with the session: the
+  // bridge stops and reports nothing (the server also clears it with
+  // the last socket, so a report that no longer gets through is fine).
+  stopGamePresenceBridge();
   // cleanup(true) also wipes every E2EE store (home and per-instance),
   // so the next user on this browser inherits no keys.
   cleanup(true);

@@ -162,3 +162,4 @@ export enum DisconnectCode {
   FEDERATION_TOKEN_EXPIRED = 4005,
 }
 export * from "./directory";
+export * from "./soundboard";

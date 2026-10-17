@@ -49,6 +49,7 @@ import {
 } from './media-policy';
 import { MicPipeline } from './mic-pipeline';
 import { VolumeControlProvider } from './volume-control-context';
+import { SoundboardProvider } from './soundboard-context';
 
 type AudioVideoRefs = {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -1476,15 +1477,17 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   return (
     <VoiceProviderContext.Provider value={contextValue}>
       <VolumeControlProvider>
-        <div className="relative">
-          <FloatingPinnedCard
-            remoteUserStreams={remoteUserStreams}
-            externalStreams={externalStreams}
-            localScreenShareStream={localScreenShareStream}
-            localVideoStream={localVideoStream}
-          />
-          {children}
-        </div>
+        <SoundboardProvider>
+          <div className="relative">
+            <FloatingPinnedCard
+              remoteUserStreams={remoteUserStreams}
+              externalStreams={externalStreams}
+              localScreenShareStream={localScreenShareStream}
+              localVideoStream={localVideoStream}
+            />
+            {children}
+          </div>
+        </SoundboardProvider>
       </VolumeControlProvider>
     </VoiceProviderContext.Provider>
   );

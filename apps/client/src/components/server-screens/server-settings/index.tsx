@@ -18,6 +18,7 @@ import {
 import { useCan, useIsInstanceOwner } from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import {
+  AudioLines,
   Activity,
   Bot,
   CalendarDays,
@@ -49,6 +50,7 @@ import { AutoMod } from './automod';
 import { Bridge } from './bridge';
 import { useServerBridgeAvailable } from './bridge/hooks';
 import { Emojis } from './emojis';
+import { Sounds } from './sounds';
 import { Events } from './events';
 import { Federation } from './federation';
 import { InstanceActivity } from './instance-activity';
@@ -109,6 +111,7 @@ const SECTION_TITLES: Record<Section, string> = {
   invites: 'Invites',
   emojis: 'Emojis',
   nameplates: 'Nameplates',
+  sounds: 'Sounds',
   webhooks: 'Webhooks',
   automod: 'Auto-Mod',
   events: 'Events',
@@ -135,6 +138,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   invites: 'Create and revoke invite links.',
   emojis: 'Custom emoji everyone here can use.',
   nameplates: 'Upload nameplate art members can equip.',
+  sounds: 'Short clips members play into voice rooms from the soundboard.',
   webhooks: 'Post messages from external services.',
   automod: 'Automatic moderation rules.',
   events: 'Roster templates for the Raid Planner.',
@@ -168,6 +172,7 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   invites: Invites,
   emojis: Emojis,
   nameplates: Nameplates,
+  sounds: Sounds,
   webhooks: Webhooks,
   automod: AutoMod,
   events: Events,
@@ -268,6 +273,12 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
             label: 'Nameplates',
             icon: <IdCard className="h-4 w-4" />,
             allowed: can(SECTION_PERMISSIONS['nameplates'])
+          },
+          {
+            id: 'sounds',
+            label: 'Sounds',
+            icon: <AudioLines className="h-4 w-4" />,
+            allowed: can(SECTION_PERMISSIONS['sounds'])
           }
         ]
       },

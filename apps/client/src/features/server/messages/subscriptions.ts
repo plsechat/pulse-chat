@@ -15,6 +15,8 @@ import {
 } from './actions';
 import { decryptChannelMessageForDisplay } from './decrypt';
 import { emitAppEvent } from '@/lib/events';
+import { toast } from 'sonner';
+import { failedCommandReply } from './command-reply';
 
 /**
  * The encrypted channels the reset peer shares with us (empty for a
@@ -47,6 +49,11 @@ const subscribeToMessages = () => {
     subscribe('onMessageUpdate', trpc.messages.onUpdate, async (message) => {
       const decrypted = await decryptChannelMessageForDisplay(message);
       updateMessage(decrypted.channelId, decrypted);
+      // Your own command came back refused: say why, not only on the card.
+      if (message.userId === store.getState().server.ownUserId) {
+        const reply = failedCommandReply(message.content);
+        if (reply) toast.error(reply);
+      }
     }),
     // A server predating tombstones sends no deletedAt/deletedBy; the
     // row is then marked as deleted now, by nobody.

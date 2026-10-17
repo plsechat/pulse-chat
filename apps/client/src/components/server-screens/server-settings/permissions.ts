@@ -20,6 +20,7 @@ export const SECTION_PERMISSIONS = {
   reports: Permission.VIEW_REPORTS,
   emojis: Permission.MANAGE_EMOJIS,
   nameplates: Permission.MANAGE_EMOJIS,
+  sounds: Permission.MANAGE_SOUNDS,
   webhooks: Permission.MANAGE_WEBHOOKS,
   automod: Permission.MANAGE_AUTOMOD,
   events: Permission.MANAGE_EVENTS,

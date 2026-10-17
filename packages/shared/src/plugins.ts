@@ -62,23 +62,89 @@ export type TLogEntry = {
   pluginId: string;
 };
 
+/**
+ * One value an argument can take (SDK 0.4.0). The composer offers the
+ * choices as a list while the argument is being typed and inserts
+ * `value`; `label` is what the row reads when the value is terse.
+ */
+export type TCommandArgChoice = {
+  value: string;
+  label?: string;
+  description?: string;
+};
+
 export type TCommandArg = {
   name: string;
   description?: string;
   type: "string" | "number" | "boolean";
   required?: boolean;
   sensitive?: boolean;
+  /** Offered in the composer while this argument is typed (SDK 0.4.0). */
+  choices?: TCommandArgChoice[];
+  /** Shown in the composer's usage hint in place of the name (SDK 0.4.0). */
+  placeholder?: string;
 };
 
+/** Bounds the registry enforces on a declaration (SDK 0.4.0). */
+export const COMMAND_LIMITS = {
+  /** Sub-commands a command may declare. */
+  subcommands: 20,
+  /** Arguments a command or a sub-command may declare. */
+  args: 8,
+  /** Choices an argument may offer. */
+  choices: 32,
+  /** Command, sub-command and argument names. */
+  name: /^[a-z0-9-]{1,32}$/,
+} as const;
+
+/**
+ * A verb under a command (SDK 0.4.0): `/name sub …`. The sub-command's
+ * `args` follow its name positionally; a hidden sub-command can be
+ * invoked (a client reporting state through the command) but is never
+ * offered in the composer.
+ */
+export type TSubcommandDefinition = {
+  name: string;
+  description?: string;
+  args?: TCommandArg[];
+  hidden?: boolean;
+};
+
+/**
+ * Who ran a command, as the server hands it to the plugin. The two
+ * optional fields were added with SDK 0.3: `activeServerId` is the
+ * server the command was run from, `canModerate` whether the invoker
+ * holds MANAGE_USERS there (so a plugin can let room moderators act on
+ * a session they did not start) — a 0.1/0.2 plugin never read them.
+ * `channelId` is the text channel (or thread) whose composer the
+ * command was typed into; absent when it came through
+ * `plugins.executeCommand` (a button, the voice popover).
+ */
 export type TInvokerContext = {
   userId: number;
   currentVoiceChannelId?: number;
+  activeServerId?: number;
+  canModerate?: boolean;
+  channelId?: number;
+  /**
+   * The sub-command that was invoked (`/name sub …`), SDK 0.4.0; absent
+   * when the command was run on its own (`/name …`) — a plugin written
+   * before sub-commands never sees it.
+   */
+  subcommand?: string;
 };
 
+/**
+ * What a plugin registers. A command with `subcommands` is invoked as
+ * `/name sub …` (`invoker.subcommand` names the verb, `args` holds that
+ * sub-command's arguments); `/name` on its own runs the command with its
+ * own `args` when it declares any, else answers with its usage.
+ */
 export interface CommandDefinition<TArgs = void> {
   name: string;
   description?: string;
   args?: TCommandArg[];
+  subcommands?: TSubcommandDefinition[];
   executes(ctx: TInvokerContext, args: TArgs): Promise<unknown>;
 }
 
@@ -88,11 +154,17 @@ export type TPluginCommand = {
   description?: string;
 };
 
+/** A sub-command as the client sees it: hidden ones are never sent. */
+export type TSubcommandInfo = Omit<TSubcommandDefinition, "hidden">;
+
 export type TCommandInfo = {
   pluginId: string;
   name: string;
   description?: string;
   args?: CommandDefinition<unknown>["args"];
+  subcommands?: TSubcommandInfo[];
+  /** The plugin's manifest logo, for the composer's command list. */
+  logo?: string;
 };
 
 export type TCommandsMapByPlugin = {
@@ -104,6 +176,7 @@ export type RegisteredCommand = {
   name: string;
   description?: string;
   args?: CommandDefinition<unknown>["args"];
+  subcommands?: TSubcommandDefinition[];
   command: CommandDefinition<unknown>;
 };
 
@@ -117,6 +190,8 @@ export type TParsedDomCommandStatus = "pending" | "completed" | "failed";
 export type TParsedDomCommand = {
   pluginId: string;
   commandName: string;
+  /** The verb of a `/name sub …` invocation (SDK 0.4.0). */
+  subcommand?: string;
   status: TParsedDomCommandStatus;
   response?: string;
   logo?: string;
@@ -128,6 +203,7 @@ export type TCommandElement = {
     "data-plugin-id"?: string;
     "data-plugin-logo"?: string;
     "data-command"?: string;
+    "data-subcommand"?: string;
     "data-status"?: string;
     "data-args"?: string;
     "data-response"?: string;

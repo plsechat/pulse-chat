@@ -23,7 +23,7 @@
 ---
 
 > [!NOTE]
-> Pulse Chat is in alpha (v0.3.0). Expect bugs and breaking changes between updates.
+> Pulse Chat is in alpha (v0.4.0). Expect bugs and breaking changes between updates.
 
 > [!WARNING]
 > **The federation wire format changed in v0.2.0.** Signed requests embed the request body's SHA-256 in a `sha256` JWT claim, plus `iss`/`aud`/`jti` claims for replay and cross-instance protection. A v0.2.x server **cannot** federate with a pre-v0.2 peer — both sides must be on v0.2 or newer.
@@ -40,12 +40,18 @@ Pulse is a self-hosted alternative to Discord and Slack that puts you in control
 | **Voice & video** | WebRTC-powered calls with screen sharing via Mediasoup |
 | **Federation** | Link multiple Pulse instances so users can discover and join across servers |
 | **Forum channels** | Threaded discussions with tags for long-form topics |
-| **Channels & DMs** | Real-time text with file uploads, reactions, threads, and mentions |
-| **Roles & permissions** | Granular access control at the server, channel, and user level |
+| **Channels & DMs** | Real-time text with file uploads, reactions, threads, mentions, polls and scheduled posts; deleted messages stay as a placeholder for a configurable time |
+| **Announcement channels** | Channels only announcers post in, which other communities (on this instance or a federated peer) can follow |
+| **Events** | A raid planner per community: rosters with roles and a bench, reminders, an automatic private voice room around the event, and a calendar feed |
+| **Soundboard** | Short clips per community that members play into a voice room |
+| **Public directory** | Communities can list themselves; members browse listings from this instance and its federated peers |
+| **Community import** | A wizard that brings channels, roles, emoji, history and attachments over from another chat service, with placeholder authors that merge when the real person signs in |
+| **Roles & permissions** | Granular access control at the server, channel, and user level, with a role hierarchy |
 | **Custom emojis** | Upload and manage emojis per server |
-| **Automod** | Keyword filters, regex rules, mention limits, and link blocking |
+| **Automod** | Keyword filters, regex rules, mention limits, link blocking and timeouts |
 | **Webhooks** | Push events to external services |
-| **Plugins** | Extend the server with installable plugins — event hooks and slash commands — via the plugin SDK |
+| **Plugins** | Extend the server with installable plugins via the plugin SDK: event hooks, slash commands, posting and reacting under the plugin's own account, channels, files, scheduled events, secret settings and signed HTTP endpoints. Two official plugins ship in the image, off by default: a chat bridge that mirrors a community to a server on another chat service in both directions, and watch-together for text channels and voice rooms |
+| **Game presence** | With the desktop app, share what you are playing and see who plays what, per community |
 | **OAuth & SSO login** | Google, Discord, Facebook, Twitch (Supabase mode), plus native OpenID Connect SSO — Authentik, Keycloak, Zitadel, Auth0, or any OIDC provider (works with either auth backend) |
 | **Invite-only mode** | Lock down registration so only invited users can join |
 
@@ -151,8 +157,9 @@ Run **one Pulse process per database**. Realtime fan-out (pub/sub), the banned-u
 | `DEBUG_LOG_MAX_SIZE_MB` / `DEBUG_LOG_MAX_FILES` | optional | Rotation limits for `debug.log` (used with `DEBUG_LOGGING`) |
 | `DEBUG_LOG_INCLUDE_BODY` | optional | Set `false` to strip request bodies from debug events (default `true`) |
 | `REDACT_EXTRA` | optional | Comma-separated extra keys to redact in logs, on top of the built-in secret/token denylist |
+| `TOMBSTONE_RETENTION_DAYS` | optional | Days a deleted message stays as a "Message deleted" placeholder before a daily job removes the row (default `30`; `0` keeps the placeholders forever). Overrides `server.tombstoneRetentionDays` below. |
 
-The debug/redaction, voice-networking and TURN variables override the matching `config.ini` keys below; env always wins over the INI file.
+The debug/redaction, retention, voice-networking and TURN variables override the matching `config.ini` keys below; env always wins over the INI file.
 
 Full, commented templates — copy the one that matches your setup to `.env`:
 
@@ -195,10 +202,11 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 | federation | `enabled` | `false` | Turn on federation |
 | federation | `domain` | — | Your public domain (required for federation) |
 | federation | `allowUserFederatableServers` | `false` | `true` lets any server owner mark their server federatable; otherwise only the instance owner can |
+| federation | `exposeDirectory` | `true` | Whether `/federation/directory` answers peers with this instance's listed communities; the instance owner toggles it under Instance → Registration |
 
 Upload limits (max file size, per-user quota, overflow action) are server settings edited in the admin UI, not `config.ini` keys.
 
-Attachment links in private channels and DMs are signed and expire after 24 hours; the client refreshes them whenever it loads messages, so a copied link stops working once its window passes. Removing someone's access to a private channel (kick, ban, leaving, a role or permission change, or flipping the channel private) rotates that channel's signing key, so links they still hold stop resolving at once. Files in public channels and profile media (avatars, emojis, logos) are served without a token and cached by the browser indefinitely under their immutable names.
+Attachment links in private channels and DMs are signed and expire after 12 to 24 hours; the client refreshes them whenever it loads messages, so a copied link stops working once its window passes. Removing someone's access to a private channel (kick, ban, leaving, a role or permission change, or flipping the channel private) rotates that channel's signing key, so links they still hold stop resolving at once. Files in public channels and profile media (avatars, emojis, logos) are served without a token and cached by the browser indefinitely under their immutable names.
 
 > [!IMPORTANT]
 > **Voice port.** All voice media — every channel and DM call, send and receive — runs over **one port, `40000`, in both UDP and TCP** (`MEDIASOUP_PORT`). Map and open exactly that port for both protocols: UDP is preferred, TCP is the fallback for clients whose UDP is blocked. There is no per-port participant ceiling; use `MEDIASOUP_MAX_PARTICIPANTS` to bound voice load. Clients connect straight to `PUBLIC_IP` on that port — Pulse needs no STUN and runs no TURN relay; only clients that can reach it over neither UDP nor TCP need a relay, which you can point them at with `WEBRTC_TURN_URLS`. Existing deployments that mapped `40000-40020` keep working (the port lives inside the range); set `MEDIASOUP_MODE=range` only if your network relies on per-transport ports. See [docs/voice.md](docs/voice.md#networking).
@@ -236,9 +244,10 @@ Pulse doesn't terminate TLS. Put a reverse proxy in front — Caddy, Nginx, or T
 Subsystem deep-dives for contributors live in [docs/](docs/):
 [federation wire protocol](docs/federation.md) ·
 [E2EE sender keys](docs/e2ee-sender-keys.md) ·
-[voice lifecycle](docs/voice.md)
+[voice lifecycle](docs/voice.md) ·
+[desktop integration](docs/desktop-integration.md)
 
-Release notes live at the repository root as `RELEASE-NOTES-v<version>.md` (latest: [v0.3.0](RELEASE-NOTES-v0.3.0.md)). Contributor setup, the test loop and the pre-push gate are in [CONTRIBUTING.md](CONTRIBUTING.md).
+The notes for the current release live at the repository root: [RELEASE-NOTES-v0.4.0.md](RELEASE-NOTES-v0.4.0.md). Contributor setup, the test loop and the pre-push gate are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Built with
 

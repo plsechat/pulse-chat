@@ -93,8 +93,17 @@ const CORS_ALLOW_HEADERS = Array.from(
 // 'unsafe-eval' is not needed: the only eval in the built client is
 // protobufjs' try/catch-guarded `eval("require")` probe, which fails
 // closed. Fonts are self-hosted, so font-src stays 'self'.
+//
+// script-src beyond 'self': the YouTube IFrame Player API that the
+// watch-together card drives — the `iframe_api` bootstrap, the player
+// library it inserts (under `/s/player/`), and the host the library
+// used to ship from. Path-scoped where the path is stable, so nothing
+// else on that origin becomes a script source. The player's iframe
+// itself (youtube-nocookie.com, youtube.com) is already allowed by
+// frame-src for message embeds, and the watch card's thumbnail
+// (i.ytimg.com) by the `https:` that link previews need in img-src.
 const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+  "default-src 'self'; script-src 'self' https://www.youtube.com/iframe_api https://www.youtube.com/s/player/ https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
 const PERMISSIONS_POLICY =
   'camera=(self), microphone=(self), display-capture=(self), geolocation=()';

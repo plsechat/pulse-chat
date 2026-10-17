@@ -1,10 +1,17 @@
 import type {
   PluginContext,
+  TPluginEditMessageInput,
   TPluginMessageRef,
   TPluginPostMessageInput
 } from '@pulse/plugin-sdk';
 import type { TMessageMetadata } from '@pulse/shared';
-import { ChannelType, MAX_MESSAGE_CONTENT_LENGTH } from '@pulse/shared';
+import {
+  ChannelType,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  PERSONA_MEDIA_TYPE,
+  PLUGIN_DATA_MEDIA_TYPE,
+  pluginDataEntry
+} from '@pulse/shared';
 import type { TChannel, TMessage } from '../../types';
 import { randomUUIDv7 } from 'bun';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -47,10 +54,10 @@ import { eventBus } from '../event-bus';
  * `ctx.actions.messages` — the plugin's write access to channel chat.
  *
  * Every post goes down the same road as an inbound webhook message: the
- * row is stored under the instance owner (see actor.ts), the persona the
- * reader sees travels in `metadata` exactly like the webhook alias and
- * avatar, auto-moderation runs with the owner as the accountable user,
- * and `publishMessage` fans the result out. What a plugin may touch
+ * row is stored under the plugin's own actor account (see actor.ts), the
+ * persona the reader sees travels in `metadata` exactly like the webhook
+ * alias and avatar, auto-moderation runs with that account as the
+ * accountable user, and `publishMessage` fans the result out. What a plugin may touch
  * afterwards is decided by plugin_message_links: its own posts, or any
  * message once the manifest declares `moderate-messages`.
  */
@@ -62,6 +69,14 @@ const MAX_EXTERNAL_ID_LENGTH = 256;
 const MAX_FILES_PER_MESSAGE = 10;
 /** A unicode emoji or a `:custom_name:` token — never free text. */
 const MAX_EMOJI_LENGTH = 64;
+/**
+ * Card state is one jsonb entry fanned out with every message event,
+ * so it is kept small: a handful of keys, a few KiB. A plugin that
+ * needs more keeps it on its own side and puts a reference here.
+ */
+const MAX_METADATA_KEYS = 16;
+const MAX_METADATA_KEY_LENGTH = 64;
+const MAX_METADATA_BYTES = 8 * 1024;
 
 const id = z.number().int().positive();
 
@@ -72,6 +87,23 @@ const avatarUrlSchema = z
   .refine(
     (value) => value.startsWith('/public/') || /^https?:\/\//i.test(value),
     'author.avatarUrl must be a /public/<file> path or an http(s) URL'
+  );
+
+/**
+ * Plain JSON only: `JSON.stringify` drops functions and undefined
+ * silently, so the size check runs on what would actually be stored.
+ */
+const metadataSchema = z
+  .record(z.string().min(1).max(MAX_METADATA_KEY_LENGTH), z.unknown())
+  .refine((value) => Object.keys(value).length <= MAX_METADATA_KEYS, {
+    message: `metadata may hold at most ${MAX_METADATA_KEYS} keys`
+  })
+  .refine(
+    (value) => {
+      const serialised = JSON.stringify(value);
+      return serialised !== undefined && Buffer.byteLength(serialised) <= MAX_METADATA_BYTES;
+    },
+    { message: `metadata may not exceed ${MAX_METADATA_BYTES} bytes as JSON` }
   );
 
 const postSchema = z.object({
@@ -96,7 +128,8 @@ const postSchema = z.object({
       (value) => !value.startsWith(RESERVED_EXTERNAL_ID_PREFIX),
       `externalId may not start with "${RESERVED_EXTERNAL_ID_PREFIX}"`
     )
-    .optional()
+    .optional(),
+  metadata: metadataSchema.optional()
 });
 
 const refSchema = z.union([
@@ -107,12 +140,18 @@ const refSchema = z.union([
   })
 ]);
 
-const editSchema = z.object({
-  content: z
-    .string()
-    .min(1, 'content is required')
-    .max(MAX_MESSAGE_CONTENT_LENGTH, 'Message is too long')
-});
+const editSchema = z
+  .object({
+    content: z
+      .string()
+      .min(1, 'content is required')
+      .max(MAX_MESSAGE_CONTENT_LENGTH, 'Message is too long')
+      .optional(),
+    metadata: metadataSchema.optional()
+  })
+  .refine((value) => value.content !== undefined || value.metadata !== undefined, {
+    message: 'content or metadata is required'
+  });
 
 const reactSchema = z.object({
   emoji: z.string().min(1).max(MAX_EMOJI_LENGTH),
@@ -404,18 +443,24 @@ const createMessageActions = ({
     // later rename on the plugin's side never rewrites history. The
     // `webhook` media type is what the client already renders as a
     // display-name + avatar override; `siteName` tells the two apart.
-    const persona: TMessageMetadata[] | null = input.author
+    const persona: TMessageMetadata[] = input.author
       ? [
           {
             url: '',
             title: input.author.name,
             siteName: 'plugin',
             description: pluginId,
-            mediaType: 'webhook',
+            mediaType: PERSONA_MEDIA_TYPE,
             ...(input.author.avatarUrl ? { images: [input.author.avatarUrl] } : {})
           }
         ]
-      : null;
+      : [];
+    // Card state rides in the same column as its own entry; the
+    // preview pipeline keeps both when it adds link previews.
+    const stored: TMessageMetadata[] = input.metadata
+      ? [...persona, pluginDataEntry(pluginId, input.metadata)]
+      : persona;
+    const metadata: TMessageMetadata[] | null = stored.length > 0 ? stored : null;
 
     const externalId =
       input.externalId ?? `${RESERVED_EXTERNAL_ID_PREFIX}auto:${randomUUIDv7()}`;
@@ -436,7 +481,7 @@ const createMessageActions = ({
             replyToId: input.replyToId,
             mentionedUserIds: mentions.mentionedUserIds,
             mentionsAll: mentions.mentionsAll,
-            metadata: persona,
+            metadata,
             createdAt: now
           })
           .returning({ id: messages.id });
@@ -506,7 +551,10 @@ const createMessageActions = ({
     rawInput
   ) => {
     const { message, channel } = await resolve(rawInput);
-    const { content } = parseActionInput(editSchema, rawInput);
+    const { content, metadata } = parseActionInput(
+      editSchema,
+      rawInput
+    ) as TPluginEditMessageInput;
 
     if (message.e2ee) {
       throw new PluginActionError(
@@ -517,6 +565,31 @@ const createMessageActions = ({
 
     if (message.editable === false) {
       throw new PluginActionError('FORBIDDEN', 'This message is not editable');
+    }
+
+    // The plugin's card entry is replaced whole; the persona and the
+    // link previews next to it stay as they are.
+    const nextMetadata =
+      metadata !== undefined
+        ? [
+            ...(message.metadata ?? []).filter(
+              (entry) => !(entry.mediaType === PLUGIN_DATA_MEDIA_TYPE && entry.pluginId === pluginId)
+            ),
+            pluginDataEntry(pluginId, metadata)
+          ]
+        : undefined;
+
+    // A metadata-only edit changes the card, not the text: no automod
+    // (nothing new is said), no "(edited)" mark, no message:updated —
+    // a bridge mirroring the text has nothing to mirror.
+    if (content === undefined) {
+      await db
+        .update(messages)
+        .set({ metadata: nextMetadata, updatedAt: Date.now() })
+        .where(eq(messages.id, message.id));
+
+      await publishMessage(message.id, channel.id, 'update');
+      return;
     }
 
     const actorUserId = await actorIn(channel.serverId);
@@ -533,7 +606,8 @@ const createMessageActions = ({
         edited: true,
         updatedAt: Date.now(),
         mentionedUserIds: mentions.mentionedUserIds,
-        mentionsAll: mentions.mentionsAll
+        mentionsAll: mentions.mentionsAll,
+        ...(nextMetadata !== undefined ? { metadata: nextMetadata } : {})
       })
       .where(eq(messages.id, message.id));
 

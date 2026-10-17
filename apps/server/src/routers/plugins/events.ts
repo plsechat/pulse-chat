@@ -1,5 +1,6 @@
 import { ServerEvents } from '@pulse/shared';
 import { observable } from '@trpc/server/observable';
+import type { TCommandsMapByPlugin } from '@pulse/shared';
 import { pluginManager } from '../../plugins';
 import { instanceOwnerProcedure, serverProcedure } from '../../utils/procedures';
 
@@ -16,19 +17,38 @@ const onPluginLogRoute = instanceOwnerProcedure.subscription(
 );
 
 /**
- * Command-list changes reach every member of the active server, but
- * only when that server has opted into plugin commands. The client
- * subscribes to this unconditionally on every server join, so a
- * server with plugins disabled gets a silent, empty stream instead
- * of a FORBIDDEN error on every connection.
+ * Command-list changes reach every member of the active server. The
+ * client subscribes unconditionally on every server join; while the
+ * server has plugin commands switched off it receives an empty map
+ * rather than a FORBIDDEN error, and the stream stays live so the
+ * switch flipping on (which publishes the list to the members) lands
+ * without a reconnect.
  */
 const onCommandsChangeRoute = serverProcedure().subscription(
-  async ({ ctx }) => {
-    if (!(await pluginManager.commandsEnabledForServer(ctx.activeServerId))) {
-      return observable<never>(() => () => {});
-    }
+  ({ ctx }) => {
+    const serverId = ctx.activeServerId;
 
-    return ctx.pubsub.subscribe(ServerEvents.PLUGIN_COMMANDS_CHANGE);
+    return observable<TCommandsMapByPlugin>((emit) => {
+      const forward = (commands: TCommandsMapByPlugin) => {
+        void pluginManager
+          .commandsEnabledForServer(serverId)
+          .then((enabled) => emit.next(enabled ? commands : {}))
+          .catch(() => emit.next({}));
+      };
+      // Registry changes are published to everyone; the Plugins switch
+      // publishes to the community's members. Both land here.
+      const everyone = ctx.pubsub
+        .subscribe(ServerEvents.PLUGIN_COMMANDS_CHANGE)
+        .subscribe({ next: forward, error: (err) => emit.error(err) });
+      const mine = ctx.pubsub
+        .subscribeFor(ctx.userId, ServerEvents.PLUGIN_COMMANDS_CHANGE)
+        .subscribe({ next: forward, error: (err) => emit.error(err) });
+
+      return () => {
+        everyone.unsubscribe();
+        mine.unsubscribe();
+      };
+    });
   }
 );
 

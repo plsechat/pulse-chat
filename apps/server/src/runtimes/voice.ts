@@ -3,6 +3,7 @@ import {
   StreamKind,
   VOICE_STREAM_PREVIEW_STALE_MS,
   type TChannelState,
+  type TExternalStreamMedia,
   type TExternalStreamsMap,
   type TRemoteProducerIds,
   type TTransportParams,
@@ -34,6 +35,7 @@ import {
   mediaSoupWorker
 } from '../utils/mediasoup';
 import { pubsub } from '../utils/pubsub';
+import { soundboardLimiter } from '../utils/soundboard-limits';
 
 /**
  * Server voice channels and DM calls draw ids from independent serial
@@ -183,6 +185,7 @@ type TExternalStreamInternal = {
   pluginId: string;
   avatarUrl?: string;
   producers: TExternalStreamProducers;
+  media?: TExternalStreamMedia;
 };
 
 const logExternalStreamFanoutFailure = (err: unknown) => {
@@ -467,6 +470,7 @@ class VoiceRuntime {
     });
 
     voiceRuntimes.delete(this.key);
+    soundboardLimiter.forgetRoom(this.key);
 
     eventBus.emit('voice:runtime_closed', {
       channelId: this.id
@@ -879,6 +883,12 @@ class VoiceRuntime {
     return Object.values(this.consumers[userId] ?? {});
   };
 
+  /**
+   * A stream may carry producers (RTP the plugin feeds the router), a
+   * `media` descriptor (an address every client plays itself, kept in
+   * step through updateExternalStream — see TExternalStreamMedia), or
+   * both.
+   */
   public createExternalStream = (options: {
     title: string;
     key: string;
@@ -888,10 +898,11 @@ class VoiceRuntime {
       audio?: Producer;
       video?: Producer;
     };
+    media?: TExternalStreamMedia;
   }) => {
     const streamId = this.externalCounter++;
 
-    const { title, key, pluginId, avatarUrl, producers } = options;
+    const { title, key, pluginId, avatarUrl, producers, media } = options;
 
     this.externalStreamsInternal[streamId] = {
       title,
@@ -901,7 +912,8 @@ class VoiceRuntime {
       producers: {
         audioProducer: producers.audio,
         videoProducer: producers.video
-      }
+      },
+      media
     };
 
     if (producers.audio) {
@@ -928,7 +940,8 @@ class VoiceRuntime {
       tracks: {
         audio: !!producers.audio,
         video: !!producers.video
-      }
+      },
+      ...(media ? { media } : {})
     };
 
     return streamId;
@@ -1018,6 +1031,8 @@ class VoiceRuntime {
         audio?: Producer;
         video?: Producer;
       };
+      /** A full descriptor replaces the current one; null clears it. */
+      media?: TExternalStreamMedia | null;
     }
   ) => {
     const internal = this.externalStreamsInternal[streamId];
@@ -1036,6 +1051,16 @@ class VoiceRuntime {
     if (options.avatarUrl !== undefined) {
       internal.avatarUrl = options.avatarUrl;
       publicStream.avatarUrl = options.avatarUrl;
+    }
+
+    if (options.media !== undefined) {
+      if (options.media === null) {
+        delete internal.media;
+        delete publicStream.media;
+      } else {
+        internal.media = options.media;
+        publicStream.media = options.media;
+      }
     }
 
     if (options.producers) {

@@ -41,6 +41,7 @@ import { getUserRoles } from '../routers/users/get-user-roles';
 import { VoiceRuntime } from '../runtimes/voice';
 import { verifyFederationToken, verifyFederationTokenDetailed } from './federation';
 import { schedulePresenceOffline } from './federation-user-info-dispatch';
+import { scheduleGamePresenceClear } from './game-presence';
 import {
   registerPermissionCacheInvalidator,
   unregisterPermissionCacheInvalidator
@@ -825,6 +826,14 @@ const createWsServer = async (server: http.Server) => {
         // Always clean up user state, even if voice cleanup failed
         usersIpMap.delete(user.id);
         userStatusOverrides.delete(user.id);
+
+        // The shell that reported what they were playing left with the
+        // session (sign-out, a closed app, a crash): the presence goes
+        // after the same kind of debounce, unless they are back by then.
+        // A shadow's presence is cleared by its home instance's push.
+        if (!user.isFederated && user.gamePresence) {
+          scheduleGamePresenceClear(user.id, () => hasLiveWsConnection(user.id));
+        }
 
         // Peers holding a shadow of this local user learn they went
         // offline — debounced, so a page refresh does not flicker. A

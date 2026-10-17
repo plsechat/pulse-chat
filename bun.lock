@@ -57,6 +57,7 @@
         "eslint-plugin-react-you-might-not-need-an-effect": "^0.7.0",
         "filesize": "^11.0.13",
         "highlight.js": "^11.11.1",
+        "hls.js": "^1.7.3",
         "html-react-parser": "^5.2.6",
         "idb": "^8.0.3",
         "lodash-es": "^4.17.21",
@@ -163,6 +164,19 @@
     },
     "packages/plugins/discord-bridge": {
       "name": "discord-bridge",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@pulse/plugin-sdk": "workspace:*",
+        "@pulse/shared": "workspace:*",
+        "@types/bun": "latest",
+        "@typescript-eslint/eslint-plugin": "^8.46.1",
+        "eslint": "^8.56.0",
+        "eslint-plugin-unused-imports": "^4.1.4",
+        "typescript": "^5",
+      },
+    },
+    "packages/plugins/watch-together": {
+      "name": "watch-together",
       "version": "0.1.0",
       "devDependencies": {
         "@pulse/plugin-sdk": "workspace:*",
@@ -1090,6 +1104,8 @@
 
     "highlight.js": ["highlight.js@11.11.1", "", {}, "sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w=="],
 
+    "hls.js": ["hls.js@1.7.3", "", {}, "sha512-MsPlx6yVW4Qv4C7mEVou4/gk/5cN2dVxOTnrNjPSmyH2f0Ln+/UkG10Ax1PE6OvrmTVPKgQYozTtBaPOuCzq7A=="],
+
     "html-dom-parser": ["html-dom-parser@5.1.8", "", { "dependencies": { "domhandler": "5.0.3", "htmlparser2": "10.1.0" } }, "sha512-MCIUng//mF2qTtGHXJWr6OLfHWmg3Pm8ezpfiltF83tizPWY17JxT4dRLE8lykJ5bChJELoY3onQKPbufJHxYA=="],
 
     "html-react-parser": ["html-react-parser@5.2.17", "", { "dependencies": { "domhandler": "5.0.3", "html-dom-parser": "5.1.8", "react-property": "2.0.2", "style-to-js": "1.1.21" }, "peerDependencies": { "@types/react": "0.14 || 15 || 16 || 17 || 18 || 19", "react": "0.14 || 15 || 16 || 17 || 18 || 19" }, "optionalPeers": ["@types/react"] }, "sha512-m+K/7Moq1jodAB4VL0RXSOmtwLUYoAsikZhwd+hGQe5Vtw2dbWfpFd60poxojMU0Tsh9w59mN1QLEcoHz0Dx9w=="],
@@ -1583,6 +1599,8 @@
     "w3c-keyname": ["w3c-keyname@2.2.8", "", {}, "sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ=="],
 
     "walk-up-path": ["walk-up-path@4.0.0", "", {}, "sha512-3hu+tD8YzSLGuFYtPRb48vdhKMi0KQV5sn+uWr8+7dMEq/2G/dtLrdDinkLjqq5TIbIBjYJ4Ax/n3YiaW7QM8A=="],
+
+    "watch-together": ["watch-together@workspace:packages/plugins/watch-together"],
 
     "web-streams-polyfill": ["web-streams-polyfill@3.3.3", "", {}, "sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw=="],
 

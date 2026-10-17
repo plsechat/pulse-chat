@@ -31,12 +31,71 @@ export type TVoiceUser = {
   state: TVoiceUserState;
 };
 
+/**
+ * Shared playback of a media address, carried on an external stream in
+ * place of (or next to) producers. The server has no media decoder, so
+ * a plugin that wants a room to watch something together does not feed
+ * RTP into the router: it publishes the address and the transport state
+ * here, every client in the room plays the address itself, and the
+ * plugin keeps them in step by updating this object (fanned out as
+ * VOICE_UPDATE_EXTERNAL_STREAM). `position` is the playback position in
+ * seconds AT `updatedAt` (epoch ms): while `playing`, a client derives
+ * the live position as `position + (now - updatedAt) / 1000`.
+ *
+ * A `youtube` descriptor names a video on that site instead of a media
+ * address: the client embeds the site's own player (its IFrame Player
+ * API) and drives it with the same position math; `url` is then the
+ * canonical watch address and `videoId` the 11-character id.
+ */
+export type TExternalStreamMedia = {
+  url: string;
+  /**
+   * `hls` for an HLS playlist (.m3u8), `file` for a progressive file,
+   * `youtube` for a video played through that site's embedded player.
+   */
+  kind: "file" | "hls" | "youtube";
+  /** The video id when `kind` is `youtube`; absent otherwise. */
+  videoId?: string;
+  playing: boolean;
+  position: number;
+  updatedAt: number;
+  /** The member who started it; controls are theirs and the moderators'. */
+  hostUserId: number;
+};
+
+/**
+ * Shared playback from a TEXT channel: the watch-together plugin posts
+ * a message whose plugin-data metadata carries this under `watch`, and
+ * every control edits that message, so the ordinary MESSAGE_UPDATE
+ * fan-out keeps every reader's card and player in step — late readers
+ * simply read the card. The position math is the room descriptor's:
+ * `position` is the playback position in seconds at `updatedAt`, and
+ * while `playing` the live position is `position + (now - updatedAt) /
+ * 1000`. `endedAt` is set once (stopped, replaced, idle, plugin
+ * unloaded); an ended card is history and never plays again.
+ */
+export type TWatchCard = {
+  kind: TExternalStreamMedia["kind"];
+  url: string;
+  videoId?: string;
+  title: string;
+  /** The member who started it; controls are theirs and the moderators'. */
+  startedBy: number;
+  playing: boolean;
+  position: number;
+  updatedAt: number;
+  /** Members with the player open, as the plugin last counted them. */
+  viewers: number;
+  endedAt?: number;
+};
+
 export type TExternalStream = {
   title: string;
   key: string;
   pluginId: string;
   avatarUrl?: string;
   tracks: TExternalStreamTracks;
+  media?: TExternalStreamMedia;
 };
 
 export type TChannelState = {

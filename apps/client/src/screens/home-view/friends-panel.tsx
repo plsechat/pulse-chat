@@ -14,6 +14,7 @@ import {
   useFriendRequests,
   useFriends
 } from '@/features/friends/hooks';
+import type { TFriendsTab, TFriendsTabRequest } from '@/features/app/deck';
 import { useHomeOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { getNameStyleCss } from '@/helpers/name-style';
@@ -34,17 +35,24 @@ import {
   UserPlus,
   X
 } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 type TFriendsPanelProps = {
   onDmSelect: (dmChannelId: number) => void;
+  /**
+   * A tab to land on, answered once per request (the deck's
+   * openFriendsPanel): "N friend requests" on Home opens Pending.
+   */
+  requestedTab?: TFriendsTabRequest;
 };
 
-type TFriendsTab = 'all' | 'pending' | 'blocked' | 'add';
+const FriendsPanel = memo(({ onDmSelect, requestedTab }: TFriendsPanelProps) => {
+  const [tab, setTab] = useState<TFriendsTab>(requestedTab?.tab ?? 'all');
 
-const FriendsPanel = memo(({ onDmSelect }: TFriendsPanelProps) => {
-  const [tab, setTab] = useState<TFriendsTab>('all');
+  useEffect(() => {
+    if (requestedTab) setTab(requestedTab.tab);
+  }, [requestedTab]);
 
   return (
     <div className="flex h-full flex-col">

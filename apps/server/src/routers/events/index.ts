@@ -18,6 +18,7 @@ import { createTemplateRoute } from './templates-create';
 import { deleteTemplateRoute } from './templates-delete';
 import { listTemplatesRoute } from './templates-list';
 import { updateTemplateRoute } from './templates-update';
+import { upcomingForUserRoute } from './upcoming-for-user';
 import { updateEventRoute } from './update';
 import { withdrawRoute } from './withdraw';
 
@@ -26,6 +27,7 @@ export const eventsRouter = t.router({
   update: updateEventRoute,
   cancel: cancelEventRoute,
   list: listEventsRoute,
+  upcomingForUser: upcomingForUserRoute,
   get: getEventRoute,
   signup: signupRoute,
   decline: declineRoute,

@@ -19,6 +19,8 @@ import {
   WifiOff
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
+import { SoundboardPopover } from '../soundboard/soundboard-popover';
+import { WatchTogetherButton } from '../soundboard/watch-together-button';
 import { Button } from '../ui/button';
 import { StatsPopover } from './stats-popover';
 
@@ -95,6 +97,8 @@ const VoiceControl = memo(() => {
         </Button>
 
         <div className="flex gap-1">
+          <SoundboardPopover />
+          <WatchTogetherButton />
           <Button
             variant="ghost"
             size="icon"

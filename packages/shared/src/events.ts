@@ -121,6 +121,15 @@ export enum ServerEvents {
   // The follow relations of a channel changed (followed, unfollowed, a
   // remote follower attached); the Follows tab refetches.
   CHANNEL_FOLLOWS_UPDATE = "channelFollowsUpdate",
+
+  // Soundboard: the sound list of a server changed (members refetch /
+  // patch their grid); VOICE_SOUND_PLAY is ROOM-scoped (the runtime key,
+  // like VOICE_NEW_PRODUCER) — every client in that voice room plays the
+  // clip locally and shows the ripple on the player's tile.
+  SOUND_CREATE = "soundCreate",
+  SOUND_UPDATE = "soundUpdate",
+  SOUND_DELETE = "soundDelete",
+  VOICE_SOUND_PLAY = "voiceSoundPlay",
 }
 
 export type TNewMessage = {

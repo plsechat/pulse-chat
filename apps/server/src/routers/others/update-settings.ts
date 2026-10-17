@@ -20,6 +20,7 @@ import {
   isServerOwner
 } from '../../db/queries/servers';
 import { servers } from '../../db/schema';
+import { pluginManager } from '../../plugins';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
 import { serverProcedureFor } from '../../utils/procedures';
@@ -146,6 +147,19 @@ const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
       ServerEvents.SERVER_SETTINGS_UPDATE,
       publicSettings
     );
+
+    // The composer's command palette follows the Plugins switch at once:
+    // members get the list (or an empty map) without a reconnect.
+    if (
+      input.enablePlugins !== undefined &&
+      input.enablePlugins !== server.enablePlugins
+    ) {
+      ctx.pubsub.publishFor(
+        memberIds,
+        ServerEvents.PLUGIN_COMMANDS_CHANGE,
+        input.enablePlugins ? pluginManager.getCommands() : {}
+      );
+    }
 
     enqueueActivityLog({
       type: ActivityLogType.EDIT_SERVER_SETTINGS,

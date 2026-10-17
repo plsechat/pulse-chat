@@ -7,7 +7,7 @@ import {
 import path from 'node:path';
 import { psql } from '../../helpers/db';
 import { authedPage, registerAndJoin, RUN_TAG, runUser } from '../../helpers/fixtures';
-import { dmComposer, openDmList, openFriends, sendDmMessage } from '../../helpers/ui';
+import { dmComposer, isDeckLayout, openDmList, openFriends, sendDmMessage } from '../../helpers/ui';
 
 /**
  * DM depth: the friend-request loop, group-DM lifecycle, and DM
@@ -48,7 +48,12 @@ async function befriend(
   fromName: string
 ): Promise<void> {
   await openFriends(from);
-  await from.getByRole('button', { name: 'Add Friend' }).click();
+  // In the tab layout the Home overview also offers "Add friend": scope
+  // the click to the Friends panel.
+  const friendsScope = (await isDeckLayout(from))
+    ? from.getByRole('complementary', { name: 'Friends' })
+    : from;
+  await friendsScope.getByRole('button', { name: 'Add Friend' }).click();
   await from.getByPlaceholder('Search by username...').fill(toName);
   await from.getByText(toName, { exact: true }).first().waitFor();
   await from.locator('button[title="Send Friend Request"]').first().click();

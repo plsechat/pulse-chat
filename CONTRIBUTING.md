@@ -51,9 +51,13 @@ Pulse is a monorepo managed with Bun workspaces:
 - `apps/client/` — frontend (React, Vite)
 - `packages/shared/` — shared types and constants
 - `packages/plugin-sdk/` — SDK for building server plugins
+- `packages/plugins/`: the official plugins that ship in the image (`discord-bridge`, `watch-together`), each with its own README and tests
+- `docs/`: subsystem deep-dives (federation, voice, E2EE, desktop integration)
 
 The desktop client (Electron wrapper + native audio) lives in a separate
-repository: [plsechat/pulse-desktop](https://github.com/plsechat/pulse-desktop).
+repository: [plsechat/pulse-desktop](https://github.com/plsechat/pulse-desktop);
+the `window.pulseDesktop` contract between the two is documented in
+[docs/desktop-integration.md](docs/desktop-integration.md).
 Browser end-to-end tests live in `e2e/` (see [e2e/README.md](e2e/README.md)).
 Release notes for each version live at the repository root as
 `RELEASE-NOTES-v<version>.md`.
@@ -138,11 +142,13 @@ Rules that keep the suite deterministic:
 
 ### Client tests
 
-The client has a small unit suite (E2EE key chains, safety numbers, store scoping). No database needed:
+The client has a unit suite of its own (E2EE key chains and safety numbers, store scoping, the deck and preferences logic, media policy, game presence, the DM search matcher, and more; about a hundred files). No database needed:
 
 ```bash
 bun run --filter client test
 ```
+
+The two official plugins under `packages/plugins/` each have a `bun test src` suite against a fake SDK context, and the server's `plugins/__tests__/` loads their built packages through the real loader.
 
 ### Browser end-to-end tests
 

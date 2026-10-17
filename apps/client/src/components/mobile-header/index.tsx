@@ -36,6 +36,8 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useState, type ReactNode } from 'react';
 import { SearchPopover } from '../search/search-popover';
+import { SoundboardPopover } from '../soundboard/soundboard-popover';
+import { WatchTogetherButton } from '../soundboard/watch-together-button';
 import { NotificationDropdown } from '../top-bar/notification-dropdown';
 import { PinnedMessagesPanel } from '../top-bar/pinned-messages-panel';
 import { ScheduledPostsPopover } from '../top-bar/scheduled-posts-popover';
@@ -145,6 +147,8 @@ const MobileVoiceBar = memo(() => {
           <Headphones className="h-4 w-4" />
         )}
       </Button>
+      <SoundboardPopover buttonClassName="bg-transparent" side="bottom" />
+      <WatchTogetherButton buttonClassName="bg-transparent" side="bottom" />
       <Button
         variant="ghost"
         size="icon"

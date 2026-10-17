@@ -77,15 +77,29 @@ const subscribeToUsers = () => {
         })
       );
     }),
-    subscribe('onUserUpdate', trpc.users.onUpdate, (user) => {
+    subscribe('onUserUpdate', trpc.users.onUpdate, (payload) => {
+      // Game presence is per server: a scoped update carries it as the
+      // named server may show it, so only that server's roster takes
+      // it — a client viewing another server keeps its own copy, and
+      // the home-scoped mirrors (friends, DM members) never carry it.
+      // An unscoped update has no `gamePresence` key at all, and a
+      // missing key leaves the roster's value alone.
+      const { scopeServerPublicId, gamePresence, ...user } = payload;
+      const state = store.getState();
+      const presenceForThisRoster =
+        'gamePresence' in payload &&
+        (scopeServerPublicId === undefined ||
+          scopeServerPublicId === state.server.serverId)
+          ? { gamePresence }
+          : {};
       // A role grant can make an encrypted channel visible to this
       // user; the cached roster predates it and would keep them off
       // the SKDM target list. Presence-only updates leave it alone.
-      const before = store.getState().server.users.find((u) => u.id === user.id);
+      const before = state.server.users.find((u) => u.id === user.id);
       if (before && !sameRoleIds(before.roleIds, user.roleIds)) {
         invalidateChannelMembers();
       }
-      updateUser(user.id, user);
+      updateUser(user.id, { ...user, ...presenceForThisRoster });
       updateFriend(user.id, user);
       // Mirror the FULL profile onto cached DM member projections —
       // for a partner who is neither friend nor co-member this is

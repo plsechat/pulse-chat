@@ -2,19 +2,20 @@ import { Button } from '@/components/ui/button';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { disconnectFromServer } from '@/features/server/actions';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, Fingerprint, IdCard, Laptop, LogOut, Monitor, Palette, User, ShieldCheck, Volume2 } from 'lucide-react';
+import { ChevronLeft, EyeOff, Fingerprint, IdCard, Laptop, LogOut, Monitor, Palette, User, ShieldCheck, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { Appearance } from './appearance';
 import { Desktop } from './desktop';
 import { Devices } from './devices';
 import { Encryption } from './encryption';
+import { Privacy } from './privacy';
 import { Profile } from './profile';
 import { Profiles } from './profiles';
 import { SoundsNotifications } from './sounds-notifications';
 import { VerifyIdentity } from './verify-identity';
 
-type Section = 'profile' | 'profiles' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices' | 'desktop';
+type Section = 'profile' | 'profiles' | 'privacy' | 'encryption' | 'verify-identity' | 'appearance' | 'sounds' | 'devices' | 'desktop';
 
 type NavItem = {
   id: Section;
@@ -43,6 +44,7 @@ const NAV_SECTIONS: NavCategory[] = [
     items: [
       { id: 'profile', label: 'My Account', icon: <User className="h-4 w-4" /> },
       { id: 'profiles', label: 'Personalization', icon: <IdCard className="h-4 w-4" /> },
+      { id: 'privacy', label: 'Privacy', icon: <EyeOff className="h-4 w-4" /> },
       { id: 'encryption', label: 'Encryption', icon: <ShieldCheck className="h-4 w-4" /> },
       { id: 'verify-identity', label: 'Verify Identity', icon: <Fingerprint className="h-4 w-4" /> }
     ]
@@ -60,6 +62,7 @@ const NAV_SECTIONS: NavCategory[] = [
 const SECTION_TITLES: Record<Section, string> = {
   profile: 'My Account',
   profiles: 'Personalization',
+  privacy: 'Privacy',
   encryption: 'Encryption',
   'verify-identity': 'Verify Identity',
   appearance: 'Appearance',
@@ -71,6 +74,7 @@ const SECTION_TITLES: Record<Section, string> = {
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
   profile: 'Your identity and sign-in: email, display name, password, and account removal.',
   profiles: 'Customize how your profile looks — avatar, banner and name flair.',
+  privacy: 'What others get to see about you, and where.',
   encryption: 'Manage your end-to-end encryption keys.',
   'verify-identity': 'Compare safety numbers with your peers to confirm their encryption keys.',
   appearance: 'Customize how the app looks.',
@@ -82,6 +86,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
 const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   profile: Profile,
   profiles: Profiles,
+  privacy: Privacy,
   encryption: Encryption,
   'verify-identity': VerifyIdentity,
   appearance: Appearance,

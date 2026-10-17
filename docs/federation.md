@@ -318,9 +318,11 @@ come back empty), `/federation/user-info` no longer accepts numeric ids
 and returns a signed body, `/federation/accept` verifies the whole body
 (the older `{ domain }`-only signature is still accepted), and
 `/unpeer`, `/key-rotation`, `/report-user` are new (older peers answer
-`404`; the rows dead-letter). v0.4.0 adds `/announcement-follow` and
-`/announcement` (an older peer answers `404`; following it dead-letters
-the same way, so the follow stays pending until the peer upgrades).
+`404`; the rows dead-letter). v0.4.0 adds `/directory` (an older peer
+answers `404` and simply contributes no listings), `/announcement-follow`
+and `/announcement` (an older peer answers `404`; following it
+dead-letters the same way, so the follow stays pending until the peer
+upgrades).
 
 Remote tRPC rename with a one-release alias: the session bootstrap a
 federated client calls on the remote instance is `others.openSession`

@@ -23,6 +23,7 @@ import { pluginsRouter } from './plugins';
 import { pollsRouter } from './polls';
 import { rolesRouter } from './roles';
 import { serversRouter } from './servers';
+import { soundsRouter } from './sounds';
 import { threadsRouter } from './threads';
 import { usersRouter } from './users';
 import { voiceRouter } from './voice';
@@ -51,6 +52,7 @@ const appRouter = t.router({
   import: importRouter,
   dms: dmsRouter,
   servers: serversRouter,
+  sounds: soundsRouter,
   notes: notesRouter,
   notifications: notificationsRouter,
   search: searchRouter,

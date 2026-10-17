@@ -1,13 +1,41 @@
 import type { AppData, Producer, Router } from "mediasoup/types";
 import type {
   CommandDefinition,
+  TCommandArg,
+  TCommandArgChoice,
+  TExternalStreamMedia,
   TInvokerContext,
   TPluginCapability,
   TPluginSettingDefinition,
+  TSubcommandDefinition,
 } from "@pulse/shared";
 import pkg from "../package.json" with { type: "json" };
 
-export type { TInvokerContext, TPluginCapability };
+export type { TExternalStreamMedia, TInvokerContext, TPluginCapability };
+
+/**
+ * What `commands.register` takes (SDK 0.4.0 names). A command with
+ * `subcommands` is invoked as `/name sub …`: the server matches the
+ * verb first, reads that sub-command's `args` after it and hands the
+ * plugin `invoker.subcommand`; `/name` on its own runs the command with
+ * its own `args` when it declares any, else answers with its usage. An
+ * argument may offer `choices` (listed in the composer while it is
+ * typed) and a `placeholder` (shown in the usage hint). Bounds: at
+ * most 20 sub-commands, 8 arguments each, names `[a-z0-9-]{1,32}`.
+ */
+export type TCommandDefinition<TArgs = void> = CommandDefinition<TArgs>;
+export type TCommandArgDefinition = TCommandArg;
+export type { TCommandArgChoice, TSubcommandDefinition };
+
+/**
+ * Structured state a plugin attaches to a message for the client to
+ * render as a card (SDK 0.3): plain JSON, at most 16 top-level keys
+ * and 8 KiB serialised. It is stored next to the message, replaced
+ * whole on `edit({ metadata })`, never shown as text, and travels with
+ * the ordinary message fan-out — the client renders the cards it
+ * knows (the official watch-together plugin's `watch`).
+ */
+export type TPluginMessageData = Record<string, unknown>;
 
 /**
  * Version of this SDK. A plugin declares the range it was written against
@@ -27,6 +55,13 @@ export type TCreateStreamOptions = {
     audio?: Producer;
     video?: Producer;
   };
+  /**
+   * Shared playback of an address instead of (or next to) producers:
+   * every client in the room plays `url` itself and follows the
+   * transport state you keep here through `update({ media })`. The
+   * server never fetches or decodes it. See `TExternalStreamMedia`.
+   */
+  media?: TExternalStreamMedia;
 };
 
 export type TExternalStreamHandle = {
@@ -39,6 +74,8 @@ export type TExternalStreamHandle = {
       audio?: Producer;
       video?: Producer;
     };
+    /** A whole new descriptor (clients re-sync to it); `null` clears it. */
+    media?: TExternalStreamMedia | null;
   }) => void;
 };
 
@@ -129,7 +166,7 @@ export interface EventPayloads {
   /**
    * A plaintext channel message was sent. `pluginId` is set when a
    * plugin posted it through `actions.messages.post` (the author row is
-   * then the instance owner) — a bridge uses it to skip its own echoes.
+   * then the plugin's own account) — a bridge uses it to skip its own echoes.
    */
   "message:created": {
     messageId: number;
@@ -163,7 +200,7 @@ export interface EventPayloads {
   /**
    * A reaction was added (`added: true`) or removed from a channel
    * message, by a user or by a plugin (`pluginId` set; `userId` is then
-   * the instance owner the reaction is stored under).
+   * the plugin's own account the reaction is stored under).
    */
   "message:reaction": {
     messageId: number;
@@ -321,7 +358,18 @@ export type TPluginPostMessageInput = {
    * the server id. Ids starting with `__` are reserved.
    */
   externalId?: string;
+  /** Card state for the client; see `TPluginMessageData`. */
+  metadata?: TPluginMessageData;
 };
+
+/**
+ * What `edit` changes: the text, the card state, or both. A
+ * metadata-only edit keeps the text, is not marked "(edited)" and emits
+ * no `message:updated` (nothing a bridge would mirror changed).
+ */
+export type TPluginEditMessageInput =
+  | { content: string; metadata?: TPluginMessageData }
+  | { content?: string; metadata: TPluginMessageData };
 
 export type TPluginChannelType = "TEXT" | "VOICE" | "THREAD" | "FORUM";
 
@@ -491,7 +539,7 @@ export interface PluginContext {
       /** Post into a text channel, thread or forum post. Refuses voice and encrypted channels. */
       post(input: TPluginPostMessageInput): Promise<{ messageId: number }>;
       /** Edit a message the plugin posted (any message with `moderate-messages`). */
-      edit(input: TPluginMessageRef & { content: string }): Promise<void>;
+      edit(input: TPluginMessageRef & TPluginEditMessageInput): Promise<void>;
       /**
        * Delete a message the plugin posted (any message with
        * `moderate-messages`). The row stays as a tombstone — "Message

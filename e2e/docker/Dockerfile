@@ -20,6 +20,7 @@ COPY apps/client/package.json apps/client/
 COPY packages/shared/package.json packages/shared/
 COPY packages/plugin-sdk/package.json packages/plugin-sdk/
 COPY packages/plugins/discord-bridge/package.json packages/plugins/discord-bridge/
+COPY packages/plugins/watch-together/package.json packages/plugins/watch-together/
 RUN bun install --frozen-lockfile
 
 COPY . .
@@ -27,9 +28,10 @@ COPY . .
 # Build the client bundle.
 RUN cd apps/client && bun run build
 
-# Build the official bridge plugin; the entrypoint seeds it into the
-# data directory so the review stack can enable it like production does.
-RUN cd packages/plugins/discord-bridge && bun run build
+# Build the official plugins; the entrypoint seeds them into the data
+# directory so the review stack can enable them like production does.
+RUN cd packages/plugins/discord-bridge && bun run build \
+    && cd ../watch-together && bun run build
 
 # In IS_DEVELOPMENT mode, loadEmbeds() skips the embedded-zip extract
 # but doesn't seed INTERFACE_PATH. Stash the just-built client bundle

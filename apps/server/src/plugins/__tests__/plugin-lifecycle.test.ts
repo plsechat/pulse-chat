@@ -8,7 +8,7 @@ import { PLUGINS_PATH } from '../../helpers/paths';
 import { pluginManager } from '..';
 
 /**
- * SDK 0.3 loader surface: `ctx.server.notify` delivered to in-process
+ * SDK 0.4 loader surface: `ctx.server.notify` delivered to in-process
  * subscribers (bounded, scoped to the plugin, dropped from a stale
  * context), the `onPluginLoaded` / `onPluginUnloaded` hooks, and hot
  * reload on toggle (a changed entry file runs; an unchanged one is the
@@ -44,7 +44,7 @@ const writePlugin = async (id: string, entrySource: string) => {
     JSON.stringify({
       name: id,
       version: '1.0.0',
-      pulse: { entry: 'index.js', author: 'test', description: 'lifecycle test plugin', sdk: '^0.3' }
+      pulse: { entry: 'index.js', author: 'test', description: 'lifecycle test plugin', sdk: '^0.4' }
     })
   );
   await fs.writeFile(path.join(dir, 'index.js'), entrySource);

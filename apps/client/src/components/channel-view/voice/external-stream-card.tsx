@@ -12,6 +12,7 @@ import { useScreenShareZoom } from './hooks/use-screen-share-zoom';
 import { useVoiceRefs } from './hooks/use-voice-refs';
 import { PinButton } from './pin-button';
 import { StreamSettingsPopover } from './stream-settings-popover';
+import { WatchTogetherPlayer } from './watch-together-player';
 
 type TExternalStreamControlsProps = {
   isPinned: boolean;
@@ -138,6 +139,9 @@ const ExternalStreamCard = memo(
 
     const hasVideo = stream.tracks?.video && hasExternalVideoStream;
     const hasAudio = stream.tracks?.audio && hasExternalAudioStream;
+    // A shared-playback stream (watch-together): the card plays the
+    // address itself and shows the volume slider for it.
+    const hasMedia = !!stream.media;
 
     const { handleClickMouseDown, handleClickMouseUp, cancelClick } =
       useCardClickFocus(isPinned, onPin);
@@ -199,15 +203,21 @@ const ExternalStreamCard = memo(
           handlePinToggle={handlePinToggle}
           handleToggleZoom={handleToggleZoom}
           showPinControls={showPinControls}
-          hasVideo={!!hasVideo}
-          hasAudio={!!hasAudio}
+          hasVideo={!!hasVideo || hasMedia}
+          hasAudio={!!hasAudio || hasMedia}
           volume={volume}
           isMuted={isMuted}
           onVolumeChange={handleVolumeChange}
           onMuteToggle={handleMuteToggle}
         />
 
-        {hasVideo ? (
+        {stream.media ? (
+          <WatchTogetherPlayer
+            media={stream.media}
+            volume={volume}
+            pluginId={stream.pluginId}
+          />
+        ) : hasVideo ? (
           <video
             ref={externalVideoRef}
             autoPlay
@@ -260,8 +270,8 @@ const ExternalStreamCard = memo(
             </span>
 
             <div className="flex items-center gap-1 ml-auto">
-              {hasVideo && <Video className="size-3 text-blue-400" />}
-              {hasAudio && (
+              {(hasVideo || hasMedia) && <Video className="size-3 text-blue-400" />}
+              {(hasAudio || hasMedia) && (
                 <Headphones
                   className={cn(
                     'size-3',

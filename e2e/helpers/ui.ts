@@ -186,12 +186,14 @@ export async function dmListRow(page: Page, name: string): Promise<Locator> {
   return scope.getByText(name).first();
 }
 
-/** The Friends view: the Home tab's content in the tab layout, Home → Friends in the traditional one. */
+/** The Friends view: the Friends tray panel in the tab layout (opened, never toggled shut), Home → Friends in the traditional one. */
 export async function openFriends(page: Page): Promise<void> {
   await goHome(page);
-  if (!(await isDeckLayout(page))) {
-    await page.getByRole('button', { name: 'Friends' }).click();
+  if (await isDeckLayout(page)) {
+    await openTrayPanel(page, 'Friends');
+    return;
   }
+  await page.getByRole('button', { name: 'Friends' }).first().click();
 }
 
 /**

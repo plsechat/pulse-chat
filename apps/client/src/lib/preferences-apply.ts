@@ -3,7 +3,7 @@ import {
   setLocalStorageItem,
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
-import type { TUserPreferences } from '@pulse/shared';
+import { DEFAULT_USER_PREFERENCES, type TUserPreferences } from '@pulse/shared';
 import {
   __testing as preferencesSync,
   flushPreferencesNow,
@@ -51,5 +51,11 @@ export const applyServerPreferences = (serverPrefs: TUserPreferences) => {
     LocalStorageKey.RIGHT_SIDEBAR_STATE,
     prefs.rightSidebarOpen ? 'true' : 'false'
   );
+  // A server copy written before the preference existed has no
+  // `presence`; the default (sharing off) fills it.
+  setLocalStorageItemAsJSON(LocalStorageKey.PRESENCE_SETTINGS, {
+    ...DEFAULT_USER_PREFERENCES.presence,
+    ...prefs.presence
+  });
   void flushPreferencesNow();
 };

@@ -680,6 +680,90 @@ describe('actions.messages.edit / delete — ownership', () => {
   });
 });
 
+describe('actions.messages — card metadata', () => {
+  test('post stores the card next to the persona, a metadata-only edit replaces it without an "(edited)" mark or a bus event, previews keep it', async () => {
+    const id = 'act-card-meta';
+    const { ctx, cleanup } = await loadPlugin(id);
+
+    try {
+      const { messageId } = await ctx.actions.messages.post({
+        channelId: TEXT_CHANNEL_ID,
+        content: 'Watching together: intro',
+        author: { name: 'Watch together' },
+        metadata: { watch: { title: 'intro', playing: true } }
+      });
+
+      const posted = await messageById(messageId);
+      expect(posted!.metadata).toEqual([
+        {
+          url: '',
+          title: 'Watch together',
+          siteName: 'plugin',
+          description: id,
+          mediaType: 'webhook'
+        },
+        { url: '', mediaType: 'plugin-data', pluginId: id, data: { watch: { title: 'intro', playing: true } } }
+      ]);
+
+      // Metadata only: the text and its "(edited)" state stay, the fan-out carries the new card, no bus event.
+      const spy = spyOn(pubsub, 'publishFor');
+      const events = await collect(['message:updated'], async () => {
+        await ctx.actions.messages.edit({ messageId, metadata: { watch: { title: 'intro', playing: false } } });
+      });
+      expect(events).toHaveLength(0);
+      const edited = await messageById(messageId);
+      expect(edited).toMatchObject({ content: 'Watching together: intro', edited: false });
+      const persona = posted!.metadata![0]!;
+      expect(edited!.metadata).toEqual([
+        persona,
+        { url: '', mediaType: 'plugin-data', pluginId: id, data: { watch: { title: 'intro', playing: false } } }
+      ]);
+      const updates = published(spy, ServerEvents.MESSAGE_UPDATE);
+      expect(updates).toHaveLength(1);
+      expect((updates[0]!.payload as { metadata: unknown[] }).metadata).toEqual(edited!.metadata ?? []);
+
+      // Both at once: a text edit as usual, the card replaced with it.
+      const both = await collect(['message:updated'], async () => {
+        await ctx.actions.messages.edit({ messageId, content: 'Watched together: intro', metadata: { watch: { ended: true } } });
+      });
+      expect(both).toHaveLength(1);
+      expect(await messageById(messageId)).toMatchObject({
+        content: 'Watched together: intro',
+        edited: true,
+        metadata: [persona, { mediaType: 'plugin-data', pluginId: id, data: { watch: { ended: true } } }]
+      });
+
+      // Neither is refused; the bounds hold.
+      expect((await rejection(ctx.actions.messages.edit({ messageId } as never))).code).toBe('BAD_REQUEST');
+      const tooMany = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`k${i}`, i]));
+      expect((await rejection(ctx.actions.messages.edit({ messageId, metadata: tooMany }))).code).toBe('BAD_REQUEST');
+      expect((await rejection(ctx.actions.messages.edit({ messageId, metadata: { blob: 'x'.repeat(9_000) } }))).code).toBe('BAD_REQUEST');
+      expect(
+        (await rejection(ctx.actions.messages.post({ channelId: TEXT_CHANNEL_ID, content: 'x', metadata: { blob: 'x'.repeat(9_000) } }))).code
+      ).toBe('BAD_REQUEST');
+
+      // The link-preview pipeline rewrites the column around the persona
+      // and the card (the fetcher is a stub; the address check still
+      // resolves the host, so that is stubbed too).
+      spyOn(dns, 'resolve4').mockResolvedValue(['203.0.113.1']);
+      spyOn(dns, 'resolve6').mockRejectedValue(new Error('ENODATA'));
+      const { processMessageMetadata } = await import('../../queues/message-metadata/get-message-metadata');
+      const rewritten = await processMessageMetadata('see https://example.com/page', messageId, async (url) => ({
+        url,
+        mediaType: 'website',
+        title: 'Example'
+      }));
+      expect(rewritten!.metadata).toEqual([
+        persona,
+        { url: '', mediaType: 'plugin-data', pluginId: id, data: { watch: { ended: true } } },
+        { url: 'https://example.com/page', mediaType: 'website', title: 'Example' }
+      ]);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe('actions.messages.react', () => {
   test("adds and removes a reaction under the plugin's account, idempotently, with MESSAGE_UPDATE fan-out and message:reaction", async () => {
     const id = 'act-react';

@@ -7,6 +7,7 @@ import type {
   SuggestionProps
 } from '@tiptap/suggestion';
 import { CommandList, type CommandListRef } from './command-list';
+import { resolvePalette, type TPaletteItem } from './command-palette';
 
 const COMMANDS_STORAGE_KEY = 'slashCommands';
 
@@ -20,48 +21,22 @@ declare module '@tiptap/core' {
   }
 }
 
-type TCommandSuggestionProps = SuggestionProps<TCommandInfo, TCommandInfo>;
+type TCommandSuggestionProps = SuggestionProps<TPaletteItem, TPaletteItem>;
 
+const storedCommands = (editor: Editor): TCommandInfo[] =>
+  editor.storage[COMMANDS_STORAGE_KEY]?.commands ?? [];
+
+/**
+ * The `/` suggestion: `query` is everything after the slash up to the
+ * cursor (spaces included), and the palette decides what that means —
+ * see command-palette.ts. Nothing is offered while an argument without
+ * choices is typed, so Enter sends.
+ */
 export const CommandSuggestion = {
   char: '/',
   startOfLine: true,
-  items: ({ editor, query }: { editor: Editor; query: string }) => {
-    const commands: TCommandInfo[] =
-      editor.storage[COMMANDS_STORAGE_KEY]?.commands ?? [];
-
-    if (!query) {
-      return commands.slice(0, 10);
-    }
-
-    const lowerQuery = query.toLowerCase();
-
-    return commands
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(lowerQuery) ||
-          c.pluginId.toLowerCase().startsWith(lowerQuery) ||
-          (c.description && c.description.toLowerCase().includes(lowerQuery))
-      )
-      .sort((a, b) => {
-        const aName = a.name.toLowerCase();
-        const bName = b.name.toLowerCase();
-        const aStartsWith = aName.startsWith(lowerQuery);
-        const bStartsWith = bName.startsWith(lowerQuery);
-
-        // exact prefix match comes first
-        if (aStartsWith && !bStartsWith) return -1;
-        if (!aStartsWith && bStartsWith) return 1;
-
-        // if both start with query, shorter name comes first (more exact match)
-        if (aStartsWith && bStartsWith) {
-          return aName.length - bName.length;
-        }
-
-        // otherwise maintain original order
-        return 0;
-      })
-      .slice(0, 10);
-  },
+  items: ({ editor, query }: { editor: Editor; query: string }): TPaletteItem[] =>
+    resolvePalette(storedCommands(editor), query)?.items ?? [],
   allowSpaces: true,
   render: () => {
     let component: ReactRenderer | null = null;
@@ -84,30 +59,27 @@ export const CommandSuggestion = {
       });
     }
 
+    function destroy() {
+      if (component?.element && document.body.contains(component.element)) {
+        document.body.removeChild(component.element);
+      }
+
+      component?.destroy();
+      component = null;
+    }
+
+    const propsFor = (props: TCommandSuggestionProps) => ({
+      palette: resolvePalette(storedCommands(props.editor), props.query),
+      onSelect: (item: TPaletteItem) => {
+        props.command(item);
+        destroy();
+      }
+    });
+
     return {
       onStart: (props: TCommandSuggestionProps) => {
-        const filteredItems = CommandSuggestion.items({
-          editor: props.editor,
-          query: props.query
-        });
-
         component = new ReactRenderer(CommandList, {
-          props: {
-            items: filteredItems,
-            onSelect: (item: TCommandInfo) => {
-              props.command(item);
-
-              if (
-                component?.element &&
-                document.body.contains(component.element)
-              ) {
-                document.body.removeChild(component.element);
-              }
-
-              component?.destroy();
-              component = null;
-            }
-          },
+          props: propsFor(props),
           editor: props.editor
         });
 
@@ -118,27 +90,7 @@ export const CommandSuggestion = {
         }
       },
       onUpdate(props: TCommandSuggestionProps) {
-        const filteredItems = CommandSuggestion.items({
-          editor: props.editor,
-          query: props.query
-        });
-
-        component?.updateProps({
-          items: filteredItems,
-          onSelect: (item: TCommandInfo) => {
-            props.command(item);
-
-            if (
-              component?.element &&
-              document.body.contains(component.element)
-            ) {
-              document.body.removeChild(component.element);
-            }
-
-            component?.destroy();
-            component = null;
-          }
-        });
+        component?.updateProps(propsFor(props));
 
         const rect = props.clientRect?.();
         if (rect) {
@@ -153,12 +105,7 @@ export const CommandSuggestion = {
         return false;
       },
       onExit() {
-        if (component?.element && document.body.contains(component.element)) {
-          document.body.removeChild(component.element);
-        }
-
-        component?.destroy();
-        component = null;
+        destroy();
       }
     };
   }

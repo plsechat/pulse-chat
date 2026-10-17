@@ -23,6 +23,8 @@ const executeCommandRoute = serverProcedure(Permission.EXECUTE_PLUGIN_COMMANDS)
     z.object({
       pluginId: pluginIdSchema,
       commandName: commandNameSchema,
+      /** The verb of a `/name sub …` command (SDK 0.4.0); `args` are then its own. */
+      subcommand: commandNameSchema.optional(),
       args: commandArgsSchema.optional()
     })
   )
@@ -35,10 +37,20 @@ const executeCommandRoute = serverProcedure(Permission.EXECUTE_PLUGIN_COMMANDS)
       }
     );
 
-    invariant(pluginManager.hasCommand(input.pluginId, input.commandName), {
-      code: 'BAD_REQUEST',
-      message: `Command "${input.commandName}" not found for plugin "${input.pluginId}"`
-    });
+    invariant(
+      pluginManager.hasCommand(
+        input.pluginId,
+        input.commandName,
+        input.subcommand
+      ),
+      {
+        code: 'BAD_REQUEST',
+        message:
+          input.subcommand !== undefined
+            ? `Command "${input.commandName}" of plugin "${input.pluginId}" has no sub-command "${input.subcommand}"`
+            : `Command "${input.commandName}" not found for plugin "${input.pluginId}"`
+      }
+    );
 
     const args = input.args ?? {};
 
@@ -48,10 +60,14 @@ const executeCommandRoute = serverProcedure(Permission.EXECUTE_PLUGIN_COMMANDS)
       details: {
         pluginId: input.pluginId,
         commandName: input.commandName,
+        ...(input.subcommand !== undefined
+          ? { subcommand: input.subcommand }
+          : {}),
         args: pluginManager.redactCommandArgs(
           input.pluginId,
           input.commandName,
-          args
+          args,
+          input.subcommand
         )
       }
     });
@@ -59,8 +75,9 @@ const executeCommandRoute = serverProcedure(Permission.EXECUTE_PLUGIN_COMMANDS)
     const response = await pluginManager.executeCommand(
       input.pluginId,
       input.commandName,
-      getInvokerCtxFromTrpcCtx(ctx),
-      args
+      await getInvokerCtxFromTrpcCtx(ctx),
+      args,
+      input.subcommand
     );
 
     return response;

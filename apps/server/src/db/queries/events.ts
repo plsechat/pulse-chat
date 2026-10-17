@@ -24,7 +24,8 @@ import type {
   TEventRosterCounts,
   TEventRosterTemplate,
   TEventSignup,
-  TEventSignupStatus
+  TEventSignupStatus,
+  TUpcomingEvent
 } from '../../types';
 import { invariant } from '../../utils/invariant';
 import { invalidateAllPermissionCaches } from '../../utils/permission-cache-registry';
@@ -46,6 +47,7 @@ import {
   events,
   eventSignups,
   messages,
+  serverMembers,
   servers
 } from '../schema';
 import { getAffectedUserIdsForChannel } from './channels';
@@ -1367,6 +1369,93 @@ const listFeedEvents = (
     .orderBy(desc(events.startsAt))
     .limit(MAX_LISTED_EVENTS);
 
+// ─── Home overview ────────────────────────────────────────────────────
+
+/**
+ * The next scheduled events across every community the user is a
+ * member of, soonest first, for the Home overview. Membership is the
+ * `server_members` row on THIS instance: a community joined on a
+ * federated peer has no row here (its events live on that peer), so it
+ * never contributes. Only `scheduled` rows count — a live or finished
+ * event belongs to the planner, not to "upcoming".
+ */
+const listUpcomingEventsForUser = async (
+  userId: number,
+  now: number,
+  withinMs: number,
+  limit: number
+): Promise<TUpcomingEvent[]> => {
+  const rows = await db
+    .select({
+      event: events,
+      serverPublicId: servers.publicId,
+      serverName: servers.name
+    })
+    .from(events)
+    .innerJoin(
+      serverMembers,
+      and(
+        eq(serverMembers.serverId, events.serverId),
+        eq(serverMembers.userId, userId)
+      )
+    )
+    .innerJoin(servers, eq(servers.id, events.serverId))
+    .where(
+      and(
+        eq(events.status, 'scheduled'),
+        gte(events.startsAt, now),
+        lte(events.startsAt, now + withinMs)
+      )
+    )
+    .orderBy(asc(events.startsAt), asc(events.id))
+    .limit(limit);
+
+  if (rows.length === 0) return [];
+
+  const own = await db
+    .select({
+      eventId: eventSignups.eventId,
+      roleKey: eventSignups.roleKey,
+      status: eventSignups.status
+    })
+    .from(eventSignups)
+    .where(
+      and(
+        inArray(
+          eventSignups.eventId,
+          rows.map((row) => row.event.id)
+        ),
+        eq(eventSignups.userId, userId)
+      )
+    );
+  const ownByEvent = new Map(own.map((row) => [row.eventId, row]));
+
+  return rows.map(({ event, serverPublicId, serverName }) => {
+    const signup = ownByEvent.get(event.id);
+    const role =
+      signup && signup.status !== 'declined'
+        ? event.roles.find((r) => r.key === signup.roleKey)
+        : undefined;
+    return {
+      serverId: event.serverId,
+      serverPublicId,
+      serverName,
+      event: {
+        id: event.id,
+        title: event.title,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        status: event.status,
+        hostId: event.hostId
+      },
+      mySignupStatus: signup?.status ?? null,
+      // A benched signup whose role was removed keeps its old key; the
+      // key alone is no label, so it reads as "signed up" without one.
+      mySignupRole: role?.label ?? null
+    };
+  });
+};
+
 export {
   cancelEvent,
   createEvent,
@@ -1388,6 +1477,7 @@ export {
   listFeedEvents,
   listOpenEvents,
   listRosterTemplates,
+  listUpcomingEventsForUser,
   postEventSystemRow,
   REMINDER_STALE_MS,
   reminderMoment,

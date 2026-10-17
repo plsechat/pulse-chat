@@ -3,6 +3,62 @@ import { parseDomCommand, toDomCommand } from "../command-parser";
 import type { RegisteredCommand } from "../../plugins";
 
 describe("command-parser", () => {
+  describe("sub-commands (SDK 0.4.0)", () => {
+    const command: RegisteredCommand & {
+      status: "pending" | "completed" | "failed";
+    } = {
+      pluginId: "watch-together",
+      name: "watch",
+      status: "completed",
+      args: [{ name: "url", type: "string" }],
+      subcommands: [
+        { name: "seek", args: [{ name: "seconds", type: "number" }] },
+        { name: "login", args: [{ name: "token", type: "string", sensitive: true }] },
+      ],
+      command: { name: "watch", executes: async () => ({}) },
+    };
+
+    test("the element names the sub-command and its arguments by the sub-command's declaration", () => {
+      expect(toDomCommand({ ...command, subcommand: "seek" }, ["90"])).toBe(
+        "<command data-plugin-id=\"watch-together\" data-command=\"watch\" data-subcommand=\"seek\" data-args='[{\"name\":\"seconds\",\"value\":\"90\",\"status\":\"completed\"}]' data-status='completed' data-response=''></command>",
+      );
+      // A sensitive sub-command argument is masked like a command's.
+      expect(toDomCommand({ ...command, subcommand: "login" }, ["s3cret"])).toContain(
+        '{"name":"token","value":"****","status":"completed"}',
+      );
+      // Without a sub-command the command's own arguments name the values.
+      expect(toDomCommand(command, ["https://x.test/a.mp4"])).toContain(
+        'data-command="watch" data-args=\'[{"name":"url"',
+      );
+    });
+
+    test("parseDomCommand reads the sub-command back, and leaves it absent when the element has none", () => {
+      expect(
+        parseDomCommand({
+          attribs: {
+            "data-plugin-id": "watch-together",
+            "data-command": "watch",
+            "data-subcommand": "seek",
+            "data-args": '[{"name":"seconds","value":"90"}]',
+            "data-status": "completed",
+          },
+        }),
+      ).toEqual({
+        pluginId: "watch-together",
+        commandName: "watch",
+        subcommand: "seek",
+        status: "completed",
+        response: undefined,
+        args: [{ name: "seconds", value: "90" }],
+      });
+      expect(
+        parseDomCommand({
+          attribs: { "data-plugin-id": "p", "data-command": "c", "data-args": "[]" },
+        }).subcommand,
+      ).toBeUndefined();
+    });
+  });
+
   describe("toDomCommand", () => {
     test("should convert simple command to DOM string", () => {
       const command: RegisteredCommand & {

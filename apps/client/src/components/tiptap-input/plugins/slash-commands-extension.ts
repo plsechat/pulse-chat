@@ -2,6 +2,7 @@ import type { TCommandInfo } from '@pulse/shared';
 import { Extension } from '@tiptap/core';
 import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
+import type { TPaletteItem } from './command-palette';
 import { COMMANDS_STORAGE_KEY, CommandSuggestion } from './command-suggestion';
 
 export const SlashCommandsPluginKey = new PluginKey('slashCommands');
@@ -26,7 +27,7 @@ export const SlashCommands = Extension.create<SlashCommandsOptions>({
   },
   addProseMirrorPlugins() {
     return [
-      Suggestion<TCommandInfo, TCommandInfo>({
+      Suggestion<TPaletteItem, TPaletteItem>({
         editor: this.editor,
         pluginKey: SlashCommandsPluginKey,
         char: this.options.suggestion.char,
@@ -34,14 +35,15 @@ export const SlashCommands = Extension.create<SlashCommandsOptions>({
         allowSpaces: this.options.suggestion.allowSpaces,
         items: this.options.suggestion.items,
         render: this.options.suggestion.render,
+        // A row replaces the whole `/…` run with what it stands for:
+        // `/watch `, `/watch pause `, `/deploy prod ` (the palette
+        // rebuilds the text so a choice keeps what came before it).
         command: ({ editor, range, props }) => {
-          const commandText = `/${props.name} `;
-
           editor
             .chain()
             .focus()
             .deleteRange(range)
-            .insertContent(commandText)
+            .insertContent(props.insert)
             .run();
         }
       })

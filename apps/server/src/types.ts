@@ -58,6 +58,7 @@ import type {
   messageReactions,
   messages,
   nameplates,
+  serverSounds,
   pluginMessageLinks,
   rolePermissions,
   roles,
@@ -155,6 +156,7 @@ export type TUserPreference = InferSelectModel<typeof userPreferences>;
 export type TIUserPreference = InferInsertModel<typeof userPreferences>;
 export type TE2eeSenderKey = InferSelectModel<typeof e2eeSenderKeys>;
 export type TNameplate = InferSelectModel<typeof nameplates>;
+export type TServerSound = InferSelectModel<typeof serverSounds>;
 export type TINameplate = InferInsertModel<typeof nameplates>;
 
 export type TStorageSettings = Pick<
@@ -272,6 +274,28 @@ export type TJoinedPublicUser = Omit<TPublicUser, 'avatar' | 'banner'> & {
   timedOutUntil?: number | null;
   /** A plugin's own account (it posts as the plugin, nobody signs in as it). */
   system?: boolean;
+  /**
+   * What the member is playing, as reported by their desktop shell.
+   * Only server-scoped projections carry it (the roster and the scoped
+   * USER_UPDATE), and only where the member shares it on THAT server —
+   * the global projection never does, so a DM partner or a friend who
+   * shares no un-hidden server with them never sees it. `null` means
+   * not playing (or not sharing here); absent means "not this
+   * projection's concern — keep what you had".
+   */
+  gamePresence?: TGamePresence | null;
+  /**
+   * Set on a server-scoped USER_UPDATE: the publicId of the server the
+   * update is about. A client viewing another server must not take the
+   * per-server fields (gamePresence) from it.
+   */
+  scopeServerPublicId?: string;
+};
+
+/** A game the desktop shell detected: its name and when it started (ms). */
+export type TGamePresence = {
+  name: string;
+  startedAt: number;
 };
 
 export type TJoinedSettings = TSettings & {
@@ -541,6 +565,17 @@ export type TActivityLogDetailsMap = {
   [ActivityLogType.UPDATED_EMOJI]: {
     fromName: string;
     toName: string;
+  };
+  // -------------------- SOUNDS --------------------
+  [ActivityLogType.CREATED_SOUND]: {
+    name: string;
+  };
+  [ActivityLogType.DELETED_SOUND]: {
+    name: string;
+  };
+  [ActivityLogType.UPDATED_SOUND]: {
+    name: string;
+    changed: string[];
   };
   // -------------------- CATEGORIES --------------------
   [ActivityLogType.CREATED_CATEGORY]: {
@@ -938,4 +973,43 @@ export type TAnnouncementRow = {
 export type TMessageTombstone = {
   deletedAt: number;
   deletedBy: number | null;
+};
+
+/**
+ * A soundboard clip as members see it: the row plus the file it plays
+ * (served by name from /public, inline as audio). `createdBy` is null
+ * once the uploader's account is gone.
+ */
+export type TJoinedServerSound = TServerSound & {
+  file: TFileRef;
+};
+
+/**
+ * Fan-out of one soundboard trigger to the voice room (VOICE_SOUND_PLAY).
+ * Carries everything a client needs to play the clip without a lookup:
+ * the session may be hosted on a server the client is not looking at.
+ */
+export type TSoundPlayEvent = {
+  channelId: number;
+  soundId: number;
+  userId: number;
+  name: string;
+  emoji: string | null;
+  volume: number;
+  file: TFileRef;
+};
+
+/**
+ * One row of the Home overview's "Upcoming events": a scheduled event
+ * of a community the caller belongs to, with the community named so the
+ * row can open its tab, and the caller's own standing on the roster.
+ */
+export type TUpcomingEvent = {
+  serverId: number;
+  serverPublicId: string;
+  serverName: string;
+  event: Pick<TEvent, 'id' | 'title' | 'startsAt' | 'endsAt' | 'status' | 'hostId'>;
+  mySignupStatus: TEventSignupStatus | null;
+  /** Label of the role the caller holds (confirmed or benched); null otherwise. */
+  mySignupRole: string | null;
 };

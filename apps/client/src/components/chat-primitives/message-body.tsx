@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import {
   audioExtensions,
   imageExtensions,
+  isLinkPreviewEntry,
   videoExtensions,
   type TMessageMetadata
 } from '@pulse/shared';
@@ -176,7 +177,10 @@ const ChatMessageBody = memo(({
         'href', 'src', 'alt', 'class', 'target', 'rel',
         'data-type', 'data-mention-type', 'data-mention-id', 'data-mention-name',
         'data-emoji-name', 'data-emoji-id',
-        'data-channel-id', 'data-channel-name'
+        'data-channel-id', 'data-channel-name',
+        // The plugin command card (overrides/command.tsx) reads its state
+        // from these; without them the card renders as an empty tag.
+        'data-plugin-id', 'data-command', 'data-subcommand', 'data-args', 'data-status', 'data-response'
       ],
       ALLOW_DATA_ATTR: false
     });
@@ -343,7 +347,7 @@ const ChatMessageBody = memo(({
       {message.metadata && message.metadata.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {message.metadata
-            .filter((meta) => meta.mediaType !== 'webhook')
+            .filter(isLinkPreviewEntry)
             .map((meta, index) => (
               <LinkPreview key={`preview-${index}`} metadata={meta} />
             ))}

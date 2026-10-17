@@ -43,6 +43,11 @@ const DialogsMap: { [K in Dialog]: ComponentType<TDialogPropsMap[K]> } = {
   ),
   [Dialog.SCHEDULE_POST]: lazy(() =>
     import('./schedule-post').then((m) => ({ default: m.SchedulePostDialog }))
+  ),
+  // The watch card's player in the traditional layout; carries the
+  // video surfaces, so it loads when a card is first watched.
+  [Dialog.WATCH_TOGETHER]: lazy(() =>
+    import('./watch-together').then((m) => ({ default: m.WatchTogetherDialog }))
   )
 };
 

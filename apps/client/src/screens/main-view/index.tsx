@@ -12,22 +12,27 @@ import { StreamPreviewPublisher } from '@/components/stream-preview-publisher';
 import { UserAvatar } from '@/components/user-avatar';
 import { VoiceProvider } from '@/components/voice-provider';
 import { PersistentAudioStreams } from '@/components/voice-provider/persistent-audio-streams';
-import { openConversationPanel } from '@/features/app/deck';
 import {
   useActiveInstanceDomain,
   useActiveServerId,
   useActiveView
 } from '@/features/app/hooks';
-import { setSelectedDmChannelId } from '@/features/dms/actions';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
+import { getRosterSubline } from '@/helpers/game-presence';
 import { useLayoutMode } from '@/hooks/use-appearance-settings';
 import { useAutoAway } from '@/hooks/use-auto-away';
+import {
+  useGamePresenceBridge,
+  useOwnGamePresence
+} from '@/hooks/use-game-presence-bridge';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTabNotifications } from '@/hooks/use-tab-notifications';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport';
 import { cn } from '@/lib/utils';
+import { Gamepad2 } from 'lucide-react';
 import { lazy, memo, Suspense } from 'react';
+import { HomeOverview } from '../home-overview';
 import { HomeView } from '../home-view';
 import { ServerView } from '../server-view';
 
@@ -36,18 +41,13 @@ import { ServerView } from '../server-view';
 const DiscoverView = lazy(() =>
   import('../discover-view').then((m) => ({ default: m.DiscoverView }))
 );
-// Home in the deck layout is the Friends surface; conversations live in
-// the Messages panel, so the home screen's own sidebar is not mounted.
-const FriendsPanel = lazy(() =>
-  import('../home-view/friends-panel').then((m) => ({
-    default: m.FriendsPanel
-  }))
-);
-
-/** The first line of the Home tab: who you are and who is around. */
+/** The first line of the Home tab: who you are and what you are up to. */
 const HomeGreeting = memo(() => {
   const ownUserId = useOwnUserId();
   const user = useUserById(ownUserId ?? -1);
+  // What this client reported it is playing — not the roster copy,
+  // which is null on a community the user hid it from.
+  const gamePresence = useOwnGamePresence();
   const hour = new Date().getHours();
   const greeting =
     hour < 5
@@ -58,6 +58,10 @@ const HomeGreeting = memo(() => {
           ? 'Good afternoon'
           : 'Good evening';
   if (!user) return null;
+  const subline = getRosterSubline({
+    gamePresence,
+    customStatus: user.customStatus
+  });
   return (
     <div className="community-header flex items-center gap-3 px-5 py-4">
       <UserAvatar
@@ -71,8 +75,14 @@ const HomeGreeting = memo(() => {
         <div className="truncate text-base font-semibold text-foreground">
           {greeting}, {user.name}
         </div>
-        <div className="truncate text-xs text-muted-foreground">
-          {user.customStatus || 'Your friends and conversations live here.'}
+        <div className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+          {gamePresence && (
+            <Gamepad2 className="h-3 w-3 shrink-0 text-primary" aria-hidden />
+          )}
+          <span className="truncate">
+            {subline ||
+              'Your conversations, friends, communities and events at a glance.'}
+          </span>
         </div>
       </div>
     </div>
@@ -83,6 +93,8 @@ const MainViewInner = memo(() => {
   const activeView = useActiveView();
   useTabNotifications();
   useAutoAway();
+  // Desktop game detection → users.setGamePresence, while sharing is on.
+  useGamePresenceBridge();
   // Keeps --vvh at the visible height so the shell shrinks for the soft
   // keyboard on browsers that only resize the visual viewport.
   useVisualViewportHeight();
@@ -103,18 +115,15 @@ const MainViewInner = memo(() => {
   const renderView = () => {
     switch (activeView) {
       case 'home':
+        // The tab layout's Home is an overview under the greeting:
+        // conversations, friends, communities, inbox, the week's events
+        // and who is playing. Each row opens the matching tray panel or
+        // community tab; the traditional layout keeps the classic view.
         if (deck) {
           return (
             <div className="surface flex flex-1 flex-col overflow-hidden bg-background md:my-2 md:ml-2 md:rounded-2xl">
               <HomeGreeting />
-              <Suspense fallback={<LazyFallback />}>
-                <FriendsPanel
-                  onDmSelect={(dmChannelId) => {
-                    setSelectedDmChannelId(dmChannelId);
-                    openConversationPanel();
-                  }}
-                />
-              </Suspense>
+              <HomeOverview />
             </div>
           );
         }

@@ -9,12 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserAvatar } from '@/components/user-avatar';
 import { Tooltip } from '@/components/ui/tooltip';
-import {
-  leaveServerContext,
-  setActiveView,
-  switchServer,
-  switchToFederatedServer
-} from '@/features/app/actions';
+import { activateTab } from '@/features/app/activate-tab';
 import {
   canGoBack,
   canGoForward,
@@ -46,7 +41,6 @@ import {
 import type { TFederatedServerEntry } from '@/features/app/slice';
 import { openDialog } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
-import { getHandshakeHash } from '@/features/server/actions';
 import { communityTooltip } from '@/helpers/community-tooltip';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { openServerScreen } from '@/features/server-screens/actions';
@@ -90,25 +84,6 @@ import { memo, useCallback, useEffect, useMemo, type MouseEvent } from 'react';
  * read from the app slice; this component only mirrors it into the tab
  * list and routes clicks back through the existing switch actions.
  */
-
-const activateTab = (key: string) => {
-  const parsed = parseTabKey(key);
-  switch (parsed.kind) {
-    case 'home':
-      leaveServerContext();
-      return;
-    case 'discover':
-      setActiveView('discover');
-      return;
-    case 'server': {
-      const hash = getHandshakeHash();
-      if (hash) switchServer(parsed.serverId, hash);
-      return;
-    }
-    case 'fed':
-      switchToFederatedServer(parsed.instanceDomain, parsed.serverId);
-  }
-};
 
 /** A tab you can drag sideways to reorder; the keyboard reorders too. */
 const SortableTab = memo(

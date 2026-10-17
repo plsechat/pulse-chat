@@ -64,6 +64,15 @@
       "project": [
         "src/**/*.ts"
       ]
+    },
+    "packages/plugins/watch-together": {
+      "entry": [
+        "src/index.ts",
+        "src/**/__tests__/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
     }
   },
   "ignore": [
