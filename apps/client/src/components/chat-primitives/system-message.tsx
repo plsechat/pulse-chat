@@ -3,7 +3,9 @@ import {
   useUserById
 } from '@/features/server/users/hooks';
 import { useChatScope } from '@/components/chat-primitives/chat-scope-context';
+import { EventCard } from '@/components/chat-primitives/event-card';
 import { ServerScreen } from '@/components/server-screens/screens';
+import { parseEventSystemRow } from '@/features/events/system-rows';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
@@ -101,6 +103,12 @@ const SystemMessage = memo(({ message }: SystemMessageProps) => {
   const alert = parseAutomodAlert(message.content);
   if (alert) {
     return <AutomodAlert alert={alert} date={date} />;
+  }
+
+  // Raid planner rows: the RSVP card and the "ended" summary.
+  const eventRow = parseEventSystemRow(message.content);
+  if (eventRow) {
+    return <EventCard row={eventRow} date={date} />;
   }
 
   return null;

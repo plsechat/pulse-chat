@@ -14,6 +14,7 @@ import chalk from 'chalk';
 import { sql } from 'drizzle-orm';
 import { logger } from '../logger';
 import { db } from './index';
+import { insertDefaultRosterTemplates } from './queries/event-templates';
 import {
   categories,
   channels,
@@ -206,6 +207,10 @@ const seedDatabase = async () => {
         createdAt: firstStart
       }))
     ]);
+
+    // Stock raid rosters for the bootstrap server, same set a created
+    // server gets (routers/servers/create.ts).
+    await insertDefaultRosterTemplates(tx, serverId, firstStart);
   });
 
   const notice = [

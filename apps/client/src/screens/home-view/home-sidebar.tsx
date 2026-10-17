@@ -53,6 +53,8 @@ type THomeSidebarProps = {
   onDmSelect: (dmChannelId: number) => void;
   onFriendsClick: () => void;
   onCreateGroupDm?: () => void;
+  /** Hosted inside a panel that already carries a title. */
+  hideHeader?: boolean;
 };
 
 const HomeSidebar = memo(
@@ -61,16 +63,19 @@ const HomeSidebar = memo(
     selectedDmChannelId,
     onDmSelect,
     onFriendsClick,
-    onCreateGroupDm
+    onCreateGroupDm,
+    hideHeader
   }: THomeSidebarProps) => {
     const pendingCount = useIncomingFriendRequestCount();
     const dmChannels = useDmChannels();
 
     return (
       <>
-        <div className="flex w-full h-12 items-center border-b border-border px-4">
-          <h2 className="font-semibold text-foreground">Home</h2>
-        </div>
+        {!hideHeader && (
+          <div className="flex w-full h-12 items-center border-b border-border px-4">
+            <h2 className="font-semibold text-foreground">Home</h2>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-2">

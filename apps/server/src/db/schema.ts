@@ -1475,7 +1475,225 @@ const localAuthSessions = pgTable(
   ]
 );
 
+
+/**
+ * Scheduled community events ("raids"): a title, a window, a host and a
+ * roster. At T-15 min the scheduler creates the voice room named here
+ * and 15 min after `endsAt` it removes it again (a lingering member does
+ * not keep the room alive — owner decision). `reminderStage` records
+ * which reminders already went out (0 none, 1 = 24 h, 2 = 1 h, 3 =
+ * start) so a restarted process never repeats one.
+ */
+const events = pgTable(
+  'events',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    gameTag: text('game_tag'),
+    startsAt: bigint('starts_at', { mode: 'number' }).notNull(),
+    endsAt: bigint('ends_at', { mode: 'number' }).notNull(),
+    hostId: integer('host_id').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    templateId: integer('template_id').references(
+      () => eventRosterTemplates.id,
+      { onDelete: 'set null' }
+    ),
+    /** Snapshot of the template roles at creation, so later template edits
+     *  do not reshape a roster people already signed up to. */
+    roles: jsonb('roles')
+      .$type<{ key: string; label: string; cap: number | null; color: string | null }[]>()
+      .notNull(),
+    maxParticipants: integer('max_participants'),
+    announceChannelId: integer('announce_channel_id').references(
+      () => channels.id,
+      { onDelete: 'set null' }
+    ),
+    voiceChannelId: integer('voice_channel_id').references(
+      () => channels.id,
+      { onDelete: 'set null' }
+    ),
+    status: text('status').$type<'scheduled' | 'live' | 'done' | 'cancelled'>().notNull().default('scheduled'),
+    reminderStage: integer('reminder_stage').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('events_server_starts_idx').on(t.serverId, t.startsAt),
+    index('events_status_starts_idx').on(t.status, t.startsAt)
+  ]
+);
+
+/** One row per member per event; `position` orders the bench. */
+const eventSignups = pgTable(
+  'event_signups',
+  {
+    id: serial('id').primaryKey(),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    roleKey: text('role_key').notNull(),
+    status: text('status').$type<'confirmed' | 'bench' | 'declined'>().notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('event_signups_event_user_idx').on(t.eventId, t.userId),
+    index('event_signups_event_status_idx').on(t.eventId, t.status)
+  ]
+);
+
+/** Reusable roster shapes per server (Tank/Healer/DPS, Flex …). */
+const eventRosterTemplates = pgTable(
+  'event_roster_templates',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    roles: jsonb('roles')
+      .$type<{ key: string; label: string; cap: number | null; color: string | null }[]>()
+      .notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [uniqueIndex('event_roster_templates_server_name_idx').on(t.serverId, t.name)]
+);
+
+/**
+ * Messages a plugin posted or mirrored, keyed by the plugin's own id for
+ * them (a bridge's remote message id), so an edit or delete arriving
+ * later finds our row and a mirrored message is never posted twice.
+ */
+const pluginMessageLinks = pgTable(
+  'plugin_message_links',
+  {
+    id: serial('id').primaryKey(),
+    pluginId: text('plugin_id').notNull(),
+    externalId: text('external_id').notNull(),
+    messageId: integer('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('plugin_message_links_plugin_external_idx').on(t.pluginId, t.externalId),
+    index('plugin_message_links_message_idx').on(t.messageId)
+  ]
+);
+
+
+/**
+ * A community import from an external chat service: one resumable job
+ * per server at a time. `progress` keeps per-step counters and cursors
+ * so a restart continues where it stopped; the source token is stored
+ * encrypted only while the job can still run and is erased when it
+ * ends, whatever the outcome.
+ */
+const importJobs = pgTable(
+  'import_jobs',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    source: text('source').notNull(),
+    status: text('status')
+      .$type<'pending' | 'running' | 'paused' | 'done' | 'failed' | 'cancelled'>()
+      .notNull()
+      .default('pending'),
+    step: text('step'),
+    progress: jsonb('progress').$type<Record<string, unknown>>().notNull().default({}),
+    options: jsonb('options').$type<Record<string, unknown>>().notNull().default({}),
+    error: text('error'),
+    tokenCiphertext: text('token_ciphertext'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+  },
+  (t) => [index('import_jobs_server_status_idx').on(t.serverId, t.status)]
+);
+
+/**
+ * Who a user is on an external service. An imported author starts as a
+ * placeholder (a shadow user that cannot sign in); when a real account
+ * signs in through the matching provider with the same external id,
+ * the placeholder's content is moved to that account and the row is
+ * re-pointed, so history survives the move.
+ */
+const externalIdentities = pgTable(
+  'external_identities',
+  {
+    id: serial('id').primaryKey(),
+    provider: text('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    displayName: text('display_name'),
+    avatarUrl: text('avatar_url'),
+    placeholder: boolean('placeholder').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('external_identities_provider_external_idx').on(t.provider, t.externalId),
+    index('external_identities_user_idx').on(t.userId)
+  ]
+);
+
+
+/**
+ * A channel here mirrored to a channel on an external chat service by an
+ * official bridge plugin. The remote webhook token is stored encrypted
+ * and never leaves the server; `direction` limits the mirror to one way.
+ */
+const bridgeLinks = pgTable(
+  'bridge_links',
+  {
+    id: serial('id').primaryKey(),
+    pluginId: text('plugin_id').notNull(),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    remoteGuildId: text('remote_guild_id').notNull(),
+    remoteChannelId: text('remote_channel_id').notNull(),
+    webhookId: text('webhook_id'),
+    webhookTokenCiphertext: text('webhook_token_ciphertext'),
+    direction: text('direction')
+      .$type<'both' | 'inbound' | 'outbound'>()
+      .notNull()
+      .default('both'),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('bridge_links_plugin_channel_idx').on(t.pluginId, t.channelId),
+    uniqueIndex('bridge_links_plugin_remote_idx').on(t.pluginId, t.remoteChannelId)
+  ]
+);
+
 export {
+  bridgeLinks,
+  externalIdentities,
+  importJobs,
+  events,
+  eventRosterTemplates,
+  eventSignups,
+  pluginMessageLinks,
   activityLog,
   automodRules,
   categories,

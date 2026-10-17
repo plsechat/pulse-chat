@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '..';
+import { emitMemberRolesChanged } from '../../plugins/emit-roles-changed';
 import { invariant } from '../../utils/invariant';
 import { getDefaultRoleForServer } from '../queries/roles';
 import { userRoles } from '../schema';
@@ -18,21 +19,21 @@ const fallbackUsersToDefaultRole = async (roleId: number, serverId: number) => {
     message: 'Default role not found'
   });
 
-  await db.transaction(async (tx) => {
-    const affectedUsers = await tx
+  const affectedUsers = await db.transaction(async (tx) => {
+    const holders = await tx
       .select({ userId: userRoles.userId })
       .from(userRoles)
       .where(eq(userRoles.roleId, roleId));
 
     await tx.delete(userRoles).where(eq(userRoles.roleId, roleId));
 
-    if (affectedUsers.length === 0) return;
+    if (holders.length === 0) return holders;
 
     const now = Date.now();
     await tx
       .insert(userRoles)
       .values(
-        affectedUsers.map(({ userId }) => ({
+        holders.map(({ userId }) => ({
           userId,
           roleId: defaultRole.id,
           createdAt: now
@@ -40,7 +41,14 @@ const fallbackUsersToDefaultRole = async (roleId: number, serverId: number) => {
       )
       // Users that already held the default role keep their existing row.
       .onConflictDoNothing();
+
+    return holders;
   });
+
+  // After the commit: plugins see the role set each holder ended up with.
+  for (const { userId } of affectedUsers) {
+    await emitMemberRolesChanged(userId, serverId);
+  }
 };
 
 export { fallbackUsersToDefaultRole };

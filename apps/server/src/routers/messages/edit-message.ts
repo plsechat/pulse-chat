@@ -100,7 +100,8 @@ const editMessageRoute = serverProcedure()
       // Re-parse mentions on edit
       const memberIds = await getAffectedUserIdsForChannel(message.channelId);
       const parsed = await parseMentionedUserIds(input.content, memberIds);
-      updateSet.mentionedUserIds = parsed.userIds.length > 0 ? parsed.userIds : null;
+      updateSet.mentionedUserIds =
+        parsed.userIds.length > 0 ? parsed.userIds : null;
       updateSet.mentionsAll = parsed.mentionsAll;
     }
 
@@ -118,7 +119,8 @@ const editMessageRoute = serverProcedure()
         messageId: input.messageId,
         channelId: message.channelId,
         userId: message.userId,
-        content: input.content
+        content: input.content,
+        replyToId: message.replyToId ?? null
       });
     }
   });

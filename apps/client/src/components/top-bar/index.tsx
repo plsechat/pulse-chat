@@ -71,7 +71,7 @@ const TopBar = memo(
     }, []);
 
     return (
-      <div className="app-topbar hidden md:flex h-12 w-full border-b border-border/60 items-center px-4 transition-all duration-300 ease-in-out gap-3">
+      <div className="app-topbar hidden md:flex h-13 w-full border-b border-border/50 items-center px-4 transition-all duration-300 ease-in-out gap-3">
         {/* Channel info on left */}
         {selectedChannel && (
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -103,8 +103,9 @@ const TopBar = memo(
           </div>
         )}
 
-        {/* Controls on right */}
-        <div className="flex items-center gap-1 ml-auto">
+        {/* Controls on right: one quiet pill so the header reads as a
+            title with a toolbox, not a row of loose icons */}
+        <div className="ml-auto flex items-center gap-0.5 rounded-full bg-secondary/60 p-0.5 ring-1 ring-border/50">
           {isCurrentVoiceChannelSelected && currentVoiceChannelId && (
             <VolumeController channelId={currentVoiceChannelId} />
           )}

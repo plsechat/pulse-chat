@@ -114,7 +114,8 @@ const Appearance = memo(() => {
     setFontScale,
     setZoomLevel,
     setTimeFormat,
-    setShowFormattingHints
+    setShowFormattingHints,
+    setLayout
   } = useAppearanceSettings();
 
   return (
@@ -274,6 +275,34 @@ const Appearance = memo(() => {
               <span className="text-sm font-medium">{option.label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Layout */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Layout</h3>
+          <p className="text-sm text-muted-foreground">
+            The new layout puts your communities in tabs across the top and
+            opens Friends, Messages, Inbox and your profile as side panels.
+            Phones keep the current layout either way.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Switch
+            id="layout-deck"
+            checked={settings.layout === 'deck'}
+            onCheckedChange={(checked) =>
+              setLayout(checked ? 'deck' : 'classic')
+            }
+          />
+          <label
+            htmlFor="layout-deck"
+            className="text-sm font-medium cursor-pointer"
+          >
+            Use the new layout (beta)
+          </label>
         </div>
       </div>
 

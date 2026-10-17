@@ -247,4 +247,4 @@ const uploadFileRouteHandler = async (
   });
 };
 
-export { uploadFileRouteHandler };
+export { BLOCKED_EXTENSIONS, uploadFileRouteHandler };

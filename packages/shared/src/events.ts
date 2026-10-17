@@ -94,6 +94,21 @@ export enum ServerEvents {
   USER_KICKED = "userKicked",
 
   USER_BLOCK_CHANGED = "userBlockChanged",
+
+  // Scheduled community events (raid planner). CREATE/UPDATE carry the
+  // event row, DELETE is a cancellation, SIGNUPS_UPDATE carries the new
+  // roster counts, REMINDER goes to the signed-up members at 24 h / 1 h
+  // / start.
+  EVENT_CREATE = "eventCreate",
+  EVENT_UPDATE = "eventUpdate",
+  EVENT_DELETE = "eventDelete",
+  EVENT_SIGNUPS_UPDATE = "eventSignupsUpdate",
+  EVENT_REMINDER = "eventReminder",
+
+  // Community import: the job's owner receives the whole job view after
+  // every persisted page so the wizard can show live progress and
+  // resume where it left off.
+  IMPORT_PROGRESS = "importProgress",
 }
 
 export type TNewMessage = {

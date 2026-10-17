@@ -9,6 +9,7 @@ import {
   getReaction
 } from '../../db/queries/messages';
 import { messageReactions } from '../../db/schema';
+import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 
@@ -71,6 +72,14 @@ const toggleMessageReactionRoute = serverProcedure(
     }
 
     publishMessage(input.messageId, message.channelId, 'update');
+
+    eventBus.emit('message:reaction', {
+      messageId: input.messageId,
+      channelId: message.channelId,
+      userId: ctx.user.id,
+      emoji: input.emoji,
+      added: !reaction
+    });
   });
 
 export { toggleMessageReactionRoute };

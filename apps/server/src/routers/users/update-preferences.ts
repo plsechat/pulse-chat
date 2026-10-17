@@ -27,7 +27,8 @@ const preferencesSchema = z.object({
       fontScale: z.number().min(50).max(200),
       zoomLevel: z.number().min(50).max(200),
       timeFormat: z.enum(['12h', '24h']),
-      showFormattingHints: z.boolean()
+      showFormattingHints: z.boolean(),
+      layout: z.enum(['classic', 'deck'])
     })
     .partial()
     .optional(),

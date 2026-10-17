@@ -95,4 +95,20 @@ if [ -f "$SEED_DIR/.build-stamp" ]; then
 fi
 
 echo "[e2e-entrypoint] starting pulse (version=${PULSE_BUILD_VERSION:-unknown})"
+# Official plugins ship with the image (built in the Dockerfile); copy them
+# into the data directory on every boot so a fresh or reused volume has
+# the current build. Shipped files are replaced, plugin state is kept.
+PLUGIN_SRC=/app/packages/plugins
+if [ -d "$PLUGIN_SRC" ]; then
+  for dir in "$PLUGIN_SRC"/*/; do
+    [ -f "$dir/package.json" ] || continue
+    id=$(basename "$dir")
+    mkdir -p "$DATA_DIR/plugins/$id/dist"
+    cp "$dir/package.json" "$DATA_DIR/plugins/$id/package.json"
+    [ -f "$dir/README.md" ] && cp "$dir/README.md" "$DATA_DIR/plugins/$id/README.md"
+    [ -d "$dir/dist" ] && cp -R "$dir/dist/." "$DATA_DIR/plugins/$id/dist/"
+    echo "[e2e-entrypoint] seeded plugin $id"
+  done
+fi
+
 exec bun src/index.ts

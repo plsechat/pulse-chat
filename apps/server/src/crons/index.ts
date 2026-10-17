@@ -6,6 +6,7 @@ import { cleanupExpiredAuthSessions } from './cleanup-auth-sessions';
 import { cleanupEmptyThreads } from './cleanup-empty-threads';
 import { cleanupFiles } from './cleanup-files';
 import { cleanupOrphanVoiceUsers } from './cleanup-orphan-voice';
+import { eventsTick } from './events';
 import { drainOutboxTick } from './federation-outbox';
 import { pruneFederationReplayState } from './federation-seen-jti';
 import { pruneExpiredLogs } from './retention';
@@ -157,6 +158,17 @@ const loadCrons = () => {
     CRON_TIMES.EVERY_15_MINUTES,
     pruneFederationReplayState,
     CRON_LOCK_IDS.FEDERATION_SEEN_JTI
+  );
+
+  // Event timeline: reminders, the T-15 room, 'live', the end+15
+  // teardown. Minute resolution is the contract the owner decided on
+  // (15 min before / after); the lock keeps a slow tick (room creation
+  // waits on mediasoup) from overlapping the next one.
+  scheduleCron(
+    'events',
+    CRON_TIMES.EVERY_MINUTE,
+    () => eventsTick(),
+    CRON_LOCK_IDS.EVENTS
   );
 };
 

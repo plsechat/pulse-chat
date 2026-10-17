@@ -15,6 +15,7 @@ COPY apps/server/package.json apps/server/
 COPY apps/client/package.json apps/client/
 COPY packages/shared/package.json packages/shared/
 COPY packages/plugin-sdk/package.json packages/plugin-sdk/
+COPY packages/plugins/discord-bridge/package.json packages/plugins/discord-bridge/
 RUN bun install --frozen-lockfile
 
 COPY . .
@@ -33,10 +34,21 @@ RUN cd apps/server \
     && bun run build/build.ts --target "$BUN_TARGET" \
     && mv "build/out/$BIN_NAME" build/out/pulse
 
+# Official plugins ship inside the image, disabled by default: the
+# entrypoint copies them into the data directory's plugins/ folder on
+# every boot (so an upgrade updates them), and the instance owner
+# switches them on from Instance → Plugins. Their enabled state lives in
+# the database, never in these files.
+RUN cd packages/plugins/discord-bridge && bun run build
+
 # Stage 2: Runtime
 FROM oven/bun:${BUN_VERSION}
 COPY --from=builder /app/apps/server/build/out/pulse /pulse
 COPY --from=builder /app/docker/pulse-entrypoint.sh /entrypoint.sh
+COPY --from=builder /app/packages/plugins/discord-bridge/package.json \
+                    /app/packages/plugins/discord-bridge/README.md \
+                    /opt/pulse/plugins/discord-bridge/
+COPY --from=builder /app/packages/plugins/discord-bridge/dist /opt/pulse/plugins/discord-bridge/dist
 ENV RUNNING_IN_DOCKER=true
 
 # The server runs as the unprivileged `pulse` user. The data directory

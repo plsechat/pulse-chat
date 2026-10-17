@@ -2,6 +2,7 @@ import { ChannelType, DEFAULT_ROLE_PERMISSIONS, Permission } from '@pulse/shared
 import { randomUUIDv7 } from 'bun';
 import { z } from 'zod';
 import { db } from '../../db';
+import { insertDefaultRosterTemplates } from '../../db/queries/event-templates';
 import {
   getServersByUserId
 } from '../../db/queries/servers';
@@ -147,6 +148,10 @@ const createServerRoute = protectedProcedure
         publicId: randomUUIDv7(),
         createdAt: now
       });
+
+      // The stock raid rosters, so the planner is usable before anyone
+      // defines a template.
+      await insertDefaultRosterTemplates(tx, serverId, now);
 
       return newServer!;
     });

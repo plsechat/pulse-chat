@@ -1,52 +1,37 @@
-import { E2EEStatusBadge } from '@/components/e2ee-status-badge';
-import { ReportDialog } from '@/components/report-dialog';
-import { FileCard } from '@/components/chat-primitives/file-card';
-import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
+import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
 import {
   ComposerExpandToggle,
   ComposerResizer,
   MIN_COMPOSER_HEIGHT
 } from '@/components/chat-primitives/composer-expand';
 import { DateDivider } from '@/components/chat-primitives/date-divider';
-import { MessageActions } from '@/components/chat-primitives/message-actions';
-import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
+import { FileCard } from '@/components/chat-primitives/file-card';
+import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
-import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
 import { InlineMessageEditor } from '@/components/chat-primitives/inline-message-editor';
-import { useChatScroll } from '@/components/chat-primitives/use-chat-scroll';
-import { TypingIndicator } from '@/components/chat-primitives/typing-indicator';
+import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
+import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
+import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
-import { EmojiPickerPanel } from '@/components/emoji-picker';
+import { SystemMessage } from '@/components/chat-primitives/system-message';
+import { TypingIndicator } from '@/components/chat-primitives/typing-indicator';
+import { useChatScroll } from '@/components/chat-primitives/use-chat-scroll';
 import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent
-} from '@/components/ui/popover';
+  useComposerHelpers,
+  useTypingSignal
+} from '@/components/chat-primitives/use-composer-helpers';
+import { DmCallBanner } from '@/components/dm-call/call-banner';
+import { DmVoicePanel } from '@/components/dm-call/dm-voice-panel';
+import { E2EEStatusBadge } from '@/components/e2ee-status-badge';
+import { EmojiPickerPanel } from '@/components/emoji-picker';
 import { GifPicker } from '@/components/gif-picker';
+import { ReportDialog } from '@/components/report-dialog';
 import { TiptapInput } from '@/components/tiptap-input';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
-import Spinner from '@/components/ui/spinner';
-import { UserAvatar } from '@/components/user-avatar';
-import { UserPopover } from '@/components/user-popover';
-import {
-  clearDmChannelUnread,
-  decryptDmMessages,
-  deleteDmMessageAction,
-  editDmMessage,
-  sendDmMessage
-} from '@/features/dms/actions';
-import { useDmChannels, useDmTypingUsers } from '@/features/dms/hooks';
-import { useDmMessages } from '@/features/dms/use-dm-messages';
-import { useHomeOwnUserId, useHomeUserById } from '@/features/server/users/hooks';
-import { requestConfirmation } from '@/features/dialogs/actions';
-import { isGiphyEnabled } from '@/helpers/giphy';
-import { getNameStyleCss } from '@/helpers/name-style';
-import { getFileUrl } from '@/helpers/get-file-url';
-import { getInitialsFromName } from '@/helpers/get-initials-from-name';
-import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { getHomeTRPCClient } from '@/lib/trpc';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,43 +39,91 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from '@/components/ui/context-menu';
-import { cn } from '@/lib/utils';
-import type { TJoinedDmMessage } from '@pulse/server/types';
-import { MAX_MESSAGE_CONTENT_LENGTH, TYPING_MS } from '@pulse/shared';
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent
+} from '@/components/ui/popover';
+import Spinner from '@/components/ui/spinner';
+import { Tooltip } from '@/components/ui/tooltip';
+import { UserAvatar } from '@/components/user-avatar';
+import { UserPopover } from '@/components/user-popover';
+import { requestConfirmation } from '@/features/dialogs/actions';
+import {
+  clearDmChannelUnread,
+  decryptDmMessages,
+  deleteDmMessageAction,
+  editDmMessage,
+  joinDmVoiceCall,
+  leaveDmVoiceCall,
+  sendDmMessage
+} from '@/features/dms/actions';
+import {
+  useDmCall,
+  useDmChannels,
+  useDmTypingUsers,
+  useOwnDmCallChannelId
+} from '@/features/dms/hooks';
+import { useDmMessages } from '@/features/dms/use-dm-messages';
+import {
+  useHomeOwnUserId,
+  useHomeUserById
+} from '@/features/server/users/hooks';
+import { useVoice } from '@/features/server/voice/hooks';
+import { getFileUrl } from '@/helpers/get-file-url';
+import { getInitialsFromName } from '@/helpers/get-initials-from-name';
+import { isGiphyEnabled } from '@/helpers/giphy';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
+import { getNameStyleCss } from '@/helpers/name-style';
 import {
   messageHasCodeBlock,
   uploadOversizedMessage,
   type TOversizedUpload
 } from '@/helpers/oversized-message';
-import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
-import { stripToPlainText } from '@/helpers/strip-to-plain-text';
-import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
-import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { LocalStorageKey } from '@/helpers/storage';
 import {
-  useComposerHelpers,
-  useTypingSignal
-} from '@/components/chat-primitives/use-composer-helpers';
-import { fullDateTime, groupTimestamp, longDateTime } from '@/helpers/time-format';
+  isTokenContentEmpty,
+  stripToPlainText
+} from '@/helpers/strip-to-plain-text';
+import {
+  fullDateTime,
+  groupTimestamp,
+  longDateTime
+} from '@/helpers/time-format';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
+import { dispatchForwardMessage, onAppEvent } from '@/lib/events';
+import { getHomeTRPCClient } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
+import type { TJoinedDmMessage } from '@pulse/server/types';
+import { MAX_MESSAGE_CONTENT_LENGTH, TYPING_MS } from '@pulse/shared';
 import { format } from 'date-fns';
 import { filesize } from 'filesize';
-import { ArrowDown, Copy, Flag, Forward, PanelRight, PanelRightClose, Pencil, Phone, PhoneOff, Pin, PinOff, Plus, Reply, Search, Send, Smile, Trash, X } from 'lucide-react';
-import { LocalStorageKey } from '@/helpers/storage';
+import {
+  ArrowDown,
+  Copy,
+  Flag,
+  Forward,
+  PanelRight,
+  PanelRightClose,
+  Pencil,
+  Phone,
+  PhoneOff,
+  Pin,
+  PinOff,
+  Plus,
+  Reply,
+  Search,
+  Send,
+  Smile,
+  Trash,
+  X
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
-import { Tooltip } from '@/components/ui/tooltip';
-import { DmCallBanner } from '@/components/dm-call/call-banner';
-import { DmVoicePanel } from '@/components/dm-call/dm-voice-panel';
 import { DmNonFriendBanner } from './dm-non-friend-banner';
 import { DmPinBanner } from './dm-pin-banner';
-import { useDmCall, useOwnDmCallChannelId } from '@/features/dms/hooks';
-import { joinDmVoiceCall, leaveDmVoiceCall } from '@/features/dms/actions';
-import { useVoice } from '@/features/server/voice/hooks';
-import { SystemMessage } from '@/components/chat-primitives/system-message';
 import { DmSearchPopover } from './dm-search-popover';
-import { dispatchForwardMessage, onAppEvent } from '@/lib/events';
 
 type TDmConversationProps = {
   dmChannelId: number;
@@ -106,483 +139,509 @@ const DmConversation = memo(
     profilePanelAvailable,
     onToggleProfilePanel
   }: TDmConversationProps) => {
-  const {
-    messages,
-    loading,
-    fetching,
-    hasMore,
-    loadMore,
-    loadNewer,
-    reattach,
-    detached,
-    groupedMessages
-  } = useDmMessages(dmChannelId);
-  const [newMessage, setNewMessage] = useState('');
-  const [replyingTo, setReplyingTo] = useState<TJoinedDmMessage | null>(null);
-  const { containerRef, onScroll, scrollToBottom } = useChatScroll({
-    posKey: `dm:${dmChannelId}`,
-    storageKey: LocalStorageKey.DM_SCROLL_POSITIONS,
-    messages,
-    fetching,
-    hasMore,
-    loadMore,
-    detached,
-    loadNewer
-  });
-  const ownDmCallChannelId = useOwnDmCallChannelId();
-  const isInThisCall = ownDmCallChannelId === dmChannelId;
-  const dmChannels = useDmChannels();
-  const ownUserId = useHomeOwnUserId();
-  const dmMembers = useMemo(() => {
-    const channel = dmChannels.find((c) => c.id === dmChannelId);
-    return channel?.members.map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, _identity: m._identity })) ?? [];
-  }, [dmChannels, dmChannelId]);
+    const {
+      messages,
+      loading,
+      fetching,
+      hasMore,
+      loadMore,
+      loadNewer,
+      reattach,
+      detached,
+      groupedMessages
+    } = useDmMessages(dmChannelId);
+    const [newMessage, setNewMessage] = useState('');
+    const [replyingTo, setReplyingTo] = useState<TJoinedDmMessage | null>(null);
+    const { containerRef, onScroll, scrollToBottom } = useChatScroll({
+      posKey: `dm:${dmChannelId}`,
+      storageKey: LocalStorageKey.DM_SCROLL_POSITIONS,
+      messages,
+      fetching,
+      hasMore,
+      loadMore,
+      detached,
+      loadNewer
+    });
+    const ownDmCallChannelId = useOwnDmCallChannelId();
+    const isInThisCall = ownDmCallChannelId === dmChannelId;
+    const dmChannels = useDmChannels();
+    const ownUserId = useHomeOwnUserId();
+    const dmMembers = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === dmChannelId);
+      return (
+        channel?.members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          avatar: m.avatar,
+          _identity: m._identity
+        })) ?? []
+      );
+    }, [dmChannels, dmChannelId]);
 
-  // Intro block shown at the very top of a fully-loaded history —
-  // gives short conversations a proper beginning instead of a cold
-  // start.
-  const introMembers = useMemo(
-    () => dmMembers.filter((m) => m.id !== ownUserId),
-    [dmMembers, ownUserId]
-  );
-  const introName = useMemo(() => {
-    const channel = dmChannels.find((c) => c.id === dmChannelId);
-    if (channel?.isGroup && channel.name) return channel.name;
-    if (channel?.isGroup) {
-      return introMembers.map((m) => m.name).join(', ') || 'Group DM';
-    }
-    return introMembers[0]?.name ?? 'Unknown';
-  }, [dmChannels, dmChannelId, introMembers]);
+    // Intro block shown at the very top of a fully-loaded history —
+    // gives short conversations a proper beginning instead of a cold
+    // start.
+    const introMembers = useMemo(
+      () => dmMembers.filter((m) => m.id !== ownUserId),
+      [dmMembers, ownUserId]
+    );
+    const introName = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === dmChannelId);
+      if (channel?.isGroup && channel.name) return channel.name;
+      if (channel?.isGroup) {
+        return introMembers.map((m) => m.name).join(', ') || 'Group DM';
+      }
+      return introMembers[0]?.name ?? 'Unknown';
+    }, [dmChannels, dmChannelId, introMembers]);
 
-  const isE2ee = useMemo(() => {
-    const channel = dmChannels.find((c) => c.id === dmChannelId);
-    return channel?.e2ee ?? false;
-  }, [dmChannels, dmChannelId]);
+    const isE2ee = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === dmChannelId);
+      return channel?.e2ee ?? false;
+    }, [dmChannels, dmChannelId]);
 
-  // Auto-clear the unread badge whenever it rises above zero while
-  // the user is here. addDmMessages tries to suppress the badge via
-  // isViewingThisChannel, but state-propagation races (activeView /
-  // selectedChannelId mid-flight, tab-focus events, etc.) can let
-  // a badge slip through. Treating "DmConversation is mounted" as
-  // the source of truth — and clearing on every render where the
-  // count is non-zero — closes those races.
-  const unreadCount = useMemo(() => {
-    const channel = dmChannels.find((c) => c.id === dmChannelId);
-    return channel?.unreadCount ?? 0;
-  }, [dmChannels, dmChannelId]);
-  useEffect(() => {
-    if (unreadCount > 0) clearDmChannelUnread(dmChannelId);
-  }, [dmChannelId, unreadCount]);
+    // Auto-clear the unread badge whenever it rises above zero while
+    // the user is here. addDmMessages tries to suppress the badge via
+    // isViewingThisChannel, but state-propagation races (activeView /
+    // selectedChannelId mid-flight, tab-focus events, etc.) can let
+    // a badge slip through. Treating "DmConversation is mounted" as
+    // the source of truth — and clearing on every render where the
+    // count is non-zero — closes those races.
+    const unreadCount = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === dmChannelId);
+      return channel?.unreadCount ?? 0;
+    }, [dmChannels, dmChannelId]);
+    useEffect(() => {
+      if (unreadCount > 0) clearDmChannelUnread(dmChannelId);
+    }, [dmChannelId, unreadCount]);
 
-  const dmPlaceholder = useMemo(() => {
-    const channel = dmChannels.find((c) => c.id === dmChannelId);
-    if (!channel) return 'Message...';
-    const otherMembers = channel.members.filter((m) => m.id !== ownUserId);
-    if (channel.isGroup && channel.name) return `Message ${channel.name}`;
-    if (channel.isGroup) {
-      const names = otherMembers.map((m) => m.name).join(', ') || 'Group DM';
-      return `Message ${names}`;
-    }
-    return `Message @${otherMembers[0]?.name ?? 'Unknown'}`;
-  }, [dmChannels, dmChannelId, ownUserId]);
+    const dmPlaceholder = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === dmChannelId);
+      if (!channel) return 'Message...';
+      const otherMembers = channel.members.filter((m) => m.id !== ownUserId);
+      if (channel.isGroup && channel.name) return `Message ${channel.name}`;
+      if (channel.isGroup) {
+        const names = otherMembers.map((m) => m.name).join(', ') || 'Group DM';
+        return `Message ${names}`;
+      }
+      return `Message @${otherMembers[0]?.name ?? 'Unknown'}`;
+    }, [dmChannels, dmChannelId, ownUserId]);
 
-  const [multilineMode, setMultilineMode] = useState(false);
-  const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
+    const [multilineMode, setMultilineMode] = useState(false);
+    const [composerHeight, setComposerHeight] = useState(
+      MIN_COMPOSER_HEIGHT * 1.4
+    );
 
-  // Thread the reply context through so picking a GIF while replying
-  // lands as a reply (was dropped before — gif sent top-level + the
-  // user's reply preview vanished).
-  const sendGif = useCallback(
-    async (gifUrl: string) => {
-      await sendDmMessage(dmChannelId, gifUrl, undefined, replyingTo?.id);
-    },
-    [dmChannelId, replyingTo]
-  );
+    // Thread the reply context through so picking a GIF while replying
+    // lands as a reply (was dropped before — gif sent top-level + the
+    // user's reply preview vanished).
+    const sendGif = useCallback(
+      async (gifUrl: string) => {
+        await sendDmMessage(dmChannelId, gifUrl, undefined, replyingTo?.id);
+      },
+      [dmChannelId, replyingTo]
+    );
 
-  // Shared composer plumbing (see chat-primitives/use-composer-helpers):
-  // the editor focus, hidden file input, staged-upload removal and the
-  // GIF-send envelope are identical to the channel composer's.
-  const {
-    inputAreaRef,
-    fileInputRef,
-    focusEditorAtBottom,
-    files,
-    clearFiles,
-    uploading,
-    uploadingSize,
-    fileKeyMapRef,
-    onFileInputChange,
-    onRemoveFileClick,
-    onGifSelect
-  } = useComposerHelpers({
-    uploadDisabled: false,
-    isE2ee,
-    sendGif,
-    onGifSent: () => setReplyingTo(null),
-    // DM uploads are staged on the home instance (home view has no
-    // active federated instance), so the temp file is deleted there.
-    deleteTemporaryFile: (fileId) =>
-      getHomeTRPCClient()?.files.deleteTemporary.mutate({ fileId }) ??
-      Promise.resolve(),
-    detached,
-    reattach,
-    scrollToBottom
-  });
+    // Shared composer plumbing (see chat-primitives/use-composer-helpers):
+    // the editor focus, hidden file input, staged-upload removal and the
+    // GIF-send envelope are identical to the channel composer's.
+    const {
+      inputAreaRef,
+      fileInputRef,
+      focusEditorAtBottom,
+      files,
+      clearFiles,
+      uploading,
+      uploadingSize,
+      fileKeyMapRef,
+      onFileInputChange,
+      onRemoveFileClick,
+      onGifSelect
+    } = useComposerHelpers({
+      uploadDisabled: false,
+      isE2ee,
+      sendGif,
+      onGifSent: () => setReplyingTo(null),
+      // DM uploads are staged on the home instance (home view has no
+      // active federated instance), so the temp file is deleted there.
+      deleteTemporaryFile: (fileId) =>
+        getHomeTRPCClient()?.files.deleteTemporary.mutate({ fileId }) ??
+        Promise.resolve(),
+      detached,
+      reattach,
+      scrollToBottom
+    });
 
-  const handleReply = useCallback(
-    (message: TJoinedDmMessage) => {
-      setReplyingTo(message);
-      focusEditorAtBottom();
-    },
-    [focusEditorAtBottom]
-  );
+    const handleReply = useCallback(
+      (message: TJoinedDmMessage) => {
+        setReplyingTo(message);
+        focusEditorAtBottom();
+      },
+      [focusEditorAtBottom]
+    );
 
-  const signalTyping = useCallback(async () => {
-    const trpc = getHomeTRPCClient();
-    if (!trpc) return;
-    try {
-      await trpc.dms.signalTyping.mutate({ dmChannelId });
-    } catch {
-      // ignore
-    }
-  }, [dmChannelId]);
-  const sendTypingSignal = useTypingSignal(signalTyping, TYPING_MS);
+    const signalTyping = useCallback(async () => {
+      const trpc = getHomeTRPCClient();
+      if (!trpc) return;
+      try {
+        await trpc.dms.signalTyping.mutate({ dmChannelId });
+      } catch {
+        // ignore
+      }
+    }, [dmChannelId]);
+    const sendTypingSignal = useTypingSignal(signalTyping, TYPING_MS);
 
+    const onSendMessage = useCallback(async () => {
+      if (isHtmlEmpty(newMessage) && !files.length) return;
 
-  const onSendMessage = useCallback(async () => {
-    if (isHtmlEmpty(newMessage) && !files.length) return;
+      sendTypingSignal.cancel();
 
-    sendTypingSignal.cancel();
+      const content = tiptapHtmlToTokens(newMessage);
 
-    const content = tiptapHtmlToTokens(newMessage);
+      // Check plaintext length BEFORE encryption — the server's wire cap
+      // is sized for the encrypted envelope, so this is the real budget.
+      // Over-length code blocks are shipped as a message.txt attachment
+      // instead of being rejected.
+      let sendContent = content;
+      let txtUpload: TOversizedUpload | null = null;
+      if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+        if (!messageHasCodeBlock(newMessage, content)) {
+          toast.error(
+            `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+          );
+          return;
+        }
 
-    // Check plaintext length BEFORE encryption — the server's wire cap
-    // is sized for the encrypted envelope, so this is the real budget.
-    // Over-length code blocks are shipped as a message.txt attachment
-    // instead of being rejected.
-    let sendContent = content;
-    let txtUpload: TOversizedUpload | null = null;
-    if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-      if (!messageHasCodeBlock(newMessage, content)) {
-        toast.error(
-          `Message is too long (${content.length.toLocaleString()} of ${MAX_MESSAGE_CONTENT_LENGTH.toLocaleString()} characters). Try attaching it as a file instead.`
+        txtUpload = await uploadOversizedMessage(content, isE2ee);
+        if (!txtUpload) return;
+
+        sendContent = '';
+        toast.info('Message was over the length limit — sent as message.txt');
+      }
+
+      try {
+        // Build fileKeys from encrypted upload key material. Includes
+        // the real originalName + extension so the recipient can render
+        // them — the server stores only placeholders.
+        const fileKeyEntries = isE2ee
+          ? files
+              .map((f) => {
+                const keyInfo = fileKeyMapRef.current.get(f.id);
+                return keyInfo
+                  ? {
+                      fileId: f.id,
+                      key: keyInfo.key,
+                      nonce: keyInfo.nonce,
+                      mimeType: keyInfo.mimeType,
+                      originalName: keyInfo.originalName,
+                      extension: keyInfo.extension
+                    }
+                  : null;
+              })
+              .filter((k): k is NonNullable<typeof k> => k !== null)
+          : [];
+
+        if (isE2ee && txtUpload?.keyInfo) {
+          fileKeyEntries.push({
+            fileId: txtUpload.tempFile.id,
+            key: txtUpload.keyInfo.key,
+            nonce: txtUpload.keyInfo.nonce,
+            mimeType: txtUpload.keyInfo.mimeType,
+            originalName: txtUpload.keyInfo.originalName,
+            extension: txtUpload.keyInfo.extension
+          });
+        }
+
+        const fileIds = [
+          ...files.map((f) => f.id),
+          ...(txtUpload ? [txtUpload.tempFile.id] : [])
+        ];
+
+        await sendDmMessage(
+          dmChannelId,
+          sendContent,
+          fileIds.length > 0 ? fileIds : undefined,
+          replyingTo?.id,
+          fileKeyEntries.length > 0 ? fileKeyEntries : undefined
         );
+      } catch (error) {
+        toast.error(getTrpcError(error, 'Failed to send message'));
         return;
       }
 
-      txtUpload = await uploadOversizedMessage(content, isE2ee);
-      if (!txtUpload) return;
+      setNewMessage('');
+      setReplyingTo(null);
+      clearFiles();
 
-      sendContent = '';
-      toast.info('Message was over the length limit — sent as message.txt');
-    }
-
-    try {
-      // Build fileKeys from encrypted upload key material. Includes
-      // the real originalName + extension so the recipient can render
-      // them — the server stores only placeholders.
-      const fileKeyEntries = isE2ee
-        ? files.map((f) => {
-          const keyInfo = fileKeyMapRef.current.get(f.id);
-          return keyInfo
-            ? {
-                fileId: f.id,
-                key: keyInfo.key,
-                nonce: keyInfo.nonce,
-                mimeType: keyInfo.mimeType,
-                originalName: keyInfo.originalName,
-                extension: keyInfo.extension
-              }
-            : null;
-        }).filter((k): k is NonNullable<typeof k> => k !== null)
-        : [];
-
-      if (isE2ee && txtUpload?.keyInfo) {
-        fileKeyEntries.push({
-          fileId: txtUpload.tempFile.id,
-          key: txtUpload.keyInfo.key,
-          nonce: txtUpload.keyInfo.nonce,
-          mimeType: txtUpload.keyInfo.mimeType,
-          originalName: txtUpload.keyInfo.originalName,
-          extension: txtUpload.keyInfo.extension
-        });
+      if (detached) {
+        // Sent from deep in history: the echo lands beyond the detached
+        // window and is not stored there, so rejoin the live tail to
+        // show it.
+        await reattach();
+        requestAnimationFrame(scrollToBottom);
       }
+    }, [
+      newMessage,
+      dmChannelId,
+      files,
+      clearFiles,
+      replyingTo,
+      sendTypingSignal,
+      isE2ee,
+      fileKeyMapRef,
+      detached,
+      reattach,
+      scrollToBottom
+    ]);
 
-      const fileIds = [
-        ...files.map((f) => f.id),
-        ...(txtUpload ? [txtUpload.tempFile.id] : [])
-      ];
-
-      await sendDmMessage(
-        dmChannelId,
-        sendContent,
-        fileIds.length > 0 ? fileIds : undefined,
-        replyingTo?.id,
-        fileKeyEntries.length > 0 ? fileKeyEntries : undefined
+    if (loading) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner />
+        </div>
       );
-    } catch (error) {
-      toast.error(getTrpcError(error, 'Failed to send message'));
-      return;
     }
 
-    setNewMessage('');
-    setReplyingTo(null);
-    clearFiles();
-
-    if (detached) {
-      // Sent from deep in history: the echo lands beyond the detached
-      // window and is not stored there, so rejoin the live tail to
-      // show it.
-      await reattach();
-      requestAnimationFrame(scrollToBottom);
-    }
-  }, [newMessage, dmChannelId, files, clearFiles, replyingTo, sendTypingSignal, isE2ee, fileKeyMapRef, detached, reattach, scrollToBottom]);
-
-  if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner />
-      </div>
-    );
-  }
+      <ChatScopeProvider homeScope>
+        <DmHeader
+          dmChannelId={dmChannelId}
+          isProfilePanelOpen={isProfilePanelOpen}
+          profilePanelAvailable={profilePanelAvailable}
+          onToggleProfilePanel={onToggleProfilePanel}
+        />
+        <DmNonFriendBanner dmChannelId={dmChannelId} />
+        <DmPinBanner dmChannelId={dmChannelId} />
+        {isInThisCall ? (
+          <DmVoicePanel dmChannelId={dmChannelId} />
+        ) : (
+          <DmCallBanner dmChannelId={dmChannelId} />
+        )}
 
-  return (
-    <ChatScopeProvider homeScope>
-      <DmHeader
-        dmChannelId={dmChannelId}
-        isProfilePanelOpen={isProfilePanelOpen}
-        profilePanelAvailable={profilePanelAvailable}
-        onToggleProfilePanel={onToggleProfilePanel}
-      />
-      <DmNonFriendBanner dmChannelId={dmChannelId} />
-      <DmPinBanner dmChannelId={dmChannelId} />
-      {isInThisCall ? (
-        <DmVoicePanel dmChannelId={dmChannelId} />
-      ) : (
-        <DmCallBanner dmChannelId={dmChannelId} />
-      )}
+        {fetching && (
+          <div className="flex items-center justify-center py-2">
+            <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm border border-border rounded-full px-4 py-2 shadow-lg">
+              <Spinner size="xs" />
+              <span className="text-sm text-muted-foreground">
+                Fetching older messages...
+              </span>
+            </div>
+          </div>
+        )}
 
-      {fetching && (
-        <div className="flex items-center justify-center py-2">
-          <div className="flex items-center gap-2 bg-background/80 backdrop-blur-sm border border-border rounded-full px-4 py-2 shadow-lg">
-            <Spinner size="xs" />
-            <span className="text-sm text-muted-foreground">
-              Fetching older messages...
-            </span>
+        <div
+          ref={containerRef}
+          onScroll={onScroll}
+          className="flex-1 overflow-y-auto overflow-x-hidden px-0 py-2"
+        >
+          <div className="flex min-h-full flex-col justify-end space-y-4">
+            {!hasMore && !loading && introMembers.length > 0 && (
+              <div className="flex flex-col gap-2 px-4 pt-8 pb-4">
+                {introMembers.length > 1 ? (
+                  <div className="flex -space-x-4">
+                    {introMembers.slice(0, 3).map((m) => (
+                      <UserAvatar
+                        key={m.id}
+                        userId={m.id}
+                        className="h-20 w-20 border-4 border-background"
+                        showUserPopover={false}
+                        homeScope
+                        noDecoration
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <UserAvatar
+                    userId={introMembers[0].id}
+                    className="h-20 w-20"
+                    showUserPopover
+                    homeScope
+                  />
+                )}
+                <span className="text-2xl font-bold text-foreground">
+                  {introName}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  This is the beginning of your direct message history with{' '}
+                  {introName}.
+                </span>
+              </div>
+            )}
+            {groupedMessages.map((group, index) => {
+              // Day-divider logic mirrors the channel view exactly —
+              // see channel-view/text/index.tsx for the same shape.
+              const currentDay = new Date(group[0].createdAt).toDateString();
+              const prevDay =
+                index > 0
+                  ? new Date(
+                      groupedMessages[index - 1][0].createdAt
+                    ).toDateString()
+                  : null;
+              const showDateDivider =
+                prevDay !== null && currentDay !== prevDay;
+
+              return (
+                <div key={index} className="message-group-window">
+                  {showDateDivider && (
+                    <DateDivider timestamp={group[0].createdAt} />
+                  )}
+                  {group[0].type === 'system' ? (
+                    <SystemMessage message={group[0]} />
+                  ) : (
+                    <DmMessagesGroup group={group} onReply={handleReply} />
+                  )}
+                </div>
+              );
+            })}
+            {detached && (
+              // The loaded window is mid-history (paged up past the
+              // 300-message cap). Scrolling toward the bottom pages forward
+              // (useChatScroll -> loadNewer); the pill is the shortcut
+              // straight to the latest page.
+              <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await reattach();
+                    requestAnimationFrame(scrollToBottom);
+                  }}
+                  className="pointer-events-auto flex items-center gap-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-full px-4 py-2 shadow-lg text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ArrowDown className="h-4 w-4" />
+                  Jump to Present
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      )}
 
-      <div
-        ref={containerRef}
-        onScroll={onScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden px-0 py-2"
-      >
-        <div className="flex min-h-full flex-col justify-end space-y-4">
-          {!hasMore && !loading && introMembers.length > 0 && (
-            <div className="flex flex-col gap-2 px-4 pt-8 pb-4">
-              {introMembers.length > 1 ? (
-                <div className="flex -space-x-4">
-                  {introMembers.slice(0, 3).map((m) => (
-                    <UserAvatar
-                      key={m.id}
-                      userId={m.id}
-                      className="h-20 w-20 border-4 border-background"
-                      showUserPopover={false}
-                      homeScope
-                      noDecoration
-                    />
-                  ))}
-                </div>
-              ) : (
-                <UserAvatar
-                  userId={introMembers[0].id}
-                  className="h-20 w-20"
-                  showUserPopover
-                  homeScope
-                />
-              )}
-              <span className="text-2xl font-bold text-foreground">
-                {introName}
-              </span>
-              <span className="text-sm text-muted-foreground">
-                This is the beginning of your direct message history with{' '}
-                {introName}.
-              </span>
-            </div>
-          )}
-          {groupedMessages.map((group, index) => {
-            // Day-divider logic mirrors the channel view exactly —
-            // see channel-view/text/index.tsx for the same shape.
-            const currentDay = new Date(group[0].createdAt).toDateString();
-            const prevDay =
-              index > 0
-                ? new Date(groupedMessages[index - 1][0].createdAt).toDateString()
-                : null;
-            const showDateDivider = prevDay !== null && currentDay !== prevDay;
+        <DmUsersTyping dmChannelId={dmChannelId} />
 
-            return (
-              <div key={index} className="message-group-window">
-                {showDateDivider && (
-                  <DateDivider timestamp={group[0].createdAt} />
-                )}
-                {group[0].type === 'system' ? (
-                  <SystemMessage message={group[0]} />
-                ) : (
-                  <DmMessagesGroup group={group} onReply={handleReply} />
-                )}
-              </div>
-            );
-          })}
-          {detached && (
-            // The loaded window is mid-history (paged up past the
-            // 300-message cap). Scrolling toward the bottom pages forward
-            // (useChatScroll -> loadNewer); the pill is the shortcut
-            // straight to the latest page.
-            <div className="sticky bottom-4 z-10 flex justify-center pointer-events-none animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
-              <button
-                type="button"
-                onClick={async () => {
-                  await reattach();
-                  requestAnimationFrame(scrollToBottom);
-                }}
-                className="pointer-events-auto flex items-center gap-1.5 bg-background/80 backdrop-blur-sm border border-border rounded-full px-4 py-2 shadow-lg text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowDown className="h-4 w-4" />
-                Jump to Present
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <DmUsersTyping dmChannelId={dmChannelId} />
-
-      {/* Outer wrapper now matches the channel composer exactly:
+        {/* Outer wrapper now matches the channel composer exactly:
           `flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0` — same padding
           shape, no border-top (the messages area's spacing handles
           visual separation). Without this, the DM input box's
           horizontal position differed from the channel's by ~8px,
           making it look misaligned with the user-control box below
           the sidebar. */}
-      <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
-        {replyingTo && (
-          <DmReplyBar
-            message={replyingTo}
-            onDismiss={() => setReplyingTo(null)}
-          />
-        )}
-        {uploading && (
-          <div className="flex items-center gap-2">
-            <div className="text-xs text-muted-foreground mb-1">
-              Uploading files ({filesize(uploadingSize)})
+        <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
+          {replyingTo && (
+            <DmReplyBar
+              message={replyingTo}
+              onDismiss={() => setReplyingTo(null)}
+            />
+          )}
+          {uploading && (
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-muted-foreground mb-1">
+                Uploading files ({filesize(uploadingSize)})
+              </div>
+              <Spinner size="xxs" />
             </div>
-            <Spinner size="xxs" />
-          </div>
-        )}
-        {files.length > 0 && (
-          <div className="flex gap-1 flex-wrap">
-            {files.map((file) => (
-              <FileCard
-                key={file.id}
-                name={file.originalName}
-                extension={file.extension}
-                size={file.size}
-                onRemove={() => onRemoveFileClick(file.id)}
-              />
-            ))}
-          </div>
-        )}
-        <FormattingHints />
-        {multilineMode && (
-          <ComposerResizer
-            height={composerHeight}
-            onHeightChange={setComposerHeight}
-          />
-        )}
-        <ComposerExpandToggle
-          expanded={multilineMode}
-          onToggle={() => setMultilineMode((m) => !m)}
-        />
-        <div
-          ref={inputAreaRef}
-          // Mirrors the channel composer wrapper exactly (muted bg,
-          // hairline border, scoped transition for focus glow, instant
-          // height during drag-resize). Without this, the DM input
-          // rendered as a bare inline row that didn't match the rest
-          // of the chat surface.
-          className={cn(
-            'flex gap-2 rounded-xl bg-secondary border border-transparent shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
-            // Match channel composer: single-line centers icons with
-            // the input baseline; multiline anchors them to the TOP
-            // so they line up with the first line of typed text and
-            // the emoji button rendered inside TiptapInput.
-            multilineMode ? 'items-start' : 'items-center'
           )}
-          style={multilineMode ? { height: composerHeight } : undefined}
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest('button')) return;
-            const pm = e.currentTarget.querySelector('.ProseMirror');
-            if (pm instanceof HTMLElement) pm.focus();
-          }}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={onFileInputChange}
-          />
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            aria-label="Attach files"
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
-          <TiptapInput
-            value={newMessage}
-            placeholder={dmPlaceholder}
-            onChange={setNewMessage}
-            onSubmit={onSendMessage}
-            onTyping={sendTypingSignal}
-            disabled={uploading}
-            dmMembers={dmMembers}
-            multilineMode={multilineMode}
-          />
-          {isGiphyEnabled() && (
-            <GifPicker onSelect={onGifSelect}>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-              >
-                <span className="text-[10px] font-bold">GIF</span>
-              </Button>
-            </GifPicker>
+          {files.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {files.map((file) => (
+                <FileCard
+                  key={file.id}
+                  name={file.originalName}
+                  extension={file.extension}
+                  size={file.size}
+                  onRemove={() => onRemoveFileClick(file.id)}
+                />
+              ))}
+            </div>
           )}
-          <Button
-            size="icon"
-            variant="ghost"
+          <FormattingHints />
+          {multilineMode && (
+            <ComposerResizer
+              height={composerHeight}
+              onHeightChange={setComposerHeight}
+            />
+          )}
+          <ComposerExpandToggle
+            expanded={multilineMode}
+            onToggle={() => setMultilineMode((m) => !m)}
+          />
+          <div
+            ref={inputAreaRef}
+            // Mirrors the channel composer wrapper exactly (muted bg,
+            // hairline border, scoped transition for focus glow, instant
+            // height during drag-resize). Without this, the DM input
+            // rendered as a bare inline row that didn't match the rest
+            // of the chat surface.
             className={cn(
-              'h-8 w-8 shrink-0 transition-colors',
-              isHtmlEmpty(newMessage) && !files.length
-                ? 'text-muted-foreground'
-                : 'text-primary hover:text-primary/80'
+              'flex gap-2 rounded-xl bg-secondary border border-transparent shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
+              // Match channel composer: single-line centers icons with
+              // the input baseline; multiline anchors them to the TOP
+              // so they line up with the first line of typed text and
+              // the emoji button rendered inside TiptapInput.
+              multilineMode ? 'items-start' : 'items-center'
             )}
-            onClick={onSendMessage}
-            disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
-            aria-label="Send message"
+            style={multilineMode ? { height: composerHeight } : undefined}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('button')) return;
+              const pm = e.currentTarget.querySelector('.ProseMirror');
+              if (pm instanceof HTMLElement) pm.focus();
+            }}
           >
-            <Send className="h-5 w-5" />
-          </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={onFileInputChange}
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              aria-label="Attach files"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+            <TiptapInput
+              toolbar
+              value={newMessage}
+              placeholder={dmPlaceholder}
+              onChange={setNewMessage}
+              onSubmit={onSendMessage}
+              onTyping={sendTypingSignal}
+              disabled={uploading}
+              dmMembers={dmMembers}
+              multilineMode={multilineMode}
+            />
+            {isGiphyEnabled() && (
+              <GifPicker onSelect={onGifSelect}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+                >
+                  <span className="text-[10px] font-bold">GIF</span>
+                </Button>
+              </GifPicker>
+            )}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={cn(
+                'h-8 w-8 shrink-0 transition-colors',
+                isHtmlEmpty(newMessage) && !files.length
+                  ? 'text-muted-foreground'
+                  : 'text-primary hover:text-primary/80'
+              )}
+              onClick={onSendMessage}
+              disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
+              aria-label="Send message"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
-      </div>
-    </ChatScopeProvider>
-  );
+      </ChatScopeProvider>
+    );
   }
 );
 
@@ -591,202 +650,202 @@ const DmUsersTyping = memo(({ dmChannelId }: { dmChannelId: number }) => {
   // Only the first two are ever named; resolve just those (home-space).
   const user0 = useHomeUserById(typingUserIds[0] ?? 0);
   const user1 = useHomeUserById(typingUserIds[1] ?? 0);
-  const names = [user0?.name, user1?.name].filter(
-    (n): n is string => !!n
-  );
+  const names = [user0?.name, user1?.name].filter((n): n is string => !!n);
 
   return <TypingIndicator names={names} total={typingUserIds.length} />;
 });
 
-const DmHeader = memo(({
-  dmChannelId,
-  isProfilePanelOpen,
-  profilePanelAvailable,
-  onToggleProfilePanel
-}: {
-  dmChannelId: number;
-  isProfilePanelOpen?: boolean;
-  profilePanelAvailable?: boolean;
-  onToggleProfilePanel?: () => void;
-}) => {
-  const channels = useDmChannels();
-  const ownUserId = useHomeOwnUserId();
-  const call = useDmCall(dmChannelId);
-  const ownDmCallChannelId = useOwnDmCallChannelId();
-  const isInThisCall = ownDmCallChannelId === dmChannelId;
-  const hasActiveCall = call && Object.keys(call.users).length > 0;
-  const { init } = useVoice();
-  const [showPinned, setShowPinned] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
+const DmHeader = memo(
+  ({
+    dmChannelId,
+    isProfilePanelOpen,
+    profilePanelAvailable,
+    onToggleProfilePanel
+  }: {
+    dmChannelId: number;
+    isProfilePanelOpen?: boolean;
+    profilePanelAvailable?: boolean;
+    onToggleProfilePanel?: () => void;
+  }) => {
+    const channels = useDmChannels();
+    const ownUserId = useHomeOwnUserId();
+    const call = useDmCall(dmChannelId);
+    const ownDmCallChannelId = useOwnDmCallChannelId();
+    const isInThisCall = ownDmCallChannelId === dmChannelId;
+    const hasActiveCall = call && Object.keys(call.users).length > 0;
+    const { init } = useVoice();
+    const [showPinned, setShowPinned] = useState(false);
+    const [showSearch, setShowSearch] = useState(false);
 
-  const channel = useMemo(
-    () => channels.find((c) => c.id === dmChannelId),
-    [channels, dmChannelId]
-  );
+    const channel = useMemo(
+      () => channels.find((c) => c.id === dmChannelId),
+      [channels, dmChannelId]
+    );
 
-  const otherMembers = useMemo(
-    () => channel?.members.filter((m) => m.id !== ownUserId) ?? [],
-    [channel, ownUserId]
-  );
+    const otherMembers = useMemo(
+      () => channel?.members.filter((m) => m.id !== ownUserId) ?? [],
+      [channel, ownUserId]
+    );
 
-  const displayName = useMemo(() => {
-    if (channel?.isGroup && channel.name) return channel.name;
-    if (channel?.isGroup) {
-      return otherMembers.map((m) => m.name).join(', ') || 'Group DM';
-    }
-    return otherMembers[0]?.name ?? 'Unknown';
-  }, [channel, otherMembers]);
-
-  const handleStartCall = useCallback(async () => {
-    try {
-      const result = await joinDmVoiceCall(dmChannelId);
-      if (result) {
-        await init(result.routerRtpCapabilities, dmChannelId);
+    const displayName = useMemo(() => {
+      if (channel?.isGroup && channel.name) return channel.name;
+      if (channel?.isGroup) {
+        return otherMembers.map((m) => m.name).join(', ') || 'Group DM';
       }
-    } catch (err) {
-      toast.error(getTrpcError(err, 'Failed to start call'));
-    }
-  }, [dmChannelId, init]);
+      return otherMembers[0]?.name ?? 'Unknown';
+    }, [channel, otherMembers]);
 
-  const handleEndCall = useCallback(async () => {
-    try {
-      await leaveDmVoiceCall();
-    } catch (err) {
-      toast.error(getTrpcError(err, 'Failed to leave call'));
-    }
-  }, []);
+    const handleStartCall = useCallback(async () => {
+      try {
+        const result = await joinDmVoiceCall(dmChannelId);
+        if (result) {
+          await init(result.routerRtpCapabilities, dmChannelId);
+        }
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to start call'));
+      }
+    }, [dmChannelId, init]);
 
-  if (otherMembers.length === 0) return null;
+    const handleEndCall = useCallback(async () => {
+      try {
+        await leaveDmVoiceCall();
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to leave call'));
+      }
+    }, []);
 
-  return (
-    <div className="relative flex h-12 items-center gap-3 border-b border-border px-4">
-      {channel?.isGroup && channel.icon ? (
-        <Avatar className="h-7 w-7 flex-shrink-0">
-          <AvatarImage src={getFileUrl(channel.icon)} alt="" />
-          <AvatarFallback className="bg-muted text-xs">
-            {getInitialsFromName(displayName)}
-          </AvatarFallback>
-        </Avatar>
-      ) : channel?.isGroup ? (
-        <div className="relative h-7 w-7 flex-shrink-0">
-          {otherMembers.slice(0, 2).map((m, i) => (
-            <UserAvatar
-              key={m.id}
-              userId={m.id}
-              className={cn(
-                'h-5 w-5 absolute border-2 border-background',
-                i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
-              )}
-              showUserPopover={false}
-              homeScope
-            />
-          ))}
-        </div>
-      ) : (
-        <UserAvatar
-          userId={otherMembers[0].id}
-          className="h-7 w-7"
-          showUserPopover
-          homeScope
-        />
-      )}
-      <span className="flex-1 min-w-0 font-semibold text-foreground flex items-center gap-1.5">
-        <span className="min-w-0 truncate">{displayName}</span>
-        {channel?.e2ee && (
-          <E2EEStatusBadge
-            peerUserId={channel.isGroup ? undefined : otherMembers[0]?.id}
+    if (otherMembers.length === 0) return null;
+
+    return (
+      <div className="relative flex h-12 items-center gap-3 border-b border-border px-4">
+        {channel?.isGroup && channel.icon ? (
+          <Avatar className="h-7 w-7 flex-shrink-0">
+            <AvatarImage src={getFileUrl(channel.icon)} alt="" />
+            <AvatarFallback className="bg-muted text-xs">
+              {getInitialsFromName(displayName)}
+            </AvatarFallback>
+          </Avatar>
+        ) : channel?.isGroup ? (
+          <div className="relative h-7 w-7 flex-shrink-0">
+            {otherMembers.slice(0, 2).map((m, i) => (
+              <UserAvatar
+                key={m.id}
+                userId={m.id}
+                className={cn(
+                  'h-5 w-5 absolute border-2 border-background',
+                  i === 0 ? 'top-0 left-0' : 'bottom-0 right-0'
+                )}
+                showUserPopover={false}
+                homeScope
+              />
+            ))}
+          </div>
+        ) : (
+          <UserAvatar
+            userId={otherMembers[0].id}
+            className="h-7 w-7"
+            showUserPopover
+            homeScope
           />
         )}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        onClick={() => { setShowSearch(!showSearch); setShowPinned(false); }}
-        title="Search Messages"
-      >
-        <Search className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        onClick={() => { setShowPinned(!showPinned); setShowSearch(false); }}
-        title="Pinned Messages"
-      >
-        <Pin className="h-4 w-4" />
-      </Button>
-      {isInThisCall ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-destructive hover:text-destructive"
-          onClick={handleEndCall}
-          title="Leave Call"
-        >
-          <PhoneOff className="h-4 w-4" />
-        </Button>
-      ) : (
+        <span className="flex-1 min-w-0 font-semibold text-foreground flex items-center gap-1.5">
+          <span className="min-w-0 truncate">{displayName}</span>
+          {channel?.e2ee && (
+            <E2EEStatusBadge
+              peerUserId={channel.isGroup ? undefined : otherMembers[0]?.id}
+            />
+          )}
+        </span>
         <Button
           variant="ghost"
           size="icon"
           className="h-8 w-8"
-          onClick={handleStartCall}
-          disabled={!!ownDmCallChannelId}
-          title={hasActiveCall ? 'Join Call' : 'Start Call'}
+          onClick={() => {
+            setShowSearch(!showSearch);
+            setShowPinned(false);
+          }}
+          title="Search Messages"
         >
-          <Phone className="h-4 w-4" />
+          <Search className="h-4 w-4" />
         </Button>
-      )}
-      {onToggleProfilePanel && (
         <Button
           variant="ghost"
           size="icon"
-          className={cn(
-            'h-8 w-8',
-            !profilePanelAvailable && 'opacity-50 cursor-not-allowed'
-          )}
-          onClick={profilePanelAvailable ? onToggleProfilePanel : undefined}
-          disabled={!profilePanelAvailable}
-          title={
-            !profilePanelAvailable
-              ? 'Profile panel (unavailable — make the window wider)'
-              : isProfilePanelOpen
-                ? 'Close Profile Panel'
-                : 'Open Profile Panel'
-          }
+          className="h-8 w-8"
+          onClick={() => {
+            setShowPinned(!showPinned);
+            setShowSearch(false);
+          }}
+          title="Pinned Messages"
         >
-          {isProfilePanelOpen ? (
-            <PanelRightClose className="h-4 w-4" />
-          ) : (
-            <PanelRight className="h-4 w-4" />
-          )}
+          <Pin className="h-4 w-4" />
         </Button>
-      )}
-      {showPinned && (
-        <DmPinnedMessagesPanel
-          dmChannelId={dmChannelId}
-          onClose={() => setShowPinned(false)}
-        />
-      )}
-      {showSearch && (
-        <DmSearchPopover
-          dmChannelId={dmChannelId}
-          onClose={() => setShowSearch(false)}
-        />
-      )}
-    </div>
-  );
-});
+        {isInThisCall ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive hover:text-destructive"
+            onClick={handleEndCall}
+            title="Leave Call"
+          >
+            <PhoneOff className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleStartCall}
+            disabled={!!ownDmCallChannelId}
+            title={hasActiveCall ? 'Join Call' : 'Start Call'}
+          >
+            <Phone className="h-4 w-4" />
+          </Button>
+        )}
+        {onToggleProfilePanel && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-8 w-8',
+              !profilePanelAvailable && 'opacity-50 cursor-not-allowed'
+            )}
+            onClick={profilePanelAvailable ? onToggleProfilePanel : undefined}
+            disabled={!profilePanelAvailable}
+            title={
+              !profilePanelAvailable
+                ? 'Profile panel (unavailable — make the window wider)'
+                : isProfilePanelOpen
+                  ? 'Close Profile Panel'
+                  : 'Open Profile Panel'
+            }
+          >
+            {isProfilePanelOpen ? (
+              <PanelRightClose className="h-4 w-4" />
+            ) : (
+              <PanelRight className="h-4 w-4" />
+            )}
+          </Button>
+        )}
+        {showPinned && (
+          <DmPinnedMessagesPanel
+            dmChannelId={dmChannelId}
+            onClose={() => setShowPinned(false)}
+          />
+        )}
+        {showSearch && (
+          <DmSearchPopover
+            dmChannelId={dmChannelId}
+            onClose={() => setShowSearch(false)}
+          />
+        )}
+      </div>
+    );
+  }
+);
 
 const DmPinnedMessagesPanel = memo(
-  ({
-    dmChannelId,
-    onClose
-  }: {
-    dmChannelId: number;
-    onClose: () => void;
-  }) => {
+  ({ dmChannelId, onClose }: { dmChannelId: number; onClose: () => void }) => {
     const [pinnedMessages, setPinnedMessages] = useState<TJoinedDmMessage[]>(
       []
     );
@@ -871,9 +930,7 @@ const DmPinnedMessageItem = memo(
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
         <div className="flex items-center gap-2 mb-1">
           <UserAvatar userId={message.userId} className="h-5 w-5" homeScope />
-          <span className="text-sm font-medium">
-            {user?.name ?? 'Unknown'}
-          </span>
+          <span className="text-sm font-medium">{user?.name ?? 'Unknown'}</span>
           <span className="text-xs text-muted-foreground">
             {format(new Date(message.createdAt), longDateTime())}
           </span>
@@ -899,7 +956,13 @@ const DmPinnedMessageItem = memo(
 );
 
 const DmMessagesGroup = memo(
-  ({ group, onReply }: { group: TJoinedDmMessage[]; onReply: (message: TJoinedDmMessage) => void }) => {
+  ({
+    group,
+    onReply
+  }: {
+    group: TJoinedDmMessage[];
+    onReply: (message: TJoinedDmMessage) => void;
+  }) => {
     const firstMessage = group[0];
     const user = useHomeUserById(firstMessage.userId);
     const date = new Date(firstMessage.createdAt);
@@ -916,7 +979,12 @@ const DmMessagesGroup = memo(
 
     return (
       <div className="flex min-w-0 gap-4 px-4 pt-2 group/msggroup">
-        <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover homeScope />
+        <UserAvatar
+          userId={user.id}
+          className="h-10 w-10"
+          showUserPopover
+          homeScope
+        />
         <div className="flex min-w-0 flex-col w-full">
           <div className="flex gap-2 items-baseline select-none">
             <UserPopover userId={user.id} homeScope>
@@ -932,9 +1000,7 @@ const DmMessagesGroup = memo(
               </span>
             </UserPopover>
             <Tooltip content={format(date, fullDateTime())}>
-              <span className="text-xs text-muted-foreground">
-                {timeStr}
-              </span>
+              <span className="text-xs text-muted-foreground">{timeStr}</span>
             </Tooltip>
           </div>
           <div className="flex min-w-0 flex-col">
@@ -1016,261 +1082,279 @@ const DmReplyBar = memo(
   }
 );
 
-const DmMessage = memo(({ message, onReply }: { message: TJoinedDmMessage; onReply: () => void }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
-  const ownUserId = useHomeOwnUserId();
-  const isOwnMessage = message.userId === ownUserId;
-  // Forwarded messages are verbatim copies — never editable, even by
-  // the forwarder who authored the copy.
-  const canEditMessage = isOwnMessage && !message.forwardedFromUserId;
-  const dmChannels = useDmChannels();
-  // @mention scope for the inline editor = this DM's members.
-  const editDmMembers = useMemo(() => {
-    const channel = dmChannels.find((c) => c.id === message.dmChannelId);
-    return (
-      channel?.members.map((m) => ({
-        id: m.id,
-        name: m.name,
-        avatar: m.avatar,
-        _identity: m._identity
-      })) ?? []
-    );
-  }, [dmChannels, message.dmChannelId]);
-
-  const handleDelete = useCallback(async () => {
-    const confirmed = await requestConfirmation({
-      title: 'Delete Message',
-      message:
-        'Are you sure you want to delete this message? This action is irreversible.',
-      confirmLabel: 'Delete'
-    });
-
-    if (!confirmed) return;
-
-    try {
-      await deleteDmMessageAction(message.id);
-      toast.success('Message deleted');
-    } catch (err) {
-      toast.error(getTrpcError(err, 'Failed to delete message'));
-    }
-  }, [message.id]);
-
-  const handleEditSubmit = useCallback(
-    async (newContent: string) => {
-      try {
-        const content = tiptapHtmlToTokens(newContent);
-
-        if (isTokenContentEmpty(content)) {
-          await deleteDmMessageAction(message.id);
-          toast.success('Message deleted');
-        } else {
-          await editDmMessage(message.id, content);
-        }
-        setIsEditing(false);
-      } catch (err) {
-        toast.error(getTrpcError(err, 'Failed to edit message'));
-      }
-    },
-    [message.id]
-  );
-
-  const handleToggleReaction = useCallback(
-    async (emoji: string) => {
-      const trpc = getHomeTRPCClient();
-      if (!trpc) return;
-
-      try {
-        await trpc.dms.toggleReaction.mutate({
-          dmMessageId: message.id,
-          emoji
-        });
-      } catch (err) {
-        toast.error(getTrpcError(err, 'Failed to toggle reaction'));
-      }
-    },
-    [message.id]
-  );
-
-  const handlePinToggle = useCallback(async () => {
-    const trpc = getHomeTRPCClient();
-    if (!trpc) return;
-
-    try {
-      if (message.pinned) {
-        await trpc.dms.unpinMessage.mutate({ dmMessageId: message.id });
-        toast.success('Message unpinned');
-      } else {
-        await trpc.dms.pinMessage.mutate({ dmMessageId: message.id });
-        toast.success('Message pinned');
-      }
-    } catch {
-      toast.error(
-        message.pinned ? 'Failed to unpin message' : 'Failed to pin message'
+const DmMessage = memo(
+  ({
+    message,
+    onReply
+  }: {
+    message: TJoinedDmMessage;
+    onReply: () => void;
+  }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+    const [reportOpen, setReportOpen] = useState(false);
+    const ownUserId = useHomeOwnUserId();
+    const isOwnMessage = message.userId === ownUserId;
+    // Forwarded messages are verbatim copies — never editable, even by
+    // the forwarder who authored the copy.
+    const canEditMessage = isOwnMessage && !message.forwardedFromUserId;
+    const dmChannels = useDmChannels();
+    // @mention scope for the inline editor = this DM's members.
+    const editDmMembers = useMemo(() => {
+      const channel = dmChannels.find((c) => c.id === message.dmChannelId);
+      return (
+        channel?.members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          avatar: m.avatar,
+          _identity: m._identity
+        })) ?? []
       );
-    }
-  }, [message.id, message.pinned]);
+    }, [dmChannels, message.dmChannelId]);
 
-  const onEmojiSelect = useCallback(
-    async (emoji: TEmojiItem) => {
-      setReactionPickerOpen(false);
+    const handleDelete = useCallback(async () => {
+      const confirmed = await requestConfirmation({
+        title: 'Delete Message',
+        message:
+          'Are you sure you want to delete this message? This action is irreversible.',
+        confirmLabel: 'Delete'
+      });
 
+      if (!confirmed) return;
+
+      try {
+        await deleteDmMessageAction(message.id);
+        toast.success('Message deleted');
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to delete message'));
+      }
+    }, [message.id]);
+
+    const handleEditSubmit = useCallback(
+      async (newContent: string) => {
+        try {
+          const content = tiptapHtmlToTokens(newContent);
+
+          if (isTokenContentEmpty(content)) {
+            await deleteDmMessageAction(message.id);
+            toast.success('Message deleted');
+          } else {
+            await editDmMessage(message.id, content);
+          }
+          setIsEditing(false);
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to edit message'));
+        }
+      },
+      [message.id]
+    );
+
+    const handleToggleReaction = useCallback(
+      async (emoji: string) => {
+        const trpc = getHomeTRPCClient();
+        if (!trpc) return;
+
+        try {
+          await trpc.dms.toggleReaction.mutate({
+            dmMessageId: message.id,
+            emoji
+          });
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to toggle reaction'));
+        }
+      },
+      [message.id]
+    );
+
+    const handlePinToggle = useCallback(async () => {
       const trpc = getHomeTRPCClient();
       if (!trpc) return;
 
       try {
-        await trpc.dms.toggleReaction.mutate({
-          dmMessageId: message.id,
-          emoji: emoji.name
-        });
-      } catch (err) {
-        toast.error(getTrpcError(err, 'Failed to add reaction'));
+        if (message.pinned) {
+          await trpc.dms.unpinMessage.mutate({ dmMessageId: message.id });
+          toast.success('Message unpinned');
+        } else {
+          await trpc.dms.pinMessage.mutate({ dmMessageId: message.id });
+          toast.success('Message pinned');
+        }
+      } catch {
+        toast.error(
+          message.pinned ? 'Failed to unpin message' : 'Failed to pin message'
+        );
       }
-    },
-    [message.id]
-  );
+    }, [message.id, message.pinned]);
 
-  const onCopyText = useCallback(() => {
-    if (!message.content) return;
-    const plainText = stripToPlainText(message.content);
-    navigator.clipboard.writeText(plainText);
-    toast.success('Copied to clipboard');
-  }, [message.content]);
+    const onEmojiSelect = useCallback(
+      async (emoji: TEmojiItem) => {
+        setReactionPickerOpen(false);
 
-  return (
-    // Reaction picker is a separate Popover wrapping the context menu (see
-    // message-context-menu.tsx for the rationale) — nesting it inside the
-    // menu made it vanish on hover when emoji-mart grabbed focus.
-    <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-    <PopoverAnchor asChild>
-    <div id={`dm-msg-${message.id}`} className="min-w-0 flex-1 relative -mx-2 px-2 py-0.5 rounded-md hover:bg-accent/50 transition-colors duration-100 group">
-      <ForwardedFromHeader
-        forwardedFromUserId={message.forwardedFromUserId}
-        forwardedFromName={message.forwardedFromName}
-      />
-      {message.replyTo && (
-        <ReplyPreview replyTo={message.replyTo} onJumpTo={scrollToDmMessage} />
-      )}
-      {!isEditing ? (
-        <>
-          <ChatMessageBody
-            message={message}
-            homeScope
-            onToggleReaction={handleToggleReaction}
-          />
-          <MessageActions
-            pinned={message.pinned ?? false}
-            editable
-            canEdit={canEditMessage}
-            canDelete={isOwnMessage}
-            canPin
-            canReact
-            canReply
-            onEdit={() => setIsEditing(true)}
-            onDelete={handleDelete}
-            onReply={onReply}
-            onTogglePin={handlePinToggle}
-            onEmojiReact={onEmojiSelect}
-          />
-        </>
-      ) : (
-        <InlineMessageEditor
-          content={message.content}
-          mentionMembers={editDmMembers}
-          onSubmit={handleEditSubmit}
-          onCancel={() => setIsEditing(false)}
-        />
-      )}
-    </div>
-    </PopoverAnchor>
-      </ContextMenuTrigger>
-      <ContextMenuContent
-        className="w-48"
-        // Don't restore focus to the trigger when the picker opened — the
-        // yank registers as focus-outside on the picker Popover.
-        onCloseAutoFocus={(e) => {
-          if (reactionPickerOpen) e.preventDefault();
-        }}
-      >
-        <ContextMenuItem onClick={onReply}>
-          <Reply className="h-4 w-4" />
-          Reply
-        </ContextMenuItem>
-        {canEditMessage && (
-          <ContextMenuItem onClick={() => setIsEditing(true)}>
-            <Pencil className="h-4 w-4" />
-            Edit Message
-          </ContextMenuItem>
-        )}
-        <ContextMenuItem onClick={handlePinToggle}>
-          {message.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-          {message.pinned ? 'Unpin' : 'Pin'}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => setReactionPickerOpen(true)}>
-          <Smile className="h-4 w-4" />
-          Add Reaction
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onCopyText} disabled={!message.content}>
-          <Copy className="h-4 w-4" />
-          Copy Text
-        </ContextMenuItem>
-        {message.content && (
-          <ContextMenuItem
-            onClick={() =>
-              dispatchForwardMessage(message.content, 'dm', message.id)
-            }
+        const trpc = getHomeTRPCClient();
+        if (!trpc) return;
+
+        try {
+          await trpc.dms.toggleReaction.mutate({
+            dmMessageId: message.id,
+            emoji: emoji.name
+          });
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to add reaction'));
+        }
+      },
+      [message.id]
+    );
+
+    const onCopyText = useCallback(() => {
+      if (!message.content) return;
+      const plainText = stripToPlainText(message.content);
+      navigator.clipboard.writeText(plainText);
+      toast.success('Copied to clipboard');
+    }, [message.content]);
+
+    return (
+      // Reaction picker is a separate Popover wrapping the context menu (see
+      // message-context-menu.tsx for the rationale) — nesting it inside the
+      // menu made it vanish on hover when emoji-mart grabbed focus.
+      <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <PopoverAnchor asChild>
+              <div
+                id={`dm-msg-${message.id}`}
+                className="min-w-0 flex-1 relative -mx-2 px-2 py-0.5 rounded-md hover:bg-accent/50 transition-colors duration-100 group"
+              >
+                <ForwardedFromHeader
+                  forwardedFromUserId={message.forwardedFromUserId}
+                  forwardedFromName={message.forwardedFromName}
+                />
+                {message.replyTo && (
+                  <ReplyPreview
+                    replyTo={message.replyTo}
+                    onJumpTo={scrollToDmMessage}
+                  />
+                )}
+                {!isEditing ? (
+                  <>
+                    <ChatMessageBody
+                      message={message}
+                      homeScope
+                      onToggleReaction={handleToggleReaction}
+                    />
+                    <MessageActions
+                      pinned={message.pinned ?? false}
+                      editable
+                      canEdit={canEditMessage}
+                      canDelete={isOwnMessage}
+                      canPin
+                      canReact
+                      canReply
+                      onEdit={() => setIsEditing(true)}
+                      onDelete={handleDelete}
+                      onReply={onReply}
+                      onTogglePin={handlePinToggle}
+                      onEmojiReact={onEmojiSelect}
+                    />
+                  </>
+                ) : (
+                  <InlineMessageEditor
+                    content={message.content}
+                    mentionMembers={editDmMembers}
+                    onSubmit={handleEditSubmit}
+                    onCancel={() => setIsEditing(false)}
+                  />
+                )}
+              </div>
+            </PopoverAnchor>
+          </ContextMenuTrigger>
+          <ContextMenuContent
+            className="w-48"
+            // Don't restore focus to the trigger when the picker opened — the
+            // yank registers as focus-outside on the picker Popover.
+            onCloseAutoFocus={(e) => {
+              if (reactionPickerOpen) e.preventDefault();
+            }}
           >
-            <Forward className="h-4 w-4" />
-            Forward
-          </ContextMenuItem>
-        )}
-        {!isOwnMessage && (
-          <ContextMenuItem onClick={() => setReportOpen(true)}>
-            <Flag className="h-4 w-4" />
-            Report Message
-          </ContextMenuItem>
-        )}
-        {isOwnMessage && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={handleDelete} variant="destructive">
-              <Trash className="h-4 w-4" />
-              Delete Message
+            <ContextMenuItem onClick={onReply}>
+              <Reply className="h-4 w-4" />
+              Reply
             </ContextMenuItem>
-          </>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+            {canEditMessage && (
+              <ContextMenuItem onClick={() => setIsEditing(true)}>
+                <Pencil className="h-4 w-4" />
+                Edit Message
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onClick={handlePinToggle}>
+              {message.pinned ? (
+                <PinOff className="h-4 w-4" />
+              ) : (
+                <Pin className="h-4 w-4" />
+              )}
+              {message.pinned ? 'Unpin' : 'Pin'}
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setReactionPickerOpen(true)}>
+              <Smile className="h-4 w-4" />
+              Add Reaction
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={onCopyText} disabled={!message.content}>
+              <Copy className="h-4 w-4" />
+              Copy Text
+            </ContextMenuItem>
+            {message.content && (
+              <ContextMenuItem
+                onClick={() =>
+                  dispatchForwardMessage(message.content, 'dm', message.id)
+                }
+              >
+                <Forward className="h-4 w-4" />
+                Forward
+              </ContextMenuItem>
+            )}
+            {!isOwnMessage && (
+              <ContextMenuItem onClick={() => setReportOpen(true)}>
+                <Flag className="h-4 w-4" />
+                Report Message
+              </ContextMenuItem>
+            )}
+            {isOwnMessage && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={handleDelete} variant="destructive">
+                  <Trash className="h-4 w-4" />
+                  Delete Message
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
 
-      <PopoverContent
-        className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
-        align="start"
-        sideOffset={8}
-        onOpenAutoFocus={(e) => e.preventDefault()}
-        onCloseAutoFocus={(e) => e.preventDefault()}
-        // The exiting context menu's trapped FocusScope steals focus from
-        // emoji-mart, and a non-modal Popover dismisses on focus-outside —
-        // the "instantly closes" bug. Ignore focus movement; only
-        // pointer-down outside, Escape, or picking an emoji closes it.
-        onFocusOutside={(e) => e.preventDefault()}
-      >
-        <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
-      </PopoverContent>
+        <PopoverContent
+          className="w-auto p-0 border-none shadow-none bg-transparent data-[state=closed]:duration-0"
+          align="start"
+          sideOffset={8}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          // The exiting context menu's trapped FocusScope steals focus from
+          // emoji-mart, and a non-modal Popover dismisses on focus-outside —
+          // the "instantly closes" bug. Ignore focus movement; only
+          // pointer-down outside, Escape, or picking an emoji closes it.
+          onFocusOutside={(e) => e.preventDefault()}
+        >
+          <EmojiPickerPanel onEmojiSelect={onEmojiSelect} />
+        </PopoverContent>
 
-      <ReportDialog
-        open={reportOpen}
-        onOpenChange={setReportOpen}
-        kind="dm_message"
-        targetId={message.id}
-        content={message.content}
-      />
-    </Popover>
-  );
-});
+        <ReportDialog
+          open={reportOpen}
+          onOpenChange={setReportOpen}
+          kind="dm_message"
+          targetId={message.id}
+          content={message.content}
+        />
+      </Popover>
+    );
+  }
+);
 
 /** Renders a single DM media file, decrypting if E2EE. */
 

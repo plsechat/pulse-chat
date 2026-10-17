@@ -11,6 +11,7 @@ import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
 import { getMessageInActiveServer } from '../../db/queries/messages';
 import { channels, messages } from '../../db/schema';
+import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
@@ -120,6 +121,15 @@ const createThreadRoute = serverProcedure(Permission.SEND_MESSAGES)
       archived: false,
       parentChannelId: parentChannel.id,
       creatorId: ctx.userId
+    });
+
+    eventBus.emit('thread:created', {
+      threadId: thread.id,
+      parentChannelId: parentChannel.id,
+      serverId: parentChannel.serverId,
+      name: thread.name,
+      creatorId: ctx.userId,
+      parentMessageId: input.messageId
     });
 
     return { threadId: thread.id };

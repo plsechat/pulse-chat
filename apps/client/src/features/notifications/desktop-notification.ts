@@ -1,5 +1,5 @@
-import { getSoundNotificationSettings } from '@/hooks/use-sound-notification-settings';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
+import { getSoundNotificationSettings } from '@/hooks/use-sound-notification-settings';
 import { toast } from 'sonner';
 
 export type TNotificationPermissionState =
@@ -63,18 +63,26 @@ export const promptForDesktopNotificationPermissionOnce = () => {
   if (!getSoundNotificationSettings().desktopNotificationsEnabled) return;
   if (getNotificationPermission() !== 'default') return;
   promptedThisLoad = true;
-  toast('Desktop notifications are on, but this browser has not allowed them yet', {
-    duration: 15_000,
-    action: {
-      label: 'Enable',
-      onClick: () => {
-        void Notification.requestPermission();
+  toast(
+    'Desktop notifications are on, but this browser has not allowed them yet',
+    {
+      duration: 15_000,
+      action: {
+        label: 'Enable',
+        onClick: () => {
+          void Notification.requestPermission();
+        }
       }
     }
-  });
+  );
 };
 
-export const sendDesktopNotification = (title: string, body: string) => {
+export const sendDesktopNotification = (
+  title: string,
+  body: string,
+  /** Runs on click after the window is focused (e.g. open the event). */
+  onClick?: () => void
+) => {
   const settings = getSoundNotificationSettings();
   if (!settings.desktopNotificationsEnabled) return;
   if (getNotificationPermission() !== 'granted') return;
@@ -89,6 +97,7 @@ export const sendDesktopNotification = (title: string, body: string) => {
   n.onclick = () => {
     window.focus();
     n.close();
+    onClick?.();
   };
 
   setTimeout(() => n.close(), 5000);

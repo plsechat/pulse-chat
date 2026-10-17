@@ -1,25 +1,22 @@
 import { EmojiPicker } from '@/components/emoji-picker';
-import { isCoarsePointer } from '@/hooks/use-is-mobile';
 import { Button } from '@/components/ui/button';
 import { useChannels } from '@/features/server/channels/hooks';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
+import { isCoarsePointer } from '@/hooks/use-is-mobile';
+import { onAppEvent } from '@/lib/events';
 import type { TCommandInfo } from '@pulse/shared';
 import type { AnyExtension } from '@tiptap/core';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import Placeholder from '@tiptap/extension-placeholder';
+import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { Smile } from 'lucide-react';
-import { onAppEvent } from '@/lib/events';
 import { memo, useEffect, useMemo, useRef } from 'react';
+import { FormatBar } from './format-bar';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
-import {
-  MarkdownUnderline,
-  StarOnlyBold
-} from './plugins/markdown-extensions';
 import {
   CHANNEL_MENTION_STORAGE_KEY,
   ChannelMentionSuggestion
@@ -28,12 +25,13 @@ import {
   COMMANDS_STORAGE_KEY,
   CommandSuggestion
 } from './plugins/command-suggestion';
+import { CustomEmojiNode } from './plugins/custom-emoji-extension';
+import { MarkdownUnderline, StarOnlyBold } from './plugins/markdown-extensions';
 import { MentionExtension } from './plugins/mention-extension';
 import {
   MENTION_STORAGE_KEY,
   MentionSuggestion
 } from './plugins/mention-suggestion';
-import { CustomEmojiNode } from './plugins/custom-emoji-extension';
 import { SlashCommands } from './plugins/slash-commands-extension';
 import { EmojiSuggestion } from './suggestions';
 import type { TEmojiItem } from './types';
@@ -62,10 +60,13 @@ type TTiptapInputProps = {
    * draft multi-line messages without each Enter sending early.
    */
   multilineMode?: boolean;
+  /** Show the formatting bar under the editor (channel and DM composers). */
+  toolbar?: boolean;
 };
 
 const TiptapInput = memo(
   ({
+    toolbar = false,
     value,
     placeholder,
     onChange,
@@ -96,12 +97,20 @@ const TiptapInput = memo(
     const mentionUsers = useMemo(
       () =>
         dmMembers ??
-        users.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity })),
+        users.map((u) => ({
+          id: u.id,
+          name: u.name,
+          avatar: u.avatar,
+          _identity: u._identity
+        })),
       [dmMembers, users]
     );
 
     const mentionRoles = useMemo(
-      () => (isDm ? [] : roles.map((r) => ({ id: r.id, name: r.name, color: r.color }))),
+      () =>
+        isDm
+          ? []
+          : roles.map((r) => ({ id: r.id, name: r.name, color: r.color })),
       [isDm, roles]
     );
 
@@ -116,12 +125,19 @@ const TiptapInput = memo(
       );
 
       return channels
-        .filter((c) => c.type === 'TEXT' || (c.type === 'THREAD' && forumIds.has(c.parentChannelId!)))
+        .filter(
+          (c) =>
+            c.type === 'TEXT' ||
+            (c.type === 'THREAD' && forumIds.has(c.parentChannelId!))
+        )
         .map((c) => ({
           id: c.id,
           name: c.name,
           type: c.type,
-          parentName: c.type === 'THREAD' ? forumNameMap.get(c.parentChannelId!) : undefined
+          parentName:
+            c.type === 'THREAD'
+              ? forumNameMap.get(c.parentChannelId!)
+              : undefined
         }));
     }, [isDm, channels]);
 
@@ -182,7 +198,16 @@ const TiptapInput = memo(
       }
 
       return exts;
-    }, [customEmojis, commands, mentionUsers, mentionRoles, mentionChannels, isDm, ownUserId, placeholder]);
+    }, [
+      customEmojis,
+      commands,
+      mentionUsers,
+      mentionRoles,
+      mentionChannels,
+      isDm,
+      ownUserId,
+      placeholder
+    ]);
 
     const editor = useEditor({
       extensions,
@@ -206,7 +231,8 @@ const TiptapInput = memo(
 
           // Detect code: clipboard came from a code block, or text contains HTML/XML tags
           const html = event.clipboardData?.getData('text/html') ?? '';
-          const fromCodeBlock = /<pre[\s>]/i.test(html) || /<code[\s>]/i.test(html);
+          const fromCodeBlock =
+            /<pre[\s>]/i.test(html) || /<code[\s>]/i.test(html);
           const hasMarkup = /<\/?[a-z][\w-]*(?:\s[^>]*)?\/?>/i.test(text);
 
           if (fromCodeBlock || hasMarkup) {
@@ -227,7 +253,9 @@ const TiptapInput = memo(
           return true;
         },
         handleKeyDown: (view, event) => {
-          const suggestionElement = document.querySelector('[data-tiptap-suggestion]');
+          const suggestionElement = document.querySelector(
+            '[data-tiptap-suggestion]'
+          );
           const hasSuggestions =
             suggestionElement && document.body.contains(suggestionElement);
 
@@ -363,10 +391,14 @@ const TiptapInput = memo(
         editor?.chain().focus().insertContent(emoji.emoji).run();
       } else if (emoji.id && emoji.fallbackImage) {
         // Custom server emoji — insert as customEmoji node (bypasses stale options lookup)
-        editor?.chain().focus().insertContent({
-          type: 'customEmoji',
-          attrs: { id: emoji.id, name: emoji.name, src: emoji.fallbackImage }
-        }).run();
+        editor
+          ?.chain()
+          .focus()
+          .insertContent({
+            type: 'customEmoji',
+            attrs: { id: emoji.id, name: emoji.name, src: emoji.fallbackImage }
+          })
+          .run();
       } else if (emoji.shortcodes.length > 0) {
         // Fallback — use setEmoji for any non-custom emoji with shortcodes
         editor?.chain().focus().setEmoji(emoji.shortcodes[0]).run();
@@ -433,7 +465,13 @@ const TiptapInput = memo(
 
     // Listen for external mention-user events (e.g. from UserContextMenu)
     useEffect(() => {
-      const handler = ({ userId, username }: { userId: number; username: string }) => {
+      const handler = ({
+        userId,
+        username
+      }: {
+        userId: number;
+        username: string;
+      }) => {
         editor
           ?.chain()
           .focus()
@@ -453,7 +491,7 @@ const TiptapInput = memo(
       return onAppEvent('mention-user', handler);
     }, [editor]);
 
-    return (
+    const row = (
       <div
         className={`flex flex-1 gap-2 ${
           multilineMode ? 'items-start h-full overflow-y-auto' : 'items-center'
@@ -482,6 +520,15 @@ const TiptapInput = memo(
             <Smile className="h-5 w-5" />
           </Button>
         </EmojiPicker>
+      </div>
+    );
+
+    if (!toolbar) return row;
+
+    return (
+      <div className="flex min-w-0 flex-1 flex-col">
+        {row}
+        <FormatBar editor={editor} disabled={disabled} />
       </div>
     );
   }

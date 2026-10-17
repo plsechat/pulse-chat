@@ -14,12 +14,15 @@ import {
   type TCommandsMapByPlugin,
   type TInvokerContext,
   type TLogEntry,
+  type TPluginCapability,
   type TPluginInfo,
   type TPluginSettingDefinition,
   type TPluginSettingsResponse
 } from '@pulse/shared';
 import chalk from 'chalk';
+import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
+import type http from 'http';
 import fs from 'node:fs/promises';
 import path from 'path';
 import semver from 'semver';
@@ -33,7 +36,37 @@ import { logger } from '../logger';
 import { VoiceRuntime } from '../runtimes/voice';
 import { fileExists } from '../utils/file-manager';
 import { pubsub } from '../utils/pubsub';
+import { createChannelActions } from './actions/channels';
+import { createEventActions } from './actions/events';
+import { createFileActions } from './actions/files';
+import { createMemberActions } from './actions/members';
+import { createMessageActions } from './actions/messages';
 import { eventBus } from './event-bus';
+import { createPluginFetch } from './fetch';
+import {
+  createPluginHttpRouteHandler,
+  pluginHttp,
+  type TParsedPluginUrl
+} from './http';
+
+/**
+ * Versions whose public API this SDK still contains in full. A plugin
+ * whose `pulse.sdk` range admits one of these loads even though the
+ * running version is outside the range: 0.2 added actions, events and
+ * HTTP ingress and removed nothing, so a `^0.1` plugin runs unchanged.
+ * Remove an entry here the release something is actually taken away.
+ */
+const SDK_BACKWARD_COMPATIBLE_RANGES = ['0.1.x'];
+
+/**
+ * Keys in plugin_data.settings the plugin never sees and the settings
+ * UI never lists: loader-owned state stored next to the plugin's own
+ * values. Prefixed so a plugin cannot register a colliding key.
+ */
+const RESERVED_SETTINGS_PREFIX = '__';
+const HTTP_SECRET_SETTING_KEY = `${RESERVED_SETTINGS_PREFIX}httpSecret`;
+
+const isReservedSettingKey = (key: string) => key.startsWith(RESERVED_SETTINGS_PREFIX);
 
 type PluginModule = {
   onLoad: (ctx: PluginContext) => void | Promise<void>;
@@ -54,6 +87,18 @@ class PluginManager {
   private pluginStates: PluginStatesMap = {};
   private settingDefinitions = new Map<string, TPluginSettingDefinition[]>();
   private settingValues = new Map<string, Record<string, unknown>>();
+  // Declared in package.json; read by getPluginInfo before load() runs
+  // onLoad, so an action can consult it from the first call.
+  private capabilities = new Map<string, Set<TPluginCapability>>();
+  // Resolved lazily from plugin_data (minted on first use); the promise
+  // is cached so concurrent first requests share one mint.
+  private httpSecrets = new Map<string, Promise<string | undefined>>();
+  private handlePluginHttp = createPluginHttpRouteHandler({
+    isPluginLoaded: (pluginId) => this.isPluginLoaded(pluginId),
+    getPluginSecret: (pluginId) => this.getPluginHttpSecret(pluginId),
+    logPlugin: (pluginId, type, ...message) =>
+      this.logPlugin(pluginId, type, ...message)
+  });
 
   private loadPluginStates = async () => {
     try {
@@ -311,11 +356,18 @@ class PluginManager {
       return `invalid pulse.sdk range "${range}"`;
     }
 
-    if (!semver.satisfies(PLUGIN_SDK_VERSION, range)) {
-      return `requires @pulse/plugin-sdk ${range}, server provides ${PLUGIN_SDK_VERSION}`;
+    if (semver.satisfies(PLUGIN_SDK_VERSION, range)) return undefined;
+
+    // Written against an older minor this SDK is a superset of.
+    if (
+      SDK_BACKWARD_COMPATIBLE_RANGES.some((compatible) =>
+        semver.intersects(range, compatible)
+      )
+    ) {
+      return undefined;
     }
 
-    return undefined;
+    return `requires @pulse/plugin-sdk ${range}, server provides ${PLUGIN_SDK_VERSION}`;
   };
 
   private getPluginPath = (pluginId: string) => {
@@ -511,12 +563,84 @@ class PluginManager {
 
     eventBus.unload(pluginId);
     this.unregisterPluginCommands(pluginId);
+    this.unregisterPluginHttpRoutes(pluginId);
     this.settingDefinitions.delete(pluginId);
     this.settingValues.delete(pluginId);
+    // The secret lives in plugin_data; the next load re-reads it there.
+    this.httpSecrets.delete(pluginId);
     this.loadedPlugins.delete(pluginId);
 
     logger.info(`Plugin unloaded: ${pluginId}`);
   };
+
+  private unregisterPluginHttpRoutes = (pluginId: string) => {
+    const count = pluginHttp.routeCount(pluginId);
+
+    if (count === 0) return;
+
+    pluginHttp.unregisterAll(pluginId);
+    this.logPlugin(pluginId, 'debug', `Unregistered ${count} HTTP route(s)`);
+  };
+
+  /** Whether the plugin's manifest declares `capability`. */
+  public hasCapability = (
+    pluginId: string,
+    capability: TPluginCapability
+  ): boolean => this.capabilities.get(pluginId)?.has(capability) ?? false;
+
+  /**
+   * The secret a caller must present to reach the plugin's HTTP routes.
+   * Minted once (32 random bytes) when the plugin first registers a
+   * route and kept in plugin_data under a reserved key, so it survives
+   * restarts and the instance owner can read it from the settings
+   * route. Undefined for a plugin that never registered a route.
+   */
+  public getPluginHttpSecret = (
+    pluginId: string,
+    { createIfMissing = false }: { createIfMissing?: boolean } = {}
+  ): Promise<string | undefined> => {
+    const cached = this.httpSecrets.get(pluginId);
+
+    if (cached) {
+      return createIfMissing
+        ? cached.then((secret) => secret ?? this.mintHttpSecret(pluginId))
+        : cached;
+    }
+
+    const lookup = this.loadSettingsFromDb(pluginId).then((values) => {
+      const stored = values[HTTP_SECRET_SETTING_KEY];
+
+      if (typeof stored === 'string' && stored.length > 0) return stored;
+
+      return createIfMissing ? this.mintHttpSecret(pluginId) : undefined;
+    });
+
+    this.httpSecrets.set(pluginId, lookup);
+
+    return lookup;
+  };
+
+  private mintHttpSecret = async (pluginId: string): Promise<string> => {
+    const secret = randomBytes(32).toString('hex');
+    const minted = Promise.resolve<string | undefined>(secret);
+
+    this.httpSecrets.set(pluginId, minted);
+
+    await this.saveSettingsToDb(pluginId, this.settingValues.get(pluginId) ?? {}, {
+      [HTTP_SECRET_SETTING_KEY]: secret
+    });
+
+    this.logPlugin(pluginId, 'debug', 'Generated the HTTP endpoint secret');
+
+    return secret;
+  };
+
+  /** The `/plugins/<id>/<path>` mount's entry point (http/index.ts). */
+  public handleHttpRequest = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    parsed: TParsedPluginUrl
+  ) => this.handlePluginHttp(req, res, parsed);
 
   public getPluginInfo = async (pluginId: string): Promise<TPluginInfo> => {
     await this.ensurePluginState(pluginId);
@@ -547,6 +671,9 @@ class PluginManager {
     }
 
     const loadError = this.loadErrors.get(pluginId);
+    const capabilities = packageJson.pulse.capabilities ?? [];
+
+    this.capabilities.set(pluginId, new Set(capabilities));
 
     return {
       id: pluginId,
@@ -559,6 +686,7 @@ class PluginManager {
       author: packageJson.pulse.author,
       homepage: packageJson.pulse.homepage,
       entry: entryFilePath,
+      capabilities,
       loadError
     };
   };
@@ -641,18 +769,32 @@ class PluginManager {
     return {};
   };
 
+  /**
+   * Persist the plugin's setting values. Reserved (loader-owned) keys
+   * already in the row are carried over so a settings write never drops
+   * the HTTP secret; `reserved` adds or replaces them.
+   */
   private saveSettingsToDb = async (
     pluginId: string,
-    values: Record<string, unknown>
+    values: Record<string, unknown>,
+    reserved: Record<string, unknown> = {}
   ) => {
     const enabled = this.pluginStates[pluginId] ?? true;
+    const existing = await this.loadSettingsFromDb(pluginId);
+    const kept: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(existing)) {
+      if (isReservedSettingKey(key)) kept[key] = value;
+    }
+
+    const settings = { ...kept, ...reserved, ...values };
 
     await db
       .insert(pluginData)
-      .values({ pluginId, enabled, settings: values, serverId: 1 })
+      .values({ pluginId, enabled, settings, serverId: 1 })
       .onConflictDoUpdate({
         target: [pluginData.pluginId, pluginData.serverId],
-        set: { settings: values }
+        set: { settings }
       });
   };
 
@@ -738,7 +880,13 @@ class PluginManager {
       }
     }
 
-    return { definitions, values };
+    const httpSecret = await this.getPluginHttpSecret(pluginId);
+
+    return {
+      definitions,
+      values,
+      ...(httpSecret !== undefined ? { httpSecret } : {})
+    };
   };
 
   public updatePluginSetting = async (
@@ -770,11 +918,13 @@ class PluginManager {
   };
 
   private createContext = (pluginId: string): PluginContext => {
+    const log = (...message: unknown[]) => {
+      this.logPlugin(pluginId, 'info', ...message);
+    };
+
     return {
       path: this.getPluginPath(pluginId),
-      log: (...message: unknown[]) => {
-        this.logPlugin(pluginId, 'info', ...message);
-      },
+      log,
       debug: (...message: unknown[]) => {
         this.logPlugin(pluginId, 'debug', ...message);
       },
@@ -786,7 +936,45 @@ class PluginManager {
           eventBus.register(pluginId, event, handler);
         }
       },
+      fetch: createPluginFetch(),
+      http: {
+        register: (routePath, handler) => {
+          const { path: canonical, replaced } = pluginHttp.register(
+            pluginId,
+            routePath,
+            handler
+          );
+
+          // Mint the secret now so the owner can copy it from the
+          // settings panel before the first request arrives.
+          this.getPluginHttpSecret(pluginId, { createIfMissing: true }).catch(
+            (err) => {
+              this.logPlugin(
+                pluginId,
+                'error',
+                'Failed to prepare the HTTP endpoint secret:',
+                err
+              );
+            }
+          );
+
+          this.logPlugin(
+            pluginId,
+            'debug',
+            `${replaced ? 'Replaced' : 'Registered'} HTTP route /plugins/${pluginId}/${canonical}`
+          );
+        }
+      },
       actions: {
+        messages: createMessageActions({
+          pluginId,
+          hasCapability: (capability) => this.hasCapability(pluginId, capability),
+          log
+        }),
+        channels: createChannelActions(pluginId),
+        members: createMemberActions(),
+        files: createFileActions(),
+        events: createEventActions(pluginId),
         voice: {
           getRouter: (channelId: number) => {
             const channel = VoiceRuntime.findById(channelId);

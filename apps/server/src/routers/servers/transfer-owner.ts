@@ -12,6 +12,7 @@ import {
 } from '../../db/queries/servers';
 import { getUserById } from '../../db/queries/users';
 import { roles, servers, userRoles } from '../../db/schema';
+import { emitMemberRolesChanged } from '../../plugins/emit-roles-changed';
 import { invariant } from '../../utils/invariant';
 import { invalidatePermissionCacheForUser } from '../../utils/permission-cache-registry';
 import { protectedProcedure } from '../../utils/trpc';
@@ -114,6 +115,8 @@ const transferOwnerRoute = protectedProcedure
     // the server's ownerId changed (owner-only UI).
     publishUser(input.newOwnerId, 'update');
     publishUser(ctx.userId, 'update');
+    await emitMemberRolesChanged(input.newOwnerId, input.serverId);
+    await emitMemberRolesChanged(ctx.userId, input.serverId);
 
     const [publicSettings, memberIds] = await Promise.all([
       getServerPublicSettings(input.serverId),

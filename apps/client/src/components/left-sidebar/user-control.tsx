@@ -1,3 +1,14 @@
+import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
+import { useDevices } from '@/components/devices-provider/hooks/use-devices';
+import { EmojiPicker } from '@/components/emoji-picker';
+import type { TEmojiItem } from '@/components/tiptap-input/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,18 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { EmojiPicker } from '@/components/emoji-picker';
-import type { TEmojiItem } from '@/components/tiptap-input/types';
-import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
-import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { openServerScreen } from '@/features/server-screens/actions';
 import {
   useCurrentVoiceChannelId,
@@ -31,8 +31,8 @@ import { useVoice } from '@/features/server/voice/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { cn } from '@/lib/utils';
 import { requireHomeTRPCClient } from '@/lib/not-connected-error';
+import { cn } from '@/lib/utils';
 import { ChannelPermission, UserStatus } from '@pulse/shared';
 import {
   ChevronUp,
@@ -44,12 +44,12 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
+import { NameplateBackground } from '../nameplate';
 import { ServerScreen } from '../server-screens/screens';
 import { Button } from '../ui/button';
 import { UserAvatar } from '../user-avatar';
-import { getStatusLabel, UserStatusBadge } from '../user-status';
 import { UserPopover } from '../user-popover';
-import { NameplateBackground } from '../nameplate';
+import { getStatusLabel, UserStatusBadge } from '../user-status';
 
 const statusOptions = [
   UserStatus.ONLINE,
@@ -58,7 +58,13 @@ const statusOptions = [
   UserStatus.INVISIBLE
 ] as const;
 
-const UserControl = memo(() => {
+type TUserControlProps = {
+  /** Two rows (identity, then controls) for narrow hosts such as the
+   *  deck layout's channel list, where one row truncates the name. */
+  stacked?: boolean;
+};
+
+const UserControl = memo(({ stacked = false }: TUserControlProps) => {
   const ownPublicUser = useOwnPublicUser();
   const currentVoiceChannelId = useCurrentVoiceChannelId();
   const currentVoiceKind = useCurrentVoiceKind();
@@ -177,7 +183,14 @@ const UserControl = memo(() => {
   const ownNameCss = getNameStyleCss(ownPublicUser.nameStyle);
 
   return (
-    <div className="relative flex items-center justify-between h-14 px-2 bg-muted/50 overflow-hidden">
+    <div
+      className={cn(
+        'relative bg-muted/50 overflow-hidden',
+        stacked
+          ? 'flex flex-col gap-1.5 px-2 pt-2 pb-1.5'
+          : 'flex items-center justify-between h-14 px-2'
+      )}
+    >
       {/* Own equipped nameplate as the tab's backdrop, dimmed so the
           avatar/name/controls stay readable on top of the art. */}
       <NameplateBackground
@@ -198,7 +211,10 @@ const UserControl = memo(() => {
                 showUserPopover={false}
               />
               <div className="absolute -bottom-0.5 -right-0.5">
-                <UserStatusBadge status={currentStatus} className="h-3.5 w-3.5" />
+                <UserStatusBadge
+                  status={currentStatus}
+                  className="h-3.5 w-3.5"
+                />
               </div>
             </div>
           </div>
@@ -320,7 +336,12 @@ const UserControl = memo(() => {
         </DialogContent>
       </Dialog>
 
-      <div className="relative flex items-center gap-0.5">
+      <div
+        className={cn(
+          'relative flex items-center gap-0.5',
+          stacked && 'justify-between'
+        )}
+      >
         {/* Mic button + device dropdown */}
         <div className="flex items-center">
           <Button

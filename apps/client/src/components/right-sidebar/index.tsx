@@ -1,23 +1,23 @@
+import { UserContextMenu } from '@/components/context-menus/user';
 import { VerifiedMemberDot } from '@/components/e2ee-status-badge';
 import { NameplateBackground } from '@/components/nameplate';
 import { UserAvatar } from '@/components/user-avatar';
 import { useSelectedChannel } from '@/features/server/channels/hooks';
 import { useUserDisplayRole } from '@/features/server/hooks';
-import type { IRootState } from '@/features/store';
 import { usersGroupedByRoleSelector } from '@/features/server/users/selectors';
+import type { IRootState } from '@/features/store';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
+import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TNameStyle } from '@pulse/shared';
 import type { TJoinedPublicUser } from '@pulse/server/types';
+import type { TNameStyle } from '@pulse/shared';
 import { UserStatus } from '@pulse/shared';
 import { Globe, Loader2, TimerOff } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Tooltip } from '../ui/tooltip';
 import { useSelector } from 'react-redux';
-import { UserContextMenu } from '@/components/context-menus/user';
-import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
+import { Tooltip } from '../ui/tooltip';
 import { UserPopover } from '../user-popover';
 import { UserStatusBadge } from '../user-status';
 
@@ -69,69 +69,90 @@ type TUserProps = {
   dimmed?: boolean;
 };
 
-const User = memo(({ userId, name, banned, timedOutUntil, status, customStatus, nameplate, nameStyle, _identity, e2ee, dimmed }: TUserProps) => {
-  const displayRole = useUserDisplayRole(userId);
-  const now = useNow(!!timedOutUntil, 30_000);
-  const timedOut = !!timedOutUntil && timedOutUntil > now;
-  const nameColor = useReadableRoleColor(displayRole?.color);
-  // Styled name wins over role color; banned rows stay struck-through
-  // and unstyled.
-  const nameCss = !banned ? getNameStyleCss(nameStyle) : null;
+const User = memo(
+  ({
+    userId,
+    name,
+    banned,
+    timedOutUntil,
+    status,
+    customStatus,
+    nameplate,
+    nameStyle,
+    _identity,
+    e2ee,
+    dimmed
+  }: TUserProps) => {
+    const displayRole = useUserDisplayRole(userId);
+    const now = useNow(!!timedOutUntil, 30_000);
+    const timedOut = !!timedOutUntil && timedOutUntil > now;
+    const nameColor = useReadableRoleColor(displayRole?.color);
+    // Styled name wins over role color; banned rows stay struck-through
+    // and unstyled.
+    const nameCss = !banned ? getNameStyleCss(nameStyle) : null;
 
-  return (
-    <UserContextMenu userId={userId}>
-    <UserPopover userId={userId}>
-      <div
-        className={cn(
-          // relative + overflow-hidden clip the nameplate layer to the
-          // rounded row; content stays `relative` so it paints above it.
-          'group relative overflow-hidden flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent select-none transition-[background-color,color,opacity] duration-150 cursor-pointer',
-          dimmed && 'opacity-50 hover:opacity-100'
-        )}
-      >
-        <NameplateBackground nameplate={nameplate} />
-        <div className="relative flex-shrink-0">
-          <UserAvatar userId={userId} className="h-8 w-8" showStatusBadge={false} />
-          <div className="absolute -bottom-0.5 -right-0.5">
-            <UserStatusBadge
-              status={status || UserStatus.OFFLINE}
-              className="h-3 w-3"
-            />
-          </div>
-        </div>
-        <div className="relative flex flex-col min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span
-              className={cn(
-                'text-sm truncate',
-                banned && 'line-through text-muted-foreground',
-                !banned && !nameColor && !nameCss && 'text-foreground/80 group-hover:text-foreground',
-                nameCss?.className
-              )}
-              style={
-                nameCss?.style ??
-                (!banned && nameColor ? { color: nameColor } : undefined)
-              }
-            >
-              {name}
-            </span>
-            {_identity?.includes('@') && (
-              <Globe className="h-3 w-3 text-blue-500 shrink-0" />
+    return (
+      <UserContextMenu userId={userId}>
+        <UserPopover userId={userId}>
+          <div
+            className={cn(
+              // relative + overflow-hidden clip the nameplate layer to the
+              // rounded row; content stays `relative` so it paints above it.
+              'group relative overflow-hidden flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-accent select-none transition-[background-color,color,opacity] duration-150 cursor-pointer',
+              dimmed && 'opacity-50 hover:opacity-100'
             )}
-            {timedOut && <TimedOutBadge until={timedOutUntil} />}
-            {e2ee && <VerifiedMemberDot userId={userId} />}
+          >
+            <NameplateBackground nameplate={nameplate} />
+            <div className="relative flex-shrink-0">
+              <UserAvatar
+                userId={userId}
+                className="squircle h-8 w-8"
+                showStatusBadge={false}
+              />
+              <div className="absolute -bottom-0.5 -right-0.5">
+                <UserStatusBadge
+                  status={status || UserStatus.OFFLINE}
+                  className="h-3 w-3"
+                />
+              </div>
+            </div>
+            <div className="relative flex flex-col min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className={cn(
+                    'text-sm truncate',
+                    banned && 'line-through text-muted-foreground',
+                    !banned &&
+                      !nameColor &&
+                      !nameCss &&
+                      'text-foreground/80 group-hover:text-foreground',
+                    nameCss?.className
+                  )}
+                  style={
+                    nameCss?.style ??
+                    (!banned && nameColor ? { color: nameColor } : undefined)
+                  }
+                >
+                  {name}
+                </span>
+                {_identity?.includes('@') && (
+                  <Globe className="h-3 w-3 text-blue-500 shrink-0" />
+                )}
+                {timedOut && <TimedOutBadge until={timedOutUntil} />}
+                {e2ee && <VerifiedMemberDot userId={userId} />}
+              </div>
+              {customStatus && (
+                <span className="text-xs text-muted-foreground truncate">
+                  {customStatus}
+                </span>
+              )}
+            </div>
           </div>
-          {customStatus && (
-            <span className="text-xs text-muted-foreground truncate">
-              {customStatus}
-            </span>
-          )}
-        </div>
-      </div>
-    </UserPopover>
-    </UserContextMenu>
-  );
-});
+        </UserPopover>
+      </UserContextMenu>
+    );
+  }
+);
 
 const RoleGroupSection = memo(
   ({
@@ -153,6 +174,13 @@ const RoleGroupSection = memo(
           casual rebuild: sentence-case label, count as a soft chip.
           More "lived-in," still scannable. */}
       <div className="flex items-center gap-2 px-2 pt-4 pb-1.5">
+        {color && color !== '#ffffff' && (
+          <span
+            aria-hidden
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: color }}
+          />
+        )}
         <h4
           className={cn(
             'text-xs font-semibold',
@@ -196,7 +224,9 @@ type TRightSidebarProps = {
 const RightSidebar = memo(
   ({ className, isOpen = true }: TRightSidebarProps) => {
     const { groups, offlineUsers } = useSelector(usersGroupedByRoleSelector);
-    const usersLoaded = useSelector((state: IRootState) => state.server.usersLoaded);
+    const usersLoaded = useSelector(
+      (state: IRootState) => state.server.usersLoaded
+    );
     const selectedChannel = useSelectedChannel();
     const [visibleUserIds, setVisibleUserIds] = useState<Set<number> | null>(
       null

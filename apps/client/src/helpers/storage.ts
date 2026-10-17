@@ -20,7 +20,9 @@ export enum LocalStorageKey {
   SCROLL_POSITIONS = 'pulse-scroll-positions',
   DM_SCROLL_POSITIONS = 'pulse-dm-scroll-positions',
   ACTIVE_DM_CHANNEL_ID = 'pulse-active-dm-channel-id',
-  HOME_TAB = 'pulse-home-tab'
+  HOME_TAB = 'pulse-home-tab',
+  DECK_TABS = 'pulse-deck-tabs',
+  DECK_PANEL_WIDTH = 'pulse-deck-panel-width'
 }
 
 const getLocalStorageItem = (key: LocalStorageKey): string | null => {

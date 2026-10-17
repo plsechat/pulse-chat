@@ -136,6 +136,55 @@ describe('plugin manager', () => {
     }
   });
 
+  test('a 0.1.x plugin still loads on this SDK (0.2 removed nothing); a range beyond it is refused', async () => {
+    await initTest(1);
+    await enablePluginsSetting();
+
+    const cases: { id: string; sdk: string; loads: boolean }[] = [
+      { id: 'sdk-compat-caret-0-1', sdk: '^0.1', loads: true },
+      { id: 'sdk-compat-tilde-0-1-0', sdk: '~0.1.0', loads: true },
+      { id: 'sdk-compat-exact-current', sdk: `${PLUGIN_SDK_VERSION}`, loads: true },
+      { id: 'sdk-compat-below-0-1', sdk: '0.0.x', loads: false },
+      { id: 'sdk-compat-future-minor', sdk: '^0.3', loads: false }
+    ];
+    const cleanups = await Promise.all(
+      cases.map(({ id, sdk }) =>
+        writePlugin({ id, sdk, entrySource: 'export const onLoad = () => {};' })
+      )
+    );
+
+    try {
+      for (const { id, sdk, loads } of cases) {
+        await pluginManager.togglePlugin(id, true);
+        const info = await pluginManager.getPluginInfo(id);
+
+        expect({ id, loaded: pluginManager.isPluginLoaded(id) }).toEqual({ id, loaded: loads });
+        if (loads) {
+          expect(info.loadError).toBeUndefined();
+        } else {
+          expect(info.loadError).toBe(
+            `requires @pulse/plugin-sdk ${sdk}, server provides ${PLUGIN_SDK_VERSION}`
+          );
+        }
+      }
+    } finally {
+      for (const { id } of cases) await pluginManager.unload(id);
+      for (const cleanup of cleanups) await cleanup();
+    }
+  });
+
+  test('getPluginInfo reports declared capabilities, empty when the manifest has none', async () => {
+    await initTest(1);
+    const id = 'capabilities-absent';
+    const cleanup = await writePlugin({ id, entrySource: 'export const onLoad = () => {};' });
+
+    try {
+      expect((await pluginManager.getPluginInfo(id)).capabilities).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
   test('loads a plugin whose pulse.sdk range matches, and one without a range', async () => {
     await initTest(1);
     await enablePluginsSetting();

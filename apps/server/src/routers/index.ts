@@ -5,9 +5,11 @@ import { reportsRouter } from './reports';
 import { channelsRouter } from './channels';
 import { dmsRouter } from './dms';
 import { emojisRouter } from './emojis';
+import { eventsRouter } from './events';
 import { federationRouter } from './federation';
 import { filesRouter } from './files';
 import { friendsRouter } from './friends';
+import { importRouter } from './import';
 import { invitesRouter } from './invites';
 import { messagesRouter } from './messages';
 import { nameplatesRouter } from './nameplates';
@@ -35,6 +37,7 @@ const appRouter = t.router({
   channels: channelsRouter,
   files: filesRouter,
   emojis: emojisRouter,
+  events: eventsRouter,
   nameplates: nameplatesRouter,
   roles: rolesRouter,
   invites: invitesRouter,
@@ -42,6 +45,7 @@ const appRouter = t.router({
   categories: categoriesRouter,
   plugins: pluginsRouter,
   friends: friendsRouter,
+  import: importRouter,
   dms: dmsRouter,
   servers: serversRouter,
   notes: notesRouter,

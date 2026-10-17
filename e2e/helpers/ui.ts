@@ -8,10 +8,10 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * "General Voice", "General Voice 2".
  */
 
-/** The main channel composer (tiptap). Placeholder: `Message #<name>`. */
+/** The main channel composer (tiptap). Placeholder: `Write to #<name>`. */
 export function channelComposer(page: Page): Locator {
   return page.locator(
-    '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
+    '[contenteditable="true"]:has(p[data-placeholder^="Write to #"])'
   );
 }
 
@@ -174,7 +174,14 @@ export async function openDmViaAuthor(
     `[contenteditable="true"]:has(p[data-placeholder="Message @${displayName}"])`
   );
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.getByText(displayName, { exact: true }).first().click();
+    // Prefer the member list when it is open: on phones it is an overlay
+    // whose backdrop covers the chat, so the chat author behind it would
+    // swallow the click. Both entries open the same profile popover.
+    const inMembers = page.locator('aside').getByText(displayName, { exact: true });
+    const target = (await inMembers.count())
+      ? inMembers.first()
+      : page.getByText(displayName, { exact: true }).first();
+    await target.click();
     try {
       await expect(composer).toBeVisible({ timeout: 5_000 });
       return composer;

@@ -156,6 +156,22 @@ const webhookIdRateLimit: RateLimitConfig = {
   maxRequests: 60
 };
 
+/**
+ * Per `ip:/plugins/<id>` — a plugin endpoint is an integration hook
+ * (a chat bridge receiving upstream events), busier than a webhook but
+ * still one service per source address.
+ */
+const pluginHttpRateLimit: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 120
+};
+
+/** Per plugin id across all sources — the budget one plugin's ingress gets. */
+const pluginHttpIdRateLimit: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 600
+};
+
 export {
   _bucketCount,
   _resetAll,
@@ -166,6 +182,8 @@ export {
   federationRateLimit,
   federationReadRateLimit,
   MAX_BUCKETS,
+  pluginHttpIdRateLimit,
+  pluginHttpRateLimit,
   publicRateLimit,
   rateLimitKey,
   uploadRateLimit,

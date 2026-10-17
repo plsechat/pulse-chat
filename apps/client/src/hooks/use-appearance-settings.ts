@@ -4,6 +4,9 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type MessageSpacing = 'tight' | 'normal' | 'relaxed';
 export type TimeFormat = '12h' | '24h';
+/** 'classic' = server rail + home screen; 'deck' = community tabs across the
+ *  top with Friends, Messages, Inbox and Profile as right-hand panels. */
+export type LayoutMode = 'classic' | 'deck';
 
 export type AppearanceSettings = {
   compactMode: boolean;
@@ -12,6 +15,7 @@ export type AppearanceSettings = {
   zoomLevel: number;
   timeFormat: TimeFormat;
   showFormattingHints: boolean;
+  layout: LayoutMode;
 };
 
 const defaultSettings: AppearanceSettings = {
@@ -20,7 +24,8 @@ const defaultSettings: AppearanceSettings = {
   fontScale: 100,
   zoomLevel: 100,
   timeFormat: '12h',
-  showFormattingHints: false
+  showFormattingHints: false,
+  layout: 'classic'
 };
 
 /** Inclusive bounds of the two sliders; stored values outside are clamped. */
@@ -96,6 +101,10 @@ export const useAppearanceSettings = () => {
     (value: boolean) => store.updateSettings({ showFormattingHints: value }),
     []
   );
+  const setLayout = useCallback(
+    (value: LayoutMode) => store.updateSettings({ layout: value }),
+    []
+  );
 
   return {
     settings,
@@ -104,9 +113,14 @@ export const useAppearanceSettings = () => {
     setFontScale,
     setZoomLevel,
     setTimeFormat,
-    setShowFormattingHints
+    setShowFormattingHints,
+    setLayout
   };
 };
+
+/** The shell layout alone; re-renders only when it changes. */
+export const useLayoutMode = (): LayoutMode =>
+  useSyncExternalStore(store.subscribe, () => store.getSettings().layout);
 
 /** Non-React getter for current time format preference */
 export const getTimeFormat = (): TimeFormat => store.getSettings().timeFormat;

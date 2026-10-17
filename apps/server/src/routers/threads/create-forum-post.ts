@@ -19,6 +19,7 @@ import {
   threadFollowers
 } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
+import { eventBus } from '../../plugins/event-bus';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
 import { channelProcedure } from '../../utils/procedures';
@@ -175,6 +176,14 @@ const createForumPostRoute = channelProcedure(
       lastMessageAt: now,
       archived: false,
       parentChannelId: forumChannel.id,
+      creatorId: ctx.userId
+    });
+
+    eventBus.emit('thread:created', {
+      threadId: result.thread.id,
+      parentChannelId: forumChannel.id,
+      serverId: forumChannel.serverId,
+      name: result.thread.name,
       creatorId: ctx.userId
     });
 

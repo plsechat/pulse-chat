@@ -1,0 +1,27 @@
+{
+  "name": "discord-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "pulse": {
+    "entry": "dist/index.js",
+    "sdk": "^0.2.0",
+    "author": "PULSE",
+    "description": "Mirror a text channel with a channel on a Discord server: messages, edits, deletions, reactions, threads and scheduled events flow both ways. Voice is not bridged.",
+    "capabilities": ["moderate-messages"]
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint ./src --ext ts --report-unused-disable-directives",
+    "test": "bun test src"
+  },
+  "devDependencies": {
+    "@pulse/plugin-sdk": "workspace:*",
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-unused-imports": "^4.1.4",
+    "typescript": "^5"
+  }
+}

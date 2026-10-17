@@ -1,23 +1,24 @@
+import { useForumThreadCreator } from '@/components/channel-view/forum/forum-thread-context';
+import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 import { UserContextMenu } from '@/components/context-menus/user';
 import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
-import { useForumThreadCreator } from '@/components/channel-view/forum/forum-thread-context';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { useUserDisplayRole } from '@/features/server/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getPublicFileUrl } from '@/helpers/get-file-url';
 import { getNameStyleCss } from '@/helpers/name-style';
-import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
-import { cn } from '@/lib/utils';
-import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
-import type { TJoinedMessage } from '@pulse/server/types';
 import { fullDateTime, groupTimestamp, timeOnly } from '@/helpers/time-format';
+import { useAppearanceSettings } from '@/hooks/use-appearance-settings';
+import { useNow } from '@/hooks/use-now';
+import { useReadableRoleColor } from '@/hooks/use-readable-role-color';
+import { cn } from '@/lib/utils';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { format } from 'date-fns';
 import { memo } from 'react';
 import { Tooltip } from '../../ui/tooltip';
 import { Message } from './message';
-import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 
 type TMessagesGroupProps = {
   group: TJoinedMessage[];
@@ -30,15 +31,26 @@ const spacingMap = {
   relaxed: 'mt-6'
 } as const;
 
-const WebhookAvatar = ({ src, className }: { src: string; className: string }) => (
+const WebhookAvatar = ({
+  src,
+  className
+}: {
+  src: string;
+  className: string;
+}) => (
   <img
     src={src}
     alt=""
-    className={cn('rounded-full object-cover ring-1 ring-border/50 shadow-sm', className)}
+    className={cn(
+      'rounded-full object-cover ring-1 ring-border/50 shadow-sm',
+      className
+    )}
   />
 );
 
 const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
+  // Shared minute tick so relative header times stay current.
+  const now = useNow();
   const firstMessage = group[0];
   const user = useUserById(firstMessage.userId);
   const date = new Date(firstMessage.createdAt);
@@ -47,12 +59,14 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   const { compactMode, messageSpacing } = settings;
   const forumThreadCreatorId = useForumThreadCreator();
   const instanceDomain = useActiveInstanceDomain() ?? undefined;
-  const isOP = forumThreadCreatorId !== null && firstMessage.userId === forumThreadCreatorId;
+  const isOP =
+    forumThreadCreatorId !== null &&
+    firstMessage.userId === forumThreadCreatorId;
 
-  // Check if this is a webhook message and extract alias
-  const webhookMeta = firstMessage.webhookId
-    ? firstMessage.metadata?.find((m) => m.mediaType === 'webhook')
-    : null;
+  // A webhook OR a plugin post carries its display persona in metadata
+  // (plugins have no webhook row, so the metadata entry is the signal).
+  const webhookMeta =
+    firstMessage.metadata?.find((m) => m.mediaType === 'webhook') ?? null;
   const isWebhook = !!webhookMeta;
 
   // Hook order: must run unconditionally, before the !user early return
@@ -65,27 +79,40 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
 
   if (!user) return null;
 
-  const displayName = isWebhook && webhookMeta?.title ? webhookMeta.title : getDisplayName(user);
+  const displayName =
+    isWebhook && webhookMeta?.title ? webhookMeta.title : getDisplayName(user);
   // The webhook's configured avatar rides along as `/public/<name>` in the
   // webhook metadata entry (snapshotted at post time like the alias).
   const webhookAvatarName = isWebhook
     ? webhookMeta?.images?.[0]?.replace(/^\/public\//, '')
     : undefined;
+  // Plugins may hand an absolute avatar URL; webhooks a /public file name.
   const webhookAvatarUrl = webhookAvatarName
-    ? getPublicFileUrl(webhookAvatarName, instanceDomain)
+    ? /^https?:\/\//.test(webhookAvatarName)
+      ? webhookAvatarName
+      : getPublicFileUrl(webhookAvatarName, instanceDomain)
     : undefined;
 
-  const timeStr = groupTimestamp(date);
+  const timeStr = groupTimestamp(date, new Date(now));
 
   if (compactMode) {
     return (
-      <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-2 pl-[40px] pr-12 relative py-0.5 group/msggroup')}>
+      <div
+        className={cn(
+          spacingMap[messageSpacing],
+          'flex min-w-0 gap-2 pl-[40px] pr-12 relative py-0.5 group/msggroup'
+        )}
+      >
         <UserContextMenu userId={user.id}>
           <div className="absolute left-3 top-1 z-10">
             {webhookAvatarUrl ? (
               <WebhookAvatar src={webhookAvatarUrl} className="h-5 w-5" />
             ) : (
-              <UserAvatar userId={user.id} className="h-5 w-5" showUserPopover />
+              <UserAvatar
+                userId={user.id}
+                className="h-5 w-5"
+                showUserPopover
+              />
             )}
           </div>
         </UserContextMenu>
@@ -146,13 +173,22 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   }
 
   return (
-    <div className={cn(spacingMap[messageSpacing], 'flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5 group/msggroup')}>
+    <div
+      className={cn(
+        spacingMap[messageSpacing],
+        'flex min-w-0 gap-4 pl-[72px] pr-12 relative py-0.5 group/msggroup'
+      )}
+    >
       <UserContextMenu userId={user.id}>
         <div className="absolute left-4 top-1 z-10">
           {webhookAvatarUrl ? (
             <WebhookAvatar src={webhookAvatarUrl} className="h-10 w-10" />
           ) : (
-            <UserAvatar userId={user.id} className="h-10 w-10" showUserPopover />
+            <UserAvatar
+              userId={user.id}
+              className="squircle h-10 w-10"
+              showUserPopover
+            />
           )}
         </div>
       </UserContextMenu>
@@ -162,7 +198,7 @@ const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
             <UserPopover userId={user.id}>
               <span
                 className={cn(
-                  'font-medium hover:underline cursor-pointer',
+                  'font-semibold hover:underline cursor-pointer',
                   nameCss?.className
                 )}
                 style={

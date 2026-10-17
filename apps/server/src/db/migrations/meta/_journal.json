@@ -260,6 +260,27 @@
       "when": 1792125066866,
       "tag": "0036_b5_federation",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792185647177,
+      "tag": "0037_events_plugin_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792188683559,
+      "tag": "0038_import_jobs_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792192836632,
+      "tag": "0039_bridge_links",
+      "breakpoints": true
     }
   ]
 }

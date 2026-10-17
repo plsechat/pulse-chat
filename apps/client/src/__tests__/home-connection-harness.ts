@@ -27,6 +27,7 @@ import { appSliceActions, appSliceReducer } from '@/features/app/slice';
 import { dialogSliceReducer } from '@/features/dialogs/slice';
 import { dmsSliceReducer } from '@/features/dms/slice';
 import { friendsSliceReducer } from '@/features/friends/slice';
+import { eventsSliceReducer } from '@/features/events/slice';
 import { nameplatesSliceReducer } from '@/features/nameplates/slice';
 import { serverScreenSliceReducer } from '@/features/server-screens/slice';
 import { serverSliceActions, serverSliceReducer } from '@/features/server/slice';
@@ -42,7 +43,8 @@ export const testStore = configureStore({
     serverScreen: serverScreenSliceReducer,
     friends: friendsSliceReducer,
     dms: dmsSliceReducer,
-    nameplates: nameplatesSliceReducer
+    nameplates: nameplatesSliceReducer,
+    events: eventsSliceReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({ serializableCheck: false })

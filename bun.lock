@@ -147,7 +147,7 @@
     },
     "packages/plugin-sdk": {
       "name": "@pulse/plugin-sdk",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@pulse/shared": "workspace:*",
         "@types/bun": "latest",
@@ -159,6 +159,18 @@
       },
       "peerDependencies": {
         "mediasoup": "3.19.17",
+      },
+    },
+    "packages/plugins/discord-bridge": {
+      "name": "discord-bridge",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@pulse/plugin-sdk": "workspace:*",
+        "@types/bun": "latest",
+        "@typescript-eslint/eslint-plugin": "^8.46.1",
+        "eslint": "^8.56.0",
+        "eslint-plugin-unused-imports": "^4.1.4",
+        "typescript": "^5",
       },
     },
     "packages/shared": {
@@ -886,6 +898,8 @@
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
 
     "detect-node-es": ["detect-node-es@1.1.0", "", {}, "sha512-ypdmJU/TbBby2Dxibuv7ZLW3Bs1QEmM7nHjEANfohJLvE0XVujisn1qPJcZxg+qDucsr+bP6fLD1rPS3AhJ7EQ=="],
+
+    "discord-bridge": ["discord-bridge@workspace:packages/plugins/discord-bridge"],
 
     "doctrine": ["doctrine@3.0.0", "", { "dependencies": { "esutils": "^2.0.2" } }, "sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w=="],
 

@@ -23,7 +23,15 @@ const schema = z.object({
     author: z.string().min(1, 'Plugin author is required'),
     homepage: z.url().optional(),
     description: z.string().min(1, 'Plugin description is required'),
-    logo: z.string().optional()
+    logo: z.string().optional(),
+    // Elevated powers the plugin asks for (TPluginCapability). A small
+    // closed list: an unknown name is a manifest error, not a silent
+    // no-op, so a typo cannot ship a plugin that believes it may
+    // moderate when it may not.
+    capabilities: z
+      .array(z.enum(['moderate-messages']))
+      .max(8)
+      .optional()
   })
 });
 

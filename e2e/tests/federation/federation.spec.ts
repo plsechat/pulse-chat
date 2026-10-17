@@ -200,7 +200,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await channelButton(pageA, 'General Text').click({ force: true });
 
     const composerA = pageA.locator(
-      '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
+      '[contenteditable="true"]:has(p[data-placeholder^="Write to #"])'
     );
     await expect(composerA).toBeVisible({ timeout: 15_000 });
     await composerA.fill(SMOKE_MSG);
@@ -217,7 +217,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
 
     // Reply propagates back to A's federated view
     const composerB = pageB.locator(
-      '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
+      '[contenteditable="true"]:has(p[data-placeholder^="Write to #"])'
     );
     await composerB.fill(ACK_MSG);
     await pageB.keyboard.press('Enter');

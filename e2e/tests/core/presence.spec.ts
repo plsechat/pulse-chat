@@ -166,7 +166,9 @@ test.describe('presence, status, and read-state', () => {
     const row = pageB.getByRole('button', { name: /^General Text 2/ }).first();
     await expect(row).toHaveClass(/font-semibold/, { timeout: 15_000 });
     await expect(
-      row.locator('div.bg-primary, div.bg-destructive')
+      // The unread pill (badge-pop) is neutral for plain unread and
+      // destructive for a mention.
+      row.locator('div.badge-pop')
     ).toBeVisible();
 
     // Viewing the channel writes the server-side read state up to the
@@ -220,7 +222,9 @@ test.describe('presence, status, and read-state', () => {
     await expect(
       row.locator('div.bg-destructive')
     ).toBeVisible({ timeout: 15_000 });
-    await expect(row.locator('div.bg-primary')).toHaveCount(0);
+    await expect(
+      row.locator('div.badge-pop:not(.bg-destructive)')
+    ).toHaveCount(0);
 
     // Server-side the mention counter incremented for B.
     const chan = channelId('General Text 2');

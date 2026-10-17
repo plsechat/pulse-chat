@@ -1,5 +1,4 @@
 import { TypingDots } from '@/components/typing-dots';
-import { emitAppEvent } from '@/lib/events';
 import { setSelectedChannelId } from '@/features/server/channels/actions';
 import {
   useChannelById,
@@ -22,6 +21,7 @@ import {
   useVoiceChannelExternalStreamsList
 } from '@/features/server/voice/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { emitAppEvent } from '@/lib/events';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import {
@@ -39,8 +39,8 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ChannelPermission, ChannelType, Permission } from '@pulse/shared';
 import type { TChannel } from '@pulse/server/types';
+import { ChannelPermission, ChannelType, Permission } from '@pulse/shared';
 import { Hash, LayoutList, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -64,17 +64,42 @@ const Voice = memo(({ channel, isInVoice, ...props }: TVoiceProps) => {
 
   return (
     <>
-      <ItemWrapper {...props} hasUnread={unreadCount > 0} className={cn(props.className, isInVoice && 'text-foreground [&>svg]:text-green-400')}>
-        <Volume2 className="h-4 w-4" />
-        {/* Connected state: full-contrast semibold — the green icon and
-            live timer already say "connected"; no glow filters on text. */}
-        <span className={cn('flex-1', isInVoice && 'font-semibold text-foreground')}>{channel.name}</span>
+      <ItemWrapper
+        {...props}
+        hasUnread={unreadCount > 0}
+        className={cn(
+          props.className,
+          isInVoice && 'text-foreground [&>svg]:text-green-400'
+        )}
+      >
+        <span
+          className={cn(
+            'channel-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
+            (isInVoice || hasActiveSession) && 'bg-live/20 text-live'
+          )}
+        >
+          <Volume2 className="h-4 w-4" />
+        </span>
+        {/* Connected state: full-contrast semibold — the live tile and
+            timer already say "connected"; no glow filters on text. */}
+        <span
+          className={cn(
+            'flex-1 min-w-0 truncate',
+            isInVoice && 'font-semibold text-foreground'
+          )}
+        >
+          {channel.name}
+        </span>
         {hasActiveSession && <VoiceTimer channelId={channel.id} />}
         {!hasActiveSession && unreadCount > 0 && (
-          <div className={cn(
-            'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium',
-            hasMentions ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
-          )}>
+          <div
+            className={cn(
+              'badge-pop ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold',
+              hasMentions
+                ? 'bg-destructive text-white'
+                : 'bg-foreground/10 text-foreground'
+            )}
+          >
             {unreadCount > 99 ? '99+' : unreadCount}
           </div>
         )}
@@ -117,18 +142,36 @@ const Text = memo(({ channel, ...props }: TTextProps) => {
 
   return (
     <ItemWrapper {...props} hasUnread={unreadCount > 0}>
-      <Hash className="h-4 w-4" />
-      <span className="flex-1">{channel.name}</span>
+      <span className="channel-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+        <Hash className="h-4 w-4" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+        <span className="truncate">{channel.name}</span>
+        {channel.topic && (
+          // Context only: the row's accessible name stays the channel name
+          // (the header announces the topic).
+          <span
+            aria-hidden
+            className="truncate text-[11px] font-normal text-muted-foreground/70"
+          >
+            {channel.topic}
+          </span>
+        )}
+      </span>
       {hasTypingUsers && (
         <div className="flex items-center gap-0.5 ml-auto">
           <TypingDots className="space-x-0.5" />
         </div>
       )}
       {!hasTypingUsers && unreadCount > 0 && (
-        <div className={cn(
-          'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium',
-          hasMentions ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
-        )}>
+        <div
+          className={cn(
+            'badge-pop ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold',
+            hasMentions
+              ? 'bg-destructive text-white'
+              : 'bg-foreground/10 text-foreground'
+          )}
+        >
           {unreadCount > 99 ? '99+' : unreadCount}
         </div>
       )}
@@ -147,13 +190,31 @@ const Forum = memo(({ channel, ...props }: TForumProps) => {
 
   return (
     <ItemWrapper {...props} hasUnread={unreadCount > 0}>
-      <LayoutList className="h-4 w-4" />
-      <span className="flex-1">{channel.name}</span>
+      <span className="channel-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+        <LayoutList className="h-4 w-4" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+        <span className="truncate">{channel.name}</span>
+        {channel.topic && (
+          // Context only: the row's accessible name stays the channel name
+          // (the header announces the topic).
+          <span
+            aria-hidden
+            className="truncate text-[11px] font-normal text-muted-foreground/70"
+          >
+            {channel.topic}
+          </span>
+        )}
+      </span>
       {unreadCount > 0 && (
-        <div className={cn(
-          'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium',
-          hasMentions ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
-        )}>
+        <div
+          className={cn(
+            'badge-pop ml-auto flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold',
+            hasMentions
+              ? 'bg-destructive text-white'
+              : 'bg-foreground/10 text-foreground'
+          )}
+        >
           {unreadCount > 99 ? '99+' : unreadCount}
         </div>
       )}
@@ -188,9 +249,9 @@ const ItemWrapper = memo(
         {...dragHandleProps}
         style={style}
         className={cn(
-          'relative flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground select-none cursor-pointer transition-colors duration-150',
+          'relative flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground select-none cursor-pointer transition-colors duration-150',
           {
-            'bg-accent text-foreground font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-4 before:w-[3px] before:rounded-full before:bg-primary': isSelected,
+            'channel-row-active text-foreground font-medium': isSelected,
             'text-foreground font-semibold': hasUnread && !isSelected,
             'cursor-default opacity-50 hover:bg-transparent hover:text-muted-foreground':
               disabled
@@ -217,8 +278,7 @@ const Channel = memo(({ channelId, isSelected }: TChannelProps) => {
   // globally-unique publicId, not the numeric id — a federated server's
   // channel can share our home channel's numeric id and would falsely glow.
   const isInThisVoice =
-    !!channel?.publicId &&
-    currentVoiceChannelPublicId === channel.publicId;
+    !!channel?.publicId && currentVoiceChannelPublicId === channel.publicId;
   const channelCan = useChannelCan(channelId);
   const can = useCan();
   const previewMode = usePreviewMode();

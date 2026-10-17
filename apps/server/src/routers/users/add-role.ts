@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
 import { isServerMember } from '../../db/queries/servers';
 import { roles, userRoles } from '../../db/schema';
+import { emitMemberRolesChanged } from '../../plugins/emit-roles-changed';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { enqueueActivityLog } from '../../queues/activity-log';
@@ -96,6 +97,7 @@ const addRoleRoute = serverProcedure(Permission.MANAGE_USERS)
     ctx.invalidatePermissionCache();
     invalidatePermissionCacheForUser(input.userId);
     publishUser(input.userId, 'update');
+    await emitMemberRolesChanged(input.userId, ctx.activeServerId);
 
     enqueueActivityLog({
       type: ActivityLogType.USER_ROLE_ASSIGNED,

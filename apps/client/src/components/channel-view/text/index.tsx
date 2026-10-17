@@ -1,63 +1,72 @@
-import { GifPicker } from '@/components/gif-picker';
-import { TiptapInput } from '@/components/tiptap-input';
-import Spinner from '@/components/ui/spinner';
-import { useCan, useChannelCan, usePreviewMeta, usePreviewMode } from '@/features/server/hooks';
-import { joinPreviewedServer } from '@/features/server/preview/actions';
-import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
-import { useChannelById, useLastReadMessageId, useSelectedChannel } from '@/features/server/channels/hooks';
-import { useMessages } from '@/features/server/messages/hooks';
-import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
-import { playSound } from '@/features/server/sounds/actions';
-import { SoundType } from '@/features/server/types';
-import { getDisplayName } from '@/helpers/get-display-name';
-import { isGiphyEnabled } from '@/helpers/giphy';
-import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import {
-  encryptChannelMessage,
-  ensureActiveChannelSenderKey
-} from '@/lib/e2ee';
-import { getTRPCClient } from '@/lib/trpc';
-import {
-  ChannelPermission,
-  MAX_MESSAGE_CONTENT_LENGTH,
-  Permission,
-  TYPING_MS
-} from '@pulse/shared';
-import type { TJoinedMessage } from '@pulse/server/types';
-import { filesize } from 'filesize';
-import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
-import { DateDivider } from '@/components/chat-primitives/date-divider';
-import {
-  useComposerHelpers,
-  useTypingSignal
-} from '@/components/chat-primitives/use-composer-helpers';
-import { NewMessagesDivider } from '@/components/chat-primitives/new-messages-divider';
-import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
-import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
-import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
 import {
   ComposerExpandToggle,
   ComposerResizer,
   MIN_COMPOSER_HEIGHT
 } from '@/components/chat-primitives/composer-expand';
+import { DateDivider } from '@/components/chat-primitives/date-divider';
+import { FileCard } from '@/components/chat-primitives/file-card';
+import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
+import { NewMessagesDivider } from '@/components/chat-primitives/new-messages-divider';
+import { ReplyContentPreview } from '@/components/chat-primitives/reply-content-preview';
+import { SystemMessage } from '@/components/chat-primitives/system-message';
+import {
+  useComposerHelpers,
+  useTypingSignal
+} from '@/components/chat-primitives/use-composer-helpers';
+import { GifPicker } from '@/components/gif-picker';
+import { TiptapInput } from '@/components/tiptap-input';
+import Spinner from '@/components/ui/spinner';
+import {
+  useChannelById,
+  useLastReadMessageId,
+  useSelectedChannel
+} from '@/features/server/channels/hooks';
+import {
+  useCan,
+  useChannelCan,
+  usePreviewMeta,
+  usePreviewMode
+} from '@/features/server/hooks';
+import { useMessages } from '@/features/server/messages/hooks';
+import { useFlatPluginCommands } from '@/features/server/plugins/hooks';
+import { joinPreviewedServer } from '@/features/server/preview/actions';
+import { playSound } from '@/features/server/sounds/actions';
+import { SoundType } from '@/features/server/types';
+import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
+import { isSystemLikeMessage } from '@/helpers/automod-alert';
+import { getDisplayName } from '@/helpers/get-display-name';
+import { isGiphyEnabled } from '@/helpers/giphy';
 import { isHtmlEmpty } from '@/helpers/is-html-empty';
 import {
   messageHasCodeBlock,
   uploadOversizedMessage,
   type TOversizedUpload
 } from '@/helpers/oversized-message';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
+import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
+import {
+  encryptChannelMessage,
+  ensureActiveChannelSenderKey
+} from '@/lib/e2ee';
+import { getTRPCClient } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
+import type { TJoinedMessage } from '@pulse/server/types';
+import {
+  ChannelPermission,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  Permission,
+  TYPING_MS
+} from '@pulse/shared';
+import { filesize } from 'filesize';
+import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
-import { cn } from '@/lib/utils';
-import { FileCard } from '@/components/chat-primitives/file-card';
 import { MessagesGroup } from './messages-group';
-import { SystemMessage } from '@/components/chat-primitives/system-message';
-import { isSystemLikeMessage } from '@/helpers/automod-alert';
-import { TextSkeleton } from './text-skeleton';
 import { SelectionActionBar } from './selection-action-bar';
 import { SelectionProvider, useSelection } from './selection-context';
+import { TextSkeleton } from './text-skeleton';
 import { useScrollController } from './use-scroll-controller';
 import { UsersTyping } from './users-typing';
 
@@ -143,7 +152,9 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const [newMessage, setNewMessage] = useState('');
   const [replyingTo, setReplyingTo] = useState<TJoinedMessage | null>(null);
   const [slowModeRemaining, setSlowModeRemaining] = useState(0);
-  const slowModeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const slowModeTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(
+    undefined
+  );
   const selectedChannel = useSelectedChannel();
   const currentChannel = useChannelById(channelId);
   const slowMode = selectedChannel?.slowMode ?? 0;
@@ -151,15 +162,16 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const ownUserId = useOwnUserId();
   const lastReadMessageId = useLastReadMessageId(channelId);
   const allPluginCommands = useFlatPluginCommands();
-  const { containerRef, onScroll, scrollToBottom, isAtBottom } = useScrollController({
-    channelId,
-    messages,
-    fetching,
-    hasMore,
-    loadMore,
-    detached,
-    loadNewer
-  });
+  const { containerRef, onScroll, scrollToBottom, isAtBottom } =
+    useScrollController({
+      channelId,
+      messages,
+      fetching,
+      hasMore,
+      loadMore,
+      detached,
+      loadNewer
+    });
   const can = useCan();
   const channelCan = useChannelCan(channelId);
   const previewMode = usePreviewMode();
@@ -220,7 +232,9 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   );
 
   const [multilineMode, setMultilineMode] = useState(false);
-  const [composerHeight, setComposerHeight] = useState(MIN_COMPOSER_HEIGHT * 1.4);
+  const [composerHeight, setComposerHeight] = useState(
+    MIN_COMPOSER_HEIGHT * 1.4
+  );
 
   const sendGif = useCallback(
     async (gifUrl: string) => {
@@ -245,7 +259,11 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           replyToId
         });
       } else {
-        await trpc.messages.send.mutate({ content: gifUrl, channelId, replyToId });
+        await trpc.messages.send.mutate({
+          content: gifUrl,
+          channelId,
+          replyToId
+        });
       }
       playSound(SoundType.MESSAGE_SENT);
     },
@@ -489,14 +507,17 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
               ));
 
           const currentDay = new Date(group[0].createdAt).toDateString();
-          const prevDay = index > 0
-            ? new Date(groupedMessages[index - 1][0].createdAt).toDateString()
-            : null;
+          const prevDay =
+            index > 0
+              ? new Date(groupedMessages[index - 1][0].createdAt).toDateString()
+              : null;
           const showDateDivider = prevDay !== null && currentDay !== prevDay;
 
           return (
             <div key={index} className="message-group-window">
-              {showDateDivider && <DateDivider timestamp={group[0].createdAt} />}
+              {showDateDivider && (
+                <DateDivider timestamp={group[0].createdAt} />
+              )}
               {showDivider && <NewMessagesDivider />}
               {isSystemLikeMessage(group[0]) ? (
                 <SystemMessage message={group[0]} />
@@ -543,136 +564,142 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
           </Button>
         </div>
       ) : (
-      <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
-        {replyingTo && (
-          <ReplyBar
-            message={replyingTo}
-            onDismiss={() => setReplyingTo(null)}
-          />
-        )}
-        {uploading && (
-          <div className="flex items-center gap-2">
-            <div className="text-xs text-muted-foreground mb-1">
-              Uploading files ({filesize(uploadingSize)})
+        <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
+          {replyingTo && (
+            <ReplyBar
+              message={replyingTo}
+              onDismiss={() => setReplyingTo(null)}
+            />
+          )}
+          {uploading && (
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-muted-foreground mb-1">
+                Uploading files ({filesize(uploadingSize)})
+              </div>
+              <Spinner size="xxs" />
             </div>
-            <Spinner size="xxs" />
-          </div>
-        )}
-        {files.length > 0 && (
-          <div className="flex gap-1 flex-wrap">
-            {files.map((file) => (
-              <FileCard
-                key={file.id}
-                name={file.originalName}
-                extension={file.extension}
-                size={file.size}
-                onRemove={() => onRemoveFileClick(file.id)}
-              />
-            ))}
-          </div>
-        )}
-        <UsersTyping channelId={channelId} />
-        {slowModeRemaining > 0 && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="w-3 h-3" />
-            <span>Slow mode: {slowModeRemaining}s remaining</span>
-          </div>
-        )}
-        <FormattingHints />
-        {multilineMode && (
-          <ComposerResizer
-            height={composerHeight}
-            onHeightChange={setComposerHeight}
-          />
-        )}
-        <ComposerExpandToggle
-          expanded={multilineMode}
-          onToggle={() => setMultilineMode((m) => !m)}
-        />
-        <div
-          ref={inputAreaRef}
-          // `transition-[border-color,box-shadow]` rather than
-          // `transition-all`: the multiline mode binds `height` to a
-          // drag handle, and `transition-all` would animate every
-          // frame of the drag (200ms behind the cursor) — extremely
-          // laggy. Scoping the transition to focus-affordances keeps
-          // height instant while the focus glow still fades smoothly.
-          className={cn(
-            'flex gap-2 rounded-xl bg-secondary border border-transparent shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
-            // Single-line: vertically center icons relative to the
-            // input baseline. Multiline: anchor icons to the TOP so
-            // they line up with the first line of typed text and the
-            // emoji button rendered inside TiptapInput (which sits
-            // at the top of the editor area). Anchoring to the
-            // bottom would split the icons across the composer
-            // height and look disconnected.
-            multilineMode ? 'items-start' : 'items-center'
           )}
-          style={multilineMode ? { height: composerHeight } : undefined}
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest('button')) return;
-            const pm = e.currentTarget.querySelector('.ProseMirror');
-            if (pm instanceof HTMLElement) pm.focus();
-          }}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={onFileInputChange}
-          />
-          {can(Permission.UPLOAD_FILES) && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading || !canSendMessages}
-              aria-label="Attach files"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+          {files.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {files.map((file) => (
+                <FileCard
+                  key={file.id}
+                  name={file.originalName}
+                  extension={file.extension}
+                  size={file.size}
+                  onRemove={() => onRemoveFileClick(file.id)}
+                />
+              ))}
+            </div>
           )}
-          <TiptapInput
-            value={newMessage}
-            placeholder={`Message #${currentChannel?.name ?? selectedChannel?.name ?? 'channel'}`}
-            onChange={setNewMessage}
-            onSubmit={onSendMessage}
-            onTyping={sendTypingSignal}
-            disabled={uploading || !canSendMessages || slowModeRemaining > 0}
-            commands={pluginCommands}
-            multilineMode={multilineMode}
+          <UsersTyping channelId={channelId} />
+          {slowModeRemaining > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              <span>Slow mode: {slowModeRemaining}s remaining</span>
+            </div>
+          )}
+          <FormattingHints />
+          {multilineMode && (
+            <ComposerResizer
+              height={composerHeight}
+              onHeightChange={setComposerHeight}
+            />
+          )}
+          <ComposerExpandToggle
+            expanded={multilineMode}
+            onToggle={() => setMultilineMode((m) => !m)}
           />
-          {isGiphyEnabled() && (
-            <GifPicker onSelect={onGifSelect}>
+          <div
+            ref={inputAreaRef}
+            // `transition-[border-color,box-shadow]` rather than
+            // `transition-all`: the multiline mode binds `height` to a
+            // drag handle, and `transition-all` would animate every
+            // frame of the drag (200ms behind the cursor) — extremely
+            // laggy. Scoping the transition to focus-affordances keeps
+            // height instant while the focus glow still fades smoothly.
+            className={cn(
+              'composer-box flex gap-2 rounded-2xl bg-card border border-border/70 px-3 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden shadow-[0_10px_30px_-24px_rgb(0_0_0/0.8)]',
+              // Single-line: vertically center icons relative to the
+              // input baseline. Multiline: anchor icons to the TOP so
+              // they line up with the first line of typed text and the
+              // emoji button rendered inside TiptapInput (which sits
+              // at the top of the editor area). Anchoring to the
+              // bottom would split the icons across the composer
+              // height and look disconnected.
+              multilineMode ? 'items-start' : 'items-center'
+            )}
+            style={multilineMode ? { height: composerHeight } : undefined}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('button')) return;
+              const pm = e.currentTarget.querySelector('.ProseMirror');
+              if (pm instanceof HTMLElement) pm.focus();
+            }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={onFileInputChange}
+            />
+            {can(Permission.UPLOAD_FILES) && (
               <Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                disabled={!canSendMessages}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || !canSendMessages}
+                aria-label="Attach files"
               >
-                <span className="text-[10px] font-bold">GIF</span>
+                <Plus className="h-5 w-5" />
               </Button>
-            </GifPicker>
-          )}
-          <Button
-            size="icon"
-            variant="ghost"
-            className={cn(
-              'h-8 w-8 shrink-0 transition-colors',
-              isHtmlEmpty(newMessage) || !canSendMessages
-                ? 'text-muted-foreground'
-                : 'text-primary hover:text-primary/80'
             )}
-            onClick={onSendMessage}
-            disabled={uploading || isHtmlEmpty(newMessage) || !canSendMessages || slowModeRemaining > 0}
-            aria-label="Send message"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
+            <TiptapInput
+              toolbar
+              value={newMessage}
+              placeholder={`Write to #${currentChannel?.name ?? selectedChannel?.name ?? 'channel'}`}
+              onChange={setNewMessage}
+              onSubmit={onSendMessage}
+              onTyping={sendTypingSignal}
+              disabled={uploading || !canSendMessages || slowModeRemaining > 0}
+              commands={pluginCommands}
+              multilineMode={multilineMode}
+            />
+            {isGiphyEnabled() && (
+              <GifPicker onSelect={onGifSelect}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+                  disabled={!canSendMessages}
+                >
+                  <span className="text-[10px] font-bold">GIF</span>
+                </Button>
+              </GifPicker>
+            )}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={cn(
+                'h-8 w-8 shrink-0 transition-colors',
+                isHtmlEmpty(newMessage) || !canSendMessages
+                  ? 'text-muted-foreground'
+                  : 'text-primary hover:text-primary/80'
+              )}
+              onClick={onSendMessage}
+              disabled={
+                uploading ||
+                isHtmlEmpty(newMessage) ||
+                !canSendMessages ||
+                slowModeRemaining > 0
+              }
+              aria-label="Send message"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
-      </div>
       )}
     </>
   );

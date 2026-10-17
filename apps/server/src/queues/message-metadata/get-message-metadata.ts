@@ -181,9 +181,23 @@ export const processMessageMetadata = async (
   messageId: number,
   fetchPreview?: TLinkPreviewFetcher
 ) => {
-  const metadata = await urlMetadataParser(content, fetchPreview);
+  const previews = await urlMetadataParser(content, fetchPreview);
 
-  if (metadata.length === 0) return null;
+  if (previews.length === 0) return null;
+
+  // A webhook or plugin persona (display name + avatar) rides in the
+  // same column as a `webhook` entry; previews are added next to it,
+  // never written over it, or the author line would revert to the
+  // account the row is stored under.
+  const [current] = await db
+    .select({ metadata: messages.metadata })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .limit(1);
+  const persona = (current?.metadata ?? []).filter(
+    (entry) => entry.mediaType === 'webhook'
+  );
+  const metadata = [...persona, ...previews];
 
   const [updatedMessage] = await db
     .update(messages)

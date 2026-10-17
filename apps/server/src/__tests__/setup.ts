@@ -10,9 +10,10 @@ import { dmMessageMetadataQueue } from '../queues/dm-message-metadata';
 import { drainQueue } from '../queues/drain';
 import { loginsQueue } from '../queues/logins';
 import { messageMetadataQueue } from '../queues/message-metadata';
+import { VoiceRuntime } from '../runtimes/voice';
+import { loadBannedUsersCache } from '../utils/banned-cache';
 import { loadMediasoup } from '../utils/mediasoup';
 import { client, dbProxy, getTestDb } from './mock-db';
-import { loadBannedUsersCache } from '../utils/banned-cache';
 import { seedDatabase } from './seed';
 import { TRUNCATE_ALL_SQL } from './truncate';
 
@@ -173,6 +174,12 @@ beforeEach(async () => {
     })
   );
 
+  // Voice rooms are process memory too: a room one test file left open
+  // keeps its channel id, and the next file's reseed hands that id to a
+  // different channel — a "no room exists" assertion then fails on a
+  // stranger's room. Close every runtime before the fresh rows land.
+  await VoiceRuntime.destroyAll();
+
   // The banned-user cache is process memory: a ban in one test file would
   // otherwise follow the (re-seeded) user id into every later file in the
   // same process. Re-scan after each reseed so it mirrors the fresh rows.
@@ -219,4 +226,4 @@ afterAll(async () => {
   }
 });
 
-export { dbProxy as tdb, getTestDb, testsBaseUrl };
+export { getTestDb, dbProxy as tdb, testsBaseUrl };

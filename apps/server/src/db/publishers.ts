@@ -4,6 +4,7 @@ import {
   ServerEvents,
   UserStatus
 } from '@pulse/shared';
+import type { TImportJobView } from '../types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '.';
 import { logger } from '../logger';
@@ -16,6 +17,7 @@ import {
   getForumUnreadForUsers
 } from './queries/channels';
 import { getEmojiById } from './queries/emojis';
+import { getEventRosterCounts } from './queries/events';
 import { getMessage } from './queries/messages';
 import { getRole } from './queries/roles';
 import {
@@ -26,6 +28,7 @@ import { getPublicUserById } from './queries/users';
 import {
   categories,
   channels,
+  events,
   serverMembers,
   servers,
   threadFollowers
@@ -469,6 +472,72 @@ const publishPluginCommands = async () => {
 };
 
 /**
+ * Scheduled events go to every member of their server (the row itself,
+ * so a client can upsert it); a cancellation carries only the ids. The
+ * serverId is required for 'delete' because the row is still there
+ * (status 'cancelled'), but callers already hold it and the delete path
+ * must not depend on a second read.
+ */
+const publishEvent = async (
+  eventId: number | undefined,
+  type: 'create' | 'update' | 'delete',
+  serverId?: number
+) => {
+  if (!eventId) return;
+
+  if (type === 'delete') {
+    if (!serverId) return;
+    const memberIds = await getServerMemberIds(serverId);
+    pubsub.publishFor(memberIds, ServerEvents.EVENT_DELETE, {
+      eventId,
+      serverId
+    });
+    return;
+  }
+
+  const [event] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1);
+
+  if (!event) return;
+
+  const targetEvent =
+    type === 'create' ? ServerEvents.EVENT_CREATE : ServerEvents.EVENT_UPDATE;
+
+  const memberIds = await getServerMemberIds(event.serverId);
+  pubsub.publishFor(memberIds, targetEvent, event);
+};
+
+/**
+ * Roster counts after any signup change (signup, decline, withdraw,
+ * manual promotion, auto-promote, role edit). Every member gets them —
+ * the calendar list shows "12/20" next to each event — while the full
+ * roster is fetched on demand through events.get.
+ */
+const publishEventSignups = async (eventId: number | undefined) => {
+  if (!eventId) return;
+
+  const [event] = await db
+    .select({ id: events.id, serverId: events.serverId })
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1);
+
+  if (!event) return;
+
+  const counts = (await getEventRosterCounts([event.id])).get(event.id)!;
+  const memberIds = await getServerMemberIds(event.serverId);
+
+  pubsub.publishFor(memberIds, ServerEvents.EVENT_SIGNUPS_UPDATE, {
+    eventId: event.id,
+    serverId: event.serverId,
+    counts
+  });
+};
+
+/**
  * Publishers are fire-and-forget fan-out — callers neither await nor
  * catch them. An internal query losing a deadlock (e.g. against the
  * test harness's between-test TRUNCATE, or any future lock contention)
@@ -476,6 +545,17 @@ const publishPluginCommands = async () => {
  * publishMessage already guards internally; this wraps the rest at the
  * export boundary.
  */
+/**
+ * Community import progress goes to the one person who can act on it:
+ * the owner who started the job. Everyone else sees the imported rows
+ * arrive through the ordinary CHANNEL/ROLE/EMOJI/USER events.
+ */
+const publishImportProgress = async (view: TImportJobView) => {
+  if (view.createdBy === null) return;
+
+  pubsub.publishFor([view.createdBy], ServerEvents.IMPORT_PROGRESS, view);
+};
+
 const swallowRejection = <A extends unknown[], R>(
   name: string,
   fn: (...args: A) => Promise<R>
@@ -501,6 +581,15 @@ const guardedPublishChannelPermissions = swallowRejection(
   publishChannelPermissions
 );
 const guardedPublishEmoji = swallowRejection('publishEmoji', publishEmoji);
+const guardedPublishEvent = swallowRejection('publishEvent', publishEvent);
+const guardedPublishEventSignups = swallowRejection(
+  'publishEventSignups',
+  publishEventSignups
+);
+const guardedPublishImportProgress = swallowRejection(
+  'publishImportProgress',
+  publishImportProgress
+);
 const guardedPublishPluginCommands = swallowRejection(
   'publishPluginCommands',
   publishPluginCommands
@@ -514,6 +603,9 @@ export {
   guardedPublishChannelVisibility as publishChannelVisibility,
   guardedPublishChannelPermissions as publishChannelPermissions,
   guardedPublishEmoji as publishEmoji,
+  guardedPublishEvent as publishEvent,
+  guardedPublishEventSignups as publishEventSignups,
+  guardedPublishImportProgress as publishImportProgress,
   publishMessage,
   guardedPublishPluginCommands as publishPluginCommands,
   guardedPublishRole as publishRole,

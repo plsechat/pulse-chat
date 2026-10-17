@@ -64,8 +64,31 @@ echo "[entrypoint] AUTH_BACKEND=$AUTH_BACKEND_RESOLVED"
 # same whichever uid the container was started with.
 export HOME=/root
 PULSE_DATA_DIR=/root/.config/pulse
+
+# Official plugins bundled in the image (/opt/pulse/plugins/<id>) are
+# refreshed into the data directory's plugins/ folder on every boot, so
+# an image upgrade carries the plugin along. Only the shipped files are
+# replaced; anything else in the plugin's folder (its state file) stays,
+# and whether the plugin runs is a database flag the instance owner
+# controls — a freshly copied plugin is off until switched on.
+sync_official_plugins() {
+  [ -d /opt/pulse/plugins ] || return 0
+  for src in /opt/pulse/plugins/*/; do
+    [ -d "$src" ] || continue
+    name="$(basename "$src")"
+    dest="$PULSE_DATA_DIR/plugins/$name"
+    mkdir -p "$dest"
+    cp -R "$src". "$dest/"
+    echo "[entrypoint] official plugin $name -> $dest"
+  done
+}
+
 if [ "$(id -u)" -eq 0 ]; then
   mkdir -p "$PULSE_DATA_DIR"
+  sync_official_plugins
+  if [ -d "$PULSE_DATA_DIR/plugins" ]; then
+    chown -R pulse:pulse "$PULSE_DATA_DIR/plugins"
+  fi
   if [ "$(stat -c %U "$PULSE_DATA_DIR")" != "pulse" ]; then
     echo "[entrypoint] chown $PULSE_DATA_DIR -> pulse"
     chown -R pulse:pulse "$PULSE_DATA_DIR"
@@ -78,4 +101,5 @@ if [ "$(id -u)" -eq 0 ]; then
   exec chroot --userspec=pulse:pulse --groups=pulse / /pulse
 fi
 
+sync_official_plugins
 exec /pulse

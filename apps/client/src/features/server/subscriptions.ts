@@ -5,6 +5,7 @@ import {
   saveFederatedServers
 } from '@/features/app/actions';
 import { subscribeToDms } from '@/features/dms/subscriptions';
+import { subscribeToEvents } from '@/features/events/subscriptions';
 import { subscribeToFriends } from '@/features/friends/subscriptions';
 import { connectionManager } from '@/lib/connection-manager';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
@@ -296,7 +297,8 @@ const initSubscriptions = () => {
     subscribeToUsers,
     subscribeToMessages,
     subscribeToCategories,
-    subscribeToPlugins
+    subscribeToPlugins,
+    subscribeToEvents
   ];
 
   return combineUnsubscribes(

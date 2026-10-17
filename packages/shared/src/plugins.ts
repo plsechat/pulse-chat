@@ -5,6 +5,17 @@
  * schema is the server's plugins/package-json-schema.ts, which is
  * type-checked against this shape.
  */
+/**
+ * Elevated powers a plugin asks for in its package.json. Without the
+ * declaration an action stays scoped to what the plugin itself created
+ * (its own posted messages); the instance owner sees the list before
+ * enabling the plugin.
+ *
+ * - `moderate-messages`: edit, delete and react to ANY channel message,
+ *   not only the ones the plugin posted.
+ */
+export type TPluginCapability = "moderate-messages";
+
 export type TPluginPackageJson = {
   version: string;
   name: string;
@@ -20,6 +31,8 @@ export type TPluginPackageJson = {
     homepage?: string;
     description: string;
     logo?: string;
+    /** See TPluginCapability. Absent = none. */
+    capabilities?: TPluginCapability[];
   };
 };
 
@@ -38,6 +51,8 @@ export type TPluginInfo = {
   homepage?: TPluginPackageJson["pulse"]["homepage"];
   path: string;
   entry: string;
+  /** Declared capabilities (empty when the manifest declares none). */
+  capabilities: TPluginCapability[];
 };
 
 export type TLogEntry = {
@@ -132,4 +147,10 @@ export type TPluginSettingDefinition = {
 export type TPluginSettingsResponse = {
   definitions: TPluginSettingDefinition[];
   values: Record<string, unknown>;
+  /**
+   * The secret external callers must send in `x-pulse-plugin-secret`
+   * to reach the plugin's HTTP endpoints. Present once the plugin has
+   * registered an endpoint; instance owner only (the settings route).
+   */
+  httpSecret?: string;
 };

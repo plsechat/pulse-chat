@@ -8,30 +8,29 @@ import { IS_PRODUCTION, SERVER_VERSION } from './utils/env';
 // ----------------------------------------
 import { ActivityLogType } from '@pulse/shared';
 import chalk from 'chalk';
-import { config, SERVER_PRIVATE_IP } from './config';
-import { loadCrons } from './crons';
-import { loadDb } from './db';
-import { warmFileHmacSecret } from './db/queries/server';
-import { fileManager } from './utils/file-manager';
-import { pluginManager } from './plugins';
-import { loadBannedUsersCache } from './utils/banned-cache';
-import { startMetricsSampler } from './utils/metrics';
-import { enqueueActivityLog } from './queues/activity-log';
-import { initVoiceRuntimes } from './runtimes';
-import { createServers } from './utils/create-servers';
-import { closeMediasoup, loadMediasoup } from './utils/mediasoup';
-import { logger } from './logger';
-import { printDebug } from './utils/print-debug';
-import { activityLogQueue } from './queues/activity-log';
-import { dmMessageMetadataQueue } from './queues/dm-message-metadata';
-import { drainQueue } from './queues/drain';
-import { loginsQueue } from './queues/logins';
-import { messageMetadataQueue } from './queues/message-metadata';
-import { VoiceRuntime } from './runtimes/voice';
-import { db } from './db';
-import { runShutdownSequence } from './utils/shutdown';
 import type http from 'http';
 import type { Sql } from 'postgres';
+import { config, SERVER_PRIVATE_IP } from './config';
+import { loadCrons } from './crons';
+import { db, loadDb } from './db';
+import { warmFileHmacSecret } from './db/queries/server';
+import { logger } from './logger';
+import { pluginManager } from './plugins';
+import { activityLogQueue, enqueueActivityLog } from './queues/activity-log';
+import { dmMessageMetadataQueue } from './queues/dm-message-metadata';
+import { drainQueue } from './queues/drain';
+import { resumeInterruptedImportJobs } from './queues/import';
+import { loginsQueue } from './queues/logins';
+import { messageMetadataQueue } from './queues/message-metadata';
+import { initVoiceRuntimes } from './runtimes';
+import { VoiceRuntime } from './runtimes/voice';
+import { loadBannedUsersCache } from './utils/banned-cache';
+import { createServers } from './utils/create-servers';
+import { fileManager } from './utils/file-manager';
+import { closeMediasoup, loadMediasoup } from './utils/mediasoup';
+import { startMetricsSampler } from './utils/metrics';
+import { printDebug } from './utils/print-debug';
+import { runShutdownSequence } from './utils/shutdown';
 
 console.log('[pulse] Connecting to database...');
 try {
@@ -101,6 +100,9 @@ try {
 console.log('[pulse] Starting cron jobs...');
 try {
   await loadCrons();
+  // An import a restart interrupted continues on its own (non-fatal: a
+  // failure here is logged by the queue, the wizard can also resume it).
+  void resumeInterruptedImportJobs();
 } catch (e) {
   console.error('[pulse] FATAL: Cron job initialization failed:', e);
   process.exit(1);

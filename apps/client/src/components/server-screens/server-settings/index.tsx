@@ -20,8 +20,10 @@ import { useOwnUserId } from '@/features/server/users/hooks';
 import {
   Activity,
   Bot,
+  CalendarDays,
   ChevronLeft,
   DoorOpen,
+  Download,
   Flag,
   Globe,
   HardDrive,
@@ -44,6 +46,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { AutoMod } from './automod';
 import { Emojis } from './emojis';
+import { Events } from './events';
 import { Federation } from './federation';
 import { InstanceActivity } from './instance-activity';
 import { InstanceHealth } from './instance-health';
@@ -57,9 +60,14 @@ import { InstanceServers } from './instance-servers';
 import { InstanceUsers } from './instance-users';
 import { ServerReports } from './reports';
 import { General } from './general';
+import { Import } from './import';
 import { Invites } from './invites';
 import { Nameplates } from './nameplates';
-import { SECTION_PERMISSIONS, type TPermissionedSection } from './permissions';
+import {
+  SECTION_PERMISSIONS,
+  type TOwnerSection,
+  type TPermissionedSection
+} from './permissions';
 import { Roles } from './roles';
 import { Users } from './users';
 import { Webhooks } from './webhooks';
@@ -77,7 +85,10 @@ type InstanceSection =
   | 'instance-plugins'
   | 'instance-logs';
 
-export type TServerSettingsSection = TPermissionedSection | InstanceSection;
+export type TServerSettingsSection =
+  | TPermissionedSection
+  | TOwnerSection
+  | InstanceSection;
 type Section = TServerSettingsSection;
 
 type NavItem = {
@@ -97,6 +108,8 @@ const SECTION_TITLES: Record<Section, string> = {
   nameplates: 'Nameplates',
   webhooks: 'Webhooks',
   automod: 'Auto-Mod',
+  events: 'Events',
+  import: 'Import',
   federation: 'Federation',
   'instance-users': 'All Accounts',
   'instance-servers': 'All Servers',
@@ -120,6 +133,9 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   nameplates: 'Upload nameplate art members can equip.',
   webhooks: 'Post messages from external services.',
   automod: 'Automatic moderation rules.',
+  events: 'Roster templates for the Raid Planner.',
+  import:
+    'Bring a community over from another chat service: channels, roles, emoji, members and history.',
   federation: 'Peer this instance with others.',
   'instance-users':
     'Every account on this instance — ban, unban, or delete any of them.',
@@ -149,6 +165,8 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   nameplates: Nameplates,
   webhooks: Webhooks,
   automod: AutoMod,
+  events: Events,
+  import: Import,
   federation: Federation,
   'instance-users': InstanceUsers,
   'instance-servers': InstanceServers,
@@ -218,6 +236,12 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
             label: 'Reports',
             icon: <Flag className="h-4 w-4" />,
             allowed: can(SECTION_PERMISSIONS['reports'])
+          },
+          {
+            id: 'events',
+            label: 'Events',
+            icon: <CalendarDays className="h-4 w-4" />,
+            allowed: can(SECTION_PERMISSIONS['events'])
           }
         ]
       },
@@ -252,6 +276,14 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
             label: 'Auto-Mod',
             icon: <Bot className="h-4 w-4" />,
             allowed: can(SECTION_PERMISSIONS['automod'])
+          },
+          {
+            // Owner only: an import rewrites the server's name and icon
+            // and mints members, which no role permission should reach.
+            id: 'import',
+            label: 'Import',
+            icon: <Download className="h-4 w-4" />,
+            allowed: isOwner
           }
         ]
       },
@@ -338,7 +370,7 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
         items: cat.items.filter((item) => item.allowed)
       }))
       .filter((cat) => cat.items.length > 0);
-  }, [can, activeInstanceDomain, isInstanceOwner]);
+  }, [can, activeInstanceDomain, isInstanceOwner, isOwner]);
 
   const firstAllowed = navSections[0]?.items[0]?.id ?? 'general';
   const isAllowed = useCallback(

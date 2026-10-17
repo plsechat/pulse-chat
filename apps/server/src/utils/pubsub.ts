@@ -12,6 +12,9 @@ import type {
 import type {
   TCategory,
   TChannel,
+  TEvent,
+  TEventRosterCounts,
+  TImportJobView,
   TJoinedDmMessage,
   TJoinedEmoji,
   TJoinedFriendRequest,
@@ -330,6 +333,28 @@ type Events = {
     blockedUserId: number;
     blocked: boolean;
   };
+
+  // Scheduled community events: rows and roster counts go to every
+  // member of the server; a reminder goes only to the signed-up members.
+  [ServerEvents.EVENT_CREATE]: TEvent;
+  [ServerEvents.EVENT_UPDATE]: TEvent;
+  [ServerEvents.EVENT_DELETE]: { eventId: number; serverId: number };
+  [ServerEvents.EVENT_SIGNUPS_UPDATE]: {
+    eventId: number;
+    serverId: number;
+    counts: TEventRosterCounts;
+  };
+  [ServerEvents.EVENT_REMINDER]: {
+    eventId: number;
+    serverId: number;
+    title: string;
+    startsAt: number;
+    stage: 1 | 2 | 3;
+  };
+
+  // Community import: the owner who started the job gets the full view
+  // after every persisted page.
+  [ServerEvents.IMPORT_PROGRESS]: TImportJobView;
 };
 
 class PubSub {

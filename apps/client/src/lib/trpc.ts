@@ -1,17 +1,22 @@
 import { resetApp } from '@/features/app/actions';
 import { resetDialogs } from '@/features/dialogs/actions';
 import { resetDmsState } from '@/features/dms/actions';
+import { resetEventsState } from '@/features/events/actions';
 import { resetFriendsState } from '@/features/friends/actions';
 import { resetServerScreens } from '@/features/server-screens/actions';
 import { resetServerState, setDisconnectInfo } from '@/features/server/actions';
 import { store } from '@/features/store';
-import { clearSession, getAccessToken } from '@/lib/supabase';
 import { connectionManager } from '@/lib/connection-manager';
 import { createHomeSocketManager } from '@/lib/home-socket';
-import { startReconnecting, stopReconnecting, isCurrentlyReconnecting } from '@/lib/reconnect';
+import {
+  isCurrentlyReconnecting,
+  startReconnecting,
+  stopReconnecting
+} from '@/lib/reconnect';
+import { clearSession, getAccessToken } from '@/lib/supabase';
 import { resolveVoiceTRPCClient } from '@/lib/voice-client';
-import { DisconnectCode } from '@pulse/shared';
 import type { AppRouter } from '@pulse/server/types';
+import { DisconnectCode } from '@pulse/shared';
 
 import { toast } from 'sonner';
 
@@ -26,6 +31,7 @@ const fullTeardown = () => {
   resetDialogs();
   resetFriendsState();
   resetDmsState();
+  resetEventsState();
   resetApp();
 };
 
@@ -57,7 +63,9 @@ const homeSocket = createHomeSocketManager({
     setDisconnectInfo({
       code,
       reason:
-        code === DisconnectCode.SESSION_REVOKED ? SESSION_REVOKED_MESSAGE : reason,
+        code === DisconnectCode.SESSION_REVOKED
+          ? SESSION_REVOKED_MESSAGE
+          : reason,
       wasClean,
       time: new Date()
     });

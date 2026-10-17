@@ -39,6 +39,7 @@ import {
 import { federationMemberRemovedHandler } from './federation-member-removed';
 import { federationSharesServerHandler } from './federation-shares-server';
 import { federationUserInfoUpdateHandler } from './federation-user-info-update';
+import { eventsIcsRouteHandler } from './events-ics';
 import { healthRouteHandler } from './healthz';
 import { JsonBodyTooLargeError } from './helpers';
 import { infoRouteHandler } from './info';
@@ -54,11 +55,15 @@ import {
   authRateLimit,
   federationRateLimit,
   federationReadRateLimit,
+  pluginHttpIdRateLimit,
+  pluginHttpRateLimit,
   publicRateLimit,
   uploadRateLimit,
   webhookIdRateLimit,
   webhookRateLimit
 } from './rate-limit-core';
+import { parsePluginHttpUrl } from '../plugins/http';
+import { pluginManager } from '../plugins';
 import { registerRouteHandler } from './register';
 import { uploadFileRouteHandler } from './upload';
 import { HttpValidationError } from './utils';
@@ -399,6 +404,62 @@ const createHttpServer = async (port: number = config.server.port) => {
           }
 
           return await webhookRouteHandler(req, res, webhookId, match[2]!);
+        }
+
+        // Calendar feed: credential-in-URL (see events-ics.ts), so it
+        // shares the public-file brake per source address.
+        if (req.method === 'GET' && req.url?.startsWith('/events/')) {
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              publicRateLimit,
+              `${getClientIp(req)}:/events`
+            )
+          ) {
+            return;
+          }
+          return await eventsIcsRouteHandler(req, res);
+        }
+
+        // Plugin HTTP ingress (`ctx.http.register`). Same two budgets as
+        // webhooks: per source address for this plugin, and per plugin
+        // across every source. The secret check is inside the handler.
+        if (
+          (req.method === 'POST' || req.method === 'GET') &&
+          req.url?.startsWith('/plugins/')
+        ) {
+          const parsed = parsePluginHttpUrl(req.url);
+
+          if (!parsed) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Not found' }));
+            return;
+          }
+
+          const ip = getClientIp(req);
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              pluginHttpRateLimit,
+              `${ip}:/plugins/${parsed.pluginId}`
+            )
+          ) {
+            return;
+          }
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              pluginHttpIdRateLimit,
+              `plugin-id:${parsed.pluginId}`
+            )
+          ) {
+            return;
+          }
+
+          return await pluginManager.handleHttpRequest(req, res, parsed);
         }
 
         if (req.method === 'GET' && req.url?.startsWith('/public')) {

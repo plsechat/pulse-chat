@@ -14,6 +14,7 @@ import {
 } from '../db/queries/users';
 import { users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
+import { claimExternalIdentity, providerIdentityFromAuth } from '../import/placeholders';
 import { logger } from '../logger';
 import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
 import { getJsonBody } from './helpers';
@@ -62,6 +63,17 @@ const provisionRouteHandler = async (
     | undefined;
   const displayName = meta?.full_name || meta?.name || meta?.preferred_username || undefined;
   const existingUser = await getUserBySupabaseId(supabaseUserId);
+  // An OAuth sign-in names who this person is on the provider; if a
+  // community import left a placeholder for that identity, the account
+  // takes its history over (import/placeholders.ts). Never fatal for
+  // the sign-in itself.
+  const providerIdentity = providerIdentityFromAuth(identity);
+  const claimHistory = async (userId: number) => {
+    if (!providerIdentity) return;
+    await claimExternalIdentity(providerIdentity, userId).catch((err) =>
+      logger.warn('[provision] identity claim failed for user %d:', userId, err)
+    );
+  };
 
   if (existingUser) {
     if (existingUser.banned) {
@@ -70,6 +82,8 @@ const provisionRouteHandler = async (
         `Account banned: ${existingUser.banReason || 'No reason provided'}`
       );
     }
+
+    await claimHistory(existingUser.id);
 
     // Update display name if the user still has a generic name and OAuth provides a better one
     if (displayName && existingUser.name === 'New User') {
@@ -147,6 +161,9 @@ const provisionRouteHandler = async (
   }
 
   logger.info(`Provisioned new app user for Supabase ID ${supabaseUserId}`);
+
+  const created = await getUserBySupabaseId(supabaseUserId);
+  if (created) await claimHistory(created.id);
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ success: true }));

@@ -55,6 +55,15 @@
       "project": [
         "src/**/*.ts"
       ]
+    },
+    "packages/plugins/discord-bridge": {
+      "entry": [
+        "src/index.ts",
+        "src/**/__tests__/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
     }
   },
   "ignore": [

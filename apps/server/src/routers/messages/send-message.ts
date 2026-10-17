@@ -17,6 +17,7 @@ import { getInvokerCtxFromTrpcCtx } from '../../helpers/get-invoker-ctx-from-trp
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
 import { parseCommandArgs } from '../../helpers/parse-command-args';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
+import { logger } from '../../logger';
 import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
@@ -27,10 +28,9 @@ import {
   executeAutomodActions
 } from '../../utils/automod';
 import { fileManager } from '../../utils/file-manager';
-import { invariant } from '../../utils/invariant';
-import { logger } from '../../logger';
-import { channelProcedure } from '../../utils/procedures';
 import { resolveForwardSource } from '../../utils/forward-source';
+import { invariant } from '../../utils/invariant';
+import { channelProcedure } from '../../utils/procedures';
 
 /**
  * Bounds on the attachment list: each id is a `saveFile` (disk + DB
@@ -259,7 +259,10 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
                     publishMessage(messageId, input.channelId, 'update');
                   })
                   .catch((err) => {
-                    logger.error('[Plugin] Failed to update command message: %o', err);
+                    logger.error(
+                      '[Plugin] Failed to update command message: %o',
+                      err
+                    );
                   });
               };
 
@@ -334,6 +337,7 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
 
     commandExecutor?.(message!.id);
 
+    const attachments: { name: string; url: string; size: number }[] = [];
     if (input.files && input.files.length > 0) {
       for (const tempFileId of input.files) {
         const newFile = await fileManager.saveFile(tempFileId, ctx.userId);
@@ -342,6 +346,11 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
           messageId: message!.id,
           fileId: newFile.id,
           createdAt: Date.now()
+        });
+        attachments.push({
+          name: newFile.name,
+          url: `/public/${newFile.name}`,
+          size: newFile.size
         });
       }
     }
@@ -355,7 +364,9 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
         messageId: message!.id,
         channelId: input.channelId,
         userId: ctx.userId,
-        content: targetContent
+        content: targetContent,
+        replyToId: message!.replyToId ?? null,
+        attachments
       });
     }
 

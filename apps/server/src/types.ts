@@ -24,6 +24,7 @@ import type {
 import type {
   activityLog,
   automodRules,
+  bridgeLinks,
   categories,
   channelNotificationSettings,
   channelReadStates,
@@ -38,6 +39,10 @@ import type {
   dmReadStates,
   e2eeSenderKeys,
   emojis,
+  eventRosterTemplates,
+  eventSignups,
+  events,
+  externalIdentities,
   federationInstances,
   federationKeys,
   files,
@@ -45,12 +50,14 @@ import type {
   forumTags,
   friendRequests,
   friendships,
+  importJobs,
   invites,
   logins,
   messageFiles,
   messageReactions,
   messages,
   nameplates,
+  pluginMessageLinks,
   rolePermissions,
   roles,
   serverMembers,
@@ -560,4 +567,160 @@ export type TActivityLogDetailsMap = {
 export type TActivityLogDetails<T extends ActivityLogType = ActivityLogType> = {
   type: T;
   details: TActivityLogDetailsMap[T];
+};
+
+// -------------------- EVENTS (raid planner) --------------------
+export type TEvent = InferSelectModel<typeof events>;
+export type TEventSignup = InferSelectModel<typeof eventSignups>;
+export type TEventRosterTemplate = InferSelectModel<typeof eventRosterTemplates>;
+/** One roster slot definition; `cap` null = unlimited. */
+export type TEventRole = TEvent['roles'][number];
+export type TEventStatus = TEvent['status'];
+export type TEventSignupStatus = TEventSignup['status'];
+/** Roster totals fanned out with EVENT_SIGNUPS_UPDATE and on every list row. */
+export type TEventRosterCounts = {
+  byRole: Record<string, { confirmed: number; bench: number }>;
+  confirmed: number;
+  bench: number;
+  declined: number;
+};
+export type TEventListItem = TEvent & {
+  counts: TEventRosterCounts;
+  ownSignup: Pick<TEventSignup, 'roleKey' | 'status' | 'position'> | null;
+};
+export type TEventRoster = {
+  /** In the event's role order; every role is present even when empty. */
+  confirmed: { role: TEventRole; signups: TEventSignup[] }[];
+  /** Bench order = promotion order. A benched signup whose role was removed keeps its old key. */
+  bench: TEventSignup[];
+  declined: number;
+};
+export type TEventDetail = {
+  event: TEvent;
+  counts: TEventRosterCounts;
+  roster: TEventRoster;
+  host: Pick<TJoinedPublicUser, 'id' | 'name' | 'avatar'> | null;
+};
+
+// -------------------- PLUGIN SDK --------------------
+/** One row of plugin_message_links: a plugin's own id for a message it posted. */
+export type TPluginMessageLink = InferSelectModel<typeof pluginMessageLinks>;
+
+// -------------------- COMMUNITY IMPORT --------------------
+export type TImportJob = InferSelectModel<typeof importJobs>;
+export type TExternalIdentity = InferSelectModel<typeof externalIdentities>;
+export type TImportJobStatus = TImportJob['status'];
+/** The job's steps, in the order they run. */
+export type TImportStep =
+  | 'guild'
+  | 'categories'
+  | 'channels'
+  | 'roles'
+  | 'emojis'
+  | 'members'
+  | 'pins'
+  | 'threads'
+  | 'messages'
+  | 'events';
+export type TImportStepCounts = {
+  done: number;
+  /** Null until the step knows how much work there is (estimates included). */
+  total: number | null;
+  skipped: number;
+};
+export type TImportError = {
+  step: TImportStep;
+  /** What failed: a channel name, a file name, a member — never an id alone. */
+  ref: string;
+  message: string;
+  at: number;
+};
+export type TImportHistoryOption = 'all' | 'last30days' | 'last1000' | 'none';
+export type TImportOptions = {
+  guildId: string;
+  history: TImportHistoryOption;
+  attachments: 'download' | 'skip';
+  members: 'posters' | 'everyone' | 'nobody';
+  roles: 'import' | 'skip';
+};
+export type TImportGuildSummary = {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  approximateMemberCount: number | null;
+  approximatePresenceCount: number | null;
+};
+/** What the wizard shows while the job runs and after it ends. */
+export type TImportProgressView = {
+  counts: Partial<Record<TImportStep, TImportStepCounts>>;
+  attachments: { done: number; failed: number; skipped: number };
+  errors: TImportError[];
+  stepsDone: TImportStep[];
+  startedAt: number | null;
+  finishedAt: number | null;
+};
+export type TImportJobView = {
+  id: number;
+  serverId: number;
+  createdBy: number | null;
+  source: string;
+  status: TImportJobStatus;
+  step: TImportStep | null;
+  options: TImportOptions | null;
+  progress: TImportProgressView;
+  error: string | null;
+  guild: TImportGuildSummary | null;
+  bot: { id: string; name: string } | null;
+  createdAt: number;
+  updatedAt: number;
+};
+export type TImportBotRequirement = { name: string; why: string };
+export type TImportPreview = {
+  guild: TImportGuildSummary;
+  counts: {
+    categories: number;
+    channels: { text: number; voice: number; forum: number; skipped: number };
+    roles: number;
+    emojis: number;
+    members: number | null;
+    threads: number;
+    scheduledEvents: number;
+    estimatedMessages: number;
+  };
+  estimatedSeconds: number;
+  /** The message estimate under each history depth, for the Options step. */
+  estimateByDepth: Record<TImportHistoryOption, number>;
+  warnings: string[];
+  unreadableChannels: string[];
+};
+
+// -------------------- CHANNEL BRIDGE --------------------
+/** One row of bridge_links: a local channel mirrored to a remote one by an official bridge plugin. */
+export type TBridgeLink = InferSelectModel<typeof bridgeLinks>;
+export type TBridgeDirection = TBridgeLink['direction'];
+/** What the Bridge tab sees: never the webhook token ciphertext. */
+export type TBridgeLinkView = Omit<TBridgeLink, 'webhookTokenCiphertext' | 'pluginId'>;
+export type TBridgeRemoteGuild = { id: string; name: string; iconUrl: string | null };
+export type TBridgeRemoteChannel = {
+  id: string;
+  guildId: string;
+  name: string;
+  parentName: string | null;
+  position: number;
+};
+export type TBridgeStatus = {
+  /** The bridge plugin is loaded; the tab is offered only then. */
+  available: boolean;
+  /** Plaintext text channel (the only kind a bridge can mirror). */
+  bridgeable: boolean;
+  /** A bot token is set in the plugin's settings. */
+  configured: boolean;
+  connected: boolean;
+  botUser: { id: string; name: string } | null;
+  /** The gateway's last error, or the fatal reason it stopped. */
+  lastError: string | null;
+  link: TBridgeLinkView | null;
+  mirroredToday: number;
+  /** The last failure mirroring this channel, if any. */
+  linkError: string | null;
 };

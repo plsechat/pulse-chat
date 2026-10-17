@@ -78,6 +78,28 @@ describe('user preferences', () => {
     expect(result.theme).toBe('light');
   });
 
+  test('appearance.layout round-trips and rejects unknown layouts', async () => {
+    const { caller } = await initTest();
+
+    const defaults = await caller.users.getPreferences();
+    expect(defaults.appearance.layout).toBe('classic');
+
+    const updated = await caller.users.updatePreferences({
+      appearance: { layout: 'deck' }
+    });
+    expect(updated.appearance.layout).toBe('deck');
+    expect((await caller.users.getPreferences()).appearance.layout).toBe(
+      'deck'
+    );
+
+    await expect(
+      caller.users.updatePreferences({
+        // @ts-expect-error -- unknown layout must be refused at the edge
+        appearance: { layout: 'sideways' }
+      })
+    ).rejects.toThrow();
+  });
+
   test('full round-trip: update then get returns same data', async () => {
     const { caller } = await initTest();
 

@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishUser } from '../../db/publishers';
 import { roles, userRoles } from '../../db/schema';
+import { emitMemberRolesChanged } from '../../plugins/emit-roles-changed';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { enqueueActivityLog } from '../../queues/activity-log';
@@ -86,6 +87,7 @@ const removeRoleRoute = serverProcedure(Permission.MANAGE_USERS)
     // re-key every private channel's attachment URLs in this server.
     await rotateFileAccessTokens({ serverId: ctx.activeServerId });
     publishUser(input.userId, 'update');
+    await emitMemberRolesChanged(input.userId, ctx.activeServerId);
 
     enqueueActivityLog({
       type: ActivityLogType.USER_ROLE_REMOVED,

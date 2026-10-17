@@ -19,7 +19,7 @@ import {
  * Runs as the operator (MANAGE_CHANNELS) so archive/delete surfaces render.
  *
  * Composer ambiguity rule: while a thread panel is open there are TWO
- * tiptap composers whose placeholder starts with "Message #" — the shared
+ * tiptap composers whose placeholder starts with "Write to #" — the shared
  * channelComposer() helper strict-mode-fails. Always address thread
  * composers by their EXACT placeholder.
  */
@@ -39,7 +39,7 @@ let page: Page;
 
 function threadComposer(p: Page, name: string) {
   return p.locator(
-    `[contenteditable="true"]:has(p[data-placeholder="Message #${name}"])`
+    `[contenteditable="true"]:has(p[data-placeholder="Write to #${name}"])`
   );
 }
 

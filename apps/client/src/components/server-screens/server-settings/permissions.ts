@@ -21,10 +21,21 @@ export const SECTION_PERMISSIONS = {
   emojis: Permission.MANAGE_EMOJIS,
   nameplates: Permission.MANAGE_EMOJIS,
   webhooks: Permission.MANAGE_WEBHOOKS,
-  automod: Permission.MANAGE_AUTOMOD
+  automod: Permission.MANAGE_AUTOMOD,
+  events: Permission.MANAGE_EVENTS
 } as const satisfies Record<string, Permission>;
 
 export type TPermissionedSection = keyof typeof SECTION_PERMISSIONS;
+
+/**
+ * Sections for the SERVER OWNER alone, gated on identity rather than a
+ * role permission: the community import rewrites the server's name
+ * and icon and mints members. An owner satisfies every permission in
+ * `can()`, so the menu entry needs no extra term below.
+ */
+export const OWNER_SECTIONS = ['import'] as const;
+
+export type TOwnerSection = (typeof OWNER_SECTIONS)[number];
 
 /** ANY-of list for the "Server Settings" menu entry — derived, never typed twice. */
 export const SERVER_SETTINGS_PERMISSIONS: Permission[] = [
