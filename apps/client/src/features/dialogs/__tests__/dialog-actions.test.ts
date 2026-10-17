@@ -1,13 +1,27 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { Dialog } from '@/components/dialogs/dialogs';
-import { closeDialogs, openDialog, resetDialogs } from '@/features/dialogs/actions';
-import { store } from '@/features/store';
+import { createDialogController } from '@/features/dialogs/actions';
+import { dialogSliceReducer } from '@/features/dialogs/slice';
+import { configureStore } from '@reduxjs/toolkit';
+
+// A private store: other suites replace the root store module
+// process-wide, and the timing under test does not need it.
+const makeStore = () => configureStore({ reducer: { dialog: dialogSliceReducer } });
+let store = makeStore();
+let controller = createDialogController((action) => store.dispatch(action));
+const { openDialog, closeDialogs } = {
+  openDialog: (...args: Parameters<typeof controller.openDialog>) => controller.openDialog(...args),
+  closeDialogs: () => controller.closeDialogs()
+};
 
 const dialogState = () => store.getState().dialog;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('dialog close timing', () => {
-  afterEach(() => resetDialogs());
+  beforeEach(() => {
+    store = makeStore();
+    controller = createDialogController((action) => store.dispatch(action));
+  });
 
   test('a close clears the dialog once the fade is over', async () => {
     openDialog(Dialog.CONFIRM_ACTION, { title: 'a' });
