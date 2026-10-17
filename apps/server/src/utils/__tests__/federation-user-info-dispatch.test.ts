@@ -81,6 +81,21 @@ async function seedFederatedPeerWithDmFriend(
   return { shadowId: shadow!.id, instanceId: instance!.id, channelId: channel!.id };
 }
 
+/**
+ * The relay is fire-and-forget; wait for the expected number of
+ * user-info-update calls (bounded) instead of a fixed pause that a
+ * loaded runner overruns.
+ */
+const updatesAmong = (calls: { url: string }[]) =>
+  calls.filter((c) => c.url.includes('/federation/user-info-update'));
+
+const waitForUpdates = async (calls: { url: string }[], n: number) => {
+  for (let i = 0; i < 200 && updatesAmong(calls).length < n; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return updatesAmong(calls);
+};
+
 describe('relayUserInfoUpdate (E3)', () => {
   test('local user with one federated DM peer dispatches a single relay', async () => {
     await initTest(1);
@@ -95,11 +110,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, { status: 'idle' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 1);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.url).toContain(PEER_DOMAIN_A);
     expect(updates[0]!.body.status).toBe('idle');
@@ -116,11 +127,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, { status: 'dnd' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 2);
     expect(updates).toHaveLength(2);
     const domains = new Set(updates.map((c) => new URL(c.url).host));
     expect(domains).toEqual(new Set([PEER_DOMAIN_A, PEER_DOMAIN_B]));
@@ -134,11 +141,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, { status: 'idle' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 0);
     expect(updates).toHaveLength(0);
   });
 
@@ -157,11 +160,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     // Calling with a federated user id should no-op — only local
     // users push their own changes.
     await relayUserInfoUpdate(shadowId, { status: 'idle' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 0);
     expect(updates).toHaveLength(0);
   });
 
@@ -178,11 +177,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, {});
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 0);
     expect(updates).toHaveLength(0);
   });
 
@@ -203,11 +198,7 @@ describe('relayUserInfoUpdate (E3)', () => {
       bio: 'New bio',
       bannerColor: '#ff5500'
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 1);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.body.name).toBe('NewName');
     expect(updates[0]!.body.bio).toBe('New bio');
@@ -229,11 +220,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     // Avatar/banner changes don't carry data inline — they signal
     // the receiver to re-pull the full profile.
     await relayUserInfoUpdate(1, { triggerProfileSync: true });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 1);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.body.triggerProfileSync).toBe(true);
   });
