@@ -1,4 +1,4 @@
-import { useFederatedServers } from '@/features/app/hooks';
+import { useFederatedServers, useJoinedServers } from '@/features/app/hooks';
 import { startServerPreview } from '@/features/server/preview/actions';
 import { EmptyState } from '@/components/ui/empty-state';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -214,15 +214,36 @@ const DiscoverView = memo(() => {
   );
   const [searchQuery, setSearchQuery] = useState('');
 
+  // A joined community's card follows the live summary (name,
+  // description, logo): SERVER_SETTINGS_UPDATE lands there, while this
+  // list is fetched once. Cards for communities the user has not joined
+  // never receive the event (it fans out to members) and keep what the
+  // fetch returned.
+  const joinedServers = useJoinedServers();
+  const liveServers = useMemo(() => {
+    const byPublicId = new Map(joinedServers.map((s) => [s.publicId, s]));
+    return servers.map((s) => {
+      const live = byPublicId.get(s.publicId);
+      if (!live) return s;
+      return {
+        ...s,
+        name: live.name,
+        logo: live.logo,
+        description:
+          live.description !== undefined ? live.description : s.description
+      };
+    });
+  }, [servers, joinedServers]);
+
   const filteredServers = useMemo(() => {
-    if (!searchQuery.trim()) return servers;
+    if (!searchQuery.trim()) return liveServers;
     const q = searchQuery.toLowerCase();
-    return servers.filter(
+    return liveServers.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.description?.toLowerCase().includes(q)
     );
-  }, [servers, searchQuery]);
+  }, [liveServers, searchQuery]);
 
   const filteredRemoteServers = useMemo(() => {
     if (!searchQuery.trim()) return remoteServers;

@@ -2,9 +2,9 @@ import { ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { removeFile } from '../../db/mutations/files';
+import { tombstoneDmMessage } from '../../db/mutations/messages';
 import { getDmChannelMemberIds } from '../../db/queries/dms';
-import { dmMessageFiles, dmMessages } from '../../db/schema';
+import { dmMessages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -28,24 +28,24 @@ const deleteMessageRoute = protectedProcedure
       message: 'You can only delete your own messages'
     });
 
+    invariant(!msg.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'Message is already deleted'
+    });
+
     const memberIds = await getDmChannelMemberIds(msg.dmChannelId);
 
-    // Clean up attached files before deleting the message
-    const attachedFiles = await db
-      .select({ fileId: dmMessageFiles.fileId })
-      .from(dmMessageFiles)
-      .where(eq(dmMessageFiles.dmMessageId, input.messageId));
-
-    for (const { fileId } of attachedFiles) {
-      await removeFile(fileId);
-    }
-
-    await db.delete(dmMessages).where(eq(dmMessages.id, input.messageId));
+    // The row stays as a tombstone; attachments, reactions and the
+    // content — ciphertext included — go now (db/mutations/messages.ts).
+    const deletedAt = Date.now();
+    await tombstoneDmMessage(input.messageId, ctx.userId, deletedAt);
 
     for (const memberId of memberIds) {
       pubsub.publishFor(memberId, ServerEvents.DM_MESSAGE_DELETE, {
         dmMessageId: input.messageId,
-        dmChannelId: msg.dmChannelId
+        dmChannelId: msg.dmChannelId,
+        deletedAt,
+        deletedBy: ctx.userId
       });
     }
   });

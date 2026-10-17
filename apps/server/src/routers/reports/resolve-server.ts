@@ -82,7 +82,7 @@ const resolveServerRoute = serverProcedure(Permission.VIEW_REPORTS)
     }
 
     if (input.action !== 'dismiss') {
-      await takeDownReportedContent(report, ctx.pubsub);
+      await takeDownReportedContent(report, ctx.userId, ctx.pubsub);
     }
 
     if (input.action === 'delete-and-kick') {

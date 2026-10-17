@@ -147,7 +147,7 @@
     },
     "packages/plugin-sdk": {
       "name": "@pulse/plugin-sdk",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@pulse/shared": "workspace:*",
         "@types/bun": "latest",
@@ -166,6 +166,7 @@
       "version": "0.1.0",
       "devDependencies": {
         "@pulse/plugin-sdk": "workspace:*",
+        "@pulse/shared": "workspace:*",
         "@types/bun": "latest",
         "@typescript-eslint/eslint-plugin": "^8.46.1",
         "eslint": "^8.56.0",

@@ -214,6 +214,9 @@ export type TReactionUser = {
   id: number;
   name: string;
   avatar: TFileRef | null;
+  /** The reactor's cross-instance identity; the avatar placeholder is
+   *  keyed on it so the person looks the same on every surface. */
+  publicId: string;
 };
 
 export type TJoinedMessageReaction = TMessageReaction & {
@@ -267,6 +270,8 @@ export type TJoinedPublicUser = Omit<TPublicUser, 'avatar' | 'banner'> & {
   nickname?: string | null;
   /** Set on server-scoped updates: the member's timeout deadline (ms). */
   timedOutUntil?: number | null;
+  /** A plugin's own account (it posts as the plugin, nobody signs in as it). */
+  system?: boolean;
 };
 
 export type TJoinedSettings = TSettings & {
@@ -651,10 +656,13 @@ export type TImportGuildSummary = {
   approximateMemberCount: number | null;
   approximatePresenceCount: number | null;
 };
+/** Why messages were left behind: service notices, nothing to show, channels the bot cannot read. */
+export type TImportSkipReasons = { type: number; empty: number; unreadable: number };
 /** What the wizard shows while the job runs and after it ends. */
 export type TImportProgressView = {
   counts: Partial<Record<TImportStep, TImportStepCounts>>;
   attachments: { done: number; failed: number; skipped: number };
+  skippedBy: TImportSkipReasons;
   errors: TImportError[];
   stepsDone: TImportStep[];
   startedAt: number | null;
@@ -674,6 +682,15 @@ export type TImportJobView = {
   bot: { id: string; name: string } | null;
   createdAt: number;
   updatedAt: number;
+};
+/** An imported person still waiting for their owner: a placeholder member and what they authored here. */
+export type TImportedPerson = {
+  userId: number;
+  name: string;
+  avatarId: number | null;
+  provider: string;
+  importedAt: number;
+  messageCount: number;
 };
 export type TImportBotRequirement = { name: string; why: string };
 export type TImportPreview = {
@@ -910,4 +927,15 @@ export type TAnnouncementRow = {
   content: string;
   author: { publicId: string; name: string; avatarUrl: string | null };
   edited: boolean;
+};
+
+/**
+ * What a deletion leaves behind on a message or DM message row (see
+ * messages.deletedAt in db/schema.ts). Carried by MESSAGE_DELETE,
+ * MESSAGE_BULK_DELETE and DM_MESSAGE_DELETE so the client marks the row
+ * in place; `deletedBy` is null when no local account did it.
+ */
+export type TMessageTombstone = {
+  deletedAt: number;
+  deletedBy: number | null;
 };

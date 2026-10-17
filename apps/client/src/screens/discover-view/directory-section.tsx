@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useFederatedServers } from '@/features/app/hooks';
+import { useFederatedServers, useJoinedServers } from '@/features/app/hooks';
 import { startServerPreview } from '@/features/server/preview/actions';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -21,7 +21,7 @@ import {
   Search,
   Users
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   directoryEntryKey,
@@ -213,8 +213,24 @@ const DirectorySection = memo(
     const [busy, setBusy] = useState<{ key: string; kind: 'join' | 'preview' } | null>(null);
     const [joinedKeys, setJoinedKeys] = useState<Set<string>>(() => new Set());
     const federatedServers = useFederatedServers();
+    const joinedServers = useJoinedServers();
     // Drops a response that arrives after a newer request was sent.
     const requestSeq = useRef(0);
+
+    // A joined local community's card follows the live summary (name,
+    // logo) that SERVER_SETTINGS_UPDATE keeps current; the directory
+    // blurb is its own field and stays what the query returned. Peers'
+    // cached listings refresh on their own schedule.
+    const liveEntries = useMemo(() => {
+      const byPublicId = new Map(joinedServers.map((s) => [s.publicId, s]));
+      return entries.map((entry) => {
+        if (entry.source !== 'local') return entry;
+        const live = byPublicId.get(entry.publicId);
+        return live
+          ? { ...entry, name: live.name, logo: live.logo?.name ?? null }
+          : entry;
+      });
+    }, [entries, joinedServers]);
 
     useEffect(() => {
       const handle = setTimeout(() => setSearch(searchQuery.trim()), SEARCH_DEBOUNCE_MS);
@@ -384,7 +400,7 @@ const DirectorySection = memo(
         ) : (
           <>
             <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {entries.map((entry) => {
+              {liveEntries.map((entry) => {
                 const key = directoryEntryKey(entry);
                 return (
                   <DirectoryCard

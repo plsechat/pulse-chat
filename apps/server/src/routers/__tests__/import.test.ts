@@ -354,6 +354,9 @@ describe('a full run', () => {
     expect(links).toHaveLength(9);
     expect(state.counts.messages!.done).toBe(9);
     expect(state.counts.messages!.skipped).toBe(1);
+    // why: the one skipped row is a service notice; the unreadable
+    // channel counts as a channel, not as messages.
+    expect(state.skippedBy).toEqual({ type: 1, empty: 0, unreadable: 1 });
 
     // scheduled events: the upcoming one, hosted by alice; the completed one skipped
     const created = await tdb().select().from(events).where(eq(events.serverId, SERVER_ID));
@@ -375,6 +378,7 @@ describe('a full run', () => {
     expect(view.status).toBe('done');
     expect(view.progress.stepsDone).toHaveLength(10);
     expect(view.progress.finishedAt).toBe(FIXED_NOW);
+    expect(view.progress.skippedBy).toEqual({ type: 1, empty: 0, unreadable: 1 });
   });
 
   test('the start route queues the run and the queue drives it to done', async () => {
@@ -690,6 +694,30 @@ describe('placeholder claim', () => {
     expect(await tdb().select().from(serverMembers).where(eq(serverMembers.userId, dave.userId))).toHaveLength(0);
   });
 
+  test('a placeholder holding two roles hands both to the account that claims it', async () => {
+    const { token } = useFixture();
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+    expect(await runWith(job.id, { ...ALL, attachments: 'skip' })).toBe('done');
+
+    const dave = (await identityFor(ids.dave!))!;
+    const raider = (await tdb().select().from(roles).where(eq(roles.name, 'Raider')))[0]!;
+    const officer = (await tdb().select().from(roles).where(eq(roles.name, 'Officer')))[0]!;
+    expect((await tdb().select().from(userRoles).where(eq(userRoles.userId, dave.userId))).map((r) => r.roleId).sort()).toEqual(
+      [raider.id, officer.id].sort()
+    );
+
+    // The automatic sign-in claim and the manual link both go through here.
+    const result = await claimExternalIdentity({ provider: 'discord', externalId: ids.dave! }, MEMBER_ID);
+    expect(result).toEqual({ placeholderUserId: dave.userId, serverIds: [SERVER_ID] });
+
+    const held = (await tdb().select().from(userRoles).where(eq(userRoles.userId, MEMBER_ID))).map((r) => r.roleId);
+    expect(held).toEqual(expect.arrayContaining([raider.id, officer.id]));
+    expect(await tdb().select().from(userRoles).where(eq(userRoles.userId, dave.userId))).toHaveLength(0);
+    expect(await tdb().select().from(serverMembers).where(and(eq(serverMembers.serverId, SERVER_ID), eq(serverMembers.userId, MEMBER_ID)))).toHaveLength(1);
+    expect(await tdb().select().from(users).where(eq(users.id, dave.userId))).toHaveLength(0);
+  });
+
   test('providerIdentityFromAuth recognises the provider by issuer host only', () => {
     expect(providerIdentityFromAuth({ metadata: { iss: 'https://discord.com/api', provider_id: '700000000000000001' } })).toEqual({ provider: 'discord', externalId: '700000000000000001' });
     expect(providerIdentityFromAuth({ metadata: { iss: 'https://discord.com', sub: '700000000000000001' } })).toEqual({ provider: 'discord', externalId: '700000000000000001' });
@@ -712,6 +740,241 @@ describe('placeholder claim', () => {
     const [user] = await tdb().select().from(users).where(eq(users.id, alice.userId));
     expect(user!.supabaseId.startsWith('placeholder:')).toBe(true);
     expect(/^[0-9a-f-]{36}$/.test(user!.supabaseId)).toBe(false);
+  });
+});
+
+describe('skip reasons, embeds and picker GIFs', () => {
+  const statusCard = {
+    type: 'rich',
+    title: 'Server status',
+    description: 'All systems go',
+    fields: [
+      { name: 'Players', value: '12/50', inline: true },
+      { name: 'Map', value: 'Island', inline: true }
+    ],
+    footer: { text: 'Updated hourly' }
+  };
+  const tenorGif = {
+    type: 'gifv',
+    url: 'https://tenor.com/view/wave-gif-1',
+    provider: { name: 'Tenor', url: 'https://tenor.co' },
+    thumbnail: { url: 'https://media.tenor.com/abc/wave.png', width: 220, height: 160 },
+    video: { url: 'https://media.tenor.com/abc/AAAPo/wave.mp4', width: 220, height: 160 }
+  };
+  const klipyGif = {
+    type: 'gifv',
+    url: 'https://klipy.com/gif/hello-123',
+    thumbnail: { url: 'https://static.klipy.com/ii/aa/bb/hello.webp' },
+    video: { url: 'https://static2.klipy.com/ii/aa/bb/hello.mp4' }
+  };
+  const elsewhereGif = {
+    type: 'gifv',
+    url: 'https://gifs.example.net/view/nope',
+    video: { url: 'https://cdn.example.net/nope.mp4' }
+  };
+  const unfurl = {
+    type: 'link',
+    url: 'https://example.org/article',
+    title: 'The article',
+    description: 'A page description that must not be written into the message'
+  };
+
+  const at = (minutes: number) => new Date(Date.UTC(2024, 0, 1, 12, minutes)).toISOString();
+  const idAt = (minutes: number) => timestampToSnowflake(Date.UTC(2024, 0, 1, 12, minutes));
+
+  const custom = (): TFixture => ({
+    ...fixture,
+    messages: {
+      ...fixture.messages,
+      [ids.news!]: [
+        { id: idAt(1), type: 0, content: '', author: { id: '650000000000000001', username: 'status-bot', bot: true }, timestamp: at(1), embeds: [statusCard] },
+        { id: idAt(2), type: 0, content: '', author: { id: ids.bob!, username: 'bob' }, timestamp: at(2) },
+        { id: idAt(3), type: 0, content: 'https://tenor.com/view/wave-gif-1', author: { id: ids.bob!, username: 'bob' }, timestamp: at(3), embeds: [tenorGif] },
+        { id: idAt(4), type: 0, content: 'https://klipy.com/gif/hello-123', author: { id: ids.bob!, username: 'bob' }, timestamp: at(4), embeds: [klipyGif] },
+        { id: idAt(5), type: 0, content: 'https://gifs.example.net/view/nope', author: { id: ids.bob!, username: 'bob' }, timestamp: at(5), embeds: [elsewhereGif] },
+        { id: idAt(6), type: 0, content: 'read https://example.org/article', author: { id: ids.bob!, username: 'bob' }, timestamp: at(6), embeds: [unfurl] }
+      ]
+    }
+  });
+
+  test('a status bot\'s card becomes text, an empty row is counted as such, picker GIFs are re-hosted from allowed hosts only', async () => {
+    const { token, downloads } = useFixture({ fixture: custom() });
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+    expect(await runWith(job.id, { ...ALL, members: 'posters' })).toBe('done');
+
+    const news = (await channelByName('news'))!;
+    const rows = await messagesIn(news.id);
+    expect(rows.map((m) => m.content)).toEqual([
+      'Server status\nAll systems go\nPlayers: 12/50\nMap: Island\nUpdated hourly',
+      '',
+      '',
+      'https://gifs.example.net/view/nope',
+      'read https://example.org/article'
+    ]);
+
+    const filesOf = async (messageId: number) => {
+      const links = await tdb().select().from(messageFiles).where(eq(messageFiles.messageId, messageId));
+      return Promise.all(links.map(async (l) => (await tdb().select().from(files).where(eq(files.id, l.fileId)))[0]!));
+    };
+    expect((await filesOf(rows[1]!.id)).map((f) => f.originalName)).toEqual(['wave.mp4']);
+    expect((await filesOf(rows[2]!.id)).map((f) => f.originalName)).toEqual(['hello.mp4']);
+    expect(await filesOf(rows[3]!.id)).toHaveLength(0);
+    expect(await filesOf(rows[4]!.id)).toHaveLength(0);
+    expect(downloads.map((d) => d.url)).toEqual(
+      expect.arrayContaining(['https://media.tenor.com/abc/AAAPo/wave.mp4', 'https://static2.klipy.com/ii/aa/bb/hello.mp4'])
+    );
+    expect(downloads.some((d) => d.url.includes('example.net'))).toBe(false);
+
+    const state = readImportState((await getImportJob(job.id))!);
+    expect(state.skippedBy).toEqual({ type: 1, empty: 1, unreadable: 1 });
+    expect(state.counts.messages!.skipped).toBe(2);
+    expect(state.attachments.done).toBe(3);
+    expect(state.attachments.failed).toBe(2);
+  });
+
+  test('with attachments off the GIF stays a link and nothing is fetched for it', async () => {
+    const { token, downloads } = useFixture({ fixture: custom() });
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+    expect(await runWith(job.id, { ...ALL, members: 'posters', attachments: 'skip' })).toBe('done');
+
+    const news = (await channelByName('news'))!;
+    const rows = await messagesIn(news.id);
+    expect(rows[1]!.content).toBe('https://tenor.com/view/wave-gif-1');
+    expect(downloads.some((d) => d.url.includes('tenor'))).toBe(false);
+    expect(await tdb().select().from(messageFiles)).toHaveLength(0);
+  });
+});
+
+describe('a thread removed mid-import', () => {
+  test('is created again from what the threads step remembered, and its messages land in it', async () => {
+    let removedId = 0;
+    const { token } = useFixture({
+      onRequest: async (call) => {
+        // The first history page: the threads step is done, the sweep
+        // (or the owner) removes the imported thread before its turn.
+        if (call.path === `/channels/${ids.general}/messages` && call.params.after === '0' && removedId === 0) {
+          const help = (await channelByName('help thread'))!;
+          removedId = help.id;
+          await tdb().delete(channels).where(eq(channels.id, help.id));
+        }
+      }
+    });
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+
+    const result = await runWith(job.id, { ...ALL, attachments: 'skip' });
+    expect({ result, error: (await getImportJob(job.id))!.error }).toEqual({ result: 'done', error: null });
+    expect(removedId).toBeGreaterThan(0);
+
+    const help = (await channelByName('help thread'))!;
+    expect(help.id).not.toBe(removedId);
+    const general = (await channelByName('general'))!;
+    expect(help).toMatchObject({ type: ChannelType.THREAD, parentChannelId: general.id, archived: false });
+    expect((await messagesIn(help.id)).map((m) => m.content)).toEqual(['in thread']);
+    const starter = (await messagesIn(general.id)).find((m) => m.content === 'need help')!;
+    expect(starter.threadId).toBe(help.id);
+
+    const state = readImportState((await getImportJob(job.id))!);
+    expect(state.map.threads[ids.t1!]).toBe(help.id);
+    expect(state.warnings.some((w) => w.includes('"help thread"') && w.includes('created again'))).toBe(true);
+    expect(state.errors).toHaveLength(0);
+  });
+});
+
+describe('import.listPlaceholders / linkPlaceholder (Imported people)', () => {
+  const linkable = async () => {
+    const { token } = useFixture();
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+    expect(await runWith(job.id, { ...ALL, attachments: 'skip' })).toBe('done');
+    return caller;
+  };
+
+  test('lists the server\'s claimable placeholders with their message counts, most active first', async () => {
+    const caller = await linkable();
+    const people = await caller.import.listPlaceholders({ serverId: SERVER_ID });
+    const alice = (await identityFor(ids.alice!))!;
+    const dave = (await identityFor(ids.dave!))!;
+
+    expect(people.map((p) => p.userId)).toEqual(expect.arrayContaining([alice.userId, dave.userId]));
+    const aliceRow = people.find((p) => p.userId === alice.userId)!;
+    expect(aliceRow).toMatchObject({ name: 'Alice', provider: 'discord' });
+    // Every channel of the server counts (she posted in #general and in a thread).
+    const authored = (
+      await tdb()
+        .select({ id: messages.id })
+        .from(messages)
+        .innerJoin(channels, eq(channels.id, messages.channelId))
+        .where(and(eq(channels.serverId, SERVER_ID), eq(messages.userId, alice.userId)))
+    ).length;
+    expect(authored).toBeGreaterThan(2);
+    expect(aliceRow.messageCount).toBe(authored);
+    expect(people.find((p) => p.userId === dave.userId)!.messageCount).toBe(0);
+    for (let i = 1; i < people.length; i++) {
+      expect(people[i - 1]!.messageCount).toBeGreaterThanOrEqual(people[i]!.messageCount);
+    }
+    // The generic "imported history" author is never listed: it can not be claimed.
+    expect(people.every((p) => p.provider === 'discord')).toBe(true);
+  });
+
+  test('links a placeholder to a member: the merge runs, the row disappears, a second link is not found', async () => {
+    const caller = await linkable();
+    const dave = (await identityFor(ids.dave!))!;
+    const raider = (await tdb().select().from(roles).where(eq(roles.name, 'Raider')))[0]!;
+    const officer = (await tdb().select().from(roles).where(eq(roles.name, 'Officer')))[0]!;
+
+    const result = await caller.import.linkPlaceholder({ serverId: SERVER_ID, placeholderUserId: dave.userId, userId: MEMBER_ID });
+    expect(result).toEqual({ placeholderUserId: dave.userId, userId: MEMBER_ID });
+
+    expect(await tdb().select().from(users).where(eq(users.id, dave.userId))).toHaveLength(0);
+    expect((await identityFor(ids.dave!))!).toMatchObject({ userId: MEMBER_ID, placeholder: false });
+    const held = (await tdb().select().from(userRoles).where(eq(userRoles.userId, MEMBER_ID))).map((r) => r.roleId);
+    expect(held).toEqual(expect.arrayContaining([raider.id, officer.id]));
+    expect((await caller.import.listPlaceholders({ serverId: SERVER_ID })).some((p) => p.userId === dave.userId)).toBe(false);
+
+    await expect(
+      caller.import.linkPlaceholder({ serverId: SERVER_ID, placeholderUserId: dave.userId, userId: MEMBER_ID })
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  test('refuses a placeholder, a non-member or a federated shadow as the target, and the placeholder itself', async () => {
+    const caller = await linkable();
+    const alice = (await identityFor(ids.alice!))!;
+    const bob = (await identityFor(ids.bob!))!;
+    const [outsider] = await tdb().insert(users).values({ name: 'Outsider', supabaseId: 'real-outsider', publicId: 'outsider-pid', createdAt: Date.now() }).returning();
+    const [shadow] = await tdb().insert(users).values({ name: 'Shadow', supabaseId: 'federated-x', publicId: 'shadow-pid', isFederated: true, createdAt: Date.now() }).returning();
+    await tdb().insert(serverMembers).values({ serverId: SERVER_ID, userId: shadow!.id, joinedAt: Date.now(), position: 0 });
+
+    for (const userId of [bob.userId, outsider!.id, shadow!.id, alice.userId]) {
+      await expect(
+        caller.import.linkPlaceholder({ serverId: SERVER_ID, placeholderUserId: alice.userId, userId })
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    }
+    expect(await tdb().select().from(users).where(eq(users.id, alice.userId))).toHaveLength(1);
+  });
+
+  test('is scoped to the server and gated on MANAGE_USERS', async () => {
+    const caller = await linkable();
+    const alice = (await identityFor(ids.alice!))!;
+
+    // Another server of the same owner: the placeholder is not there.
+    const other = await createTestServer({ ownerId: OWNER_ID });
+    expect(await caller.import.listPlaceholders({ serverId: other })).toEqual([]);
+    await expect(
+      caller.import.linkPlaceholder({ serverId: other, placeholderUserId: alice.userId, userId: MEMBER_ID })
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    // A plain member is refused; a MANAGE_USERS holder may map people.
+    const { caller: member } = await initTest(MEMBER_ID);
+    await expect(member.import.listPlaceholders({ serverId: SERVER_ID })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const roleId = await createTestRole({ serverId: SERVER_ID, permissions: [Permission.MANAGE_USERS] });
+    await grantTestUserRole(MEMBER_ID, roleId);
+    const { caller: manager } = await initTest(MEMBER_ID);
+    expect((await manager.import.listPlaceholders({ serverId: SERVER_ID })).length).toBeGreaterThan(0);
+    await manager.import.linkPlaceholder({ serverId: SERVER_ID, placeholderUserId: alice.userId, userId: MEMBER_ID });
+    expect(await tdb().select().from(users).where(eq(users.id, alice.userId))).toHaveLength(0);
   });
 });
 

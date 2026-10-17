@@ -197,8 +197,10 @@ describe('mapMessageContent', () => {
       },
       lookup
     );
+    // Each embed is a card of its own (a blank line apart); a title
+    // without a url is still the card's words.
     expect(content).toBe(
-      'gg <:pog:11> :dance: 2023-11-14 22:13 @everyone\nPatch notes — https://example.com/notes\nhttps://example.com/plain\n:wave:'
+      'gg <:pog:11> :dance: 2023-11-14 22:13 @everyone\nPatch notes — https://example.com/notes\n\nhttps://example.com/plain\n\nno url\n:wave:'
     );
   });
 
@@ -217,5 +219,61 @@ describe('mapMessageContent', () => {
     expect(content.startsWith('see https://example.com/notes')).toBe(true);
     expect(content).toHaveLength(16_000);
     expect(content.includes('Patch notes —')).toBe(false);
+  });
+});
+
+describe('embeds', () => {
+  const lookup = {
+    userId: () => undefined,
+    roleId: () => undefined,
+    emoji: () => undefined,
+    channelName: () => undefined,
+    roleName: () => undefined
+  };
+  const base = { id: '1', type: 0, author: { id: '1', username: 'bot' }, timestamp: '2024-01-01T00:00:00Z' };
+
+  test('a bot card (rich) renders title, description, fields and footer; the words are not lost', () => {
+    const content = mapMessageContent(
+      {
+        ...base,
+        content: '',
+        embeds: [
+          {
+            type: 'rich',
+            title: 'Server status',
+            url: 'https://status.example',
+            description: 'All systems go\r\nNo incidents',
+            fields: [
+              { name: 'Players', value: '12/50' },
+              { name: 'Map', value: 'Island' }
+            ],
+            footer: { text: 'Updated hourly' }
+          }
+        ]
+      },
+      lookup
+    );
+    expect(content).toBe(
+      'Server status — https://status.example\nAll systems go\nNo incidents\nPlayers: 12/50\nMap: Island\nUpdated hourly'
+    );
+  });
+
+  test('a link unfurl contributes nothing when its url is in the text, and only its link otherwise', () => {
+    const unfurl = { type: 'link', url: 'https://example.org/a', title: 'Page', description: 'Page words' };
+    expect(mapMessageContent({ ...base, content: 'see https://example.org/a', embeds: [unfurl] }, lookup)).toBe(
+      'see https://example.org/a'
+    );
+    expect(mapMessageContent({ ...base, content: 'see', embeds: [unfurl] }, lookup)).toBe(
+      'see\nPage — https://example.org/a'
+    );
+  });
+
+  test('a typeless embed (older payloads) is treated as a card; the total is bounded', () => {
+    const content = mapMessageContent(
+      { ...base, content: '', embeds: [{ title: 'Patch notes', url: 'https://example.com/notes', description: 'x'.repeat(5_000) }] },
+      lookup
+    );
+    expect(content.startsWith('Patch notes — https://example.com/notes\n')).toBe(true);
+    expect(Array.from(content).length).toBeLessThanOrEqual(4_000);
   });
 });

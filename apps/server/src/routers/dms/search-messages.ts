@@ -10,6 +10,7 @@ import {
   exists,
   ilike,
   inArray,
+  isNull,
   lt,
   sql,
   type SQL
@@ -39,7 +40,8 @@ const searchDmMessagesRoute = protectedProcedure
     const escapedQuery = input.query.replace(/[%_\\]/g, '\\$&');
     const conditions: SQL[] = [
       ilike(dmMessages.content, `%${escapedQuery}%`),
-      eq(dmMessages.e2ee, false)
+      eq(dmMessages.e2ee, false),
+      isNull(dmMessages.deletedAt)
     ];
 
     // Every row (and every reply preview) stays inside this set.

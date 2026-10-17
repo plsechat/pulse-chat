@@ -481,7 +481,13 @@ describe('dms subscriptions', () => {
     const event = await firstSubscriptionEvent(caller1, 'dms', 'onMessageDelete', () =>
       caller2.dms.deleteMessage({ messageId })
     );
-    expect(event).toEqual({ dmMessageId: messageId, dmChannelId: channel.id });
+    // The row stays as a tombstone, so the event says who deleted it and when.
+    expect(event).toEqual({
+      dmMessageId: messageId,
+      dmChannelId: channel.id,
+      deletedBy: 2,
+      deletedAt: expect.any(Number)
+    });
   });
 
   test('onTyping (other members only)', async () => {

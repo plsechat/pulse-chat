@@ -128,6 +128,9 @@ class PluginManager {
   // Declared in package.json; read by getPluginInfo before load() runs
   // onLoad, so an action can consult it from the first call.
   private capabilities = new Map<string, Set<TPluginCapability>>();
+  // Manifest names, read with the capabilities: the plugin's actor
+  // account (plugins/actor.ts) is named after the manifest.
+  private manifestNames = new Map<string, string>();
   // Resolved lazily from plugin_data (minted on first use); the promise
   // is cached so concurrent first requests share one mint.
   private httpSecrets = new Map<string, Promise<string | undefined>>();
@@ -750,6 +753,7 @@ class PluginManager {
     const capabilities = packageJson.pulse.capabilities ?? [];
 
     this.capabilities.set(pluginId, new Set(capabilities));
+    this.manifestNames.set(pluginId, packageJson.name);
 
     return {
       id: pluginId,
@@ -1172,6 +1176,7 @@ class PluginManager {
     const log = (...message: unknown[]) => {
       this.logPlugin(pluginId, 'info', ...message);
     };
+    const pluginName = this.manifestNames.get(pluginId) ?? pluginId;
 
     return {
       path: this.getPluginPath(pluginId),
@@ -1243,12 +1248,13 @@ class PluginManager {
       actions: {
         messages: createMessageActions({
           pluginId,
+          pluginName,
           hasCapability: (capability) => this.hasCapability(pluginId, capability),
           log
         }),
-        channels: createChannelActions(pluginId),
+        channels: createChannelActions(pluginId, pluginName),
         members: createMemberActions(),
-        files: createFileActions(),
+        files: createFileActions(pluginId, pluginName),
         events: createEventActions(pluginId),
         voice: {
           getRouter: (channelId: number) => {

@@ -4,6 +4,7 @@ import {
   type TUserPreferences
 } from '@pulse/shared';
 import type { TActivityLogDetailsMap, TBridgeSyncReport } from '../types';
+import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
@@ -443,7 +444,24 @@ const messages = pgTable(
     ),
     forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' })
+    updatedAt: bigint('updated_at', { mode: 'number' }),
+    /**
+     * Tombstone. A deleted message keeps its row: `deletedAt` is when,
+     * `deletedBy` who (the author, a MANAGE_MESSAGES holder, the
+     * moderator resolving a report, a plugin's actor; null once that
+     * account is gone, and for a follower copy whose source was deleted
+     * on another instance). Content, attachments, reactions, link
+     * metadata, mentions, the forward header and the pin are cleared at
+     * deletion (db/mutations/messages.ts); `replyToId`, `threadId` and
+     * `type` stay so replies, threads and the row's place in the list
+     * survive. The row renders as "Message deleted" until the retention
+     * sweep (crons/tombstones.ts) hard-deletes it after
+     * `config.server.tombstoneRetentionDays`.
+     */
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    deletedBy: integer('deleted_by').references(() => users.id, {
+      onDelete: 'set null'
+    })
   },
   (t) => [
     index('messages_user_idx').on(t.userId),
@@ -457,7 +475,12 @@ const messages = pgTable(
     // Unread counts filter `channel_id = ? AND id > last_read_id`.
     index('messages_channel_id_idx').on(t.channelId, t.id),
     // Mention counts filter `mentioned_user_ids @> '[<userId>]'`.
-    index('messages_mentioned_users_idx').using('gin', t.mentionedUserIds)
+    index('messages_mentioned_users_idx').using('gin', t.mentionedUserIds),
+    // The retention sweep deletes `deleted_at < cutoff`; partial so the
+    // live rows (deleted_at NULL) never enter it.
+    index('messages_deleted_at_idx')
+      .on(t.deletedAt)
+      .where(sql`${t.deletedAt} IS NOT NULL`)
   ]
 );
 
@@ -897,7 +920,17 @@ const dmMessages = pgTable(
     // Set on messages that arrived over /federation/dm-relay: the
     // sender's per-relay id, unique so a relay the peer's outbox retries
     // lands once. Null for local messages.
-    federationRelayId: text('federation_relay_id')
+    federationRelayId: text('federation_relay_id'),
+    /**
+     * Tombstone, same semantics as messages.deletedAt / deletedBy: the
+     * author (the only one who may delete in a DM) or the moderator who
+     * resolved a report. Plaintext and ciphertext are cleared alike —
+     * an encrypted row keeps nothing a key could still open.
+     */
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    deletedBy: integer('deleted_by').references(() => users.id, {
+      onDelete: 'set null'
+    })
   },
   (t) => [
     index('dm_messages_user_idx').on(t.userId),
@@ -906,7 +939,10 @@ const dmMessages = pgTable(
     index('dm_messages_created_idx').on(t.createdAt),
     index('dm_messages_channel_created_idx').on(t.dmChannelId, t.createdAt),
     index('dm_messages_pinned_idx').on(t.pinned),
-    index('dm_messages_channel_pinned_idx').on(t.dmChannelId, t.pinned)
+    index('dm_messages_channel_pinned_idx').on(t.dmChannelId, t.pinned),
+    index('dm_messages_deleted_at_idx')
+      .on(t.deletedAt)
+      .where(sql`${t.deletedAt} IS NOT NULL`)
   ]
 );
 

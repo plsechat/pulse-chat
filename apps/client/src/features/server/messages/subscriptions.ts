@@ -48,19 +48,28 @@ const subscribeToMessages = () => {
       const decrypted = await decryptChannelMessageForDisplay(message);
       updateMessage(decrypted.channelId, decrypted);
     }),
+    // A server predating tombstones sends no deletedAt/deletedBy; the
+    // row is then marked as deleted now, by nobody.
     subscribe(
       'onMessageDelete',
       trpc.messages.onDelete,
-      ({ messageId, channelId }) => deleteMessage(channelId, messageId)
+      ({ messageId, channelId, deletedAt, deletedBy }) =>
+        deleteMessage(channelId, messageId, {
+          deletedAt: deletedAt ?? Date.now(),
+          deletedBy: deletedBy ?? null
+        })
     ),
     subscribe(
       'onMessageBulkDelete',
       trpc.messages.onBulkDelete,
-      ({ messageIds, channelId, purged }) => {
+      ({ messageIds, channelId, purged, deletedAt, deletedBy }) => {
         if (purged) {
           purgeChannelMessages(channelId);
         } else {
-          bulkDeleteMessages(channelId, messageIds);
+          bulkDeleteMessages(channelId, messageIds, {
+            deletedAt: deletedAt ?? Date.now(),
+            deletedBy: deletedBy ?? null
+          });
         }
       }
     ),

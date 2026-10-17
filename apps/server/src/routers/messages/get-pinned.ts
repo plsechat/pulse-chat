@@ -5,7 +5,7 @@ import type {
   TMessage,
   TMessageReplyPreview
 } from '../../types';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { getReactionsForMessageIds } from '../../db/queries/messages';
 import { files, messageFiles, messages } from '../../db/schema';
@@ -23,9 +23,11 @@ const getPinnedMessagesRoute = channelProcedure(
       .select()
       .from(messages)
       .where(
+        // Deletion clears the pin; the filter is belt and braces.
         and(
           eq(messages.channelId, input.channelId),
-          eq(messages.pinned, true)
+          eq(messages.pinned, true),
+          isNull(messages.deletedAt)
         )
       )
       .orderBy(desc(messages.pinnedAt));

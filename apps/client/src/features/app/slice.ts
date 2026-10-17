@@ -111,8 +111,9 @@ export const appSlice = createSlice({
       }
     },
     /**
-     * Live-sync a joined server's rail summary (name/logo) from a
-     * SERVER_SETTINGS_UPDATE. Matched by the globally-unique publicId —
+     * Live-sync a joined server's summary (name/description/logo) from a
+     * SERVER_SETTINGS_UPDATE — the rail, the deck tabs and the Discover
+     * card all read it. Matched by the globally-unique publicId —
      * numeric ids collide across federated instances.
      */
     updateJoinedServerInfo: (
@@ -120,6 +121,7 @@ export const appSlice = createSlice({
       action: PayloadAction<{
         publicId: string;
         name?: string;
+        description?: string | null;
         logo?: TServerSummary['logo'];
       }>
     ) => {
@@ -130,8 +132,11 @@ export const appSlice = createSlice({
       if (action.payload.name !== undefined) {
         entry.name = action.payload.name;
       }
-      // `undefined` = sender didn't include a logo (older server) — leave
-      // it alone. `null` = logo removed.
+      // `undefined` = sender didn't include the field (older server) —
+      // leave it alone. `null` / '' = cleared.
+      if (action.payload.description !== undefined) {
+        entry.description = action.payload.description;
+      }
       if (action.payload.logo !== undefined) {
         entry.logo = action.payload.logo;
       }

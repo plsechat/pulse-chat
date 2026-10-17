@@ -11,6 +11,7 @@ import { db } from '..';
 import { authBackend } from '../../utils/auth';
 import { looksLikeOidcSession, verifySessionToken } from '../../utils/oidc';
 import { federationInstances, files, roles, serverMembers, userRoles, users } from '../schema';
+import { isPluginActorAuthId } from '../../plugins/actor-id';
 
 const slimFile = (file: TFile | null): TFileRef | null =>
   file ? { id: file.id, name: file.name } : null;
@@ -62,6 +63,7 @@ const selectPublicUsers = (userIds: number[]) => {
       name: users.name,
       publicId: users.publicId,
       federatedPublicId: users.federatedPublicId,
+      supabaseId: users.supabaseId,
       bannerColor: users.bannerColor,
       bio: users.bio,
       customStatus: users.customStatus,
@@ -116,7 +118,10 @@ const toPublicUser = (row: TPublicUserRow): TJoinedPublicUser => ({
     row.isFederated && row.instanceDomain
       ? `${row.name}@${row.instanceDomain}`
       : undefined,
-  roleIds: Array.isArray(row.roleIds) ? row.roleIds : []
+  roleIds: Array.isArray(row.roleIds) ? row.roleIds : [],
+  // Labelled, not hidden: the account is a real member of the servers
+  // its plugin posts in, and the roster should say what it is.
+  ...(isPluginActorAuthId(row.supabaseId) ? { system: true } : {})
 });
 
 /**

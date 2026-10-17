@@ -1,7 +1,5 @@
+import { CreateGroupDmDialog } from '@/components/dialogs/create-group-dm';
 import { LazyFallback } from '@/components/lazy-fallback';
-import { UserControl } from '@/components/left-sidebar';
-import { VoiceControl } from '@/components/left-sidebar/voice-control';
-import { UserAvatar } from '@/components/user-avatar';
 import {
   openConversationPanel,
   PANEL_EXPANDED,
@@ -15,12 +13,11 @@ import {
 } from '@/features/app/deck';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
 import { useDmChannels, useSelectedDmChannelId } from '@/features/dms/hooks';
-import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
 import { onAppEvent } from '@/lib/events';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, Maximize2, Minimize2, X } from 'lucide-react';
-import { lazy, memo, Suspense, useCallback, useEffect, useRef } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { InboxPanel } from './inbox-panel';
 
@@ -44,8 +41,7 @@ const DmConversation = lazy(() =>
 const PANEL_TITLES = {
   friends: 'Friends',
   messages: 'Messages',
-  inbox: 'Inbox',
-  profile: 'Profile'
+  inbox: 'Inbox'
 } as const;
 
 /** Drag the panel's left edge to resize it; width is persisted. */
@@ -86,41 +82,6 @@ const ResizeHandle = memo(() => {
   );
 });
 
-const ProfilePanel = memo(() => {
-  const ownUserId = useOwnUserId();
-  const user = useUserById(ownUserId ?? -1);
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex flex-col items-center gap-3 px-6 pb-6 pt-8">
-        {ownUserId !== undefined && (
-          <UserAvatar
-            userId={ownUserId}
-            className="h-20 w-20"
-            homeScope
-            showStatusBadge
-            showUserPopover={false}
-          />
-        )}
-        <div className="text-center">
-          <div className="text-base font-semibold text-foreground">
-            {user?.name ?? ''}
-          </div>
-          {user?.customStatus && (
-            <div className="mt-0.5 text-sm text-muted-foreground">
-              {user.customStatus}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="mx-3 rounded-xl border border-border bg-card">
-        <VoiceControl />
-        <UserControl />
-      </div>
-    </div>
-  );
-});
-
 const MessagesPanel = memo(() => {
   const { messagesView } = useDeck();
   const selectedDmChannelId = useSelectedDmChannelId();
@@ -150,6 +111,17 @@ const MessagesPanel = memo(() => {
     setMessagesView('conversation');
   }, []);
 
+  // The list's "+" creates a group DM here too; the Home view is not on
+  // screen in this layout, so the panel hosts the dialog itself.
+  const [showCreateGroupDm, setShowCreateGroupDm] = useState(false);
+  const handleGroupDmCreated = useCallback(
+    (dmChannelId: number) => {
+      setShowCreateGroupDm(false);
+      handleDmSelect(dmChannelId);
+    },
+    [handleDmSelect]
+  );
+
   if (conversationOpen) {
     return (
       <DmConversation
@@ -166,8 +138,15 @@ const MessagesPanel = memo(() => {
         selectedDmChannelId={selectedDmChannelId}
         onDmSelect={handleDmSelect}
         onFriendsClick={() => setPanel('friends')}
+        onCreateGroupDm={() => setShowCreateGroupDm(true)}
         hideHeader
       />
+      {showCreateGroupDm && (
+        <CreateGroupDmDialog
+          onClose={() => setShowCreateGroupDm(false)}
+          onCreated={handleGroupDmCreated}
+        />
+      )}
     </div>
   );
 });
@@ -257,7 +236,6 @@ const DeckSidePanel = memo(() => {
           )}
           {panel === 'messages' && <MessagesPanel />}
           {panel === 'inbox' && <InboxPanel />}
-          {panel === 'profile' && <ProfilePanel />}
         </Suspense>
       </div>
     </aside>

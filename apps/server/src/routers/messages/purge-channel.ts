@@ -10,6 +10,14 @@ import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
 
+/**
+ * Purge is the one deletion that leaves NO tombstones: it is the admin's
+ * "clear this channel", confirmed by typing the channel's name, and a
+ * channel of a thousand "Message deleted" placeholders is not a cleared
+ * channel. Every row goes, tombstones included; the copies this
+ * channel's posts left in follower channels become tombstones there
+ * (relayAnnouncementDeletion), as a single delete would leave them.
+ */
 const purgeChannelRoute = serverProcedure(Permission.MANAGE_MESSAGES)
   .input(
     z.object({
@@ -60,7 +68,8 @@ const purgeChannelRoute = serverProcedure(Permission.MANAGE_MESSAGES)
       .returning({ id: messages.id });
     void relayAnnouncementDeletion(
       input.channelId,
-      purged.map((m) => m.id)
+      purged.map((m) => m.id),
+      { deletedAt: Date.now(), deletedBy: ctx.user.id }
     );
 
     const affectedUserIds = await getAffectedUserIdsForChannel(

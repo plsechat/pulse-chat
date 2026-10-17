@@ -3,6 +3,7 @@ import { db } from '../../db';
 import { createEvent, DEFAULT_ROSTER_TEMPLATES } from '../../db/queries/events';
 import { findExternalIdentity } from '../../db/queries/import-jobs';
 import { eventRosterTemplates } from '../../db/schema';
+import { invalidateFeedCache } from '../../http/events-ics';
 import type { TDiscordScheduledEvent } from '../discord/types';
 import { boundText, BOUNDS } from '../mapping';
 import { IMPORT_PROVIDER, type ImportRun } from '../runner';
@@ -99,6 +100,7 @@ const runEventsStep = async (run: ImportRun): Promise<void> => {
       imported.add(event.id);
       run.state.cursor.events = [...imported];
       counts.done++;
+      invalidateFeedCache(run.serverId);
     } catch (error) {
       run.error('events', boundText(event.name, 60, event.id), error);
       counts.skipped++;

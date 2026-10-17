@@ -1,11 +1,13 @@
+import type { TImportedPerson } from '../types';
 import { randomUUIDv7 } from 'bun';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { removeFile } from '../db/mutations/files';
 import { publishUser } from '../db/publishers';
 import { findExternalIdentity } from '../db/queries/import-jobs';
 import { addServerMember } from '../db/queries/servers';
 import {
+  channels,
   events,
   eventSignups,
   externalIdentities,
@@ -15,6 +17,7 @@ import {
   users
 } from '../db/schema';
 import { logger } from '../logger';
+import { isPluginActorAuthId } from '../plugins/actor';
 import { boundText, BOUNDS } from './mapping';
 
 /**
@@ -300,6 +303,118 @@ const claimExternalIdentity = async (
   return { placeholderUserId: result.placeholderUserId, serverIds: result.serverIds };
 };
 
+/** The one provider a person can claim through a sign-in; the generic "imported history" author never is. */
+const CLAIMABLE_PROVIDER = 'discord';
+const MAX_LISTED_PLACEHOLDERS = 2_000;
+
+/**
+ * The imported people still waiting for their owner in one server: every
+ * claimable placeholder among its members, with how many messages they
+ * authored there, most active first. What the admin mapping screen lists.
+ */
+const listServerPlaceholders = async (serverId: number): Promise<TImportedPerson[]> => {
+  const messageCount = sql<number>`(
+    SELECT COUNT(*)::int FROM ${messages}
+    JOIN ${channels} ON ${channels.id} = ${messages.channelId}
+    WHERE ${messages.userId} = ${externalIdentities.userId}
+      AND ${channels.serverId} = ${serverId}
+  )`;
+
+  const rows = await db
+    .select({
+      userId: externalIdentities.userId,
+      name: users.name,
+      avatarId: users.avatarId,
+      provider: externalIdentities.provider,
+      importedAt: externalIdentities.createdAt,
+      messageCount
+    })
+    .from(externalIdentities)
+    .innerJoin(users, eq(users.id, externalIdentities.userId))
+    .innerJoin(
+      serverMembers,
+      and(eq(serverMembers.userId, externalIdentities.userId), eq(serverMembers.serverId, serverId))
+    )
+    .where(
+      and(eq(externalIdentities.placeholder, true), eq(externalIdentities.provider, CLAIMABLE_PROVIDER))
+    )
+    .orderBy(desc(messageCount), asc(users.name), asc(externalIdentities.userId))
+    .limit(MAX_LISTED_PLACEHOLDERS);
+
+  return rows.map((row) => ({
+    userId: row.userId,
+    name: row.name,
+    avatarId: row.avatarId,
+    provider: row.provider,
+    importedAt: row.importedAt,
+    messageCount: Number(row.messageCount)
+  }));
+};
+
+type TLinkPlaceholderOutcome =
+  | { ok: true; serverIds: number[] }
+  | { ok: false; reason: 'placeholder' | 'member' | 'already-linked' };
+
+/**
+ * The manual counterpart of the sign-in claim: an admin hands a
+ * placeholder's history to a member. Same merge, same one-way outcome —
+ * the placeholder is gone afterwards, so there is no unlink. Refused
+ * when the placeholder is not one of this server's claimable imported
+ * people, or when the target is not a real member here (a placeholder,
+ * a federated shadow or a deleted account can not take a history over).
+ */
+const linkPlaceholderToMember = async (
+  serverId: number,
+  placeholderUserId: number,
+  userId: number
+): Promise<TLinkPlaceholderOutcome> => {
+  if (placeholderUserId === userId) return { ok: false, reason: 'member' };
+
+  const [identity] = await db
+    .select({ provider: externalIdentities.provider, externalId: externalIdentities.externalId })
+    .from(externalIdentities)
+    .innerJoin(
+      serverMembers,
+      and(eq(serverMembers.userId, externalIdentities.userId), eq(serverMembers.serverId, serverId))
+    )
+    .where(
+      and(
+        eq(externalIdentities.userId, placeholderUserId),
+        eq(externalIdentities.placeholder, true),
+        eq(externalIdentities.provider, CLAIMABLE_PROVIDER)
+      )
+    )
+    .limit(1);
+  if (!identity) return { ok: false, reason: 'placeholder' };
+
+  const [target] = await db
+    .select({
+      supabaseId: users.supabaseId,
+      isFederated: users.isFederated,
+      deletedAt: users.deletedAt
+    })
+    .from(users)
+    .innerJoin(serverMembers, and(eq(serverMembers.userId, users.id), eq(serverMembers.serverId, serverId)))
+    .where(eq(users.id, userId))
+    .limit(1);
+  // A synthetic account (a placeholder, a plugin's actor) can not take
+  // a history over.
+  if (
+    !target ||
+    target.isFederated ||
+    target.deletedAt !== null ||
+    isPlaceholderAuthId(target.supabaseId) ||
+    isPluginActorAuthId(target.supabaseId)
+  ) {
+    return { ok: false, reason: 'member' };
+  }
+
+  const result = await claimExternalIdentity(identity, userId);
+  if (!result) return { ok: false, reason: 'already-linked' };
+
+  return { ok: true, serverIds: result.serverIds };
+};
+
 /**
  * The provider identity carried by an OAuth sign-in, or null. The
  * Supabase-mediated providers put the provider's issuer and the
@@ -343,6 +458,8 @@ export {
   claimExternalIdentity,
   ensurePlaceholderUser,
   isPlaceholderAuthId,
+  linkPlaceholderToMember,
+  listServerPlaceholders,
   PLACEHOLDER_AUTH_PREFIX,
   providerIdentityFromAuth
 };

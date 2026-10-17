@@ -6,6 +6,7 @@ import { CommandOverride } from './overrides/command';
 import { ChannelMention, MentionOverride } from './overrides/mention';
 import { TwitterOverride } from '@/components/chat-primitives/overrides/twitter';
 import { YoutubeOverride } from '@/components/chat-primitives/overrides/youtube';
+import { getTweetId, getYoutubeVideoId } from './embed-matchers';
 import type { TFoundMedia } from './types';
 
 // Build a lookup map for fast emoji name → unicode resolution
@@ -29,10 +30,6 @@ function extractText(node: DOMNode): string {
   }
   return '';
 }
-
-const twitterRegex = /https:\/\/(twitter|x).com\/\w+\/status\/(\d+)/g;
-const youtubeRegex =
-  /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
 
 const serializer = (
   domNode: DOMNode,
@@ -58,36 +55,17 @@ const serializer = (
   if (domNode instanceof Element && domNode.name === 'a') {
     const href = domNode.attribs.href;
 
-    let url: URL | null = null;
-    try {
-      url = new URL(href);
-    } catch {
-      // Invalid or relative URL — skip special handling, render as plain link
-    }
-
-    if (url) {
-      const isTweet =
-        url.hostname.match(/^(www\.)?(twitter|x)\.com$/) && href.match(twitterRegex);
-      const isYoutube =
-        url.hostname.match(/^(www\.)?(youtube\.com|youtu\.be)$/) &&
-        href.match(youtubeRegex);
-
+    // An invalid or relative href matches nothing and renders as a plain
+    // link; the matchers parse the URL themselves.
+    if (href) {
+      const tweetId = getTweetId(href);
+      const videoId = getYoutubeVideoId(href);
       const isImage = imageExtensions.some((ext) => href.endsWith(ext));
 
-      if (isTweet) {
-        const tweetId = href.match(twitterRegex)?.[0].split('/').pop();
-
-        if (tweetId) {
-          return <TwitterOverride tweetId={tweetId} />;
-        }
-      } else if (isYoutube) {
-        const videoId = href.match(
-          /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/
-        )?.[7];
-
-        if (videoId) {
-          return <YoutubeOverride videoId={videoId} />;
-        }
+      if (tweetId) {
+        return <TwitterOverride tweetId={tweetId} />;
+      } else if (videoId) {
+        return <YoutubeOverride videoId={videoId} />;
       } else if (isImage) {
         pushMedia({ type: 'image', url: href });
 

@@ -7,7 +7,7 @@ import type {
   TMessageReaction,
   TReactionUser
 } from '../../types';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';
@@ -47,6 +47,7 @@ const getReactionsForMessageIds = async (
       fileId: messageReactions.fileId,
       file: files,
       reactorName: users.name,
+      reactorPublicId: users.publicId,
       reactorAvatar
     })
     .from(messageReactions)
@@ -63,7 +64,8 @@ const getReactionsForMessageIds = async (
         ? {
             id: r.userId,
             name: r.reactorName,
-            avatar: toReactionAvatar(r.reactorAvatar)
+            avatar: toReactionAvatar(r.reactorAvatar),
+            publicId: r.reactorPublicId ?? ''
           }
         : null;
 
@@ -195,7 +197,7 @@ const getMessage = async (
   };
 };
 
-/** Mod-view listing — strictly scoped to one server's channels. */
+/** Mod-view listing — strictly scoped to one server's channels; tombstones have nothing to show. */
 const getMessagesByUserId = async (
   userId: number,
   serverId: number
@@ -206,6 +208,7 @@ const getMessagesByUserId = async (
     .where(
       and(
         eq(messages.userId, userId),
+        isNull(messages.deletedAt),
         inArray(
           messages.channelId,
           db

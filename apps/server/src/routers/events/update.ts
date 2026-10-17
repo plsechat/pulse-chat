@@ -5,6 +5,7 @@ import {
   eventRolesSchema,
   updateEvent
 } from '../../db/queries/events';
+import { invalidateFeedCache } from '../../http/events-ics';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { eventIdInput, requireEvent, requireHostOrManager } from './_shared';
@@ -34,8 +35,11 @@ const updateEventRoute = serverProcedure()
     }
 
     const { eventId, ...patch } = input;
+    const updated = await updateEvent(eventId, patch, { kind: 'user', userId: ctx.userId });
 
-    return updateEvent(eventId, patch, { kind: 'user', userId: ctx.userId });
+    invalidateFeedCache(ctx.activeServerId);
+
+    return updated;
   });
 
 export { updateEventRoute };

@@ -108,10 +108,90 @@ export async function waitForAppReady(page: Page): Promise<void> {
  * the app" without requiring server membership.
  */
 export async function waitForAuthedShell(page: Page): Promise<void> {
+  // The tab layout (the default) shows a Home tab; the traditional
+  // layout a Home rail button.
   await expect(
-    page.getByRole('button', { name: 'Home' }).first()
+    page
+      .getByRole('tab', { name: 'Home' })
+      .or(page.getByRole('button', { name: 'Home' }))
+      .first()
   ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByPlaceholder('you@example.com')).toHaveCount(0);
+}
+
+/**
+ * The tab layout is on (wide viewport, the default preference). Waits for
+ * either shell marker first: a page that has just loaded has neither for
+ * a moment, and deciding on an empty page would send the helpers to the
+ * wrong layout.
+ */
+export async function isDeckLayout(page: Page): Promise<boolean> {
+  const tab = page.getByRole('tab', { name: 'Home' });
+  const rail = page.locator('button[title="Home"]');
+  try {
+    await expect(tab.or(rail).first()).toBeAttached({ timeout: 15_000 });
+  } catch {
+    // Neither shell (phone viewport): the callers' classic branch applies.
+  }
+  return (await tab.count()) > 0;
+}
+
+/**
+ * Open a user-tray panel (Friends, Messages, Inbox) in the tab layout;
+ * a no-op click is avoided when it is already open (the button toggles).
+ */
+export async function openTrayPanel(
+  page: Page,
+  label: 'Friends' | 'Messages' | 'Inbox'
+): Promise<void> {
+  const button = page.getByRole('button', { name: new RegExp(`^${label}(,|$)`) }).first();
+  if ((await button.getAttribute('aria-pressed')) !== 'true') {
+    await button.click();
+  }
+  await expect(page.getByRole('complementary', { name: label })).toBeVisible();
+}
+
+/** Discover: the rail's compass in the traditional layout, the "Open a community" menu in the tab layout. */
+export async function openDiscover(page: Page): Promise<void> {
+  if (await isDeckLayout(page)) {
+    await page.getByRole('button', { name: 'Open a community' }).click();
+    await page.getByRole('menuitem', { name: 'Discover communities' }).click();
+    return;
+  }
+  await page
+    .locator('button[title="Discover Servers"]')
+    .filter({ visible: true })
+    .first()
+    .click();
+}
+
+/** The DM list: the Messages side panel in the tab layout, the Home view in the traditional one. */
+export async function openDmList(page: Page): Promise<void> {
+  if (await isDeckLayout(page)) {
+    await openTrayPanel(page, 'Messages');
+    // The panel remembers the last conversation; the list is one step back.
+    const back = page.getByRole('button', { name: 'Back to conversations' });
+    if ((await back.count()) > 0) await back.click();
+    return;
+  }
+  await goHome(page);
+}
+
+/** A DM list row by the peer's (or group's) name, in whichever layout holds the list. */
+export async function dmListRow(page: Page, name: string): Promise<Locator> {
+  await openDmList(page);
+  const scope = (await isDeckLayout(page))
+    ? page.getByRole('complementary', { name: 'Messages' })
+    : page;
+  return scope.getByText(name).first();
+}
+
+/** The Friends view: the Home tab's content in the tab layout, Home → Friends in the traditional one. */
+export async function openFriends(page: Page): Promise<void> {
+  await goHome(page);
+  if (!(await isDeckLayout(page))) {
+    await page.getByRole('button', { name: 'Friends' }).click();
+  }
 }
 
 /**
@@ -148,6 +228,10 @@ export async function gotoApp(page: Page, url = '/'): Promise<void> {
  * actionability hit-test even though real clicks land fine.
  */
 export async function goHome(page: Page): Promise<void> {
+  if (await isDeckLayout(page)) {
+    await page.getByRole('tab', { name: 'Home' }).click();
+    return;
+  }
   await page
     .locator('button[title="Home"]')
     .filter({ visible: true })
@@ -195,8 +279,13 @@ export async function openDmViaAuthor(
 
 /** DM sidebar rows / DM open: click the entry named after the peer. */
 export async function openDmWith(page: Page, name: string): Promise<void> {
-  await goHome(page);
-  await page.getByText(name).first().click();
+  if (await isDeckLayout(page)) {
+    // DMs live in the Messages side panel: its list, then the conversation.
+    await (await dmListRow(page, name)).click();
+  } else {
+    await goHome(page);
+    await page.getByText(name).first().click();
+  }
   await expect(dmComposer(page)).toBeVisible({ timeout: 15_000 });
 }
 
@@ -225,7 +314,8 @@ export async function openUserSettings(
   page: Page,
   section: string
 ): Promise<void> {
-  // Two gears exist (desktop + hidden responsive variant).
+  // Two gears exist (desktop + hidden responsive variant); the bottom-left
+  // user control carries it in both layouts.
   await page
     .locator('button[title="User settings"]')
     .filter({ visible: true })

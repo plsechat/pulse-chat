@@ -127,7 +127,10 @@ const fetchRemoteBytes = async (
   }
 };
 
-const createFileActions = (): PluginContext['actions']['files'] => {
+const createFileActions = (
+  pluginId: string,
+  pluginName: string
+): PluginContext['actions']['files'] => {
   const upload: PluginContext['actions']['files']['upload'] = async (
     rawInput
   ) => {
@@ -167,7 +170,7 @@ const createFileActions = (): PluginContext['actions']['files'] => {
       );
     }
 
-    const actorUserId = await getPluginActorUserId();
+    const actorUserId = await getPluginActorUserId({ pluginId, name: pluginName });
     const quota = await fileManager.getStorageViolation(actorUserId, bytes.byteLength);
 
     if (quota === 'user') {

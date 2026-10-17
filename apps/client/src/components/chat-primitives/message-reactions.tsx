@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AvatarDecoration } from '@/components/user-avatar';
+import { avatarFallbackClass } from '@/components/user-avatar/fallback';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
@@ -34,6 +35,9 @@ type TReactionLike = {
 type TReactor = {
   id: number;
   name: string;
+  /** Cross-instance identity the avatar placeholder is keyed on; null
+   *  for a reactor who is neither in the roster nor on the row. */
+  publicId: string | null;
   avatar: TReactionUser['avatar'];
   /** Equipped avatar decoration, resolved from the live roster. */
   decoration: string | null;
@@ -159,6 +163,7 @@ const MessageReactions = memo(
         const live = liveUserById.get(reaction.userId);
         aggregated.reactors.push({
           id: reaction.userId,
+          publicId: live?.publicId ?? reaction.user?.publicId ?? null,
           name:
             reaction.user?.name ??
             usernames[reaction.userId] ??
@@ -207,7 +212,9 @@ const MessageReactions = memo(
                     <AvatarImage
                       src={getFileUrl(reactor.avatar, fileDomain)}
                     />
-                    <AvatarFallback className="bg-muted text-[9px] text-muted-foreground">
+                    <AvatarFallback
+                      className={cn('text-[9px]', avatarFallbackClass(reactor))}
+                    >
                       {getInitialsFromName(reactor.name)}
                     </AvatarFallback>
                   </Avatar>

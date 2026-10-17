@@ -6,17 +6,7 @@ import {
 } from '@playwright/test';
 import { psql } from '../../helpers/db';
 import { authedPage, registerAndJoin, runUser } from '../../helpers/fixtures';
-import {
-  dmMessageRow,
-  goHome,
-  openDmViaAuthor,
-  openDmWith,
-  openUserSettings,
-  selectChannel,
-  sendChannelMessage,
-  sendDmMessage,
-  toast
-} from '../../helpers/ui';
+import { dmListRow, dmMessageRow, openDmViaAuthor, openDmWith, openUserSettings, selectChannel, sendChannelMessage, sendDmMessage, toast } from '../../helpers/ui';
 
 /**
  * E2EE DM flows — the pillar with the worst shipping record (restore
@@ -166,11 +156,7 @@ test.describe('E2EE direct messages', () => {
   });
 
   test('enable encryption: ciphertext at rest, live decrypt both ways', async () => {
-    await goHome(pageA);
-    await pageA
-      .getByText(USER_B.displayName)
-      .first()
-      .click({ button: 'right' });
+    await (await dmListRow(pageA, USER_B.displayName)).click({ button: 'right' });
     await pageA
       .getByRole('menuitem', { name: 'Enable Encryption' })
       .click();
@@ -193,6 +179,9 @@ test.describe('E2EE direct messages', () => {
       dmMessageRow(pageA, SECRET_A).locator('svg.lucide-lock')
     ).toBeVisible();
 
+    // B's conversation must be on screen to see the live decrypt (in the
+    // tab layout another panel may be in front).
+    await openDmWith(pageB, USER_A.displayName);
     await expect(
       pageB.locator('[id^="dm-msg-"]').getByText(SECRET_A, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
@@ -257,10 +246,7 @@ test.describe('E2EE direct messages', () => {
     ).toBe('0');
 
     // Idempotency: the menu no longer offers Enable Encryption.
-    await pageA
-      .getByText(USER_B.displayName)
-      .first()
-      .click({ button: 'right' });
+    await (await dmListRow(pageA, USER_B.displayName)).click({ button: 'right' });
     await expect(
       pageA.getByRole('menuitem', { name: 'Leave Conversation' })
     ).toBeVisible();

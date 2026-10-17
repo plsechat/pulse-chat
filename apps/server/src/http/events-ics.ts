@@ -28,8 +28,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const FEED_WINDOW_MS = 90 * DAY_MS;
 /** A raid that ended earlier today still shows; older ones drop off. */
 const FEED_LOOKBACK_MS = DAY_MS;
-/** One render per server per minute, whatever the number of subscribers polling. */
+/**
+ * One render per server per minute, whatever the number of subscribers
+ * polling; a create, update or cancel drops the entry at once
+ * (`invalidateFeedCache`), so the minute only bounds work, never
+ * freshness.
+ */
 const CACHE_TTL_MS = 60_000;
+/**
+ * How often a calendar app is asked to poll. RFC 7986 REFRESH-INTERVAL
+ * and the older X-PUBLISHED-TTL are honoured by Google Calendar and
+ * Outlook; Apple Calendar keeps its own per-subscription schedule (the
+ * client shows a hint next to the subscribe button for that).
+ */
+const REFRESH_INTERVAL = 'PT15M';
 /** Bound on cached renders: the LRU-ish eviction below drops the oldest. */
 const CACHE_MAX_ENTRIES = 256;
 /** Public ids are UUIDv7 (36 chars); test fixtures prefix them, so a little headroom. */
@@ -129,7 +141,9 @@ const renderCalendar = (
     'PRODID:-//Pulse//Events//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:${icsText(server.name)}`
+    `X-WR-CALNAME:${icsText(server.name)}`,
+    `REFRESH-INTERVAL;VALUE=DURATION:${REFRESH_INTERVAL}`,
+    `X-PUBLISHED-TTL:${REFRESH_INTERVAL}`
   ];
 
   for (const event of rows) {
@@ -196,6 +210,15 @@ const cachedCalendar = async (
 /** Test hook: a render is cached per server for CACHE_TTL_MS. */
 const clearCalendarCache = () => cache.clear();
 
+/** An event changed in this server: the next poll renders afresh. */
+const invalidateFeedCache = (serverId: number) => {
+  cache.delete(serverId);
+};
+
+/** A strong validator over the exact bytes served, for If-None-Match. */
+const etagFor = (body: string) =>
+  `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`;
+
 // ─── handler ──────────────────────────────────────────────────────────
 
 const sendJson = (res: http.ServerResponse, status: number, body: unknown) => {
@@ -258,10 +281,27 @@ const eventsIcsRouteHandler = async (
   }
 
   const body = await cachedCalendar(server, Date.now());
+  const etag = etagFor(body);
+
+  // `no-cache` means "revalidate every time", not "do not store": a
+  // calendar app that honours it asks again on its schedule and gets a
+  // 304 while nothing changed, so an event added a minute after the
+  // last poll shows up on the next one instead of a max-age later.
+  const headers = {
+    'Cache-Control': 'private, no-cache',
+    ETag: etag,
+    Vary: 'If-None-Match'
+  };
+
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
 
   res.writeHead(200, {
+    ...headers,
     'Content-Type': 'text/calendar; charset=utf-8',
-    'Cache-Control': 'private, max-age=60',
     'Content-Disposition': 'inline; filename="events.ics"'
   });
   res.end(body);
@@ -271,5 +311,6 @@ export {
   buildCalendarPath,
   clearCalendarCache,
   eventsIcsRouteHandler,
+  invalidateFeedCache,
   signCalendarToken
 };

@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import type { TImportJobView, TImportStep } from '@pulse/server/types';
 import { AlertCircle, Check, Loader2, Pause, Play, RotateCcw, XCircle } from 'lucide-react';
 import { memo, useCallback } from 'react';
-import { formatCount, STEP_LABELS, STEP_ORDER } from './format';
+import { formatCount, formatSkipped, STEP_LABELS, STEP_ORDER } from './format';
 
 type TRunningStepProps = {
   job: TImportJobView;
@@ -60,7 +60,16 @@ const StepRow = ({ job, step }: { job: TImportJobView; step: TImportStep }) => {
       </span>
       <span className="text-xs tabular-nums text-muted-foreground">
         {counts
-          ? `${formatCount(counts.done)}${total !== null ? ` / ${step === 'messages' ? '~' : ''}${formatCount(total)}` : ''}${counts.skipped > 0 ? ` · ${counts.skipped} skipped` : ''}`
+          ? `${formatCount(counts.done)}${total !== null ? ` / ${step === 'messages' ? '~' : ''}${formatCount(total)}` : ''}${
+              step === 'messages'
+                ? (() => {
+                    const skipped = formatSkipped(counts.skipped, job.progress.skippedBy);
+                    return skipped ? ` · ${skipped}` : '';
+                  })()
+                : counts.skipped > 0
+                  ? ` · ${counts.skipped} skipped`
+                  : ''
+            }`
           : ''}
         {step === 'messages' && (job.progress.attachments.done > 0 || job.progress.attachments.failed > 0)
           ? ` · ${formatCount(job.progress.attachments.done)} files${job.progress.attachments.failed > 0 ? `, ${job.progress.attachments.failed} failed` : ''}`

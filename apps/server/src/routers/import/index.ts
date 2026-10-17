@@ -5,6 +5,7 @@ import { getBotInstallUrlRoute } from './get-bot-install-url';
 import { getCurrentRoute } from './get-current';
 import { cancelRoute, pauseRoute, resumeRoute, retryRoute } from './lifecycle';
 import { listGuildsRoute } from './list-guilds';
+import { linkPlaceholderRoute, listPlaceholdersRoute } from './people';
 import { previewRoute } from './preview';
 import { startRoute } from './start';
 
@@ -19,5 +20,7 @@ export const importRouter = t.router({
   resume: resumeRoute,
   cancel: cancelRoute,
   retry: retryRoute,
-  onProgress: onProgressRoute
+  onProgress: onProgressRoute,
+  listPlaceholders: listPlaceholdersRoute,
+  linkPlaceholder: linkPlaceholderRoute
 });

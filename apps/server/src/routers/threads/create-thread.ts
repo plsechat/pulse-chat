@@ -42,6 +42,10 @@ const createThreadRoute = serverProcedure(Permission.SEND_MESSAGES)
       return ctx.throwValidationError('messageId', 'Message not found');
     }
 
+    if (message.deletedAt) {
+      return ctx.throwValidationError('messageId', 'This message was deleted');
+    }
+
     if (message.threadId) {
       return ctx.throwValidationError('messageId', 'Message already has a thread');
     }

@@ -7,8 +7,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { Tooltip } from '@/components/ui/tooltip';
 import { UserAvatar } from '@/components/user-avatar';
+import { Tooltip } from '@/components/ui/tooltip';
 import {
   leaveServerContext,
   setActiveView,
@@ -47,9 +47,12 @@ import type { TFederatedServerEntry } from '@/features/app/slice';
 import { openDialog } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import { getHandshakeHash } from '@/features/server/actions';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { communityTooltip } from '@/helpers/community-tooltip';
 import { getFileUrl } from '@/helpers/get-file-url';
+import { openServerScreen } from '@/features/server-screens/actions';
+import { useOwnUserId } from '@/features/server/users/hooks';
 import { cn } from '@/lib/utils';
+import { ServerScreen } from '@/components/server-screens/screens';
 import {
   closestCenter,
   DndContext,
@@ -154,6 +157,9 @@ const Badge = memo(({ count }: { count: number }) => {
 type TTabProps = {
   tabKey: string;
   label: string;
+  /** Native tooltip: the full name (the label truncates) and, for a
+   *  community, its description. */
+  title?: string;
   icon?: TServerSummary['logo'];
   fallback: React.ReactNode;
   isActive: boolean;
@@ -169,6 +175,7 @@ const DeckTab = memo(
   ({
     tabKey,
     label,
+    title,
     icon,
     fallback,
     isActive,
@@ -203,6 +210,7 @@ const DeckTab = memo(
         role="tab"
         aria-selected={isActive}
         aria-label={name}
+        title={title}
         tabIndex={isActive ? 0 : -1}
         onClick={() => onActivate(tabKey)}
         onAuxClick={handleAuxClick}
@@ -309,6 +317,7 @@ const Deck = memo(() => {
   const activeServerId = useActiveServerId();
   const activeInstanceDomain = useActiveInstanceDomain();
   const activeKey = tabKeyFor(activeView, activeServerId, activeInstanceDomain);
+  const ownUserId = useOwnUserId();
 
   const deck = useDeck();
   const joinedServers = useJoinedServers();
@@ -319,7 +328,6 @@ const Deck = memo(() => {
   const federatedMentions = useFederatedMentionCounts();
   const dmUnread = useTotalDmUnreadCount();
   const pendingFriends = useIncomingFriendRequestCount();
-  const ownUserId = useOwnUserId();
 
   // Whatever is on screen is a tab, and a visit.
   useEffect(() => {
@@ -492,6 +500,7 @@ const Deck = memo(() => {
                       key={key}
                       tabKey={key}
                       label={server.name}
+                      title={communityTooltip(server.name, server.description)}
                       icon={server.logo}
                       fallback={server.name.charAt(0).toUpperCase()}
                       isActive={activeKey === key}
@@ -514,6 +523,10 @@ const Deck = memo(() => {
                       key={key}
                       tabKey={key}
                       label={entry.server.name}
+                      title={communityTooltip(
+                        `${entry.server.name} (${entry.instanceDomain})`,
+                        entry.server.description
+                      )}
                       icon={entry.server.logo}
                       fallback={entry.server.name.charAt(0).toUpperCase()}
                       isActive={activeKey === key}
@@ -620,16 +633,16 @@ const Deck = memo(() => {
         >
           <Bell className="h-4 w-4" />
         </TrayButton>
-        <Tooltip content="Profile" asChild>
+        {/* Your account from anywhere: the Home and Discover tabs have no
+            channel pane, so the bottom-left user control is not on screen
+            there. Voice and status controls stay on that card. */}
+        <Tooltip content="User settings" asChild>
           <button
             type="button"
-            aria-label="Profile"
-            aria-pressed={deck.panel === 'profile'}
-            onClick={() => togglePanel('profile')}
-            className={cn(
-              'ml-1 flex h-8 w-8 items-center justify-center rounded-full transition-shadow',
-              deck.panel === 'profile' && 'ring-2 ring-primary'
-            )}
+            aria-label="User settings"
+            title="User settings"
+            onClick={() => openServerScreen(ServerScreen.USER_SETTINGS)}
+            className="ml-1 flex h-8 w-8 items-center justify-center rounded-full transition-shadow hover:ring-2 hover:ring-border"
           >
             {ownUserId !== undefined ? (
               <UserAvatar

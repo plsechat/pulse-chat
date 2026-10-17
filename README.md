@@ -178,6 +178,7 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 | server | `debugLogIncludeBody` | `true` | Include request bodies in debug events (`DEBUG_LOG_INCLUDE_BODY=false` overrides) |
 | server | `redactExtra` | — | Extra keys to redact in logs; INI list syntax `redactExtra[]=key` (`REDACT_EXTRA` overrides) |
 | server | `retentionDays` | `90` | Days to keep sign-in records (`logins`) and the audit trail (`activity_log`); a daily job deletes older rows. `0` keeps them forever |
+| server | `tombstoneRetentionDays` | `30` | Days a deleted message stays as a "Message deleted" placeholder (its row, with who deleted it and when; content and attachments are gone at once) before a daily job removes the row. `0` keeps the placeholders forever (`TOMBSTONE_RETENTION_DAYS` overrides) |
 | mediasoup | `worker.mode` | `single-port` | `single-port`: every transport multiplexes over `worker.port`; `range`: one UDP + one TCP port per transport from the range below (`MEDIASOUP_MODE` overrides) |
 | mediasoup | `worker.port` | `40000` | The voice media port, UDP and TCP (`MEDIASOUP_PORT` overrides) |
 | mediasoup | `worker.rtcMinPort` | `40000` | Range mode: port range start; also used by plugin RTP ingest transports (`MEDIASOUP_RTC_MIN_PORT` overrides) |

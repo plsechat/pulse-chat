@@ -4,7 +4,8 @@
  * A message posted in an announcement channel is copied into every
  * channel that follows it as a `type: 'system'` row whose content is a
  * TAnnouncementRow JSON document (content + author persona + where it
- * came from). Edits rewrite the copies, deletions remove them,
+ * came from). Edits rewrite the copies, a deletion turns them into
+ * tombstones like the source ("Message deleted" in the follower),
  * reactions stay where they were made. Followers on this instance get
  * their row written here; followers on a federated peer get a signed
  * relay through the outbox (`/federation/announcement`, receiver in
@@ -22,9 +23,10 @@
  */
 
 import { ChannelPermission, ServerEvents } from '@pulse/shared';
-import { and, eq, inArray, like } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like } from 'drizzle-orm';
 import { config } from '../config';
 import { db } from '../db';
+import { tombstoneMessages } from '../db/mutations/messages';
 import { publishMessage } from '../db/publishers';
 import { getAffectedUserIdsForChannel } from '../db/queries/channels';
 import {
@@ -37,7 +39,7 @@ import {
   users
 } from '../db/schema';
 import { logger } from '../logger';
-import type { TAnnouncementRow } from '../types';
+import type { TAnnouncementRow, TMessageTombstone } from '../types';
 import { enqueueRelay } from './federation-outbox';
 import { pubsub } from './pubsub';
 
@@ -87,12 +89,15 @@ const findCopies = async (
 ): Promise<{ id: number; channelId: number; content: string | null }[]> => {
   if (targetChannelIds !== undefined && targetChannelIds.length === 0) return [];
 
+  // A tombstoned copy has no content left to match, so a deleted source
+  // never finds (or re-creates) its copies — the LIKE is the filter.
   return db
     .select({ id: messages.id, channelId: messages.channelId, content: messages.content })
     .from(messages)
     .where(
       and(
         eq(messages.type, 'system'),
+        isNull(messages.deletedAt),
         like(messages.content, copyPrefixPattern(sourceKey)),
         targetChannelIds === undefined
           ? undefined
@@ -163,22 +168,27 @@ const updateAnnouncementCopies = async (
   return copies.length;
 };
 
-const deleteAnnouncementCopies = async (
+/**
+ * The source was deleted: every copy becomes a tombstone attributed the
+ * same way (`deletedBy` null when the deleter is an account on another
+ * instance). Returns how many copies were tombstoned.
+ */
+const tombstoneAnnouncementCopies = async (
   sourceKey: string,
+  tombstone: TMessageTombstone,
   targetChannelIds?: number[]
 ): Promise<number> => {
   const copies = await findCopies(sourceKey, targetChannelIds);
   if (copies.length === 0) return 0;
 
-  await db.delete(messages).where(
-    inArray(
-      messages.id,
-      copies.map((c) => c.id)
-    )
+  await tombstoneMessages(
+    copies.map((c) => c.id),
+    tombstone.deletedBy,
+    tombstone.deletedAt
   );
 
   for (const copy of copies) {
-    await publishMessage(copy.id, copy.channelId, 'delete');
+    await publishMessage(copy.id, copy.channelId, 'delete', tombstone);
   }
 
   return copies.length;
@@ -334,13 +344,16 @@ const relayAnnouncement = async (
 };
 
 /**
- * Remove the copies of deleted source messages. The source rows are
- * already gone, so the caller passes the channel; a channel that is
- * not an announcement channel has no copies to speak of.
+ * Tombstone the copies of deleted source messages. The source rows are
+ * tombstones (or gone, after a purge), so the caller passes the channel
+ * and the tombstone it wrote; a channel that is not an announcement
+ * channel has no copies to speak of. Peers get the ids only and
+ * attribute the deletion to nobody (`deletedBy` null).
  */
 const relayAnnouncementDeletion = async (
   channelId: number,
-  messageIds: number[]
+  messageIds: number[],
+  tombstone: TMessageTombstone
 ): Promise<void> => {
   try {
     if (messageIds.length === 0) return;
@@ -361,7 +374,11 @@ const relayAnnouncementDeletion = async (
 
     if (localTargets.length > 0) {
       for (const messageId of messageIds) {
-        await deleteAnnouncementCopies(localSourceKey(channel.id, messageId), localTargets);
+        await tombstoneAnnouncementCopies(
+          localSourceKey(channel.id, messageId),
+          tombstone,
+          localTargets
+        );
       }
     }
 
@@ -410,11 +427,11 @@ const publishFollowsUpdate = async (channelId: number): Promise<void> => {
 export {
   ANNOUNCEMENT_FOLLOW_RELAY_PATH,
   ANNOUNCEMENT_RELAY_PATH,
-  deleteAnnouncementCopies,
   publishFollowsUpdate,
   relayAnnouncement,
   relayAnnouncementDeletion,
   remoteSourceKey,
+  tombstoneAnnouncementCopies,
   updateAnnouncementCopies,
   upsertAnnouncementCopy
 };

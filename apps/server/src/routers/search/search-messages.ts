@@ -13,6 +13,7 @@ import {
   gt,
   ilike,
   inArray,
+  isNull,
   lt,
   sql,
   type SQL
@@ -40,9 +41,12 @@ const searchMessagesRoute = serverProcedure()
   )
   .query(async ({ ctx, input }) => {
     const escapedQuery = input.query.replace(/[%_\\]/g, '\\$&');
+    // Tombstones have no content to match; the explicit filter keeps
+    // that true for every later condition (hasFile, hasLink).
     const conditions: SQL[] = [
       ilike(messages.content, `%${escapedQuery}%`),
-      eq(messages.e2ee, false)
+      eq(messages.e2ee, false),
+      isNull(messages.deletedAt)
     ];
 
     // The channel set the caller may read. Every later step (rows, file

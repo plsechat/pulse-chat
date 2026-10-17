@@ -484,5 +484,135 @@
       "guild_id": "100000000000000001",
       "position": 3
     }
+  },
+  "messageCreateGif": {
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "500000000000000031",
+      "channel_id": "200000000000000001",
+      "guild_id": "100000000000000001",
+      "type": 0,
+      "content": "https://klipy.com/gif/hello-123",
+      "author": {
+        "id": "600000000000000001",
+        "username": "carol",
+        "global_name": "Carol",
+        "avatar": null
+      },
+      "embeds": [
+        {
+          "type": "gifv",
+          "url": "https://klipy.com/gif/hello-123",
+          "provider": {
+            "name": "KLIPY",
+            "url": "https://klipy.com"
+          },
+          "thumbnail": {
+            "url": "https://static.klipy.com/ii/aa/bb/hello.webp",
+            "proxy_url": "https://media.discordapp.net/external/x/https/static.klipy.com/ii/aa/bb/hello.webp",
+            "width": 220,
+            "height": 160
+          },
+          "video": {
+            "url": "https://static2.klipy.com/ii/aa/bb/hello.mp4",
+            "proxy_url": "https://images-ext-1.discordapp.net/external/x/https/static2.klipy.com/ii/aa/bb/hello.mp4",
+            "width": 220,
+            "height": 160
+          }
+        }
+      ]
+    }
+  },
+  "messageCreateGifElsewhere": {
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "500000000000000032",
+      "channel_id": "200000000000000001",
+      "guild_id": "100000000000000001",
+      "type": 0,
+      "content": "https://gifs.example.net/view/nope",
+      "author": {
+        "id": "600000000000000001",
+        "username": "carol",
+        "global_name": "Carol",
+        "avatar": null
+      },
+      "embeds": [
+        {
+          "type": "gifv",
+          "url": "https://gifs.example.net/view/nope",
+          "video": {
+            "url": "https://cdn.example.net/nope.mp4"
+          }
+        }
+      ]
+    }
+  },
+  "messageCreateStatusCard": {
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "500000000000000033",
+      "channel_id": "200000000000000001",
+      "guild_id": "100000000000000001",
+      "type": 0,
+      "content": "",
+      "author": {
+        "id": "600000000000000009",
+        "username": "status-bot",
+        "global_name": null,
+        "avatar": null,
+        "bot": true
+      },
+      "embeds": [
+        {
+          "type": "rich",
+          "title": "Server status",
+          "description": "All systems go",
+          "fields": [
+            {
+              "name": "Players",
+              "value": "12/50",
+              "inline": true
+            },
+            {
+              "name": "Map",
+              "value": "Island",
+              "inline": true
+            }
+          ],
+          "footer": {
+            "text": "Updated hourly"
+          }
+        }
+      ]
+    }
+  },
+  "messageUpdateStatusCard": {
+    "t": "MESSAGE_UPDATE",
+    "d": {
+      "id": "500000000000000033",
+      "channel_id": "200000000000000001",
+      "guild_id": "100000000000000001",
+      "content": "",
+      "author": {
+        "id": "600000000000000009",
+        "username": "status-bot",
+        "bot": true
+      },
+      "embeds": [
+        {
+          "type": "rich",
+          "title": "Server status",
+          "description": "Restarting",
+          "fields": [
+            {
+              "name": "Players",
+              "value": "0/50"
+            }
+          ]
+        }
+      ],
+      "edited_timestamp": "2026-10-16T12:00:00Z"
+    }
   }
 }

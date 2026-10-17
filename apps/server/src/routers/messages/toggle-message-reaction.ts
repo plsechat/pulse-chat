@@ -35,6 +35,10 @@ const toggleMessageReactionRoute = serverProcedure(
       code: 'NOT_FOUND',
       message: 'Message not found'
     });
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
 
     // Server scope alone still lets a member react inside a private
     // channel they cannot view (and learn the message exists).

@@ -4,7 +4,7 @@ import {
   ServerEvents,
   UserStatus
 } from '@pulse/shared';
-import type { TImportJobView } from '../types';
+import type { TImportJobView, TMessageTombstone } from '../types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '.';
 import { logger } from '../logger';
@@ -35,15 +35,22 @@ import {
 } from './schema';
 import { toWireChannel } from './queries/channels';
 
+/**
+ * `publishMessage(id, channelId, 'delete', tombstone)` fans out the
+ * tombstone the row became (db/mutations/messages.ts) so viewers mark
+ * the message in place; the hard wipe (purge) publishes
+ * MESSAGE_BULK_DELETE itself.
+ */
 const publishMessage = async (
   messageId: number | undefined,
   channelId: number | undefined,
-  type: 'create' | 'update' | 'delete'
+  type: 'create' | 'update' | 'delete',
+  tombstone?: TMessageTombstone
 ) => {
   if (!messageId || !channelId) return;
 
   try {
-    return await _publishMessageInner(messageId, channelId, type);
+    return await _publishMessageInner(messageId, channelId, type, tombstone);
   } catch (err) {
     logger.error('[publishMessage] failed for message %d channel %d:', messageId, channelId, err);
   }
@@ -52,7 +59,8 @@ const publishMessage = async (
 const _publishMessageInner = async (
   messageId: number,
   channelId: number,
-  type: 'create' | 'update' | 'delete'
+  type: 'create' | 'update' | 'delete',
+  tombstone?: TMessageTombstone
 ) => {
   if (type === 'delete') {
     const deleteAffected = await getAffectedUserIdsForChannel(channelId, {
@@ -60,7 +68,9 @@ const _publishMessageInner = async (
     });
     pubsub.publishFor(deleteAffected, ServerEvents.MESSAGE_DELETE, {
       messageId: messageId,
-      channelId: channelId
+      channelId: channelId,
+      deletedAt: tombstone?.deletedAt ?? Date.now(),
+      deletedBy: tombstone?.deletedBy ?? null
     });
 
     return;

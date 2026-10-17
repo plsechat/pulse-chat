@@ -17,6 +17,7 @@ import type {
   TChannel,
   TJoinedEmoji,
   TJoinedMessage,
+  TMessageTombstone,
   TJoinedPublicUser,
   TJoinedRole,
   TPublicServerSettings,
@@ -29,6 +30,7 @@ import {
   type TMergeMessagesOpts,
   type TMessageWindowMap
 } from '../message-window';
+import { markTombstoned } from '../tombstone';
 import type {
   TDisconnectInfo,
   TMessagesMap,
@@ -432,29 +434,45 @@ export const serverSlice = createSlice({
 
       messages[messageIndex] = action.payload.message;
     },
+    /**
+     * A deletion leaves a tombstone: the row is marked in place
+     * (features/tombstone.ts), never dropped, so it keeps its anchor
+     * and its place in the list.
+     */
     deleteMessage: (
       state,
-      action: PayloadAction<{ channelId: number; messageId: number }>
+      action: PayloadAction<{
+        channelId: number;
+        messageId: number;
+        tombstone: TMessageTombstone;
+      }>
     ) => {
       const messages = state.messagesMap[action.payload.channelId];
 
       if (!messages) return;
 
-      state.messagesMap[action.payload.channelId] = messages.filter(
-        (m) => m.id !== action.payload.messageId
+      state.messagesMap[action.payload.channelId] = markTombstoned(
+        messages,
+        [action.payload.messageId],
+        action.payload.tombstone
       );
     },
     bulkDeleteMessages: (
       state,
-      action: PayloadAction<{ channelId: number; messageIds: number[] }>
+      action: PayloadAction<{
+        channelId: number;
+        messageIds: number[];
+        tombstone: TMessageTombstone;
+      }>
     ) => {
       const messages = state.messagesMap[action.payload.channelId];
 
       if (!messages) return;
 
-      const idsToDelete = new Set(action.payload.messageIds);
-      state.messagesMap[action.payload.channelId] = messages.filter(
-        (m) => !idsToDelete.has(m.id)
+      state.messagesMap[action.payload.channelId] = markTombstoned(
+        messages,
+        action.payload.messageIds,
+        action.payload.tombstone
       );
     },
     purgeChannelMessages: (

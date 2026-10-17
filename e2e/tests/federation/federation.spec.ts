@@ -1,10 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { registerUser, storageStateFor } from '../../helpers/api';
-import {
-  channelButton,
-  disableAnimations,
-  waitForAppReady
-} from '../../helpers/ui';
+import { channelButton, disableAnimations, openDiscover, openDmWith, openServerSettings, waitForAppReady } from '../../helpers/ui';
 
 /**
  * Full federation loop between two instances, mirroring the manual smoke
@@ -63,11 +59,9 @@ async function loginPage(
 }
 
 async function openFederationSettings(page: Page): Promise<void> {
-  // Server Settings lives in the server-name header dropdown
-  await page.getByText('Pulse Server', { exact: true }).first().click();
-  await page.getByText('Server Settings', { exact: true }).click();
-  // Sidebar nav items are buttons, not tabs (Server Settings sidebar layout).
-  await page.getByRole('button', { name: 'Federation', exact: true }).click();
+  // The shared helper finds the server-name header dropdown in either
+  // layout (a bare text match would hit the community tab first).
+  await openServerSettings(page, 'Federation');
 }
 
 /**
@@ -168,11 +162,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await pageA.goto(A_URL);
     await waitForAppReady(pageA);
 
-    // Discover view sits in the far-left rail
-    await pageA
-      .getByRole('button', { name: 'Discover Servers' })
-      .first()
-      .click();
+    await openDiscover(pageA);
     await pageA.getByRole('button', { name: 'Federated' }).first().click();
 
     await expect(pageA.getByText('pulse-fed-b:4991').first()).toBeVisible({
@@ -235,9 +225,11 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // skipped the remount and getTRPCClient fell back to the home client,
     // so the federated pane kept the home channel's (empty) content.
     //
-    // Rail server buttons are distinguished by title: the home server is
-    // "Pulse Server"; the federated one is "Pulse Server (pulse-fed-b:4991)".
-    const homeServer = pageA.getByTitle('Pulse Server', { exact: true });
+    // Rail buttons and community tabs alike carry a title that starts
+    // with the server name: the home server's is "Pulse Server" (a tab
+    // adds the description on a second line); the federated one's is
+    // "Pulse Server (pulse-fed-b:4991)".
+    const homeServer = pageA.getByTitle(/^Pulse Server(\n|$)/);
     const fedServer = pageA.getByTitle(/pulse-fed-b:4991/);
 
     // Home General Text has no federation messages.
@@ -316,15 +308,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // Locate by title attribute: the unread-DM badge's text REPLACES the
     // button's accessible name (content beats the title attr), so any
     // role+name match breaks whenever unread DMs exist.
-    await pageB
-      .locator('button[title="Home"]')
-      .filter({ visible: true })
-      .first()
-      .click({ force: true });
-    await pageB
-      .getByText('FedOwnerA')
-      .first()
-      .click({ timeout: 15_000 });
+    await openDmWith(pageB, 'FedOwnerA');
     await expect(
       pageB.locator('[id^="dm-msg-"]').getByText(DM_MSG, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
@@ -365,12 +349,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
         .filter({ has: pageA.getByText('General Text', { exact: true }) })
         .first()
     ).toBeVisible({ timeout: 15_000 });
-    await pageA
-      .locator('button[title="Home"]')
-      .filter({ visible: true })
-      .first()
-      .click({ force: true });
-    await pageA.getByText('FedOwnerB').first().click({ timeout: 15_000 });
+    await openDmWith(pageA, 'FedOwnerB');
     await expect(
       pageA.locator('[id^="dm-msg-"]').getByText(dmReply, { exact: true })
     ).toBeVisible({ timeout: 15_000 });

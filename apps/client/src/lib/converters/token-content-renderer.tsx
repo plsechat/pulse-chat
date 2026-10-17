@@ -14,15 +14,15 @@ import {
 } from '@/components/chat-primitives/overrides/mention';
 import { TwitterOverride } from '@/components/chat-primitives/overrides/twitter';
 import { YoutubeOverride } from '@/components/chat-primitives/overrides/youtube';
+import {
+  getTweetId,
+  getYoutubeVideoId
+} from '@/components/chat-primitives/embed-matchers';
 import { CustomEmoji } from './custom-emoji';
 import { isEmojiOnlyContent, tokenize, type Token } from './token-content';
 import type { TFoundMedia } from '@/components/chat-primitives/types';
 
 // ── Renderer ─────────────────────────────────────────────────
-
-const twitterRegex = /^https:\/\/(twitter|x)\.com\/\w+\/status\/(\d+)/;
-const youtubeRegex =
-  /^.*((youtu\.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
 
 function renderTokens(
   tokens: Token[],
@@ -193,27 +193,22 @@ function renderTokens(
         const href = token.href;
 
         // Twitter/X embed
-        const tweetMatch = href.match(twitterRegex);
-        if (tweetMatch) {
-          const tweetId = href.split('/').pop();
-          if (tweetId) {
-            elements.push(
-              <TwitterOverride key={`tw-${i}`} tweetId={tweetId} />
-            );
-            break;
-          }
+        const tweetId = getTweetId(href);
+        if (tweetId) {
+          elements.push(
+            <TwitterOverride key={`tw-${i}`} tweetId={tweetId} />
+          );
+          break;
         }
 
-        // YouTube embed
-        const ytMatch = href.match(youtubeRegex);
-        if (ytMatch) {
-          const videoId = ytMatch[7];
-          if (videoId) {
-            elements.push(
-              <YoutubeOverride key={`yt-${i}`} videoId={videoId} />
-            );
-            break;
-          }
+        // YouTube embed — host-checked, so a share link from another
+        // service whose path happens to fit the id pattern stays a link.
+        const videoId = getYoutubeVideoId(href);
+        if (videoId) {
+          elements.push(
+            <YoutubeOverride key={`yt-${i}`} videoId={videoId} />
+          );
+          break;
         }
 
         // Image URL → push as media

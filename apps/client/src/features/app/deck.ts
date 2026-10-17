@@ -16,7 +16,7 @@ import type { TActiveView } from './slice';
  * Tab keys: `home` · `discover` · `server:<id>` · `fed:<domain>:<id>`.
  */
 
-type TDeckPanel = 'friends' | 'messages' | 'inbox' | 'profile';
+type TDeckPanel = 'friends' | 'messages' | 'inbox';
 type TMessagesView = 'list' | 'conversation';
 
 type TDeckState = {

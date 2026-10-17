@@ -7,7 +7,7 @@ import {
 import path from 'node:path';
 import { psql } from '../../helpers/db';
 import { authedPage, registerAndJoin, RUN_TAG, runUser } from '../../helpers/fixtures';
-import { dmComposer, goHome, sendDmMessage } from '../../helpers/ui';
+import { dmComposer, openDmList, openFriends, sendDmMessage } from '../../helpers/ui';
 
 /**
  * DM depth: the friend-request loop, group-DM lifecycle, and DM
@@ -34,10 +34,6 @@ function uid(name: string): string {
   return psql('core', `SELECT id FROM users WHERE name = '${name}'`);
 }
 
-async function openFriends(page: Page): Promise<void> {
-  await goHome(page);
-  await page.getByRole('button', { name: 'Friends' }).click();
-}
 
 /** A specific All-tab friend row (scopes the hover Message/Remove buttons). */
 function friendRow(page: Page, name: string) {
@@ -194,7 +190,7 @@ test.describe('DM depth', () => {
     // a group. Re-befriend C, then create a group with B and C.
     await befriend(pageA, pageC, C.displayName, A.displayName);
 
-    await goHome(pageA);
+    await openDmList(pageA);
     await pageA.locator('button[title="Create Group DM"]').click();
     await expect(
       pageA.getByRole('heading', { name: 'Create Group DM' })
@@ -230,7 +226,7 @@ test.describe('DM depth', () => {
       .toBe('3');
 
     // B sees the group in their sidebar with the member-count subtitle.
-    await goHome(pageB);
+    await openDmList(pageB);
     await expect(pageB.getByText('3 members').first()).toBeVisible({
       timeout: 15_000
     });
@@ -238,7 +234,7 @@ test.describe('DM depth', () => {
     // C leaves → member count drops but is_group stays true (Phase-B
     // gotcha: a shrunk group must not silently demote to 1:1, or old
     // group-encrypted history stops decrypting).
-    await goHome(pageC);
+    await openDmList(pageC);
     await pageC.getByText('3 members').first().click({ button: 'right' });
     await pageC.getByRole('menuitem', { name: 'Leave Group' }).click();
     await pageC.getByRole('button', { name: 'Leave', exact: true }).click();

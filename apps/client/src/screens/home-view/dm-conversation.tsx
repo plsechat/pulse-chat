@@ -1,4 +1,5 @@
 import { ChatScopeProvider } from '@/components/chat-primitives/chat-scope';
+import { useLinkContextMenu } from '@/components/chat-primitives/link-context-menu';
 import {
   ComposerExpandToggle,
   ComposerResizer,
@@ -10,6 +11,7 @@ import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { InlineMessageEditor } from '@/components/chat-primitives/inline-message-editor';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
+import { MessageTombstone } from '@/components/chat-primitives/message-tombstone';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
@@ -47,6 +49,7 @@ import {
 import Spinner from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { UserAvatar } from '@/components/user-avatar';
+import { groupAvatarFallbackClass } from '@/components/user-avatar/fallback';
 import { UserPopover } from '@/components/user-popover';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import {
@@ -104,6 +107,7 @@ import {
   Copy,
   Flag,
   Forward,
+  Link,
   PanelRight,
   PanelRightClose,
   Pencil,
@@ -721,7 +725,9 @@ const DmHeader = memo(
         {channel?.isGroup && channel.icon ? (
           <Avatar className="h-7 w-7 flex-shrink-0">
             <AvatarImage src={getFileUrl(channel.icon)} alt="" />
-            <AvatarFallback className="bg-muted text-xs">
+            <AvatarFallback
+              className={cn('text-xs', groupAvatarFallbackClass(dmChannelId))}
+            >
               {getInitialsFromName(displayName)}
             </AvatarFallback>
           </Avatar>
@@ -1211,13 +1217,30 @@ const DmMessage = memo(
       toast.success('Copied to clipboard');
     }, [message.content]);
 
+    const { linkHref, copyLink, triggerProps } = useLinkContextMenu();
+
+    // A deleted message keeps its row as a tombstone. In a DM only the
+    // author deletes and nobody moderates, so there is no audit line and
+    // nothing a menu could offer (DM rows have no deep link) — the row
+    // keeps its anchor for reply jumps and nothing else.
+    if (message.deletedAt != null) {
+      return (
+        <div
+          id={`dm-msg-${message.id}`}
+          className="min-w-0 flex-1 relative -mx-2 px-2 py-0.5 rounded-md"
+        >
+          <MessageTombstone audit={null} />
+        </div>
+      );
+    }
+
     return (
       // Reaction picker is a separate Popover wrapping the context menu (see
       // message-context-menu.tsx for the rationale) — nesting it inside the
       // menu made it vanish on hover when emoji-mart grabbed focus.
       <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
         <ContextMenu>
-          <ContextMenuTrigger asChild>
+          <ContextMenuTrigger asChild {...triggerProps}>
             <PopoverAnchor asChild>
               <div
                 id={`dm-msg-${message.id}`}
@@ -1301,6 +1324,12 @@ const DmMessage = memo(
               <Copy className="h-4 w-4" />
               Copy Text
             </ContextMenuItem>
+            {linkHref && (
+              <ContextMenuItem onClick={copyLink}>
+                <Link className="h-4 w-4" />
+                Copy Link
+              </ContextMenuItem>
+            )}
             {message.content && (
               <ContextMenuItem
                 onClick={() =>

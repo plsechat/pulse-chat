@@ -309,7 +309,9 @@ const applyPlan = async (
   }
 
   if (plan.createHere.length > 0) {
-    const actorUserId = link.createdBy ?? (await getPluginActorUserId());
+    const actorUserId =
+      link.createdBy ??
+      (await getPluginActorUserId({ pluginId: link.pluginId, serverId: link.serverId }));
 
     for (const wanted of plan.createHere) {
       try {

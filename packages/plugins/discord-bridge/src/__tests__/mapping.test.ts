@@ -41,19 +41,26 @@ describe('inbound content', () => {
     expect(content).toBe('@someone @role #channel @here @everyone');
   });
 
-  test('an embed whose url is already in the text is not repeated; content is capped', () => {
+  test('an unfurl of a link already in the text adds nothing; content is capped', () => {
     const content = mapInboundContent(
       {
         id: '1',
         channel_id: '2',
         content: `see https://example.org ${'x'.repeat(MAX_LOCAL_CONTENT)}`,
-        embeds: [{ url: 'https://example.org', title: 'dup' }]
+        embeds: [{ type: 'link', url: 'https://example.org', title: 'dup', description: 'page words' }]
       },
       lookup
     );
 
     expect(content.includes('dup')).toBe(false);
+    expect(content.includes('page words')).toBe(false);
     expect(Array.from(content).length).toBe(MAX_LOCAL_CONTENT);
+  });
+
+  test('a bot card (rich) becomes text: title, description, fields, footer', () => {
+    const content = mapInboundContent(gateway.messageCreateStatusCard.d, lookup);
+
+    expect(content).toBe('Server status\nAll systems go\nPlayers: 12/50\nMap: Island\nUpdated hourly');
   });
 
   test('display name prefers the server nickname, then the global name, then the username', () => {

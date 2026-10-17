@@ -221,6 +221,55 @@ describe('inbound (remote → here)', () => {
     expect(restCalls(h)).toEqual([]);
   });
 
+  test('a picker GIF is re-hosted from its allowed host and posted as an attachment without the bare page link', async () => {
+    const h = await linkedBridge();
+
+    await h.dispatch(h.gateway.messageCreateGif);
+
+    expect(actionNames(h)).toEqual(['files.upload', 'messages.post']);
+    expect(h.fake.actions[0]!.input).toEqual({
+      url: 'https://static2.klipy.com/ii/aa/bb/hello.mp4',
+      filename: 'hello.mp4',
+      mime: 'video/mp4'
+    });
+    expect(h.fake.actions[1]!.input).toMatchObject({
+      channelId: 10,
+      content: '',
+      attachments: [{ fileId: 1 }],
+      externalId: '500000000000000031'
+    });
+  });
+
+  test('a GIF from a host outside the allowlist is not fetched; the link is what arrives', async () => {
+    const h = await linkedBridge();
+
+    await h.dispatch(h.gateway.messageCreateGifElsewhere);
+
+    expect(actionNames(h)).toEqual(['messages.post']);
+    expect(h.fake.actions[0]!.input).toMatchObject({
+      content: 'https://gifs.example.net/view/nope',
+      attachments: undefined
+    });
+  });
+
+  test("a status bot's card arrives as text, and its edit (an empty body with new embeds) is mirrored", async () => {
+    const h = await linkedBridge();
+
+    await h.dispatch(h.gateway.messageCreateStatusCard);
+    expect(actionNames(h)).toEqual(['messages.post']);
+    expect(h.fake.actions[0]!.input).toMatchObject({
+      content: 'Server status\nAll systems go\nPlayers: 12/50\nMap: Island\nUpdated hourly',
+      author: { name: 'status-bot' }
+    });
+
+    await h.dispatch(h.gateway.messageUpdateStatusCard);
+    expect(actionNames(h)).toEqual(['messages.post', 'messages.edit']);
+    expect(h.fake.actions[1]!.input).toEqual({
+      externalId: '500000000000000033',
+      content: 'Server status\nRestarting\nPlayers: 0/50'
+    });
+  });
+
   test('a reply resolves to the local copy of the message it answers', async () => {
     const h = await linkedBridge();
     await h.dispatch(h.gateway.messageCreatePlain);

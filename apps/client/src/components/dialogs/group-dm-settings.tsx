@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
+import { groupAvatarFallbackClass } from '@/components/user-avatar/fallback';
 import { fetchDmChannels } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
@@ -18,6 +19,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getHomeTRPCClient } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 import { Trash2, Upload } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -126,7 +128,9 @@ const GroupDmSettingsDialog = memo(
             <div className="flex items-center gap-3">
               <Avatar className="h-16 w-16">
                 <AvatarImage src={getFileUrl(channel?.icon)} alt="" />
-                <AvatarFallback className="bg-muted text-sm">
+                <AvatarFallback
+                  className={cn('text-sm', groupAvatarFallbackClass(dmChannelId))}
+                >
                   {getInitialsFromName(channel?.name || fallbackName)}
                 </AvatarFallback>
               </Avatar>

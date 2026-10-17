@@ -85,8 +85,13 @@ const assertServerExists = async (serverId: number) => {
 };
 
 const createChannelActions = (
-  pluginId: string
+  pluginId: string,
+  pluginName: string
 ): PluginContext['actions']['channels'] => {
+  /** The plugin's own account, a member of the server from its first action there. */
+  const actorIn = (serverId: number) =>
+    getPluginActorUserId({ pluginId, name: pluginName, serverId });
+
   const list: PluginContext['actions']['channels']['list'] = async (
     rawServerId
   ) => {
@@ -135,7 +140,7 @@ const createChannelActions = (
       );
     }
 
-    const actorUserId = await getPluginActorUserId();
+    const actorUserId = await actorIn(input.serverId);
 
     const channel = await db.transaction(async (tx) => {
       const [last] = await tx
@@ -242,7 +247,7 @@ const createChannelActions = (
         parentMessage = row;
       }
 
-      const actorUserId = await getPluginActorUserId();
+      const actorUserId = await actorIn(parent.serverId);
       const now = Date.now();
 
       const thread = await db.transaction(async (tx) => {

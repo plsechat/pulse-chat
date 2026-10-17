@@ -5,7 +5,8 @@ import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { testsBaseUrl } from '../../__tests__/setup';
 import { servers, users } from '../../db/schema';
-import { buildCalendarPath, clearCalendarCache } from '../../http/events-ics';
+import { buildCalendarPath, clearCalendarCache, invalidateFeedCache } from '../../http/events-ics';
+import { createEventActions } from '../../plugins/actions/events';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -67,10 +68,15 @@ describe('calendar feed', () => {
     const res = await fetchFeed(path);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/calendar; charset=utf-8');
-    expect(res.headers.get('cache-control')).toBe('private, max-age=60');
+    // Revalidate on every poll, never a max-age: the ETag answers 304 while nothing changed.
+    expect(res.headers.get('cache-control')).toBe('private, no-cache');
+    expect(res.headers.get('etag')).toMatch(/^"[0-9a-f]{32}"$/);
 
     const body = await res.text();
     expect(body.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n')).toBe(true);
+    // Honoured by Google Calendar and Outlook; Apple keeps its own schedule.
+    expect(body).toContain('REFRESH-INTERVAL;VALUE=DURATION:PT15M\r\n');
+    expect(body).toContain('X-PUBLISHED-TTL:PT15M\r\n');
     expect(body.endsWith('END:VCALENDAR\r\n')).toBe(true);
     expect(body.split('BEGIN:VEVENT')).toHaveLength(2);
     expect(body).toContain(`UID:${ids.server}-${soon.id}@pulse`);
@@ -142,7 +148,7 @@ describe('calendar feed', () => {
     expect((await fetchFeed(foreign)).status).toBe(404);
   });
 
-  test('a render is cached per server for a minute', async () => {
+  test('a render is cached per server for a minute; a create, update or cancel invalidates it at once', async () => {
     const { caller } = await initTest(1);
     clearCalendarCache();
     await caller.events.create(draft('First', Date.now() + HOUR_MS));
@@ -151,12 +157,75 @@ describe('calendar feed', () => {
     const first = await (await fetchFeed(path)).text();
     expect(first).toContain('SUMMARY:First');
 
-    await caller.events.create(draft('Second', Date.now() + 2 * HOUR_MS));
-    const cached = await (await fetchFeed(path)).text();
-    expect(cached).toBe(first);
+    // Nothing changed: the cached render is served again.
+    expect(await (await fetchFeed(path)).text()).toBe(first);
 
+    // A create through the route drops the cache: the next poll sees it, no minute to wait.
+    const second = await caller.events.create(draft('Second', Date.now() + 2 * HOUR_MS));
+    const afterCreate = await (await fetchFeed(path)).text();
+    expect(afterCreate).toContain('SUMMARY:Second');
+
+    await caller.events.update({ eventId: second.id, title: 'Second, renamed' });
+    expect(await (await fetchFeed(path)).text()).toContain('SUMMARY:Second\\, renamed');
+
+    await caller.events.cancel({ eventId: second.id });
+    expect(await (await fetchFeed(path)).text()).not.toContain('renamed');
+
+    // The cache itself still holds between changes: a row edited behind
+    // the routes' back stays stale until invalidated or the minute passes.
+    const stale = await (await fetchFeed(path)).text();
+    await getTestDb().update(servers).set({ name: 'Renamed Server' }).where(eq(servers.id, 1));
+    expect(await (await fetchFeed(path)).text()).toBe(stale);
+    invalidateFeedCache(1);
+    expect(await (await fetchFeed(path)).text()).toContain('X-WR-CALNAME:Renamed Server');
+  });
+
+  test("a plugin's create, update and cancel drop the cache like a member's do", async () => {
+    const { caller } = await initTest(1);
     clearCalendarCache();
-    const fresh = await (await fetchFeed(path)).text();
-    expect(fresh).toContain('SUMMARY:Second');
+    const { path } = await caller.events.getCalendarUrl();
+    const before = await (await fetchFeed(path)).text();
+    expect(before).not.toContain('SUMMARY:Bot raid');
+
+    const actions = createEventActions('feed-bot');
+    const startsAt = Date.now() + HOUR_MS;
+    const created = await actions.create({
+      serverId: 1,
+      title: 'Bot raid',
+      startsAt,
+      endsAt: startsAt + HOUR_MS,
+      roles: [{ key: 'dps', label: 'DPS', cap: null, color: null }]
+    });
+    expect(await (await fetchFeed(path)).text()).toContain('SUMMARY:Bot raid');
+
+    await actions.update(created.id, { title: 'Bot raid II' });
+    expect(await (await fetchFeed(path)).text()).toContain('SUMMARY:Bot raid II');
+
+    await actions.cancel(created.id);
+    expect(await (await fetchFeed(path)).text()).not.toContain('Bot raid');
+  });
+
+  test('If-None-Match with the current ETag answers 304 and no body', async () => {
+    const { caller } = await initTest(1);
+    clearCalendarCache();
+    await caller.events.create(draft('Tagged', Date.now() + HOUR_MS));
+    const { path } = await caller.events.getCalendarUrl();
+
+    const first = await fetchFeed(path);
+    const etag = first.headers.get('etag')!;
+    expect(etag).toBeTruthy();
+    await first.text();
+
+    const again = await fetch(`${testsBaseUrl}${path}`, { headers: { 'If-None-Match': etag } });
+    expect(again.status).toBe(304);
+    expect(again.headers.get('etag')).toBe(etag);
+    expect(await again.text()).toBe('');
+
+    // A change gives a new tag; the old one no longer matches.
+    await caller.events.create(draft('Another', Date.now() + 2 * HOUR_MS));
+    const changed = await fetch(`${testsBaseUrl}${path}`, { headers: { 'If-None-Match': etag } });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get('etag')).not.toBe(etag);
+    expect(await changed.text()).toContain('SUMMARY:Another');
   });
 });

@@ -1,10 +1,10 @@
 import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { removeFile } from '../../db/mutations/files';
+import { tombstoneMessages } from '../../db/mutations/messages';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { channels, messageFiles, messages } from '../../db/schema';
+import { channels, messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { relayAnnouncementDeletion } from '../../utils/announcement-follow';
 import { invariant } from '../../utils/invariant';
@@ -20,7 +20,9 @@ const bulkDeleteMessagesRoute = serverProcedure(Permission.MANAGE_MESSAGES)
   .mutation(async ({ input, ctx }) => {
     // Join channels so we only return messages in the caller's active server.
     // Without this filter, MANAGE_MESSAGES in server A could bulk-delete from
-    // any channel in server B.
+    // any channel in server B. Rows that are already tombstones are not
+    // "found": deleting them again would only move the deletion's author
+    // and time.
     const targetMessages = await db
       .select({ id: messages.id, channelId: messages.channelId })
       .from(messages)
@@ -28,7 +30,8 @@ const bulkDeleteMessagesRoute = serverProcedure(Permission.MANAGE_MESSAGES)
       .where(
         and(
           inArray(messages.id, input.messageIds),
-          eq(channels.serverId, ctx.activeServerId)
+          eq(channels.serverId, ctx.activeServerId),
+          isNull(messages.deletedAt)
         )
       );
 
@@ -46,32 +49,28 @@ const bulkDeleteMessagesRoute = serverProcedure(Permission.MANAGE_MESSAGES)
       message: 'All messages must belong to the same channel'
     });
 
-    const foundIds = targetMessages.map((m) => m.id);
-
-    // Batch file cleanup
-    const fileRows = await db
-      .select({ fileId: messageFiles.fileId })
-      .from(messageFiles)
-      .where(inArray(messageFiles.messageId, foundIds));
-
-    for (const row of fileRows) {
-      await removeFile(row.fileId);
-    }
-
-    await db.delete(messages).where(inArray(messages.id, foundIds));
+    // Tombstones, with the attachments removed inside (db/mutations/messages.ts).
+    const deletedAt = Date.now();
+    const foundIds = await tombstoneMessages(
+      targetMessages.map((m) => m.id),
+      ctx.user.id,
+      deletedAt
+    );
+    const tombstone = { deletedAt, deletedBy: ctx.user.id };
 
     const affectedUserIds = await getAffectedUserIdsForChannel(channelId, {
       permission: ChannelPermission.VIEW_CHANNEL
     });
     pubsub.publishFor(affectedUserIds, ServerEvents.MESSAGE_BULK_DELETE, {
       messageIds: foundIds,
-      channelId
+      channelId,
+      ...tombstone
     });
 
     for (const id of foundIds) {
       eventBus.emit('message:deleted', { channelId, messageId: id });
     }
-    void relayAnnouncementDeletion(channelId, foundIds);
+    void relayAnnouncementDeletion(channelId, foundIds, tombstone);
 
     return { deletedCount: foundIds.length };
   });

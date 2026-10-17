@@ -50,6 +50,7 @@ const getReactionsForDmMessageIds = async (
       fileId: dmMessageReactions.fileId,
       file: files,
       reactorName: users.name,
+      reactorPublicId: users.publicId,
       reactorAvatar
     })
     .from(dmMessageReactions)
@@ -66,7 +67,8 @@ const getReactionsForDmMessageIds = async (
         ? {
             id: r.userId,
             name: r.reactorName,
-            avatar: toReactionAvatar(r.reactorAvatar)
+            avatar: toReactionAvatar(r.reactorAvatar),
+            publicId: r.reactorPublicId ?? ''
           }
         : null;
 
@@ -193,10 +195,12 @@ const getDmChannelsForUser = async (
   );
 
   if (withReadState.length > 0) {
+    // Tombstones ("Message deleted") are not unread.
     const conditions = withReadState.map((chId) =>
       and(
         eq(dmMessages.dmChannelId, chId),
-        sql`${dmMessages.id} > ${readStateMap.get(chId)!.lastReadMessageId}`
+        sql`${dmMessages.id} > ${readStateMap.get(chId)!.lastReadMessageId}`,
+        isNull(dmMessages.deletedAt)
       )
     );
     const counts = await db

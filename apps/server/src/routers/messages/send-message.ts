@@ -130,7 +130,10 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
     // from private channels, other servers or DMs.
     if (input.replyToId !== undefined) {
       const [replyTarget] = await db
-        .select({ channelId: messages.channelId })
+        .select({
+          channelId: messages.channelId,
+          deletedAt: messages.deletedAt
+        })
         .from(messages)
         .where(eq(messages.id, input.replyToId))
         .limit(1);
@@ -138,6 +141,12 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
       invariant(replyTarget && replyTarget.channelId === channel.id, {
         code: 'BAD_REQUEST',
         message: 'Reply target not found in this channel'
+      });
+      // A reply to a tombstone would quote nothing; the existing replies
+      // keep pointing at it (their preview says "Message deleted").
+      invariant(!replyTarget.deletedAt, {
+        code: 'BAD_REQUEST',
+        message: 'You cannot reply to a deleted message'
       });
     }
 

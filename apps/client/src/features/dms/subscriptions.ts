@@ -44,10 +44,16 @@ const subscribeToDms = () => {
         dmChannelId: decrypted.dmChannelId
       });
     }),
+    // A server predating tombstones sends no deletedAt/deletedBy; the
+    // row is then marked as deleted now, by nobody.
     subscribe(
       'onDmMessageDelete',
       trpc.dms.onMessageDelete,
-      ({ dmMessageId, dmChannelId }) => deleteDmMessage(dmChannelId, dmMessageId)
+      ({ dmMessageId, dmChannelId, deletedAt, deletedBy }) =>
+        deleteDmMessage(dmChannelId, dmMessageId, {
+          deletedAt: deletedAt ?? Date.now(),
+          deletedBy: deletedBy ?? null
+        })
     ),
     subscribe(
       'onDmCallStarted',

@@ -1,6 +1,7 @@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { avatarFallbackClass } from '@/components/user-avatar/fallback';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
@@ -78,7 +79,7 @@ const UserItem = memo(
       >
         <div className="flex items-center gap-2">
           <Avatar className="h-5 w-5">
-            <AvatarFallback className="text-[10px]">
+            <AvatarFallback className={cn('text-[10px]', avatarFallbackClass(user))}>
               {getInitialsFromName(user.name)}
             </AvatarFallback>
           </Avatar>

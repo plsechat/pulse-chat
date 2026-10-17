@@ -140,10 +140,10 @@
   --hl-function: #6d3fd6;
   --hl-variable: #b85a1c;
   --hl-symbol: #0f9d8a;
-  /* Community tint: the hue is set per community on the shell root; the
-     colour below is what tabs, headers and the active channel row use. */
-  --community-hue: 190;
-  --community: oklch(0.62 0.13 var(--community-hue));
+  /* Shell tint: what tabs, headers and the active channel row use. It is
+     the theme's own primary with the chroma capped, so it can never clash
+     with the palette; communities are told apart by logo and initial. */
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 .dark {
@@ -200,7 +200,7 @@
   --hl-function: #8fd6ff;
   --hl-variable: #ffb0b8;
   --hl-symbol: #7cf0db;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 @layer base {

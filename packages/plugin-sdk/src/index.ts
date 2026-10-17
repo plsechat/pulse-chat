@@ -151,6 +151,11 @@ export interface EventPayloads {
     pluginId?: string;
       replyToId?: number | null;
   };
+  /**
+   * A channel message was deleted (single, bulk, report takedown, or a
+   * plugin). The row stays as a tombstone ("Message deleted") until the
+   * instance's retention sweep removes it.
+   */
   "message:deleted": {
     messageId: number;
     channelId: number;
@@ -487,7 +492,16 @@ export interface PluginContext {
       post(input: TPluginPostMessageInput): Promise<{ messageId: number }>;
       /** Edit a message the plugin posted (any message with `moderate-messages`). */
       edit(input: TPluginMessageRef & { content: string }): Promise<void>;
-      /** Delete a message the plugin posted (any message with `moderate-messages`). */
+      /**
+       * Delete a message the plugin posted (any message with
+       * `moderate-messages`). The row stays as a tombstone — "Message
+       * deleted", attributed to the plugin's actor — until the
+       * instance's retention sweep removes it; its content,
+       * attachments, reactions and link row are gone at once, so the
+       * same externalId may be posted again, `edit` / `react` on it
+       * and a second `delete` are NOT_FOUND ("Message was deleted"),
+       * and a `post` replying to it is BAD_REQUEST.
+       */
       delete(input: TPluginMessageRef): Promise<void>;
       /** Add (or with `remove`, take back) a reaction under the plugin's actor. */
       react(

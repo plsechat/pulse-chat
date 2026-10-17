@@ -35,7 +35,11 @@ const resolveForwardSource = async (
 
   if (input.sourceKind === 'channel') {
     const [row] = await db
-      .select({ userId: messages.userId, serverId: channels.serverId })
+      .select({
+        userId: messages.userId,
+        serverId: channels.serverId,
+        deletedAt: messages.deletedAt
+      })
       .from(messages)
       .innerJoin(channels, eq(messages.channelId, channels.id))
       .where(eq(messages.id, input.sourceId))
@@ -45,10 +49,20 @@ const resolveForwardSource = async (
       code: 'NOT_FOUND',
       message: 'Source message not found'
     });
+    // A tombstone has no content to forward; the client never offers
+    // it, but the attribution must not be minted from one either.
+    invariant(!row.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'Source message was deleted'
+    });
     authorId = row.userId;
   } else {
     const [row] = await db
-      .select({ userId: dmMessages.userId, dmChannelId: dmMessages.dmChannelId })
+      .select({
+        userId: dmMessages.userId,
+        dmChannelId: dmMessages.dmChannelId,
+        deletedAt: dmMessages.deletedAt
+      })
       .from(dmMessages)
       .where(eq(dmMessages.id, input.sourceId))
       .limit(1);
@@ -57,6 +71,10 @@ const resolveForwardSource = async (
     invariant(row && memberIds.includes(ctx.userId), {
       code: 'NOT_FOUND',
       message: 'Source message not found'
+    });
+    invariant(!row.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'Source message was deleted'
     });
     authorId = row.userId;
   }

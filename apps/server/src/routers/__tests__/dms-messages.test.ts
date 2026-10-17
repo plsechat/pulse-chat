@@ -5,6 +5,7 @@ import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
 import {
   dmMessageFiles,
+  dmMessageReactions,
   dmMessages,
   dmReadStates,
   files
@@ -289,7 +290,7 @@ describe('dms pins', () => {
 describe('dms.deleteMessage', () => {
   afterEach(() => mock.restore());
 
-  test('author deletes (row + attachment rows gone, members notified); others refused', async () => {
+  test('author deletes: the row stays as a tombstone (attachments gone, members notified); others refused', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
     const { caller: caller3 } = await initTest(3);
@@ -311,8 +312,16 @@ describe('dms.deleteMessage', () => {
       'You can only delete your own messages'
     );
 
+    await caller1.dms.toggleReaction({ dmMessageId: messageId, emoji: '👍' });
+    await caller1.dms.pinMessage({ dmMessageId: messageId });
+
     const spy = spyOn(pubsub, 'publishFor');
+    const before = Date.now();
     await caller1.dms.deleteMessage({ messageId });
+
+    const [row] = await tdb.select().from(dmMessages).where(eq(dmMessages.id, messageId));
+    expect(row).toMatchObject({ content: null, pinned: false, pinnedBy: null, deletedBy: 1 });
+    expect(row!.deletedAt).toBeGreaterThanOrEqual(before);
 
     const deletes = spy.mock.calls.filter(
       ([, topic]) => topic === ServerEvents.DM_MESSAGE_DELETE
@@ -320,18 +329,102 @@ describe('dms.deleteMessage', () => {
     expect(deletes.map(([userIds]) => userIds).sort()).toEqual([1, 2]);
     expect(deletes[0]![2]).toEqual({
       dmMessageId: messageId,
-      dmChannelId: channel.id
+      dmChannelId: channel.id,
+      deletedAt: row!.deletedAt,
+      deletedBy: 1
     });
 
     expect(
-      await tdb.select().from(dmMessages).where(eq(dmMessages.id, messageId))
-    ).toHaveLength(0);
-    expect(
       await tdb.select().from(files).where(eq(files.id, fileId))
     ).toHaveLength(0);
+    expect(
+      await tdb.select().from(dmMessageReactions).where(eq(dmMessageReactions.dmMessageId, messageId))
+    ).toHaveLength(0);
+
+    // Listed in place as a tombstone; not pinned; not searchable.
+    const { messages: listed } = await caller2.dms.getMessages({ dmChannelId: channel.id });
+    expect(listed.find((m) => m.id === messageId)).toMatchObject({
+      content: null,
+      deletedBy: 1,
+      files: [],
+      reactions: []
+    });
+    expect(await caller2.dms.getPinned({ dmChannelId: channel.id })).toEqual([]);
+    expect(
+      (await caller2.dms.searchMessages({ query: 'delete me' })).messages
+    ).toHaveLength(0);
+
     await expect(caller1.dms.deleteMessage({ messageId })).rejects.toThrow(
-      'Message not found'
+      'Message is already deleted'
     );
+  });
+
+  test('an encrypted message is tombstoned with its ciphertext cleared', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    await caller1.dms.enableEncryption({ dmChannelId: channel.id });
+    const messageId = await caller1.dms.sendMessage({
+      dmChannelId: channel.id,
+      content: 'ciphertext-envelope',
+      e2ee: true
+    });
+
+    await caller1.dms.deleteMessage({ messageId });
+
+    const [row] = await getTestDb().select().from(dmMessages).where(eq(dmMessages.id, messageId));
+    expect(row).toMatchObject({ content: null, e2ee: true, deletedBy: 1 });
+    expect(row!.deletedAt).toBeGreaterThan(0);
+  });
+
+  test('edit, react, pin, reply and forward on a tombstone are refused', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    const messageId = await caller1.dms.sendMessage({ dmChannelId: channel.id, content: 'gone' });
+    await caller1.dms.deleteMessage({ messageId });
+
+    await expect(
+      caller1.dms.editMessage({ messageId, content: 'back', e2ee: false })
+    ).rejects.toThrow('This message was deleted');
+    await expect(
+      caller2.dms.toggleReaction({ dmMessageId: messageId, emoji: '👍' })
+    ).rejects.toThrow('This message was deleted');
+    await expect(caller2.dms.pinMessage({ dmMessageId: messageId })).rejects.toThrow(
+      'This message was deleted'
+    );
+    await expect(
+      caller2.dms.sendMessage({ dmChannelId: channel.id, content: 're', replyToId: messageId })
+    ).rejects.toThrow('You cannot reply to a deleted message');
+    await expect(
+      caller2.dms.sendMessage({
+        dmChannelId: channel.id,
+        content: 'fwd',
+        forwardedFrom: { sourceKind: 'dm', sourceId: messageId }
+      })
+    ).rejects.toThrow('Source message was deleted');
+  });
+
+  test('a tombstone is not unread; as the last message it is the channel\'s deleted snippet', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    const first = await caller1.dms.sendMessage({ dmChannelId: channel.id, content: 'first' });
+    // User 2 reads up to the first message, then two more arrive.
+    await caller2.dms.getMessages({ dmChannelId: channel.id });
+    await caller1.dms.sendMessage({ dmChannelId: channel.id, content: 'second' });
+    const last = await caller1.dms.sendMessage({ dmChannelId: channel.id, content: 'third' });
+    expect(last).toBeGreaterThan(first);
+
+    const before = (await caller2.dms.getChannels()).find((c) => c.id === channel.id);
+    expect(before!.unreadCount).toBe(2);
+
+    await caller1.dms.deleteMessage({ messageId: last });
+
+    const after = (await caller2.dms.getChannels()).find((c) => c.id === channel.id);
+    expect(after!.unreadCount).toBe(1);
+    expect(after!.lastMessage).toMatchObject({ id: last, content: null, deletedBy: 1 });
+    expect(after!.lastMessage!.deletedAt).toBeGreaterThan(0);
   });
 });
 

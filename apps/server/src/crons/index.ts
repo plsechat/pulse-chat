@@ -13,6 +13,7 @@ import { pruneFederationReplayState } from './federation-seen-jti';
 import { closeExpiredPollsTick } from './polls';
 import { pruneExpiredLogs } from './retention';
 import { scheduledPostsTick } from './scheduled-posts';
+import { purgeExpiredTombstones } from './tombstones';
 import { bridgeSyncTick } from '../routers/servers/bridge-sync';
 
 enum CRON_TIMES {
@@ -128,6 +129,18 @@ const loadCrons = () => {
     CRON_TIMES.EVERY_DAY,
     pruneExpiredLogs,
     CRON_LOCK_IDS.LOG_RETENTION
+  );
+
+  // Message tombstones ("Message deleted" rows) age out after
+  // config.server.tombstoneRetentionDays, in 1000-row batches on the
+  // partial deleted_at indexes. Daily plus boot, like log retention;
+  // no fan-out — a viewer who still has the row sees the placeholder
+  // until their next load, which is the same thing they saw before.
+  scheduleCron(
+    'tombstone-retention',
+    CRON_TIMES.EVERY_DAY,
+    () => purgeExpiredTombstones(),
+    CRON_LOCK_IDS.TOMBSTONE_RETENTION
   );
 
   // Local-auth session rows outlive their refresh token's 30 days only

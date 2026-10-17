@@ -2,7 +2,12 @@ import { sendDesktopNotification } from '@/features/notifications/desktop-notifi
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
 import { TYPING_MS } from '@pulse/shared';
-import type { TJoinedMessage, TJoinedPublicUser } from '@pulse/server/types';
+import type {
+  TJoinedMessage,
+  TJoinedPublicUser,
+  TMessageTombstone
+} from '@pulse/server/types';
+import { emitAppEvent } from '@/lib/events';
 import { activeThreadIdSelector, selectedChannelIdSelector } from '../channels/selectors';
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';
@@ -120,17 +125,42 @@ export const updateMessage = (channelId: number, message: TJoinedMessage) => {
   store.dispatch(serverSliceActions.updateMessage({ channelId, message }));
 };
 
-export const deleteMessage = (channelId: number, messageId: number) => {
-  store.dispatch(serverSliceActions.deleteMessage({ channelId, messageId }));
+/**
+ * A deleted message becomes a tombstone in the list. Deletion clears
+ * the pin on the server, so a pinned one tells the pinned surfaces to
+ * refetch (the same signal a plain unpin sends).
+ */
+export const deleteMessage = (
+  channelId: number,
+  messageId: number,
+  tombstone: TMessageTombstone
+) => {
+  const wasPinned = !!store
+    .getState()
+    .server.messagesMap[channelId]?.find((m) => m.id === messageId)?.pinned;
+
+  store.dispatch(
+    serverSliceActions.deleteMessage({ channelId, messageId, tombstone })
+  );
+
+  if (wasPinned) emitAppEvent('pinned-messages-changed', { channelId });
 };
 
 export const bulkDeleteMessages = (
   channelId: number,
-  messageIds: number[]
+  messageIds: number[],
+  tombstone: TMessageTombstone
 ) => {
+  const ids = new Set(messageIds);
+  const anyPinned = !!store
+    .getState()
+    .server.messagesMap[channelId]?.some((m) => ids.has(m.id) && m.pinned);
+
   store.dispatch(
-    serverSliceActions.bulkDeleteMessages({ channelId, messageIds })
+    serverSliceActions.bulkDeleteMessages({ channelId, messageIds, tombstone })
   );
+
+  if (anyPinned) emitAppEvent('pinned-messages-changed', { channelId });
 };
 
 export const purgeChannelMessages = (channelId: number) => {

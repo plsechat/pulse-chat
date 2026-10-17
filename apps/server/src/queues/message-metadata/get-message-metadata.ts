@@ -1,5 +1,5 @@
 import type { TMessageMetadata } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { messages } from '../../db/schema';
 import { validateFederationUrl } from '../../utils/validate-url';
@@ -199,13 +199,15 @@ export const processMessageMetadata = async (
   );
   const metadata = [...persona, ...previews];
 
+  // A message deleted while its previews were being fetched stays a
+  // tombstone: the preview must not land on the cleared row.
   const [updatedMessage] = await db
     .update(messages)
     .set({
       metadata,
       updatedAt: Date.now()
     })
-    .where(eq(messages.id, messageId))
+    .where(and(eq(messages.id, messageId), isNull(messages.deletedAt)))
     .returning();
 
   return updatedMessage ?? null;

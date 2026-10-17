@@ -102,10 +102,25 @@ type TDiscordAttachment = {
   content_type?: string;
 };
 
+type TDiscordEmbedMedia = {
+  url?: string;
+  proxy_url?: string;
+  width?: number;
+  height?: number;
+  content_type?: string;
+};
+
 type TDiscordEmbed = {
+  /** rich, image, video, gifv, article, link … */
+  type?: string;
   title?: string;
   url?: string;
   description?: string;
+  fields?: { name?: string; value?: string; inline?: boolean }[];
+  footer?: { text?: string; icon_url?: string } | null;
+  image?: TDiscordEmbedMedia | null;
+  thumbnail?: TDiscordEmbedMedia | null;
+  video?: TDiscordEmbedMedia | null;
 };
 
 type TDiscordMessage = {
@@ -149,6 +164,7 @@ export type {
   TDiscordBotUser,
   TDiscordChannel,
   TDiscordEmbed,
+  TDiscordEmbedMedia,
   TDiscordEmoji,
   TDiscordGuild,
   TDiscordMember,

@@ -33,6 +33,11 @@ const pinMessageRoute = serverProcedure(Permission.PIN_MESSAGES)
       ChannelPermission.VIEW_CHANNEL
     );
 
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
+
     invariant(!message.pinned, {
       code: 'BAD_REQUEST',
       message: 'Message is already pinned'

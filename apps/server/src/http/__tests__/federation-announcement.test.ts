@@ -1,6 +1,6 @@
 import { ServerEvents } from '@pulse/shared';
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { exportJWK, generateKeyPair } from 'jose';
 import { config } from '../../config';
 import {
@@ -29,11 +29,12 @@ afterEach(() => {
   mock.restore();
 });
 
+/** Live copies; a deleted source leaves its copy as a tombstone (content null). */
 const systemRowsIn = async (channelId: number) => {
   const rows = await getTestDb()
     .select()
     .from(messages)
-    .where(and(eq(messages.channelId, channelId), eq(messages.type, 'system')));
+    .where(and(eq(messages.channelId, channelId), eq(messages.type, 'system'), isNull(messages.deletedAt)));
   return rows.map((r) => ({ id: r.id, userId: r.userId, edited: r.edited, row: JSON.parse(r.content!) as TAnnouncementRow }));
 };
 
@@ -206,7 +207,7 @@ describe('POST /federation/announcement', () => {
     return { peerInstanceId, peerPrivateJwk, digest };
   };
 
-  test('create writes one copy (replay-safe) as a shadow author, update rewrites it, delete removes it', async () => {
+  test('create writes one copy (replay-safe) as a shadow author, update rewrites it, delete tombstones it', async () => {
     const tdb = getTestDb();
     const { peerInstanceId, peerPrivateJwk, digest } = await followerOf();
     const spy = spyOn(pubsub, 'publishFor');
@@ -256,6 +257,23 @@ describe('POST /federation/announcement', () => {
     );
     expect(deleted.body).toMatchObject({ success: true, removed: 1 });
     expect(await systemRowsIn(digest.id)).toHaveLength(0);
+    // The copy stays as a tombstone: nobody local deleted it.
+    const [tombstone] = await tdb
+      .select({ content: messages.content, deletedAt: messages.deletedAt, deletedBy: messages.deletedBy })
+      .from(messages)
+      .where(eq(messages.id, copyId));
+    expect(tombstone).toMatchObject({ content: null, deletedBy: null });
+    expect(tombstone!.deletedAt).toBeGreaterThan(0);
+    const deletion = spy.mock.calls.find(([, t]) => t === ServerEvents.MESSAGE_DELETE);
+    expect(deletion![2]).toMatchObject({ messageId: copyId, channelId: digest.id, deletedBy: null });
+
+    // A replayed delete finds nothing live to tombstone.
+    const replayedDelete = await postSignedAsPeer(
+      '/federation/announcement',
+      { action: 'delete', sourceChannelPublicId: 'their-news', targetChannelPublicId: digest.publicId, messageIds: [41] },
+      peerPrivateJwk
+    );
+    expect(replayedDelete.body).toMatchObject({ success: true, removed: 0 });
   });
 
   test('an update that arrives before its create still lands as a copy', async () => {

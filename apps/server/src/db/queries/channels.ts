@@ -5,7 +5,7 @@ import {
   type TMentionStateMap,
   type TReadStateMap
 } from '@pulse/shared';
-import { and, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   channelReadStates,
@@ -398,6 +398,7 @@ const getChannelsReadStatesForUser = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
           THEN 1
@@ -406,6 +407,7 @@ const getChannelsReadStatesForUser = async (
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -465,6 +467,7 @@ const getForumUnreadForUser = async (
       unreadCount: sql<number>`
         COALESCE(SUM(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
           THEN 1
@@ -473,6 +476,7 @@ const getForumUnreadForUser = async (
       mentionCount: sql<number>`
         COALESCE(SUM(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -536,11 +540,15 @@ const getChannelUnreadForUsers = async (
       `.as('mention_count')
     })
     .from(channelReadStates)
+    // A tombstone is nothing to read: it leaves the unread count the
+    // moment it is deleted (same rule in every count below and in
+    // servers.ts / dms.ts).
     .innerJoin(
       messages,
       and(
         eq(messages.channelId, channelReadStates.channelId),
-        gt(messages.id, channelReadStates.lastReadMessageId)
+        gt(messages.id, channelReadStates.lastReadMessageId),
+        isNull(messages.deletedAt)
       )
     )
     .where(
@@ -596,11 +604,15 @@ const getForumUnreadForUsers = async (
         eq(channels.type, 'THREAD')
       )
     )
+    // A tombstone is nothing to read: it leaves the unread count the
+    // moment it is deleted (same rule in every count below and in
+    // servers.ts / dms.ts).
     .innerJoin(
       messages,
       and(
         eq(messages.channelId, channelReadStates.channelId),
-        gt(messages.id, channelReadStates.lastReadMessageId)
+        gt(messages.id, channelReadStates.lastReadMessageId),
+        isNull(messages.deletedAt)
       )
     )
     .where(

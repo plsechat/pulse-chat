@@ -105,7 +105,7 @@ const sendMessageRoute = protectedProcedure
     // disclose a message from any other DM (or an unrelated id space).
     if (input.replyToId != null) {
       const [reply] = await db
-        .select({ id: dmMessages.id })
+        .select({ id: dmMessages.id, deletedAt: dmMessages.deletedAt })
         .from(dmMessages)
         .where(
           and(
@@ -117,6 +117,10 @@ const sendMessageRoute = protectedProcedure
       invariant(reply, {
         code: 'BAD_REQUEST',
         message: 'Reply target is not in this conversation'
+      });
+      invariant(!reply.deletedAt, {
+        code: 'BAD_REQUEST',
+        message: 'You cannot reply to a deleted message'
       });
     }
 

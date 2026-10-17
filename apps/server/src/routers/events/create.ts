@@ -5,6 +5,7 @@ import {
   eventFieldsSchema,
   eventRolesSchema
 } from '../../db/queries/events';
+import { invalidateFeedCache } from '../../http/events-ics';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 
@@ -28,7 +29,7 @@ const createEventRoute = serverProcedure(Permission.MANAGE_EVENTS)
       );
     }
 
-    return createEvent({
+    const event = await createEvent({
       serverId: ctx.activeServerId,
       title: input.title,
       description: input.description ?? null,
@@ -42,6 +43,11 @@ const createEventRoute = serverProcedure(Permission.MANAGE_EVENTS)
       announceChannelId: input.announceChannelId ?? null,
       actor: { kind: 'user', userId: ctx.userId }
     });
+
+    // The calendar feed renders afresh on its next poll.
+    invalidateFeedCache(ctx.activeServerId);
+
+    return event;
   });
 
 export { createEventRoute };

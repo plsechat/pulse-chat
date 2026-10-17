@@ -26,9 +26,25 @@ export type TRemoteAttachment = {
   content_type?: string;
 };
 
+export type TRemoteEmbedMedia = {
+  url?: string;
+  proxy_url?: string;
+  width?: number;
+  height?: number;
+  content_type?: string;
+};
+
 export type TRemoteEmbed = {
+  /** rich, image, video, gifv, article, link … */
+  type?: string;
   title?: string;
   url?: string;
+  description?: string;
+  fields?: { name?: string; value?: string; inline?: boolean }[];
+  footer?: { text?: string; icon_url?: string } | null;
+  image?: TRemoteEmbedMedia | null;
+  thumbnail?: TRemoteEmbedMedia | null;
+  video?: TRemoteEmbedMedia | null;
 };
 
 export type TRemoteStickerItem = {

@@ -65,6 +65,8 @@ type TUserProps = {
   nameplate?: string | null;
   nameStyle?: TNameStyle | null;
   _identity?: string;
+  /** A plugin's account: labelled so it is not mistaken for a person. */
+  system?: boolean;
   e2ee?: boolean;
   dimmed?: boolean;
 };
@@ -80,6 +82,7 @@ const User = memo(
     nameplate,
     nameStyle,
     _identity,
+    system,
     e2ee,
     dimmed
   }: TUserProps) => {
@@ -137,6 +140,11 @@ const User = memo(
                 </span>
                 {_identity?.includes('@') && (
                   <Globe className="h-3 w-3 text-blue-500 shrink-0" />
+                )}
+                {system && (
+                  <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Plugin
+                  </span>
                 )}
                 {timedOut && <TimedOutBadge until={timedOutUntil} />}
                 {e2ee && <VerifiedMemberDot userId={userId} />}
@@ -207,6 +215,7 @@ const RoleGroupSection = memo(
             nameplate={user.nameplate}
             nameStyle={user.nameStyle}
             _identity={user._identity}
+            system={user.system}
             e2ee={e2ee}
             dimmed={dimmed}
           />

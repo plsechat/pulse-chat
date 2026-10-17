@@ -42,6 +42,11 @@ const editMessageRoute = protectedProcedure
       message: 'You can only edit your own messages'
     });
 
+    invariant(!msg.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
+
     // A forwarded message is a verbatim copy of another author's
     // message; it can never be edited (same rule as channel forwards,
     // which use the `editable` flag they don't have here).

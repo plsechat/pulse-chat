@@ -1,3 +1,4 @@
+import { renderEmbedsAsText } from '@pulse/shared';
 import type { TRemoteEmoji, TRemoteMember, TRemoteMessage, TRemoteUser } from './types';
 
 /**
@@ -6,8 +7,10 @@ import type { TRemoteEmoji, TRemoteMember, TRemoteMessage, TRemoteUser } from '.
  *
  * Inbound follows the community import's rules (the same service, the
  * same markup): mentions become `@name` / `@role` / `#channel` text,
- * custom emoji `:name:`, timestamps a date, embeds and stickers extra
- * lines. One deliberate difference from the import: `@here` stays
+ * custom emoji `:name:`, timestamps a date, embeds (title, description,
+ * fields, footer — a status bot's whole card, through the helper the
+ * import uses) and stickers extra lines. One deliberate difference
+ * from the import: `@here` stays
  * `@here`. The import rewrote it to `@everyone` for history nobody is
  * paged about, but a live bridge posts through the SDK, which parses
  * `@everyone` into a real everyone-ping — a remote `@here` must not
@@ -25,6 +28,8 @@ export const MAX_LOCAL_CONTENT = 16_000;
 export const MAX_REMOTE_CONTENT = 2_000;
 export const MAX_AUTHOR_NAME = 80;
 const MAX_QUOTE_LENGTH = 120;
+/** Room an embed rendering may take under the local cap. */
+const MAX_EMBED_TEXT = 4_000;
 
 const CDN = 'https://cdn.discordapp.com';
 
@@ -83,11 +88,8 @@ export const mapInboundContent = (message: TRemoteMessage, lookup: TInboundLooku
 
   const extra: string[] = [];
 
-  for (const embed of message.embeds ?? []) {
-    if (embed.url && !content.includes(embed.url)) {
-      extra.push(embed.title ? `${boundText(embed.title, 200)} — ${embed.url}` : embed.url);
-    }
-  }
+  const embedText = renderEmbedsAsText(message.embeds, MAX_EMBED_TEXT, content);
+  if (embedText.length > 0) extra.push(embedText);
 
   for (const sticker of message.sticker_items ?? []) {
     extra.push(`:${boundText(sticker.name, 64, 'sticker')}:`);

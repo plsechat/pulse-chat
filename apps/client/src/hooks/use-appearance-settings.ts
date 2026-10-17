@@ -25,7 +25,7 @@ const defaultSettings: AppearanceSettings = {
   zoomLevel: 100,
   timeFormat: '12h',
   showFormattingHints: false,
-  layout: 'classic'
+  layout: 'deck'
 };
 
 /** Inclusive bounds of the two sliders; stored values outside are clamped. */

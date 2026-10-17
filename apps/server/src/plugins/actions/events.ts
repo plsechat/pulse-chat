@@ -32,6 +32,8 @@ type TEventQueries = {
     actor: TEventActor
   ) => Promise<TPluginEvent>;
   cancelEvent: (eventId: number, actor: TEventActor) => Promise<void>;
+  /** Optional: lets a cancellation find the server whose feed to refresh. */
+  getEventById?: (eventId: number) => Promise<{ serverId: number } | undefined>;
 };
 
 type TEventQueriesLoader = () => Promise<Partial<TEventQueries>>;
@@ -129,13 +131,28 @@ const createEventActions = (
     return loaded as TEventQueries;
   };
 
+  // The ICS feed caches its render per server; a plugin's change must
+  // show on the next pull like a member's does. Loaded lazily for the
+  // same reason the queries are.
+  const refreshFeed = async (serverId: number) => {
+    try {
+      const { invalidateFeedCache } = await import('../../http/events-ics');
+      invalidateFeedCache(serverId);
+    } catch {
+      // The feed module is absent in some builds; the render TTL bounds staleness.
+    }
+  };
+
   const create: PluginContext['actions']['events']['create'] = async (
     rawInput
   ) => {
     const input = parseActionInput(createSchema, rawInput);
     const { createEvent } = await queries();
 
-    return createEvent({ ...input, hostId: input.hostId ?? null, actor });
+    const event = await createEvent({ ...input, hostId: input.hostId ?? null, actor });
+    await refreshFeed(event.serverId);
+
+    return event;
   };
 
   const update: PluginContext['actions']['events']['update'] = async (
@@ -146,16 +163,21 @@ const createEventActions = (
     const patch = parseActionInput(updateSchema, rawPatch);
     const { updateEvent } = await queries();
 
-    return updateEvent(eventId, patch, actor);
+    const event = await updateEvent(eventId, patch, actor);
+    await refreshFeed(event.serverId);
+
+    return event;
   };
 
   const cancel: PluginContext['actions']['events']['cancel'] = async (
     rawEventId
   ) => {
     const eventId = parseActionInput(id, rawEventId);
-    const { cancelEvent } = await queries();
+    const { cancelEvent, getEventById } = await queries();
+    const before = await getEventById?.(eventId);
 
     await cancelEvent(eventId, actor);
+    if (before) await refreshFeed(before.serverId);
   };
 
   return { create, update, cancel };

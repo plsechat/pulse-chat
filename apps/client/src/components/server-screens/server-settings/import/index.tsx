@@ -6,6 +6,7 @@ import { QueryErrorRow } from '../query-state';
 import { ChooseStep } from './choose-step';
 import { ConnectStep } from './connect-step';
 import { DoneStep } from './done-step';
+import { ImportedPeople } from './imported-people';
 import { OptionsStep } from './options-step';
 import { PreviewStep } from './preview-step';
 import { RunningStep } from './running-step';
@@ -93,6 +94,8 @@ const Import = memo(() => {
       {wizard.step === 'done' && job && (
         <DoneStep serverId={serverId} job={job} onStartOver={wizard.startOver} />
       )}
+
+      <ImportedPeople serverId={serverId} />
     </div>
   );
 });

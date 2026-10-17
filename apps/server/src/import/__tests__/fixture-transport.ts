@@ -14,6 +14,7 @@ import type {
   TDiscordScheduledEvent,
   TDiscordThread
 } from '../discord/types';
+import { assertCdnUrl } from '../discord/client';
 import { compareSnowflakes } from '../mapping';
 import nightRaiders from './fixtures/night-raiders.json';
 
@@ -241,7 +242,16 @@ const FAKE_PNG = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82
 ]);
 
-/** In-memory CDN: records every URL, refuses what the size cap refuses. */
+/** The bytes of a tiny mp4 (ftyp box), enough for the file pipeline. */
+const FAKE_MP4 = new Uint8Array([
+  0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 0, 1
+]);
+
+/**
+ * In-memory CDN: records every URL, refuses what the production
+ * allowlist refuses (`assertCdnUrl`: the service's CDN and the GIF
+ * pickers' hosts, nothing else) and what the size cap refuses.
+ */
 const createFixtureDownloader = () => {
   const downloads: { url: string; maxBytes: number }[] = [];
   const download = async (
@@ -249,14 +259,11 @@ const createFixtureDownloader = () => {
     maxBytes: number
   ): Promise<Uint8Array> => {
     downloads.push({ url, maxBytes });
-    const parsed = new URL(url);
-    if (parsed.hostname !== 'cdn.discordapp.com') {
-      throw new Error(`fixture downloader refuses ${parsed.hostname}`);
-    }
+    const parsed = assertCdnUrl(url);
     if (parsed.pathname.endsWith('/missing.png')) {
       throw new Error('Asset download answered 404');
     }
-    return FAKE_PNG;
+    return parsed.pathname.endsWith('.mp4') ? FAKE_MP4 : FAKE_PNG;
   };
   return { download, downloads };
 };

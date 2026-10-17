@@ -3,7 +3,7 @@ import type {
   TJoinedDmMessage,
   TMessageReplyPreview
 } from '../../types';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import {
@@ -35,7 +35,8 @@ const getPinnedDmMessagesRoute = protectedProcedure
       .where(
         and(
           eq(dmMessages.dmChannelId, input.dmChannelId),
-          eq(dmMessages.pinned, true)
+          eq(dmMessages.pinned, true),
+          isNull(dmMessages.deletedAt)
         )
       )
       .orderBy(desc(dmMessages.pinnedAt));

@@ -1,6 +1,6 @@
 import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { config } from '../../config';
 import {
   mockDns,
@@ -46,12 +46,21 @@ afterEach(() => {
   config.federation.enabled = false;
 });
 
+/** Live copies: a deleted source leaves its copies as tombstones (content null). */
 const copiesIn = async (channelId: number) => {
   const rows = await getTestDb()
     .select()
     .from(messages)
-    .where(and(eq(messages.channelId, channelId), eq(messages.type, 'system')));
+    .where(and(eq(messages.channelId, channelId), eq(messages.type, 'system'), isNull(messages.deletedAt)));
   return rows.map((r) => ({ id: r.id, userId: r.userId, row: JSON.parse(r.content!) as TAnnouncementRow }));
+};
+
+const tombstonesIn = async (channelId: number) => {
+  const rows = await getTestDb()
+    .select({ id: messages.id, content: messages.content, deletedBy: messages.deletedBy, deletedAt: messages.deletedAt })
+    .from(messages)
+    .where(and(eq(messages.channelId, channelId), eq(messages.type, 'system'), isNotNull(messages.deletedAt)));
+  return rows;
 };
 
 /** Owner flags `news` as an announcement channel; `digest` follows it. */
@@ -180,8 +189,13 @@ describe('local follows', () => {
     await owner.messages.delete({ messageId: id });
     for (let i = 0; i < 200 && (await copiesIn(digest.id)).length > 0; i++) await Bun.sleep(10);
     expect(await copiesIn(digest.id)).toHaveLength(0);
-    const deletions = callsFor(spy, ServerEvents.MESSAGE_DELETE).map((c) => c[2] as { channelId: number });
-    expect(deletions.some((d) => d.channelId === digest.id)).toBe(true);
+    // The copy is a tombstone attributed like the source's.
+    const [tombstone] = await tombstonesIn(digest.id);
+    expect(tombstone).toMatchObject({ id: copy!.id, content: null, deletedBy: 1 });
+    const deletions = callsFor(spy, ServerEvents.MESSAGE_DELETE).map(
+      (c) => c[2] as { channelId: number; deletedBy: number | null }
+    );
+    expect(deletions.some((d) => d.channelId === digest.id && d.deletedBy === 1)).toBe(true);
   });
 
   test('bulk delete and purge remove the copies too', async () => {
@@ -198,6 +212,7 @@ describe('local follows', () => {
     await owner.messages.purge({ channelId: news.id, confirmChannelName: 'news' });
     for (let i = 0; i < 200 && (await copiesIn(digest.id)).length > 0; i++) await Bun.sleep(10);
     expect(await copiesIn(digest.id)).toHaveLength(0);
+    expect(await tombstonesIn(digest.id)).toHaveLength(3);
   });
 
   test('unfollow removes the relation only: copies stay, new posts stop', async () => {

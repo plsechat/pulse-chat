@@ -16,11 +16,9 @@ import { openConversationPanel } from '@/features/app/deck';
 import {
   useActiveInstanceDomain,
   useActiveServerId,
-  useActiveView,
-  useJoinedServers
+  useActiveView
 } from '@/features/app/hooks';
 import { setSelectedDmChannelId } from '@/features/dms/actions';
-import { useServerName } from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { useLayoutMode } from '@/hooks/use-appearance-settings';
 import { useAutoAway } from '@/hooks/use-auto-away';
@@ -28,7 +26,6 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useTabNotifications } from '@/hooks/use-tab-notifications';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { useVisualViewportHeight } from '@/hooks/use-visual-viewport';
-import { communityHue } from '@/lib/community-hue';
 import { cn } from '@/lib/utils';
 import { lazy, memo, Suspense } from 'react';
 import { HomeView } from '../home-view';
@@ -103,18 +100,6 @@ const MainViewInner = memo(() => {
   // active channel). Home and Discover fall back to the brand hue.
   const activeServerId = useActiveServerId();
   const activeInstanceDomain = useActiveInstanceDomain();
-  const joinedServers = useJoinedServers();
-  const serverName = useServerName();
-  const hueSeed =
-    activeView === 'server'
-      ? activeInstanceDomain
-        ? `${activeInstanceDomain}:${serverName ?? ''}`
-        : (joinedServers.find((s) => s.id === activeServerId)?.publicId ??
-          serverName ??
-          '')
-      : '';
-  const hue = communityHue(hueSeed);
-
   const renderView = () => {
     switch (activeView) {
       case 'home':
@@ -156,7 +141,6 @@ const MainViewInner = memo(() => {
           keep the shell off a phone's rounded corners and notch in
           landscape (viewport-fit=cover, index.html). */}
       <div
-        style={{ '--community-hue': hue } as React.CSSProperties}
         className={cn(
           'flex h-(--vvh) bg-sidebar text-foreground pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
           deck && 'flex-col'

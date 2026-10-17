@@ -56,6 +56,7 @@ const getServersByUserId = async (
       name: servers.name,
       publicId: servers.publicId,
       ownerId: servers.ownerId,
+      description: servers.description,
       logo: files,
       memberCount: memberCountOf
     })
@@ -72,7 +73,11 @@ const getServersByUserId = async (
       publicId: row.publicId,
       logo: row.logo,
       memberCount: Number(row.memberCount),
-      ownerId: row.ownerId
+      ownerId: row.ownerId,
+      // Carried so the client's live summary (rail, deck tabs, Discover
+      // card) starts from the same description SERVER_SETTINGS_UPDATE
+      // later keeps current.
+      description: row.description
     })
   );
 };
@@ -235,6 +240,7 @@ const getServerUnreadCounts = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
@@ -243,6 +249,7 @@ const getServerUnreadCounts = async (
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -295,6 +302,7 @@ const getServerUnreadCount = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
@@ -303,6 +311,7 @@ const getServerUnreadCount = async (
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}

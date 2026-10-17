@@ -1,9 +1,10 @@
-import { ChannelType } from '@pulse/shared';
+import { ChannelType, isBareEmbedLink, pickEmbedMedia, type TEmbedMediaPick } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { eq, inArray } from 'drizzle-orm';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
 import { pushImportWarning } from '../../db/queries/import-jobs';
+import { logger } from '../../logger';
 import {
   getPluginMessageLinkByExternalId,
   insertPluginMessageLink
@@ -14,6 +15,7 @@ import type {
   TDiscordActiveThreads,
   TDiscordArchivedThreads,
   TDiscordAttachment,
+  TDiscordEmbed,
   TDiscordMessage,
   TDiscordThread
 } from '../discord/types';
@@ -55,6 +57,8 @@ const LAST_N = 1000;
 const IMPORT_LINK_PLUGIN_ID = 'discord-import';
 /** Author of record when the owner asked for no placeholders at all. */
 const GENERIC_AUTHOR_EXTERNAL_ID = 'imported-history';
+/** Media embeds (picker GIFs, pasted images) re-hosted per message, on top of the attachments. */
+const MAX_MEDIA_EMBEDS = 5;
 
 const sortAscending = (list: TDiscordMessage[]) =>
   [...list].sort((a, b) => compareSnowflakes(a.id, b.id));
@@ -127,44 +131,163 @@ const runPinsStep = async (run: ImportRun): Promise<void> => {
 
 // ─── threads ──────────────────────────────────────────────────────────
 
-const createThreadChannel = async (run: ImportRun, thread: TDiscordThread): Promise<void> => {
-  const parentSourceId = thread.parent_id ?? '';
-  const parentId = run.state.map.channels[parentSourceId];
-  if (parentId === undefined) return;
+type TThreadSpec = {
+  sourceId: string;
+  name: string;
+  parentSourceId: string;
+  archived: boolean;
+  autoArchiveDuration: number;
+};
+
+/**
+ * One THREAD row for a source thread under its mapped parent. Returns
+ * false when the parent was not imported (or is not a text/forum
+ * channel), in which case the thread has nowhere to live.
+ */
+const insertThreadChannel = async (run: ImportRun, spec: TThreadSpec): Promise<boolean> => {
+  const parentId = run.state.map.channels[spec.parentSourceId];
+  if (parentId === undefined) return false;
 
   const [parent] = await db
     .select({ type: channels.type, private: channels.private })
     .from(channels)
     .where(eq(channels.id, parentId))
     .limit(1);
-  if (!parent || (parent.type !== ChannelType.TEXT && parent.type !== ChannelType.FORUM)) return;
+  if (!parent || (parent.type !== ChannelType.TEXT && parent.type !== ChannelType.FORUM)) return false;
 
   const now = run.now();
   const [created] = await db
     .insert(channels)
     .values({
       type: ChannelType.THREAD,
-      name: boundText(thread.name, BOUNDS.threadName, 'thread'),
+      name: spec.name,
       position: 0,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: now,
       serverId: run.serverId,
       parentChannelId: parentId,
       private: parent.private,
-      archived: thread.thread_metadata?.archived ?? false,
-      autoArchiveDuration: thread.thread_metadata?.auto_archive_duration ?? 1440,
+      archived: spec.archived,
+      autoArchiveDuration: spec.autoArchiveDuration,
       publicId: randomUUIDv7(),
-      createdAt: snowflakeToTimestamp(thread.id) || now
+      createdAt: snowflakeToTimestamp(spec.sourceId) || now
     })
     .returning({ id: channels.id });
 
-  run.state.map.threads[thread.id] = created!.id;
-  run.state.threadParents[thread.id] = {
-    parent: parentSourceId,
-    forum: parent.type === ChannelType.FORUM
+  run.state.map.threads[spec.sourceId] = created!.id;
+  run.state.threadParents[spec.sourceId] = {
+    parent: spec.parentSourceId,
+    forum: parent.type === ChannelType.FORUM,
+    archived: spec.archived
   };
-  run.state.names.channels[thread.id] = boundText(thread.name, BOUNDS.threadName, 'thread');
+  run.state.names.channels[spec.sourceId] = spec.name;
   void publishChannel(created!.id, 'create');
+
+  return true;
+};
+
+const createThreadChannel = async (run: ImportRun, thread: TDiscordThread): Promise<void> => {
+  await insertThreadChannel(run, {
+    sourceId: thread.id,
+    name: boundText(thread.name, BOUNDS.threadName, 'thread'),
+    parentSourceId: thread.parent_id ?? '',
+    archived: thread.thread_metadata?.archived ?? false,
+    autoArchiveDuration: thread.thread_metadata?.auto_archive_duration ?? 1440
+  });
+};
+
+/**
+ * The thread row a mapped source thread points at may be gone by the
+ * time its messages arrive: the empty-thread sweep removes zero-message
+ * threads older than ten minutes (it now skips servers with an import
+ * in flight, but an owner can delete a thread by hand too). Recreating
+ * it from what the threads step remembered keeps the job going; the
+ * first message would otherwise fail the whole import on the channel
+ * foreign key.
+ */
+const recreateThread = async (run: ImportRun, sourceId: string): Promise<number | undefined> => {
+  const remembered = run.state.threadParents[sourceId];
+  if (!remembered) return undefined;
+
+  const name = run.state.names.channels[sourceId] ?? 'thread';
+  const created = await insertThreadChannel(run, {
+    sourceId,
+    name,
+    parentSourceId: remembered.parent,
+    archived: remembered.archived ?? true,
+    autoArchiveDuration: 1440
+  });
+  if (!created) return undefined;
+
+  pushImportWarning(run.state, `Thread "${name}" was removed while the import ran; it was created again.`);
+  logger.warn('[import] job %d recreated thread %s (%s)', run.job.id, name, sourceId);
+
+  return run.state.map.threads[sourceId];
+};
+
+/** Thread rows this run has seen in the table (or recreated); one lookup each. */
+const verifiedThreads = new WeakMap<ImportRun, Set<number>>();
+
+/**
+ * The thread row a mapped source thread points at, checked against the
+ * table once per run and recreated when gone. A starter message in the
+ * parent channel carries the thread's id (messages.thread_id), and the
+ * parent is imported before the thread's own turn in the queue, so the
+ * check runs here, not only when the thread's messages are reached.
+ */
+const ensureThread = async (run: ImportRun, sourceId: string): Promise<number | undefined> => {
+  const mapped = run.state.map.threads[sourceId];
+  if (mapped === undefined) return undefined;
+
+  let seen = verifiedThreads.get(run);
+  if (!seen) {
+    seen = new Set();
+    verifiedThreads.set(run, seen);
+  }
+  if (seen.has(mapped)) return mapped;
+
+  const [row] = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(eq(channels.id, mapped))
+    .limit(1);
+  if (row) {
+    seen.add(row.id);
+    return row.id;
+  }
+
+  const recreated = await recreateThread(run, sourceId);
+  if (recreated !== undefined) seen.add(recreated);
+
+  return recreated;
+};
+
+/**
+ * Where a channel's messages go, verified against the table: the mapped
+ * row, a recreated thread, or undefined when the target is gone for
+ * good (a top-level channel the owner deleted mid-import is left alone;
+ * its messages stay behind with a warning).
+ */
+const resolveTargetChannel = async (run: ImportRun, sourceId: string): Promise<number | undefined> => {
+  if (run.state.map.threads[sourceId] !== undefined) {
+    return ensureThread(run, sourceId);
+  }
+
+  const mapped = ourChannelId(run, sourceId);
+  if (mapped === undefined) return undefined;
+
+  const [row] = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(eq(channels.id, mapped))
+    .limit(1);
+  if (row) return row.id;
+
+  pushImportWarning(
+    run.state,
+    `#${run.state.names.channels[sourceId] ?? sourceId} was deleted while the import ran; its messages stay behind.`
+  );
+  return undefined;
 };
 
 const runThreadsStep = async (run: ImportRun): Promise<void> => {
@@ -345,6 +468,52 @@ const downloadAttachment = async (
   }
 };
 
+/**
+ * A picker GIF (`gifv`: the file is an mp4, the thumbnail a still) or a
+ * pasted image arrives as an embed, not an attachment; re-host it the
+ * same way so it renders as one. The hardened download refuses any
+ * host outside the picker allowlist, whatever the embed claims. The
+ * embeds that were re-hosted are left out of the text rendering, and a
+ * body that is nothing but the GIF's page link goes with them.
+ */
+const rehostMediaEmbeds = async (
+  run: ImportRun,
+  message: TDiscordMessage
+): Promise<{ fileIds: number[]; remaining: TDiscordEmbed[]; content: string }> => {
+  const fileIds: number[] = [];
+  const remaining: TDiscordEmbed[] = [];
+  let content = message.content ?? '';
+  let rehosted = 0;
+
+  for (const embed of message.embeds ?? []) {
+    const media: TEmbedMediaPick | null =
+      rehosted < MAX_MEDIA_EMBEDS && run.options.attachments === 'download' && run.uploadsEnabled
+        ? pickEmbedMedia(embed)
+        : null;
+
+    if (!media) {
+      remaining.push(embed);
+      continue;
+    }
+
+    try {
+      assertAllowedExtension(media.filename);
+      const bytes = await run.download(media.url, run.maxFileBytes);
+      const file = await storeImportedFile(bytes, media.filename, run.actorId);
+      run.state.attachments.done++;
+      fileIds.push(file.id);
+      rehosted++;
+      if (isBareEmbedLink(content, embed)) content = '';
+    } catch (error) {
+      run.state.attachments.failed++;
+      run.error('messages', media.filename, error);
+      remaining.push(embed);
+    }
+  }
+
+  return { fileIds, remaining, content };
+};
+
 const contentLookup = (run: ImportRun): TContentLookup => ({
   userId: (id) => run.userCache.get(id),
   roleId: (id) => run.state.map.roles[id],
@@ -353,13 +522,15 @@ const contentLookup = (run: ImportRun): TContentLookup => ({
   roleName: (id) => run.state.names.roles[id]
 });
 
+type TSkipReason = 'type' | 'empty';
+
 const prepareMessage = async (
   run: ImportRun,
   sourceChannelId: string,
   message: TDiscordMessage,
   lookup: TContentLookup
-): Promise<TPreparedMessage | null> => {
-  if (!IMPORTABLE_MESSAGE_TYPES.has(message.type)) return null;
+): Promise<TPreparedMessage | TSkipReason> => {
+  if (!IMPORTABLE_MESSAGE_TYPES.has(message.type)) return 'type';
 
   const userId = await authorFor(run, message);
 
@@ -375,7 +546,11 @@ const prepareMessage = async (
     }
   }
 
-  let content = mapMessageContent(message, lookup);
+  const media = await rehostMediaEmbeds(run, message);
+  let content = mapMessageContent(
+    { ...message, content: media.content, embeds: media.remaining },
+    lookup
+  );
   const fileIds: number[] = [];
   const unsaved: string[] = [];
 
@@ -384,13 +559,14 @@ const prepareMessage = async (
     if (fileId !== null) fileIds.push(fileId);
     else unsaved.push(boundText(attachment.filename, 120, 'attachment'));
   }
+  fileIds.push(...media.fileIds);
 
   if (unsaved.length > 0) {
     const lines = unsaved.map((name) => `[attachment: ${name}]`).join('\n');
     content = content.length > 0 ? `${content}\n${lines}` : lines;
   }
 
-  if (content.length === 0 && fileIds.length === 0) return null;
+  if (content.length === 0 && fileIds.length === 0) return 'empty';
 
   return {
     sourceId: message.id,
@@ -418,6 +594,16 @@ const insertPage = async (
 ): Promise<number> => {
   let inserted = 0;
 
+  // Starters point at their thread; make sure each one still exists
+  // (or is recreated) before the page commits, outside the transaction
+  // so a rolled-back page never leaves a recreated thread unmapped.
+  const threadIds = new Map<string, number>();
+  for (const message of prepared) {
+    if (run.state.map.threads[message.sourceId] === undefined) continue;
+    const threadId = await ensureThread(run, message.sourceId);
+    if (threadId !== undefined) threadIds.set(message.sourceId, threadId);
+  }
+
   await db.transaction(async (tx) => {
     for (const message of prepared) {
       if (known.has(message.sourceId)) continue;
@@ -436,7 +622,7 @@ const insertPage = async (
           null;
       }
 
-      const threadId = run.state.map.threads[message.sourceId] ?? null;
+      const threadId = threadIds.get(message.sourceId) ?? null;
 
       const [row] = await tx
         .insert(messages)
@@ -502,16 +688,21 @@ const runMessagesStep = async (run: ImportRun): Promise<void> => {
   counts.total ??= run.state.estimates?.messages ?? null;
 
   const lookup = contentLookup(run);
+  const skippedBy = run.state.skippedBy;
+  // Channels the structure step found unreadable count once, here, so a
+  // resumed step reports the same number instead of adding to it.
+  skippedBy.unreadable = run.state.unreadable.length;
 
   while (cursor.index < cursor.queue.length) {
     const sourceChannelId = cursor.queue[cursor.index]!;
-    const channelId = ourChannelId(run, sourceChannelId);
+    const channelId = await resolveTargetChannel(run, sourceChannelId);
     const label = `#${run.state.names.channels[sourceChannelId] ?? sourceChannelId}`;
     // Reply targets seen in this channel; the link table covers the rest.
     const known = new Map<string, number>();
 
     if (channelId === undefined) {
       cursor.index++;
+      await run.checkpoint();
       continue;
     }
 
@@ -530,8 +721,19 @@ const runMessagesStep = async (run: ImportRun): Promise<void> => {
         const prepared: TPreparedMessage[] = [];
         for (const message of page) {
           const ready = await prepareMessage(run, sourceChannelId, message, lookup);
-          if (ready) prepared.push(ready);
-          else counts.skipped++;
+          if (typeof ready === 'string') {
+            counts.skipped++;
+            skippedBy[ready]++;
+            logger.debug(
+              '[import] job %d skipped message %s in %s: %s',
+              run.job.id,
+              message.id,
+              label,
+              ready === 'type' ? `service notice (type ${message.type})` : 'nothing to show'
+            );
+          } else {
+            prepared.push(ready);
+          }
         }
 
         const lastId = page[page.length - 1]!.id;
@@ -547,6 +749,9 @@ const runMessagesStep = async (run: ImportRun): Promise<void> => {
     } catch (error) {
       if (error instanceof DiscordApiError && (error.status === 403 || error.status === 404)) {
         pushImportWarning(run.state, `${label}: the bot cannot read this channel's history, so its messages stay behind.`);
+        if (!run.state.unreadable.includes(sourceChannelId)) run.state.unreadable.push(sourceChannelId);
+        skippedBy.unreadable = run.state.unreadable.length;
+        logger.debug('[import] job %d skipped %s: the bot cannot read it (%d)', run.job.id, label, error.status);
       } else {
         throw error;
       }

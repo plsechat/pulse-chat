@@ -14,9 +14,18 @@ import { selectChannel, toast } from '../../helpers/ui';
  * user B signs up as DPS from the card, the owner's event sheet shows
  * them under DPS, B withdraws, the owner cancels.
  *
- * Desktop only (the `core` project): the sheet is a dialog in the
- * classic layout a fresh context starts in.
+ * Desktop only (the `core` project): the sheet is a side panel in the
+ * tab layout (the default) and a dialog in the traditional one; the
+ * spec accepts either.
  */
+
+/** The open event sheet, whichever layout hosts it. */
+function eventSheet(page: Page): Locator {
+  return page
+    .getByRole('dialog')
+    .or(page.getByRole('complementary', { name: 'Event' }))
+    .first();
+}
 
 const BASE = 'http://127.0.0.1:14991';
 const TITLE = `Raid ${Date.now().toString(36)}`;
@@ -62,7 +71,7 @@ test.describe('raid planner', () => {
     ).toBeVisible();
 
     await ownerPage.getByRole('button', { name: 'New event' }).click();
-    const dialog = ownerPage.getByRole('dialog');
+    const dialog = eventSheet(ownerPage);
     await expect(dialog.getByText('New event')).toBeVisible();
 
     await dialog.getByPlaceholder('Raid night').fill(TITLE);
@@ -111,7 +120,7 @@ test.describe('raid planner', () => {
     const card = rsvpCard(ownerPage);
     await card.getByRole('button', { name: 'Details' }).click();
 
-    const sheet = ownerPage.getByRole('dialog');
+    const sheet = eventSheet(ownerPage);
     await expect(sheet.getByRole('heading', { name: TITLE })).toBeVisible();
     const dpsColumn = sheet.locator('[aria-label^="DPS, "]');
     await expect(dpsColumn.getByText(CORE_USER_B.displayName)).toBeVisible({
@@ -130,14 +139,14 @@ test.describe('raid planner', () => {
       timeout: 15_000
     });
 
-    const sheet = ownerPage.getByRole('dialog');
+    const sheet = eventSheet(ownerPage);
     await expect(
       sheet.locator('[aria-label^="DPS, "]').getByText(CORE_USER_B.displayName)
     ).toHaveCount(0, { timeout: 15_000 });
   });
 
   test('the owner cancels the event', async () => {
-    const sheet = ownerPage.getByRole('dialog');
+    const sheet = eventSheet(ownerPage);
     await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
     await ownerPage.getByRole('button', { name: 'Cancel event' }).click();
     await expect(toast(ownerPage, 'Event cancelled')).toBeVisible({

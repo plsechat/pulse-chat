@@ -1,5 +1,6 @@
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
+import { MessageTombstone } from '@/components/chat-primitives/message-tombstone';
 import { PollCard } from '@/components/chat-primitives/poll-card';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
@@ -7,8 +8,14 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useCan, usePreviewMode } from '@/features/server/hooks';
-import { useIsOwnUser, useOwnUserId } from '@/features/server/users/hooks';
+import { isTombstone, tombstoneAudit } from '@/features/tombstone';
+import {
+  useIsOwnUser,
+  useOwnUserId,
+  useUserById
+} from '@/features/server/users/hooks';
 import type { IRootState } from '@/features/store';
+import { getDisplayName } from '@/helpers/get-display-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { timeOnly } from '@/helpers/time-format';
 import { useScrollToMessage } from '@/hooks/use-scroll-to-message';
@@ -63,6 +70,19 @@ const Message = memo(
     const isHighlighted = highlightedId === message.id;
     const isSelected = selectedIds.has(message.id);
     const previewMode = usePreviewMode();
+
+    // A deleted message keeps its row as a tombstone: "Message deleted"
+    // in place, with the deleter and time for MANAGE_MESSAGES holders
+    // (features/tombstone.ts). -1 is never a user id, so a tombstone
+    // without a deleter resolves to nothing.
+    const tombstone = isTombstone(message);
+    const canSeeAudit = can(Permission.MANAGE_MESSAGES);
+    const deleter = useUserById(message.deletedBy ?? -1);
+    const audit = tombstoneAudit(
+      message,
+      canSeeAudit,
+      deleter ? getDisplayName(deleter) : null
+    );
 
     // In preview everything is read-only — even a message the previewer
     // authored before leaving the server can't be edited/deleted.
@@ -175,6 +195,46 @@ const Message = memo(
       },
       [message.id]
     );
+
+    if (tombstone) {
+      // Same anchor id and gutter as a live row (jump links and reply
+      // targets still land here); no actions, no reactions, no
+      // selection — only the thread it may be the root of.
+      return (
+        <MessageContextMenu
+          messageId={message.id}
+          messageContent={null}
+          channelId={message.channelId}
+          onEdit={onEdit}
+          onReply={onReply}
+          canEdit={false}
+          canDelete={false}
+          editable={false}
+          pinned={false}
+          hasThread
+          tombstone
+        >
+          <div
+            id={`msg-${message.id}`}
+            className={cn(
+              'min-w-0 flex-1 relative group leading-[1.375rem] rounded-lg -mr-10 pr-4',
+              compact ? '-ml-[32px] pl-[32px]' : '-ml-[64px] pl-[64px]',
+              isHighlighted && 'animate-msg-highlight'
+            )}
+          >
+            {!isFirstInGroup && !compact && (
+              <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover-or-touch:opacity-100 transition-opacity duration-100 select-none">
+                {format(new Date(message.createdAt), timeOnly())}
+              </time>
+            )}
+            <MessageTombstone audit={audit} />
+            {message.threadId && (
+              <ThreadIndicator threadId={message.threadId} />
+            )}
+          </div>
+        </MessageContextMenu>
+      );
+    }
 
     return (
       <MessageContextMenu

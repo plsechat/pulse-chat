@@ -10,7 +10,7 @@ import { randomUUIDv7 } from 'bun';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { removeFile } from '../../db/mutations/files';
+import { tombstoneMessages } from '../../db/mutations/messages';
 import { publishMessage } from '../../db/publishers';
 import {
   relayAnnouncement,
@@ -18,7 +18,6 @@ import {
 } from '../../utils/announcement-follow';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getEmojiFileIdByEmojiName } from '../../db/queries/emojis';
-import { getFilesByMessageId } from '../../db/queries/files';
 import { getReaction } from '../../db/queries/messages';
 import {
   getPluginMessageLinkByExternalId,
@@ -129,6 +128,8 @@ type TOwnedMessage = {
 
 type TMessageActionDeps = {
   pluginId: string;
+  /** The manifest name; the plugin's actor account is named after it. */
+  pluginName: string;
   hasCapability: (capability: 'moderate-messages') => boolean;
   log: (...message: unknown[]) => void;
 };
@@ -217,9 +218,14 @@ const parseMentions = async (content: string, channelId: number) => {
 
 const createMessageActions = ({
   pluginId,
+  pluginName,
   hasCapability,
   log
 }: TMessageActionDeps): PluginContext['actions']['messages'] => {
+  /** The plugin's own account, a member of the channel's server from its first action there. */
+  const actorIn = (serverId: number) =>
+    getPluginActorUserId({ pluginId, name: pluginName, serverId });
+
   /**
    * Resolve a ref to the message and decide whether this plugin may act
    * on it. By externalId the link row is the lookup itself, so a foreign
@@ -258,6 +264,13 @@ const createMessageActions = ({
 
     if (!message) {
       throw new PluginActionError('NOT_FOUND', 'Message not found');
+    }
+
+    // A tombstone (deletion keeps the row) takes no further action: its
+    // link row was released with the content, so by externalId it is
+    // already NOT_FOUND above; by messageId say what happened.
+    if (message.deletedAt) {
+      throw new PluginActionError('NOT_FOUND', 'Message was deleted');
     }
 
     if (!owned && !hasCapability('moderate-messages')) {
@@ -313,14 +326,17 @@ const createMessageActions = ({
       );
     }
 
-    const actorUserId = await getPluginActorUserId();
+    const actorUserId = await actorIn(channel.serverId);
 
     // A reply may only point at a message in the SAME channel — the
     // reply preview ships the target's text to everyone who sees the
     // new message (send-message.ts enforces the same).
     if (input.replyToId !== undefined) {
       const [target] = await db
-        .select({ channelId: messages.channelId })
+        .select({
+          channelId: messages.channelId,
+          deletedAt: messages.deletedAt
+        })
         .from(messages)
         .where(eq(messages.id, input.replyToId))
         .limit(1);
@@ -329,6 +345,13 @@ const createMessageActions = ({
         throw new PluginActionError(
           'BAD_REQUEST',
           'Reply target not found in this channel'
+        );
+      }
+
+      if (target.deletedAt) {
+        throw new PluginActionError(
+          'BAD_REQUEST',
+          'Reply target was deleted'
         );
       }
     }
@@ -496,7 +519,7 @@ const createMessageActions = ({
       throw new PluginActionError('FORBIDDEN', 'This message is not editable');
     }
 
-    const actorUserId = await getPluginActorUserId();
+    const actorUserId = await actorIn(channel.serverId);
 
     // An edit is a second chance to publish blocked content (edit-message.ts).
     await assertNotBlockedByAutomod(content, channel, actorUserId);
@@ -532,15 +555,16 @@ const createMessageActions = ({
   ) => {
     const { message, channel } = await resolve(rawInput);
 
-    // Same order as delete-message.ts: attachments first (their rows
-    // reference the message), then the message (the link row cascades).
-    const attached = await getFilesByMessageId(message.id);
-    await Promise.all(attached.map((file) => removeFile(file.id)));
+    // Same as delete-message.ts: the row stays as a tombstone attributed
+    // to the plugin's actor; attachments, reactions and the link row go
+    // with the content (db/mutations/messages.ts).
+    const deletedAt = Date.now();
+    const deletedBy = await actorIn(channel.serverId);
+    await tombstoneMessages([message.id], deletedBy, deletedAt);
+    const tombstone = { deletedAt, deletedBy };
 
-    await db.delete(messages).where(eq(messages.id, message.id));
-
-    await publishMessage(message.id, channel.id, 'delete');
-    await relayAnnouncementDeletion(channel.id, [message.id]);
+    await publishMessage(message.id, channel.id, 'delete', tombstone);
+    await relayAnnouncementDeletion(channel.id, [message.id], tombstone);
 
     eventBus.emit('message:deleted', {
       messageId: message.id,
@@ -556,7 +580,7 @@ const createMessageActions = ({
       reactSchema,
       rawInput
     );
-    const actorUserId = await getPluginActorUserId();
+    const actorUserId = await actorIn(channel.serverId);
 
     const existing = await getReaction(message.id, emoji, actorUserId);
     const added = !removeReaction;

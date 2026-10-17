@@ -31,6 +31,10 @@ type TConfig = {
     // with every request). The daily retention cron deletes older rows;
     // 0 disables pruning.
     retentionDays: number;
+    // Days a deleted message stays as a tombstone ("Message deleted" in
+    // place, messages.deleted_at) before the daily sweep hard-deletes
+    // the row; 0 keeps tombstones forever.
+    tombstoneRetentionDays: number;
   };
   mediasoup: {
     worker: {
@@ -82,7 +86,8 @@ let config: TConfig = {
     debugLogMaxFiles: 10,
     debugLogIncludeBody: true,
     redactExtra: [],
-    retentionDays: 90
+    retentionDays: 90,
+    tombstoneRetentionDays: 30
   },
   mediasoup: {
     worker: {
@@ -160,6 +165,11 @@ config.server.retentionDays =
   Number.isInteger(parsedRetentionDays) && parsedRetentionDays >= 0
     ? parsedRetentionDays
     : 90;
+const parsedTombstoneDays = Number(config.server.tombstoneRetentionDays);
+config.server.tombstoneRetentionDays =
+  Number.isInteger(parsedTombstoneDays) && parsedTombstoneDays >= 0
+    ? parsedTombstoneDays
+    : 30;
 config.mediasoup.worker.rtcMinPort = Number(config.mediasoup.worker.rtcMinPort);
 config.mediasoup.worker.rtcMaxPort = Number(config.mediasoup.worker.rtcMaxPort);
 config.mediasoup.worker.port = Number(config.mediasoup.worker.port);
@@ -209,6 +219,15 @@ if (process.env.DEBUG_LOG_MAX_FILES) {
 
 if (process.env.DEBUG_LOG_INCLUDE_BODY === 'false') {
   config.server.debugLogIncludeBody = false;
+}
+
+// Same shape as the INI key; an invalid value keeps the INI/default so a
+// typo never silently keeps tombstones forever.
+if (process.env.TOMBSTONE_RETENTION_DAYS !== undefined) {
+  const days = Number(process.env.TOMBSTONE_RETENTION_DAYS);
+  if (Number.isInteger(days) && days >= 0) {
+    config.server.tombstoneRetentionDays = days;
+  }
 }
 
 if (process.env.REDACT_EXTRA) {

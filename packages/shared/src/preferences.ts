@@ -6,7 +6,7 @@ export type TUserPreferences = {
     zoomLevel: number;
     timeFormat: '12h' | '24h';
     showFormattingHints: boolean;
-    /** Shell layout: the server rail, or community tabs with side panels. */
+    /** Shell layout: community tabs with side panels (the default), or the traditional server rail. */
     layout: 'classic' | 'deck';
   };
   soundNotification: {
@@ -29,7 +29,7 @@ export const DEFAULT_USER_PREFERENCES: TUserPreferences = {
     zoomLevel: 100,
     timeFormat: '12h',
     showFormattingHints: false,
-    layout: 'classic'
+    layout: 'deck'
   },
   soundNotification: {
     masterVolume: 100,

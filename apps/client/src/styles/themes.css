@@ -64,7 +64,7 @@ html.onyx {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #09090b;
   --live: #ffb454;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Midnight ── deep navy, cool blue accents ───────────────── */
@@ -120,7 +120,7 @@ html.midnight {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #0d1527;
   --live: #ffb454;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Sunset ── warm charcoal, amber glow ────────────────────── */
@@ -176,7 +176,7 @@ html.sunset {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #1c1411;
   --live: #ffb454;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Rose ── warm dark, pink/rose accents ───────────────────── */
@@ -232,7 +232,7 @@ html.rose {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #1c1016;
   --live: #ffb454;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Forest ── dark earthy greens ───────────────────────────── */
@@ -288,7 +288,7 @@ html.forest {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #0c1612;
   --live: #ffb454;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Dracula ── purple-tinted, lavender primary ─────────────── */
@@ -344,7 +344,7 @@ html.dracula {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #161321;
   --live: #ffb454;
-  --community: oklch(0.74 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Nord ── cool blue-gray Scandinavian light ──────────────── */
@@ -400,7 +400,7 @@ html.nord {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #e9edf3;
   --live: #d98a00;
-  --community: oklch(0.62 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 /* ── Sand ── warm cream, earthy brown ───────────────────────── */
@@ -456,5 +456,5 @@ html.sand {
   /* shell: raised channel pane, warm live signal, community tint */
   --channels: #f6efe6;
   --live: #d98a00;
-  --community: oklch(0.62 0.13 var(--community-hue));
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }

@@ -58,13 +58,16 @@ const subscribeToServer = () => {
           setPublicServerSettings(settings);
         }
 
-        // Live-sync the server rail (name/logo used to stay stale until a
-        // full refresh). Matched by publicId — home and federated entries.
+        // Live-sync the joined summary (name/description/logo used to
+        // stay stale until a full refresh; the description was never
+        // carried at all). Matched by publicId — home and federated
+        // entries.
         if (settings?.publicId) {
           store.dispatch(
             appSliceActions.updateJoinedServerInfo({
               publicId: settings.publicId,
               name: settings.name,
+              description: settings.description,
               logo: settings.logo
             })
           );
@@ -82,6 +85,7 @@ const subscribeToServer = () => {
                 server: {
                   ...fed.server,
                   name: settings.name,
+                  description: settings.description,
                   ...(settings.logo !== undefined
                     ? { logo: settings.logo }
                     : {})

@@ -336,16 +336,18 @@ describe('messages router', () => {
       messageId
     });
 
+    // A deletion leaves a tombstone: the row stays in the list, in
+    // place, with its content gone and the deletion recorded.
     const messagesAfter = await caller.messages.get({
       channelId: 1,
       cursor: null,
       limit: 50
     });
 
-    expect(
-      messagesAfter.messages.find((m) => m.id === messageId)
-    ).toBeUndefined();
-    expect(messagesAfter.messages.length).toBe(messageCountBefore - 1);
+    const tombstone = messagesAfter.messages.find((m) => m.id === messageId);
+    expect(tombstone).toMatchObject({ content: null, deletedBy: 1 });
+    expect(tombstone!.deletedAt).toBeGreaterThan(0);
+    expect(messagesAfter.messages.length).toBe(messageCountBefore);
   });
 
   test('should allow admin to delete any message', async () => {
@@ -376,9 +378,10 @@ describe('messages router', () => {
       limit: 50
     });
 
+    // The admin's deletion is recorded on the tombstone.
     expect(
       messagesAfter.messages.find((m) => m.id === messageId)
-    ).toBeUndefined();
+    ).toMatchObject({ content: null, userId: 2, deletedBy: 1 });
   });
 
   test('should throw when editing non-existing message', async () => {
@@ -712,11 +715,16 @@ describe('messages router', () => {
       limit: 50
     });
 
-    expect(after.messages.length).toBe(baselineCount + 2);
+    // Tombstones: the rows stay, marked, and the others are untouched.
+    expect(after.messages.length).toBe(baselineCount + 5);
 
     for (const id of idsToDelete) {
-      expect(after.messages.find((m) => m.id === id)).toBeUndefined();
+      expect(after.messages.find((m) => m.id === id)).toMatchObject({
+        content: null,
+        deletedBy: 1
+      });
     }
+    expect(after.messages.filter((m) => m.deletedAt == null)).toHaveLength(baselineCount + 2);
   });
 
   test('should reject bulk delete without MANAGE_MESSAGES permission', async () => {

@@ -179,7 +179,7 @@ Subscribe to a server event. Handlers may be async; listeners are removed on unl
 | `user:joined` / `user:left` | as above | **deprecated** aliases of `user:connected` / `member:left`; removed in v0.5.0 |
 | `message:created` | `{ messageId, channelId, userId, content, pluginId? }` | a plaintext channel message is sent; `pluginId` set when a plugin posted it |
 | `message:updated` | `{ messageId, channelId, userId, content, pluginId? }` | a plaintext channel message is edited |
-| `message:deleted` | `{ messageId, channelId }` | a channel message is deleted (single, bulk, or report takedown) |
+| `message:deleted` | `{ messageId, channelId }` | a channel message is deleted (single, bulk, report takedown, or by a plugin); the row stays as a "Message deleted" tombstone until the instance's retention sweep removes it |
 | `message:reaction` | `{ messageId, channelId, userId, emoji, added, pluginId? }` | a reaction is added (`added: true`) or removed, by a user or a plugin |
 | `thread:created` | `{ threadId, parentChannelId, serverId, name, creatorId, parentMessageId?, pluginId? }` | a thread is opened under a text channel (from a message) or a forum (a post) |
 | `event:created` / `event:updated` / `event:cancelled` / `event:started` / `event:ended` | `{ eventId, serverId, title, startsAt, endsAt, status }` | scheduled-event lifecycle (`status`: `scheduled` / `live` / `done` / `cancelled`) |
@@ -209,6 +209,8 @@ const { messageId } = await ctx.actions.messages.post({
 - `externalId` ≤ 256 chars, unique per plugin, may not start with `__`. Re-posting it returns the existing message (idempotent re-delivery). Every post gets a link row, so `edit` / `delete` / `react` always work on your own posts by `messageId` too.
 
 `edit({ messageId | externalId, content })`, `delete({ messageId | externalId })`, `react({ messageId | externalId, emoji, remove? })`
+
+`delete` leaves a tombstone ("Message deleted", attributed to the plugin's actor) rather than removing the row: content, attachments, reactions and the link row go at once, so the same `externalId` may be posted again, while `edit` / `react` / a second `delete` on it are `NOT_FOUND` and a `post` replying to it is `BAD_REQUEST`.
 
 ```typescript
 await ctx.actions.messages.edit({ externalId: "ci-run-8812", content: "deploy finished (2 warnings)" });

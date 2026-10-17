@@ -58,7 +58,14 @@ const SubscribeButton = memo(() => {
       const url = cached ?? (await fetchCalendarUrl());
       if (!url) return;
       await navigator.clipboard.writeText(url);
-      toast.success('Calendar link copied — add it to your calendar app');
+      toast.success('Calendar link copied — add it to your calendar app', {
+        // Calendar apps poll a subscription on THEIR schedule (Apple
+        // Calendar defaults to weekly, and an iCloud-hosted subscription
+        // cannot reach an address that is only on the local network).
+        description:
+          'Calendar apps refresh on their own schedule — set the subscription to 15 minutes. On a Mac, keep its Location on "On My Mac" when this address is not reachable from the internet (iCloud fetches it for you otherwise).',
+        duration: 12_000
+      });
     } catch (err) {
       toast.error(getTrpcError(err, 'Failed to copy the calendar link'));
     } finally {
@@ -73,7 +80,7 @@ const SubscribeButton = memo(() => {
       variant="outline"
       onClick={onClick}
       disabled={busy}
-      title="Copy a calendar feed link for this server's events"
+      title="Copy a calendar feed link for this server's events. Calendar apps refresh on their own schedule — set the subscription to 15 minutes; on a Mac keep its Location on 'On My Mac' when this address is not reachable from the internet."
     >
       <Link2 className="h-4 w-4" />
       <span className="hidden sm:inline">Subscribe</span>

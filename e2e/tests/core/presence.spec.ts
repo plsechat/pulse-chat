@@ -6,12 +6,7 @@ import {
 } from '@playwright/test';
 import { psql } from '../../helpers/db';
 import { authedPage, registerAndJoin, runUser } from '../../helpers/fixtures';
-import {
-  goHome,
-  openDmViaAuthor,
-  selectChannel,
-  sendChannelMessage
-} from '../../helpers/ui';
+import { goHome, openDmViaAuthor, openDmWith, selectChannel, sendChannelMessage } from '../../helpers/ui';
 
 /**
  * Presence, custom status, and unread/read-state — three of the nine
@@ -256,15 +251,17 @@ test.describe('presence, status, and read-state', () => {
 
     // B is on a server channel — not viewing the DM.
     await selectChannel(pageB, 'General Text');
-    // The Home rail button grows an unread-DM badge (its title carries the
-    // count; the badge text also replaces the accessible name).
-    await expect(
-      pageB.getByTitle(/unread DM/).first()
-    ).toBeVisible({ timeout: 15_000 });
+    // The unread-DM badge: on the Messages tray button in the tab layout
+    // (its accessible name carries the count), on the Home rail button in
+    // the traditional one (its title does).
+    const badge = pageB
+      .getByRole('button', { name: /^Messages, \d+ new$/ })
+      .or(pageB.getByTitle(/unread DM/))
+      .first();
+    await expect(badge).toBeVisible({ timeout: 15_000 });
 
     // Opening the DM writes the read state and clears the badge.
-    await goHome(pageB);
-    await pageB.getByText(USER_A.displayName).first().click();
+    await openDmWith(pageB, USER_A.displayName);
     await expect(
       pageB.locator('[id^="dm-msg-"]').getByText(dmMsg, { exact: true })
     ).toBeVisible({ timeout: 15_000 });

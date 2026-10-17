@@ -4,6 +4,7 @@ import type { TVoiceUserState, UserStatus } from '@pulse/shared';
 import type {
   TJoinedDmChannel,
   TJoinedDmMessage,
+  TMessageTombstone,
   TJoinedPublicUser
 } from '@pulse/server/types';
 import {
@@ -13,6 +14,7 @@ import {
   type TMergeMessagesOpts,
   type TMessageWindowMap
 } from '../message-window';
+import { markTombstoned } from '../tombstone';
 
 export type TDmMessagesMap = {
   [dmChannelId: number]: TJoinedDmMessage[];
@@ -227,16 +229,40 @@ export const dmsSlice = createSlice({
 
       messages[idx] = action.payload;
     },
+    /**
+     * A deletion leaves a tombstone: the row is marked in place
+     * (features/tombstone.ts), and so is the channel's `lastMessage`
+     * when it is the one, so the sidebar snippet reads "Message
+     * deleted" instead of the text that is gone.
+     */
     deleteMessage: (
       state,
-      action: PayloadAction<{ dmChannelId: number; dmMessageId: number }>
+      action: PayloadAction<{
+        dmChannelId: number;
+        dmMessageId: number;
+        tombstone: TMessageTombstone;
+      }>
     ) => {
-      const messages = state.messagesMap[action.payload.dmChannelId];
-      if (!messages) return;
+      const { dmChannelId, dmMessageId, tombstone } = action.payload;
+      const messages = state.messagesMap[dmChannelId];
+      if (messages) {
+        state.messagesMap[dmChannelId] = markTombstoned(
+          messages,
+          [dmMessageId],
+          tombstone
+        );
+      }
 
-      state.messagesMap[action.payload.dmChannelId] = messages.filter(
-        (m) => m.id !== action.payload.dmMessageId
-      );
+      const channel = state.channels.find((c) => c.id === dmChannelId);
+      if (channel?.lastMessage?.id === dmMessageId) {
+        channel.lastMessage = {
+          ...channel.lastMessage,
+          content: null,
+          metadata: null,
+          deletedAt: tombstone.deletedAt,
+          deletedBy: tombstone.deletedBy
+        };
+      }
     },
     updateChannelLastMessage: (
       state,

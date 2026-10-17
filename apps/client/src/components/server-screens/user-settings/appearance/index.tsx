@@ -283,25 +283,26 @@ const Appearance = memo(() => {
         <div>
           <h3 className="text-lg font-semibold">Layout</h3>
           <p className="text-sm text-muted-foreground">
-            The new layout puts your communities in tabs across the top and
-            opens Friends, Messages, Inbox and your profile as side panels.
-            Phones keep the current layout either way.
+            Communities open as tabs across the top, with Friends, Messages,
+            Inbox and your profile as side panels. The traditional layout
+            keeps a rail of communities on the left instead. Phones use
+            their own layout either way.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <Switch
-            id="layout-deck"
-            checked={settings.layout === 'deck'}
+            id="layout-classic"
+            checked={settings.layout === 'classic'}
             onCheckedChange={(checked) =>
-              setLayout(checked ? 'deck' : 'classic')
+              setLayout(checked ? 'classic' : 'deck')
             }
           />
           <label
-            htmlFor="layout-deck"
+            htmlFor="layout-classic"
             className="text-sm font-medium cursor-pointer"
           >
-            Use the new layout (beta)
+            Traditional layout
           </label>
         </div>
       </div>

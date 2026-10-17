@@ -32,6 +32,11 @@ const pinDmMessageRoute = protectedProcedure
       message: 'You are not a member of this DM channel'
     });
 
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
+
     invariant(!message.pinned, {
       code: 'BAD_REQUEST',
       message: 'Message is already pinned'

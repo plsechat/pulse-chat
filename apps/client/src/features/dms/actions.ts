@@ -27,7 +27,8 @@ import { TYPING_MS } from '@pulse/shared';
 import type {
   TFile,
   TJoinedDmChannel,
-  TJoinedDmMessage
+  TJoinedDmMessage,
+  TMessageTombstone
 } from '@pulse/server/types';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
@@ -195,8 +196,26 @@ export const updateDmMessage = (message: TJoinedDmMessage) => {
   );
 };
 
-export const deleteDmMessage = (dmChannelId: number, dmMessageId: number) => {
-  store.dispatch(dmsSliceActions.deleteMessage({ dmChannelId, dmMessageId }));
+/**
+ * A deleted DM message becomes a tombstone in the list; its cached
+ * plaintext (E2EE) goes with it, and a pinned one tells the pinned
+ * surfaces to refetch.
+ */
+export const deleteDmMessage = (
+  dmChannelId: number,
+  dmMessageId: number,
+  tombstone: TMessageTombstone
+) => {
+  const wasPinned = !!store
+    .getState()
+    .dms.messagesMap[dmChannelId]?.find((m) => m.id === dmMessageId)?.pinned;
+
+  store.dispatch(
+    dmsSliceActions.deleteMessage({ dmChannelId, dmMessageId, tombstone })
+  );
+  void deleteCachedPlaintext(dmMessageId).catch(() => {});
+
+  if (wasPinned) emitAppEvent('dm-pinned-messages-changed', { dmChannelId });
 };
 
 

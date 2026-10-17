@@ -34,6 +34,11 @@ const toggleDmReactionRoute = protectedProcedure
       message: 'You are not a member of this DM channel'
     });
 
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
+
     const reaction = await getDmReaction(
       input.dmMessageId,
       input.emoji,

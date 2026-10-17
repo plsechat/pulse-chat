@@ -42,7 +42,7 @@ const resolveReportRoute = instanceOwnerProcedure
     });
 
     if (input.action !== 'dismiss') {
-      await takeDownReportedContent(report, ctx.pubsub);
+      await takeDownReportedContent(report, ctx.userId, ctx.pubsub);
     }
 
     if (input.action === 'delete-and-ban') {

@@ -5,6 +5,7 @@ import type {
   TPluginHttpResponse,
   TPluginMember
 } from '@pulse/plugin-sdk';
+import { GIF_PICKER_MEDIA_HOSTS, isBareEmbedLink, pickEmbedMedia } from '@pulse/shared';
 import {
   GatewayClient,
   createWebSocketFactory,
@@ -33,6 +34,7 @@ import {
 } from './store';
 import type {
   TRemoteChannel,
+  TRemoteEmbed,
   TRemoteGuild,
   TRemoteGuildEmoji,
   TRemoteMessage,
@@ -78,13 +80,21 @@ import type {
 export const PLUGIN_ID = 'discord-bridge';
 export const WEBHOOK_NAME = 'PULSE bridge';
 const MAX_INBOUND_ATTACHMENTS = 10;
+/** Media embeds (picker GIFs, pasted images) re-hosted per message, on top of the attachments. */
+const MAX_INBOUND_MEDIA_EMBEDS = 5;
 const MAX_OUTBOUND_ATTACHMENT_LINKS = 10;
 const MEMBER_CACHE_TTL_MS = 5 * 60_000;
 const MAX_RECENT_CONTENT = 2_000;
 const MAX_GUILDS = 200;
 const DEFAULT_EVENT_LENGTH_MS = 2 * 60 * 60_000;
 const MAX_EVENT_LENGTH_MS = 24 * 60 * 60_000;
-const ATTACHMENT_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
+/**
+ * The only hosts a file is ever fetched from: the service's CDN and
+ * proxy, plus the GIF pickers' file hosts (a picker GIF arrives as a
+ * `gifv` embed whose file lives there). The server's upload action
+ * refuses private ranges and redirects on top; this list is the bound.
+ */
+const ATTACHMENT_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net', ...GIF_PICKER_MEDIA_HOSTS]);
 const SNOWFLAKE = /^\d{1,20}$/;
 /** Message types that carry a member's own words. */
 const MIRRORED_MESSAGE_TYPES = new Set([0, 19]);
@@ -993,9 +1003,43 @@ export class Bridge {
     const author = message.author;
 
     await this.chain(`remote:${message.id}`, async () => {
-      let content = mapInboundContent(message, this.inboundLookup(link.remoteGuildId));
       const attachments: { fileId: number }[] = [];
       const unsaved: string[] = [];
+      // A picker GIF (`gifv`: the file is an mp4, the thumbnail a still)
+      // or a pasted image is an embed, not an attachment; re-hosted the
+      // same way it renders as one. A body that is nothing but the GIF's
+      // page link goes with it — the link would only duplicate the file.
+      const textEmbeds: TRemoteEmbed[] = [];
+      let body = message.content ?? '';
+      let rehosted = 0;
+
+      for (const embed of message.embeds ?? []) {
+        const media = rehosted < MAX_INBOUND_MEDIA_EMBEDS ? pickEmbedMedia(embed) : null;
+
+        if (!media || !this.isAttachmentUrl(media.url)) {
+          textEmbeds.push(embed);
+          continue;
+        }
+
+        try {
+          const file = await this.ctx.actions.files.upload({
+            url: media.url,
+            filename: media.filename,
+            mime: media.mime
+          });
+          attachments.push({ fileId: file.id });
+          rehosted++;
+          if (isBareEmbedLink(body, embed)) body = '';
+        } catch (error) {
+          this.ctx.debug(`Embedded ${media.filename} not re-hosted: ${errorMessage(error)}`);
+          textEmbeds.push(embed);
+        }
+      }
+
+      let content = mapInboundContent(
+        { ...message, content: body, embeds: textEmbeds },
+        this.inboundLookup(link.remoteGuildId)
+      );
 
       for (const attachment of (message.attachments ?? []).slice(0, MAX_INBOUND_ATTACHMENTS)) {
         const name = boundText(attachment.filename, 120, 'attachment');
@@ -1068,7 +1112,9 @@ export class Bridge {
   }
 
   private async onRemoteMessageUpdate(message: TRemoteMessage) {
-    // Embed-only updates carry no content; nothing to mirror.
+    // An update without a body is the service unfurling a link after the
+    // fact; nothing to mirror. A bot editing its status card sends the
+    // full message (an empty body with the new embeds) and is mirrored.
     if (!message?.id || typeof message.content !== 'string') return;
     if (this.isOurWebhook(message.webhook_id) || this.isBot(message.author?.id)) return;
 
@@ -1096,7 +1142,9 @@ export class Bridge {
 
     await this.chain(`remote:${remoteId}`, async () => {
       // Drop the map entry first: the `message:deleted` echo then finds
-      // nothing to send back.
+      // nothing to send back. The SDK delete leaves a "Message deleted"
+      // tombstone on this side, which is what the remote deletion
+      // looks like over there too.
       const entry = this.store.removeMessageByRemote(remoteId);
       if (!entry) return;
 

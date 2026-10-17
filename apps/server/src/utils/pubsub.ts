@@ -36,14 +36,24 @@ const PUBSUB_LOG_RECIPIENT_CAP = 100;
 type Events = {
   [ServerEvents.NEW_MESSAGE]: TJoinedMessage;
   [ServerEvents.MESSAGE_UPDATE]: TJoinedMessage;
+  // A deletion leaves a tombstone: the client marks the row (content
+  // cleared, "Message deleted") instead of dropping it. `deletedBy` is
+  // null when the deleter is not a local account (a follower copy whose
+  // source was deleted on a peer).
   [ServerEvents.MESSAGE_DELETE]: {
     messageId: number;
     channelId: number;
+    deletedAt: number;
+    deletedBy: number | null;
   };
   [ServerEvents.MESSAGE_BULK_DELETE]: {
     messageIds: number[];
     channelId: number;
+    // A purge is the one hard wipe (admin "clear channel"): no
+    // tombstones, no deletedAt/deletedBy.
     purged?: boolean;
+    deletedAt?: number;
+    deletedBy?: number | null;
   };
   [ServerEvents.MESSAGE_TYPING]: {
     channelId: number;
@@ -158,6 +168,8 @@ type Events = {
   [ServerEvents.DM_MESSAGE_DELETE]: {
     dmMessageId: number;
     dmChannelId: number;
+    deletedAt: number;
+    deletedBy: number | null;
   };
   [ServerEvents.DM_CHANNEL_UPDATE]: {
     dmChannelId: number;

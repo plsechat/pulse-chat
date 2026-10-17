@@ -8,3 +8,4 @@ export * from "./voice";
 export * from "./plugins";
 export * from "./preferences";
 export * from "./name-style";
+export * from "./embeds";

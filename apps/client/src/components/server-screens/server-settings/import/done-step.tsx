@@ -9,7 +9,7 @@ import type { TImportJobView } from '@pulse/server/types';
 import { Copy, PartyPopper } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
-import { formatCount, STEP_LABELS, STEP_ORDER } from './format';
+import { formatCount, formatSkipped, STEP_LABELS, STEP_ORDER } from './format';
 
 type TDoneStepProps = {
   serverId: number;
@@ -75,7 +75,11 @@ const DoneStep = memo(({ serverId, job, onStartOver }: TDoneStepProps) => {
                   <td className="py-2 pr-4 text-sm text-muted-foreground">{STEP_LABELS[step]}</td>
                   <td className="py-2 text-right text-sm font-medium tabular-nums">{formatCount(counts.done)}</td>
                   <td className="py-2 pl-4 text-xs text-muted-foreground">
-                    {counts.skipped > 0 ? `${counts.skipped} skipped` : ''}
+                    {step === 'messages'
+                      ? formatSkipped(counts.skipped, job.progress.skippedBy)
+                      : counts.skipped > 0
+                        ? `${counts.skipped} skipped`
+                        : ''}
                     {step === 'messages' && job.progress.attachments.done > 0 ? ` · ${formatCount(job.progress.attachments.done)} files` : ''}
                   </td>
                 </tr>

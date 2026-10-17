@@ -4,7 +4,7 @@ Released: TBD
 
 ## TL;DR
 
-**New in this release beyond the audit:** a new **layout** (communities as tabs, side panels for friends, messages, inbox and profile) with a redesigned visual system; a **Raid Planner** app in every community (rosters, reminders, an automatic voice room, a calendar feed); a **community import** wizard that brings channels, roles, emoji, history and attachments over from another chat service; and **plugin SDK 0.2**, which lets plugins post and react to messages, create channels, upload files and serve HTTP endpoints; and an official **chat bridge** plugin that mirrors a channel to a server on another chat service in both directions.
+**New in this release beyond the audit:** a new **layout** (communities as tabs, side panels for friends, messages, inbox and profile) with a redesigned visual system; a **Raid Planner** app in every community (rosters, reminders, an automatic voice room, a calendar feed); a **community import** wizard that brings channels, roles, emoji, history and attachments over from another chat service; and **plugin SDK 0.2**, which lets plugins post and react to messages, create channels, upload files and serve HTTP endpoints; an official **chat bridge** plugin that mirrors a whole community to a server on another chat service in both directions; **announcement channels, polls and scheduled posts**, with announcement channels you can **follow** from another community, even on a federated instance; a **public directory** of communities across the federation; and **deleted messages leave a placeholder** instead of vanishing.
 
 
 Every subsystem was audited end to end — HTTP edge, authorization, federation, end-to-end encryption, voice, data layer, client state, UI, CI and tests — and everything the audit found was fixed in this release, nothing deferred. Headlines: **sessions can be revoked** and private **file links expire**; **roles have a real hierarchy**; **plugins actually load** and have a panel; federation gets **pinned fetches, a durable relay outbox and key rotation**; E2EE no longer **shows stale text after an edit** or **loses sender keys for late joiners**; voice runs on **one media port** with **instance-wide capacity** and no more cross-talk between DM calls and channels; the client keeps **one live socket** and routes home actions home; the app is **usable on a phone**; and the initial download is **less than half the size**. There are a few one-time effects on upgrade — read the Upgrading section.
@@ -15,28 +15,44 @@ Every subsystem was audited end to end — HTTP edge, authorization, federation,
 
 ### New layout and look
 
-- **Communities as tabs** across the top, with back and forward over the tabs you visited, drag to reorder, and a plus menu to open any of your communities. Friends, Messages, Inbox and Profile open as resizable panels on the right. Turn it on under Appearance → Layout; phones keep the current layout either way.
-- **A night palette with depth**: canvas, a raised channel pane and the content pane as three layers; every community carries its own hue through its tab, header and active channel; squircle avatars; a contained composer with a formatting bar; relative timestamps; mentions of you get a warm wash. Every theme, including Onyx and the light themes, received the new tokens.
+- **Communities as tabs** across the top, with back and forward over the tabs you visited, drag to reorder, and a plus menu to open any of your communities. Friends, Messages, Inbox and Profile open as resizable panels on the right. The community rail is not shown in this layout, since the tabs already list every open community. It is the default now; Appearance → Layout → **Traditional layout** brings the rail back. Phones use their own layout either way.
+- **A night palette with depth**: canvas, a raised channel pane and the content pane as three layers; every community carries its own hue through its tab, header and active channel; squircle avatars; a contained composer with a formatting bar; relative timestamps; mentions of you get a warm wash. Every theme, including Onyx and the light themes, received the new tokens. The shell tint on tabs, headers and the active channel is the theme's own primary colour, so it follows every theme; communities are told apart by logo and initial. Your avatar in the top-right tray opens your account settings from any tab; voice and status controls stay on the bottom-left card.
 
 ### Raid Planner
 
 - An **Apps** section in each community's channel list opens the planner: a month grid and an agenda, event sheets with **role rosters** (templates, caps, a bench that auto-promotes, change role, withdraw, decline), host controls to bench and promote, RSVP cards in the announce channel, and roster **templates** under Server Settings → Events.
 - **Reminders** at 24 hours, 1 hour and start (toast and desktop notification). Fifteen minutes before start a **private voice room** appears for the signed-up members and host; fifteen minutes after the scheduled end it is removed, whoever is still in it, and a summary is posted.
-- **Subscribe** copies a calendar-feed link you can add to any calendar app; the link stops working when you leave the community.
+- **Subscribe** copies a calendar-feed link you can add to any calendar app; the link stops working when you leave the community. The feed refreshes at once after a change and asks calendar apps to poll every 15 minutes; the subscribe button explains Apple Calendar's own schedule and the "On My Mac" location for addresses the internet cannot reach.
 
 ### Community import
 
 - Server owners get **Server Settings → Integrations → Import**: connect a bot, pick the community, preview what will come over (with warnings and a time estimate), choose history depth, attachments, members and roles, then watch it run with pause, resume, cancel and retry. Categories, channels, roles, emoji, pins, threads, history, attachments and scheduled events all come across; progress survives a restart.
-- Imported authors are **placeholders** until the real person signs in through the matching provider with the same account, at which point their history moves to them automatically.
+- Imported authors are **placeholders** until the real person signs in through the matching provider with the same account, at which point their history moves to them automatically. **Imported people** under the wizard lets an admin link a placeholder to a member by hand (one way, the same merge); roles and membership carry over either way.
+- Bot status cards (title, description, fields, footer) and picker GIFs are imported instead of arriving empty; skipped messages are explained (notices, empty, unreadable channels). A thread removed while the import runs is created again instead of failing the job, and the empty-thread sweep leaves communities with an import in flight alone. Importing the same community again reuses what the first run created.
 
 ### Chat bridge
 
-- An official bridge plugin ships in the image, off by default. Enable it under Instance → Plugins, give it a bot token, and link your **whole community** to a server on the other side from Server Settings → Integrations → Bridge: channels pair by name, or get created where missing on either side with their categories, new channels on either side follow automatically, and deletions are never mirrored. Each channel's own **Bridge** tab can opt out, set its own direction, or link a channel by hand. Messages, edits, deletions, reactions, threads and scheduled events flow both ways, and each side shows the other's authors by name and avatar. Encrypted channels cannot be bridged. Voice is not bridged.
+- An official bridge plugin ships in the image, off by default. Enable it under Instance → Plugins, give it a bot token, and link your **whole community** to a server on the other side from Server Settings → Integrations → Bridge: channels pair by name, or get created where missing on either side with their categories, new channels on either side follow automatically, and deletions are never mirrored. Each channel's own **Bridge** tab can opt out, set its own direction, or link a channel by hand. Messages, edits, deletions, reactions, threads and scheduled events flow both ways, and each side shows the other's authors by name and avatar. Encrypted channels cannot be bridged. Voice is not bridged. Status-bot cards and their edits arrive as text, GIFs from the picker arrive as attachments, and a channel created or removed on the other side, or a bot reconnect, pairs at once; the outcome of the last sync is kept and shown after a restart.
+- Plugins post under their **own account** instead of the instance owner's (labelled "Plugin" in the member list), so the owner gets sounds, notifications and unread markers for bridged messages like everyone else.
 - Screen share keeps its frame rate at high quality: the encoder budget now follows the chosen resolution and frame rate (up to 16 Mbps for 2160p at 60), and a 30 or 60 fps share protects motion rather than text sharpness. The container health probe follows the configured port.
 
-### Plugin SDK 0.2
+### Plugin SDK 0.3
 
-- Plugins can now **post, edit, delete and react** to messages (with an external id so a mirrored message is never posted twice), **create channels and threads**, **list members**, **upload files**, make hardened outbound requests, register signed **HTTP endpoints**, and subscribe to reactions, threads, role changes and scheduled events. 0.1 plugins keep working.
+- Plugins can now **post, edit, delete and react** to messages (with an external id so a mirrored message is never posted twice), **create channels and threads**, **list members**, **upload files**, make hardened outbound requests, register signed **HTTP endpoints**, and subscribe to reactions, threads, role changes and scheduled events. 0.1 and 0.2 plugins keep working.
+- **Secret settings** are stored encrypted and never shown again (the bridge's bot token is one); plugins can signal the server, hook their own load, and updated plugin files load on toggle without a restart.
+
+### Announcements, polls and scheduled posts
+
+- **Announcement channels** only announcers can post in, with everyone reading; **polls** from the composer's plus menu (single or multiple choice, anonymous, with a closing time and live results); **scheduled posts** with a Scheduled panel in the header to review and cancel them.
+- **Follow** an announcement channel from another community on this instance or on a federated peer: posts, edits and deletions arrive as announcement cards in the following channel.
+
+### Public directory
+
+- Communities can **list themselves** with a description, tags and a game; members browse and search listings from this instance and its federated peers under Discover → Directory and join from the card. Instance owners can keep their directory private to peers under Instance → Registration.
+
+### Deleted messages leave a placeholder
+
+- Deleting a message no longer makes it vanish: the row stays in place as an italic *Message deleted* placeholder with its text, attachments, reactions, link previews and pin removed at once, so replies still point at something, threads keep their root and deep links still land. Moderators also see who deleted it and when. This covers channel messages, DMs (encrypted ones too), bulk moderation, report takedowns, plugin deletions and the copies in following channels; clearing a whole channel still removes everything. Placeholders age out after `server.tombstoneRetentionDays` (default 30). Deleted messages never count as unread, never appear in search or pinned lists, and cannot be edited, reacted to, pinned, forwarded, replied to or turned into a thread.
 
 
 ### Phone-ready client
@@ -107,6 +123,11 @@ Every subsystem was audited end to end — HTTP edge, authorization, federation,
 ## Fixes
 
 - Channels no longer stay greyed out after switching back to them.
+- A dialog opened right after another one closed (a confirmation reached from a popover, say) no longer disappears with the earlier one's fade.
+- Right-clicking a link in a message shows the browser's own link menu (Copy Link Address, Open in New Tab); the desktop app and touch long-press get a "Copy Link" item in the message menu instead.
+- Share links from other services whose path looked like a video id no longer render as a broken player.
+- A person's avatar placeholder is the same colour everywhere (roster, DM list, reaction hover, permission overrides) and the same on every federated instance.
+- Renaming a community or changing its description reaches every member live: sidebar header, tabs, rail, Discover and Directory cards.
 - Edited messages, blockquotes, code fences and paragraphs after code blocks survive the editor round-trip intact.
 - Search with a "has file" filter no longer fails; DM read state syncs across your sessions; paging back no longer regresses the read marker.
 - Inter loads under the CSP (self-hosted); the Home button has a real accessible name; 57 icon-only buttons gained labels and a lint rule keeps it that way; the color swatch, sheet close and fullscreen image are keyboard-reachable.
@@ -119,7 +140,7 @@ Every subsystem was audited end to end — HTTP edge, authorization, federation,
 - Initial JavaScript drops from one 5.5 MB chunk to about 2.2 MB across cacheable vendor chunks; pickers, settings, tweets, mediasoup, libsignal and supabase-js load on first use. Message lists are a 300-message window per channel.
 - `@pulse/shared` is a standalone package; row-derived types are published by the server and imported type-only by the client.
 - Routes run on scoped procedure builders; cross-server ids read as nonexistent rather than as a permission failure that confirms existence.
-- Migrations 0029 through 0036 (role positions, settings source of truth, integrity foreign keys and indexes, automod timeouts, local auth sessions, relay outbox, shadow identity and DM pair keys) apply automatically on boot.
+- Migrations 0029 through 0042 (role positions, settings source of truth, integrity foreign keys and indexes, automod timeouts, local auth sessions, relay outbox, shadow identity and DM pair keys, events and plugin links, import jobs, whole-server bridge links, polls, scheduled posts, follows, sounds and the directory cache, message tombstones) apply automatically on boot. Locked crons take their advisory locks on a pool of their own, so a dozen of them starting at boot can no longer exhaust the main one.
 - Tests: the server suite is green in one process, client unit tests exist (over 500), every probe spec became a real test, a core-mobile Playwright project runs on a Pixel 7 profile, and a nightly upgrade smoke boots the previous published image and upgrades it on the same volumes.
 - The Docker image runs unprivileged with a health check and a stop signal; releases ship SHA256SUMS, provenance and SBOM attestations and require green CI on the commit.
 - The never-working Updates feature was removed end to end.
@@ -142,6 +163,10 @@ Schema changes apply automatically on boot. What to expect once:
 - The container drops privileges, so ports below 1024 can no longer be bound inside it; map them from the host instead.
 - New optional environment: `PUBLIC_URL`, `TRUST_PROXY_HEADER`, `WS_MAX_CONNECTIONS_PER_IP`, `WS_MAX_CONNECTIONS_PER_USER`, `WS_CONNECTION_PARAMS_TIMEOUT_MS`, `MEDIASOUP_MODE`, `WEBRTC_TURN_URLS` / `WEBRTC_TURN_USERNAME` / `WEBRTC_TURN_CREDENTIAL`, `WEBRTC_ICE_TRANSPORT_POLICY`. All documented in the README.
 - The Updates panel is gone; upgrade with the compose commands above.
-- New tables (events, signups, roster templates, plugin message links, import jobs, external identities) arrive in migrations 0037 and 0038; a new per-minute `events` cron and an import queue run in-process. A new `MANAGE_EVENTS` permission gates event management.
-- The bridge plugin stores its bot token as a plain plugin setting readable by the instance owner; treat the Plugins panel accordingly. On the remote side the bot needs Manage Webhooks, Manage Messages, Manage Threads, Create Public Threads, Send Messages in Threads, Add Reactions, Manage Events, View Channels and Read Message History, plus the Server Members and Message Content intents.
+- New tables (events, signups, roster templates, plugin message links, import jobs, external identities, bridge server links, polls, scheduled posts, channel follows, server sounds, directory cache) arrive in migrations 0037 through 0041; message tombstone columns in 0042. New crons (`events` per minute, directory refresh, scheduled posts, tombstone retention daily) and an import queue run in-process. New permissions: `MANAGE_EVENTS`, `MANAGE_ANNOUNCEMENTS`, `USE_SOUNDBOARD` (granted to everyone by default), `MANAGE_SOUNDS`.
+- **Deleted messages stay as placeholders** for `server.tombstoneRetentionDays` (default 30; `0` keeps them; env `TOMBSTONE_RETENTION_DAYS`). Messages deleted before the upgrade are already gone.
+- Each plugin gets its own member account the first time it acts in a community; existing bridged messages stay under the owner's account.
+- Avatar placeholder colours change once for everyone (they now key on the stable public id).
+- **The tab layout is the default** on screens 768 px and wider for anyone who never chose a layout; Appearance → Layout → Traditional layout restores the rail.
+- The bridge plugin's bot token is a secret setting: it is encrypted on first load after the upgrade and never shown again (set a new one to replace it). On the remote side the bot needs Manage Webhooks, Manage Messages, Manage Threads, Create Public Threads, Send Messages in Threads, Add Reactions, Manage Events, View Channels and Read Message History, plus the Server Members and Message Content intents.
 - Importing from another chat service needs a bot with the two privileged intents (Server Members, Message Content) enabled in that service's developer portal; the wizard says so. Without Message Content every imported message arrives empty.

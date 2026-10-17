@@ -1,12 +1,9 @@
-import { Permission } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { ChannelPermission, Permission, ServerEvents } from '@pulse/shared';
 import { z } from 'zod';
-import { db } from '../../db';
-import { removeFile } from '../../db/mutations/files';
+import { tombstoneMessages } from '../../db/mutations/messages';
 import { publishMessage } from '../../db/publishers';
-import { getFilesByMessageId } from '../../db/queries/files';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getMessageInActiveServer } from '../../db/queries/messages';
-import { messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { relayAnnouncementDeletion } from '../../utils/announcement-follow';
 import { invariant } from '../../utils/invariant';
@@ -34,21 +31,36 @@ const deleteMessageRoute = serverProcedure()
         message: 'You do not have permission to delete this message'
       }
     );
+    invariant(!targetMessage.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'Message is already deleted'
+    });
 
-    const files = await getFilesByMessageId(input.messageId);
+    // The row stays as a tombstone; attachments, reactions, metadata and
+    // the pin go now (db/mutations/messages.ts).
+    const deletedAt = Date.now();
+    await tombstoneMessages([input.messageId], ctx.user.id, deletedAt);
+    const tombstone = { deletedAt, deletedBy: ctx.user.id };
 
-    if (files.length > 0) {
-      const promises = files.map(async (file) => {
-        await removeFile(file.id);
+    publishMessage(input.messageId, targetMessage.channelId, 'delete', tombstone);
+
+    // The pin is gone with the content: pinned lists refetch on this.
+    if (targetMessage.pinned) {
+      const viewers = await getAffectedUserIdsForChannel(
+        targetMessage.channelId,
+        { permission: ChannelPermission.VIEW_CHANNEL }
+      );
+      ctx.pubsub.publishFor(viewers, ServerEvents.MESSAGE_UNPIN, {
+        messageId: input.messageId,
+        channelId: targetMessage.channelId
       });
-
-      await Promise.all(promises);
     }
 
-    await db.delete(messages).where(eq(messages.id, input.messageId));
-
-    publishMessage(input.messageId, targetMessage.channelId, 'delete');
-    void relayAnnouncementDeletion(targetMessage.channelId, [input.messageId]);
+    void relayAnnouncementDeletion(
+      targetMessage.channelId,
+      [input.messageId],
+      tombstone
+    );
 
     eventBus.emit('message:deleted', {
       channelId: targetMessage.channelId,

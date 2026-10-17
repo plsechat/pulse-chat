@@ -93,16 +93,19 @@ test('context menu offers the full action set on own message', async ({
   await page.keyboard.press('Escape');
 });
 
-test('delete own message removes it from the pane', async ({ page }) => {
+test('delete own message leaves a "Message deleted" tombstone in its place', async ({ page }) => {
   const text = `to-delete ${Date.now()}`;
   await sendChannelMessage(page, text);
+  const rowId = await messageRow(page, text).getAttribute('id');
 
   await openMessageContextMenu(page, text);
   await page.getByRole('menuitem', { name: 'Delete Message' }).click();
   // Confirmation dialog
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
+  // The text is gone; the row stays, with the same anchor, as a tombstone.
   await expect(page.getByText(text, { exact: true })).toHaveCount(0);
+  await expect(page.locator(`#${rowId}`)).toContainText('Message deleted');
 });
 
 test('a 16k code-block message renders without freezing the tab', async ({

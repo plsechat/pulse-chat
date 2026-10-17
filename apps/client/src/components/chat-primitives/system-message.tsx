@@ -8,6 +8,7 @@ import { parseAnnouncementRow } from '@/features/follows/announcement-rows';
 import { EventCard } from '@/components/chat-primitives/event-card';
 import { ServerScreen } from '@/components/server-screens/screens';
 import { parseEventSystemRow } from '@/features/events/system-rows';
+import { MessageTombstone } from '@/components/chat-primitives/message-tombstone';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useChannelById } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
@@ -26,6 +27,7 @@ type SystemMessageProps = {
     userId: number;
     content: string | null;
     createdAt: number;
+    deletedAt?: number | null;
   };
 };
 
@@ -86,6 +88,17 @@ const SystemMessage = memo(({ message }: SystemMessageProps) => {
   const homeUser = useHomeUserById(message.userId);
   const user = homeScope ? homeUser : ambientUser;
   const date = new Date(message.createdAt);
+
+  // A deleted announcement copy (its source was deleted) keeps its row
+  // like any message; the audit line is not shown here — the deleter
+  // is an account of the source's server, not of this one.
+  if (message.deletedAt != null) {
+    return (
+      <div id={`msg-${message.id}`} className="flex justify-center py-2 px-4">
+        <MessageTombstone audit={null} />
+      </div>
+    );
+  }
 
   if (message.content === 'identity_reset') {
     return (

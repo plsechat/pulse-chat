@@ -38,6 +38,11 @@ const editMessageRoute = serverProcedure()
       message: 'Message not found'
     });
 
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
+
     invariant(message.editable, {
       code: 'FORBIDDEN',
       message: 'This message is not editable'

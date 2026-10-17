@@ -6,6 +6,7 @@ import type {
   TImportJobStatus,
   TImportJobView,
   TImportOptions,
+  TImportSkipReasons,
   TImportStep,
   TImportStepCounts
 } from '../../types';
@@ -32,6 +33,8 @@ type TImportState = {
   stepsDone: TImportStep[];
   counts: Partial<Record<TImportStep, TImportStepCounts>>;
   attachments: { done: number; failed: number; skipped: number };
+  /** Messages the messages step left behind, by reason. */
+  skippedBy: TImportSkipReasons;
   errors: TImportError[];
   warnings: string[];
   startedAt: number | null;
@@ -70,14 +73,19 @@ type TImportState = {
   pins: Record<string, string[]>;
   /** Source channel ids the bot cannot read history in. */
   unreadable: string[];
-  /** Source thread ids and the forum flag, for the messages step. */
-  threadParents: Record<string, { parent: string; forum: boolean }>;
+  /**
+   * Source thread ids with their parent, the forum flag and the archived
+   * state — enough for the messages step to recreate a thread the
+   * empty-thread sweep or the owner removed before its messages landed.
+   */
+  threadParents: Record<string, { parent: string; forum: boolean; archived?: boolean }>;
 };
 
 const emptyImportState = (): TImportState => ({
   stepsDone: [],
   counts: {},
   attachments: { done: 0, failed: 0, skipped: 0 },
+  skippedBy: { type: 0, empty: 0, unreadable: 0 },
   errors: [],
   warnings: [],
   startedAt: null,
@@ -102,6 +110,7 @@ const readImportState = (job: Pick<TImportJob, 'progress'>): TImportState => {
     ...base,
     ...raw,
     attachments: { ...base.attachments, ...(raw.attachments ?? {}) },
+    skippedBy: { ...base.skippedBy, ...(raw.skippedBy ?? {}) },
     cursor: { ...(raw.cursor ?? {}) },
     map: { ...base.map, ...(raw.map ?? {}) },
     names: { ...base.names, ...(raw.names ?? {}) },
@@ -147,6 +156,7 @@ const toImportJobView = (job: TImportJob): TImportJobView => {
     progress: {
       counts: state.counts,
       attachments: state.attachments,
+      skippedBy: state.skippedBy,
       errors: state.errors,
       stepsDone: state.stepsDone,
       startedAt: state.startedAt,

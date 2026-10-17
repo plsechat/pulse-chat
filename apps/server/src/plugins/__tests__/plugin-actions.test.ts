@@ -24,6 +24,7 @@ import {
   automodRules,
   channelUserPermissions,
   channels,
+  externalIdentities,
   files,
   messageFiles,
   messageReactions,
@@ -60,6 +61,18 @@ const VOICE_CHANNEL_ID = 2;
 const SEEDED_MESSAGE_ID = 1;
 const OWNER_ID = 1;
 const MEMBER_ROLE_ID = 2;
+
+/** The plugin's own account (plugins/actor.ts), minted on its first action. */
+const actorIdOf = async (pluginId: string): Promise<number> => {
+  const [row] = await getTestDb()
+    .select({ userId: externalIdentities.userId })
+    .from(externalIdentities)
+    .where(
+      and(eq(externalIdentities.provider, `plugin:${pluginId}`), eq(externalIdentities.externalId, pluginId))
+    );
+  if (!row) throw new Error(`no actor account for ${pluginId}`);
+  return row.userId;
+};
 
 const STASH_SOURCE = `
   export const onLoad = (ctx) => {
@@ -196,7 +209,7 @@ afterEach(() => {
 });
 
 describe('actions.messages.post', () => {
-  test('posts under the instance owner with the persona in metadata, links the externalId, fans out and emits', async () => {
+  test("posts under the plugin's own account with the persona in metadata, links the externalId, fans out and emits", async () => {
     const id = 'act-post-basic';
     const { ctx, cleanup } = await loadPlugin(id);
 
@@ -212,9 +225,11 @@ describe('actions.messages.post', () => {
         }));
       });
 
+      const actorId = await actorIdOf(id);
+      expect(actorId).not.toBe(OWNER_ID);
       const row = await messageById(messageId);
       expect(row).toMatchObject({
-        userId: OWNER_ID,
+        userId: actorId,
         channelId: TEXT_CHANNEL_ID,
         content: 'hello from the bridge',
         e2ee: false,
@@ -246,7 +261,7 @@ describe('actions.messages.post', () => {
           payload: {
             messageId,
             channelId: TEXT_CHANNEL_ID,
-            userId: OWNER_ID,
+            userId: actorId,
             content: 'hello from the bridge',
             pluginId: id
           }
@@ -525,14 +540,32 @@ describe('actions.messages.edit / delete — ownership', () => {
         await ctx.actions.messages.delete({ messageId });
       });
 
-      expect(await messageById(messageId)).toBeUndefined();
+      // The delete leaves a tombstone attributed to the plugin's actor;
+      // the link row is released with the content.
+      const tombstone = await messageById(messageId);
+      expect(tombstone).toMatchObject({ content: null, deletedBy: await actorIdOf(id) });
+      expect(tombstone!.deletedAt).toBeGreaterThan(0);
       expect(await linksOf(id)).toHaveLength(0);
+      expect((await rejection(ctx.actions.messages.edit({ messageId, content: 'v4' }))).code).toBe('NOT_FOUND');
+      expect((await rejection(ctx.actions.messages.delete({ messageId }))).code).toBe('NOT_FOUND');
+      expect(await rejection(ctx.actions.messages.delete({ externalId: 'ext' }))).toEqual({
+        code: 'NOT_FOUND',
+        message: 'Message not found'
+      });
 
       const updates = published(spy, ServerEvents.MESSAGE_UPDATE);
       expect(updates).toHaveLength(2);
       expect((updates[1]!.payload as { content: string }).content).toBe('v3');
       expect(published(spy, ServerEvents.MESSAGE_DELETE)).toEqual([
-        { recipients: expect.arrayContaining([1, 2, 3]), payload: { messageId, channelId: TEXT_CHANNEL_ID } }
+        {
+          recipients: expect.arrayContaining([1, 2, 3]),
+          payload: {
+            messageId,
+            channelId: TEXT_CHANNEL_ID,
+            deletedAt: tombstone!.deletedAt,
+            deletedBy: tombstone!.deletedBy
+          }
+        }
       ]);
 
       expect(events.map((e) => e.event)).toEqual([
@@ -543,7 +576,7 @@ describe('actions.messages.edit / delete — ownership', () => {
       expect(events[0]!.payload).toEqual({
         messageId,
         channelId: TEXT_CHANNEL_ID,
-        userId: OWNER_ID,
+        userId: await actorIdOf(id),
         content: 'v2',
         pluginId: id
       });
@@ -616,7 +649,10 @@ describe('actions.messages.edit / delete — ownership', () => {
       expect(reactions).toHaveLength(1);
 
       await ctx.actions.messages.delete({ messageId: SEEDED_MESSAGE_ID });
-      expect(await messageById(SEEDED_MESSAGE_ID)).toBeUndefined();
+      expect(await messageById(SEEDED_MESSAGE_ID)).toMatchObject({
+        content: null,
+        deletedBy: await actorIdOf('act-moderator')
+      });
     } finally {
       await cleanup();
     }
@@ -645,12 +681,13 @@ describe('actions.messages.edit / delete — ownership', () => {
 });
 
 describe('actions.messages.react', () => {
-  test('adds and removes a reaction under the owner, idempotently, with MESSAGE_UPDATE fan-out and message:reaction', async () => {
+  test("adds and removes a reaction under the plugin's account, idempotently, with MESSAGE_UPDATE fan-out and message:reaction", async () => {
     const id = 'act-react';
     const { ctx, cleanup } = await loadPlugin(id);
 
     try {
       const { messageId } = await ctx.actions.messages.post({ channelId: TEXT_CHANNEL_ID, content: 'react me' });
+      const actorId = await actorIdOf(id);
       const spy = spyOn(pubsub, 'publishFor');
 
       const events = await collect(['message:reaction'], async () => {
@@ -670,18 +707,18 @@ describe('actions.messages.react', () => {
       const updates = published(spy, ServerEvents.MESSAGE_UPDATE);
       expect(updates).toHaveLength(2);
       expect((updates[0]!.payload as { reactions: { userId: number; emoji: string }[] }).reactions).toEqual([
-        expect.objectContaining({ userId: OWNER_ID, emoji: '👍' })
+        expect.objectContaining({ userId: actorId, emoji: '👍' })
       ]);
       expect((updates[1]!.payload as { reactions: unknown[] }).reactions).toEqual([]);
 
       expect(events).toEqual([
         {
           event: 'message:reaction',
-          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: OWNER_ID, emoji: '👍', added: true, pluginId: id }
+          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: actorId, emoji: '👍', added: true, pluginId: id }
         },
         {
           event: 'message:reaction',
-          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: OWNER_ID, emoji: '👍', added: false, pluginId: id }
+          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: actorId, emoji: '👍', added: false, pluginId: id }
         }
       ]);
 
@@ -802,6 +839,7 @@ describe('actions.channels', () => {
       expect(thread).toMatchObject({ type: 'THREAD', parentChannelId: TEXT_CHANNEL_ID, name: 'discussion' });
       expect((await messageById(SEEDED_MESSAGE_ID))?.threadId).toBe(thread.id);
 
+      const actorId = await actorIdOf(id);
       const created = published(spy, ServerEvents.THREAD_CREATE);
       expect(created).toHaveLength(1);
       expect(created[0]!.payload).toEqual({
@@ -811,7 +849,7 @@ describe('actions.channels', () => {
         lastMessageAt: null,
         archived: false,
         parentChannelId: TEXT_CHANNEL_ID,
-        creatorId: OWNER_ID
+        creatorId: actorId
       });
       expect(published(spy, ServerEvents.MESSAGE_UPDATE)).toHaveLength(1);
 
@@ -823,7 +861,7 @@ describe('actions.channels', () => {
             parentChannelId: TEXT_CHANNEL_ID,
             serverId: 1,
             name: 'discussion',
-            creatorId: OWNER_ID,
+            creatorId: actorId,
             parentMessageId: SEEDED_MESSAGE_ID,
             pluginId: id
           }
@@ -988,7 +1026,7 @@ describe('actions.members.list', () => {
 });
 
 describe('actions.files.upload', () => {
-  test('from bytes: stored under the owner, on disk under its public name, with the upload route\'s gates', async () => {
+  test("from bytes: stored under the plugin's account, on disk under its public name, with the upload route's gates", async () => {
     const { ctx, cleanup } = await loadPlugin('act-upload-bytes');
 
     try {
@@ -1002,7 +1040,7 @@ describe('actions.files.upload', () => {
         mimeType: 'image/png'
       });
       const [row] = await getTestDb().select().from(files).where(eq(files.id, ref.id));
-      expect(row).toMatchObject({ userId: OWNER_ID, encrypted: false });
+      expect(row).toMatchObject({ userId: await actorIdOf('act-upload-bytes'), encrypted: false });
       expect(await fs.stat(path.join(PUBLIC_PATH, ref.name))).toBeTruthy();
 
       // Extension from the mime when the name has none; a blocked one is refused.

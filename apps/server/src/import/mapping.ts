@@ -1,4 +1,9 @@
-import { ChannelType, MAX_MESSAGE_CONTENT_LENGTH, Permission } from '@pulse/shared';
+import {
+  ChannelType,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  Permission,
+  renderEmbedsAsText
+} from '@pulse/shared';
 import {
   DiscordChannelType,
   type TDiscordChannel,
@@ -269,12 +274,18 @@ type TContentLookup = {
   roleName: (externalId: string) => string | undefined;
 };
 
+/** Room an embed rendering may take under the message cap. */
+const MAX_EMBED_TEXT = 4_000;
+
 /**
  * Rewrite one message body into our token grammar. Mentions of
  * imported people and roles become live tokens, everything we cannot
  * resolve degrades to readable text instead of a bare id; custom
- * emoji become ours when the emoji was imported; embeds and stickers
- * become plain lines so nothing the author shared is lost.
+ * emoji become ours when the emoji was imported; embeds (title,
+ * description, fields, footer — a status bot's whole card) and
+ * stickers become plain lines so nothing the author shared is lost.
+ * A caller that re-hosted a media embed as an attachment passes the
+ * message without it.
  */
 const mapMessageContent = (message: TDiscordMessage, lookup: TContentLookup): string => {
   const mentionNames = new Map(
@@ -303,11 +314,8 @@ const mapMessageContent = (message: TDiscordMessage, lookup: TContentLookup): st
 
   const extra: string[] = [];
 
-  for (const embed of message.embeds ?? []) {
-    if (embed.url && !content.includes(embed.url)) {
-      extra.push(embed.title ? `${boundText(embed.title, 200)} — ${embed.url}` : embed.url);
-    }
-  }
+  const embedText = renderEmbedsAsText(message.embeds, MAX_EMBED_TEXT, content);
+  if (embedText.length > 0) extra.push(embedText);
 
   for (const sticker of message.sticker_items ?? []) {
     extra.push(`:${boundText(sticker.name, 64, 'sticker')}:`);

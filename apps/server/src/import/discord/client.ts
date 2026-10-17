@@ -1,3 +1,4 @@
+import { GIF_PICKER_MEDIA_HOSTS } from '@pulse/shared';
 import { outboundFetch, readBodyWithCap } from '../../utils/outbound-fetch';
 
 /**
@@ -19,7 +20,12 @@ import { outboundFetch, readBodyWithCap } from '../../utils/outbound-fetch';
 
 const API_ORIGIN = 'https://discord.com';
 const API_PREFIX = '/api/v10';
-const CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
+/**
+ * The service's own CDN and proxy, plus the GIF pickers' file hosts: a
+ * picker GIF arrives as a `gifv` embed whose file lives there, and it
+ * is re-hosted like an attachment. Nothing else is ever fetched.
+ */
+const CDN_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net', ...GIF_PICKER_MEDIA_HOSTS]);
 
 /** One shared pace for the whole process: a comfortable margin under the global budget. */
 const MIN_REQUEST_INTERVAL_MS = 25;

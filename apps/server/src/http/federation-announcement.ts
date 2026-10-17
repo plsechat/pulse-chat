@@ -44,9 +44,9 @@ import { channelFollows, channels, servers } from '../db/schema';
 import { logger } from '../logger';
 import type { TAnnouncementRow } from '../types';
 import {
-  deleteAnnouncementCopies,
   publishFollowsUpdate,
   remoteSourceKey,
+  tombstoneAnnouncementCopies,
   updateAnnouncementCopies,
   upsertAnnouncementCopy
 } from '../utils/announcement-follow';
@@ -244,14 +244,19 @@ const federationAnnouncementHandler = async (
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_DELETE_IDS) {
       return jsonResponse(res, 400, { error: 'Invalid messageIds' });
     }
+    // The copies become tombstones here as the source did there. The
+    // deleter is an account on the peer, so nobody local is named;
+    // the time is ours (the relay carries none).
+    const tombstone = { deletedAt: Date.now(), deletedBy: null };
     let removed = 0;
     for (const raw of ids) {
       const messageId = peerInteger(raw, { min: 1, max: MAX_MESSAGE_ID });
       if (messageId === undefined) {
         return jsonResponse(res, 400, { error: 'Invalid messageIds' });
       }
-      removed += await deleteAnnouncementCopies(
+      removed += await tombstoneAnnouncementCopies(
         remoteSourceKey(fromDomain, sourceChannelPublicId, messageId),
+        tombstone,
         [target.id]
       );
     }
