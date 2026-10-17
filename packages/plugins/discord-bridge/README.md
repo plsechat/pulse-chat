@@ -8,7 +8,7 @@ It ships inside the PULSE image under the data directory's `plugins/` folder and
 
 1. **Create a bot** in the developer portal of the other service: an application with a bot user. Under the bot's settings switch on the two privileged intents, **Server Members** and **Message Content** — without the second every message arrives empty.
 2. **Add the bot to the server(s)** you want to bridge with these permissions: View Channels, Read Message History, Send Messages, Manage Webhooks, Manage Messages, Manage Threads, Create Public Threads, Send Messages in Threads, Add Reactions, Manage Events.
-3. **Enable the plugin** as the instance owner: Server Settings → Instance → Plugins → `discord-bridge` → switch it on, then open its settings and paste the **Bot token**. Set the **Public address** of the instance (for example `https://chat.example.com`) so member avatars and attachment links resolve on the other side. The token is picked up within 15 seconds; no reload needed.
+3. **Enable the plugin** as the instance owner: Server Settings → Instance → Plugins → `discord-bridge` → switch it on, then open its settings and paste the **Bot token** (stored encrypted; the panel only says whether one is set, and you paste a new one to replace it). Set the **Public address** of the instance (for example `https://chat.example.com`) so member avatars and attachment links resolve on the other side. The token is picked up within 15 seconds; no reload needed.
 4. **Link the server**: Server Settings → Integrations → Bridge (needs Manage Settings; the section appears only while the plugin runs). Pick the remote server the bot sits in, choose how channels pair — **Match by name** (text and announcement channels with the same name, case-insensitively: `General Chat` here is `general-chat` there) or **Mirror** (match by name and create what is missing on both sides, only here, or only there, categories included) — and a default direction, then **Link server**. The server pairs the channels in the background (one webhook per pair, paced by the API's rate limits, so a large first sync takes a few minutes) and the section shows the counts: paired, created here, created there, skipped with the reason, excluded.
 5. **Or link single channels**: Channel Settings → Bridge (needs Manage Channels). Pick the server and the channel the bot can see, choose a direction and link. A channel linked by hand keeps working beside a server link ("linked on its own").
 
@@ -19,7 +19,7 @@ Threads under a bridged channel follow it automatically. Scheduled events of a s
 ### How a server link keeps itself in step
 
 - A text channel created **here** is paired on the spot (the server's channel-create path runs a sync).
-- A text channel created or deleted **over there** reaches the gateway; the plugin cannot call a server route through the SDK, so it bumps a per-server counter the server reads once a minute and answers with a sync. The same happens after a gateway reconnect (anything may have changed meanwhile), and every link gets a full reconcile every 30 minutes regardless.
+- A text channel created or deleted **over there** reaches the gateway; the plugin signals the server at once (`ctx.server.notify`, SDK 0.3) and the sync starts immediately. The same happens after a gateway reconnect (anything may have changed meanwhile) and when the plugin (re)loads, so a restart catches up without waiting. A per-server counter the server reads once a minute is the backstop for a lost signal, and every link gets a full reconcile every 30 minutes regardless. The outcome of the last sync is kept on the server link, so the status page shows it after a restart too.
 - A rename on either side keeps the pair: pairs are remembered by id, names only matter the moment a pair is formed.
 - A **deletion** on either side ends the pair and nothing else: the channel on the other side stays. Deletions are never mirrored.
 - "Sync channels now" in the section runs a sync at once. Private channels here are never paired automatically (their audience was chosen on purpose) — link them by hand if you mean to.
@@ -31,7 +31,7 @@ Threads under a bridged channel follow it automatically. Scheduled events of a s
 
 ## Where secrets live — read this
 
-- The **bot token** is a plugin setting. The SDK's settings store keeps settings as plain JSON in the server's `plugin_data` table: **the token is not encrypted at rest**. Only the instance owner can read it back (the plugin settings route), but anyone with the database has it. Treat the database accordingly, and rotate the token in the developer portal if in doubt.
+- The **bot token** is a `secret` plugin setting (SDK 0.3): the server stores it encrypted under the instance's file-signing secret, no route returns it (the settings panel only says whether one is set), and the plugin reads the plaintext through `settings.get` to dial the gateway. A token saved with an earlier version was stored in the clear; the server encrypts it on the first load after the upgrade and replaces the plaintext row. Rotate the token in the developer portal if the database was exposed before that.
 - The **webhook tokens** the plugin creates are stored by the server encrypted (`bridge_links.webhook_token_ciphertext`, under the instance's file-signing secret) and never returned by any route. The plugin keeps them in memory only; after a restart it reads them back through the bot (`GET /webhooks/{id}`).
 - The plugin's own state file (`bridge-state.json` next to the plugin) holds the link list and the message id map — no secret.
 
@@ -44,7 +44,7 @@ Threads under a bridged channel follow it automatically. Scheduled events of a s
 
 ## Limits and bounds
 
-- The server's outbound client allows 60 requests per minute per host for plugins. The bridge keeps its own copy of that budget (a step under it), honours the API's per-route rate-limit headers and 429 `retry_after`, backs off on 5xx, and sends one request at a time in order. A burst of messages queues; it does not fail.
+- The server's outbound client allows this plugin 60 requests per minute per host, in a budget of its own (SDK 0.3; federation and other plugins do not draw on it). The bridge keeps its own copy of that budget, honours the API's per-route rate-limit headers and 429 `retry_after`, backs off on 5xx, and sends one request at a time in order. A burst of messages queues; it does not fail.
 - Message id map: 50 000 pairs (oldest evicted); threads 5 000; events 2 000; remembered author personas 10 000.
 - Inbound attachments: up to 10 per message, re-hosted through the server's file pipeline (same size and extension rules as uploads); one that cannot be re-hosted is named in the text. Outbound attachments are sent as links once the server's `message:created` event carries them (read optionally today).
 - Inbound content follows the community import's rules (mentions, custom emoji, timestamps, embeds, stickers); outbound content is the composer's HTML turned into text with mentions resolved and **no pings** over there (`allowed_mentions: none`). A remote `@here` stays `@here` here.

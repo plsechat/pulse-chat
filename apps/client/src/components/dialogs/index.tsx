@@ -36,6 +36,13 @@ const DialogsMap: { [K in Dialog]: ComponentType<TDialogPropsMap[K]> } = {
   [Dialog.IDENTITY_CHANGED]: IdentityChangedDialog,
   [Dialog.GROUP_DM_SETTINGS]: lazy(() =>
     import('./group-dm-settings').then((m) => ({ default: m.GroupDmSettingsDialog }))
+  ),
+  // Composer extras: opened from the "+" menu, never on first paint.
+  [Dialog.CREATE_POLL]: lazy(() =>
+    import('./create-poll').then((m) => ({ default: m.CreatePollDialog }))
+  ),
+  [Dialog.SCHEDULE_POST]: lazy(() =>
+    import('./schedule-post').then((m) => ({ default: m.SchedulePostDialog }))
   )
 };
 

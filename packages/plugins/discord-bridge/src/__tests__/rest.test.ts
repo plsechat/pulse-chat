@@ -110,12 +110,12 @@ describe('rest client', () => {
     expect((error as RestError).message).toContain('Unknown route');
   });
 
-  test('stays under the server-side per-host budget: the 56th burst request waits a refill step', async () => {
+  test('stays within the plugin\'s own per-host budget: the 61st burst request waits a refill step', async () => {
     const { client, transport, sleeps } = makeClient();
 
-    for (let i = 0; i < 56; i++) await client.get('/guilds/100000000000000001/channels');
+    for (let i = 0; i < 61; i++) await client.get('/guilds/100000000000000001/channels');
 
-    expect(transport.calls).toHaveLength(56);
+    expect(transport.calls).toHaveLength(61);
     expect(sleeps).toEqual([1000]);
   });
 

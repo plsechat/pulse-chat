@@ -10,6 +10,11 @@ import { parseActionInput, PluginActionError } from './errors';
  * outbound rate limit and a capped body. A plugin that hand-rolls
  * `fetch` bypasses all of that; the loader does not sandbox, so the
  * README calls raw `fetch` unsupported rather than impossible.
+ *
+ * The rate limit is the plugin's own: 60 a minute per host, in a bucket
+ * scoped to the plugin id, so a bridge paging through a remote API
+ * neither drains the federation budget for that host nor gets drained
+ * by another plugin talking to the same place.
  */
 
 const MAX_URL_LENGTH = 2048;
@@ -40,7 +45,9 @@ const initSchema = z
     `body may not exceed ${MAX_BODY_BYTES} bytes`
   );
 
-const createPluginFetch = (): PluginContext['fetch'] => {
+const createPluginFetch = (pluginId: string): PluginContext['fetch'] => {
+  const rateLimitScope = `plugin:${pluginId}`;
+
   return async (rawUrl, rawInit) => {
     const url = parseActionInput(
       z.string().max(MAX_URL_LENGTH).regex(/^https?:\/\//i, 'url must be http(s)'),
@@ -56,6 +63,7 @@ const createPluginFetch = (): PluginContext['fetch'] => {
         headers: init.headers,
         body: init.body,
         maxBytes: init.maxBytes ?? DEFAULT_MAX_BYTES,
+        rateLimitScope,
         signal: AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS)
       });
     } catch (error) {

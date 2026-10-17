@@ -28,6 +28,7 @@ import {
   federationUserInfoHandler
 } from './federation';
 import { federationChannelSenderKeyNotifyHandler } from './federation-channel-sender-key';
+import { federationDirectoryHandler } from './federation-directory';
 import { federationDmChannelStateUpdateHandler } from './federation-dm-channel-state';
 import {
   federationDmGroupAddMemberHandler,
@@ -36,6 +37,10 @@ import {
   federationDmSenderKeyHandler,
   federationIdentityRotationHandler
 } from './federation-dm-group';
+import {
+  federationAnnouncementFollowHandler,
+  federationAnnouncementHandler
+} from './federation-announcement';
 import { federationMemberRemovedHandler } from './federation-member-removed';
 import { federationSharesServerHandler } from './federation-shares-server';
 import { federationUserInfoUpdateHandler } from './federation-user-info-update';
@@ -210,6 +215,13 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await federationServersHandler(req, res);
         }
 
+        // Directory listing for a peer's Directory tab — same read
+        // bucket and signing discipline as /federation/servers.
+        if (req.method === 'POST' && req.url === '/federation/directory') {
+          if (!checkRateLimit(req, res, federationReadRateLimit)) return;
+          return await federationDirectoryHandler(req, res);
+        }
+
         if (req.method === 'POST' && req.url === '/federation/user-info') {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationUserInfoHandler(req, res);
@@ -307,6 +319,19 @@ const createHttpServer = async (port: number = config.server.port) => {
         ) {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationMemberRemovedHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/announcement') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationAnnouncementHandler(req, res);
+        }
+
+        if (
+          req.method === 'POST' &&
+          req.url === '/federation/announcement-follow'
+        ) {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationAnnouncementFollowHandler(req, res);
         }
 
         if (

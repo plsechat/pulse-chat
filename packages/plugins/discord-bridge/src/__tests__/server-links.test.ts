@@ -7,9 +7,10 @@ import { createBridgeHarness, type TBridgeHarness } from './harness';
  * server link, lists what the server needs to pair (channels with
  * categories, plus what it would not bridge), creates a remote channel
  * under a category of the same name, tears many links down at once, and
- * turns gateway channel events in a linked guild into a sync request the
- * server reads from `status`. The pairing decision itself is the
- * server's (routers/servers/bridge-pairing.ts).
+ * turns gateway channel events in a linked guild into a sync request:
+ * signalled to the server at once through `ctx.server.notify` and kept
+ * as a counter `status` reports for the server's backstop tick. The
+ * pairing decision itself is the server's (routers/servers/bridge-pairing.ts).
  */
 
 const GUILD = '100000000000000001';
@@ -209,21 +210,46 @@ describe('gateway channel events under a server link', () => {
     await h.bridge.start();
     await h.call('server-links/upsert', serverLink());
     expect(h.bridge.syncRequestsFor(1)).toBe(0);
+    expect(h.fake.notifications).toEqual([]);
 
+    // Each request reaches the server at once, with the counter the
+    // tick will later read from `status`.
     h.connect();
     expect(h.bridge.syncRequestsFor(1)).toBe(1);
+    expect(h.fake.notifications).toEqual([
+      { topic: 'bridge:sync-requested', payload: { serverId: 1, requested: 1 } }
+    ]);
 
     await h.dispatch(h.gateway.channelCreate);
     expect(h.bridge.syncRequestsFor(1)).toBe(2);
+    expect(h.fake.notifications[1]).toEqual({
+      topic: 'bridge:sync-requested',
+      payload: { serverId: 1, requested: 2 }
+    });
 
     await h.dispatch(h.gateway.channelCreateVoice);
     await h.dispatch(h.gateway.channelCreateOtherGuild);
     expect(h.bridge.syncRequestsFor(1)).toBe(2);
+    expect(h.fake.notifications).toHaveLength(2);
 
     // Without a server link for the guild, nothing is asked.
     await h.call('server-links/remove', { serverId: 1 });
     await h.dispatch(h.gateway.channelCreate);
     expect(h.bridge.syncRequestsFor(1)).toBe(0);
+    expect(h.fake.notifications).toHaveLength(2);
+  });
+
+  test('a server that refuses the signal does not stop the bridge: the counter still moves for the tick', async () => {
+    const h = createBridgeHarness();
+    h.fake.ctx.server.notify = () => {
+      throw new Error('payload may not exceed 16384 bytes as JSON');
+    };
+    await h.bridge.start();
+    await h.call('server-links/upsert', serverLink());
+
+    h.connect();
+    expect(h.bridge.syncRequestsFor(1)).toBe(1);
+    expect(h.fake.logs.some((l) => l.includes('Could not signal the server'))).toBe(true);
   });
 
   test('a rename keeps the pair; deleting the linked remote channel ends the pair here and asks for a sync, nothing is deleted on our side', async () => {

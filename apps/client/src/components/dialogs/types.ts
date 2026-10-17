@@ -3,6 +3,7 @@ import type { TConfirmActionDialogProps } from './confirm-action';
 import type { TCreateCategoryDialogProps } from './create-category';
 import type { TCreateChannelDialogProps } from './create-channel';
 import type { TCreateInviteDialogProps } from './create-invite-dialog';
+import type { TCreatePollDialogProps } from './create-poll';
 import type { TCreateServerDialogProps } from './create-server';
 import type { Dialog } from './dialogs';
 import type { TGroupDmSettingsDialogProps } from './group-dm-settings';
@@ -10,6 +11,7 @@ import type { TIdentityChangedDialogProps } from './identity-changed';
 import type { TPluginCommandsDialogProps } from './plugin-commands';
 import type { TPluginLogsDialogProps } from './plugin-logs';
 import type { TPluginSettingsDialogProps } from './plugin-settings';
+import type { TSchedulePostDialogProps } from './schedule-post';
 import type { TTextInputDialogProps } from './text-input';
 
 export type TDialogBaseProps = {
@@ -31,4 +33,6 @@ export type TDialogPropsMap = {
   [Dialog.CREATE_SERVER]: TCreateServerDialogProps;
   [Dialog.IDENTITY_CHANGED]: TIdentityChangedDialogProps;
   [Dialog.GROUP_DM_SETTINGS]: TGroupDmSettingsDialogProps;
+  [Dialog.CREATE_POLL]: TCreatePollDialogProps;
+  [Dialog.SCHEDULE_POST]: TSchedulePostDialogProps;
 };

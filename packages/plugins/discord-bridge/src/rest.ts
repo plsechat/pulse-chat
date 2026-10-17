@@ -14,19 +14,20 @@ import type { PluginContext } from '@pulse/plugin-sdk';
  * bucket the next request on that route waits on, a 429 sleeps for the
  * `retry_after` it names (bounded) and retries, a 5xx backs off and
  * retries a few times. On top of that the server's own outbound client
- * allows 60 requests a minute per host: the bridge keeps a mirror of
- * that budget (a little under it) so a burst queues here instead of
- * failing there, and treats the server's refusal as one more thing to
- * wait out. Requests are sent one at a time, in order, because an edit
- * must never overtake the create it depends on.
+ * allows this plugin 60 requests a minute per host, in a budget of its
+ * own: the bridge keeps a mirror of that budget so a burst queues here
+ * instead of failing there, and treats the server's refusal (the
+ * mirror drifted) as one more thing to wait out. Requests are sent one
+ * at a time, in order, because an edit must never overtake the create
+ * it depends on.
  */
 
 export const API_ORIGIN = 'https://discord.com';
 export const API_PREFIX = '/api/v10';
 const USER_AGENT = 'PULSE bridge (https://github.com/plsechat/pulse)';
 
-/** The server-side per-host budget is 60/min; stay a step under it. */
-const HOST_BUDGET_CAPACITY = 55;
+/** The server-side per-plugin, per-host budget: 60 a minute, nobody else draws on it. */
+const HOST_BUDGET_CAPACITY = 60;
 const HOST_BUDGET_REFILL_PER_MS = 60 / 60_000;
 const MAX_RETRY_WAIT_MS = 60_000;
 const MAX_ATTEMPTS = 6;
@@ -247,7 +248,7 @@ export class RestClient {
         });
       } catch (error) {
         // The server's outbound budget for the host ran dry: our mirror
-        // drifted (another plugin shares the host). Wait a refill step.
+        // drifted from the server's clock. Wait a refill step.
         if (isHostBudgetRefusal(error) && attempt < MAX_ATTEMPTS) {
           await this.sleep(1_000 * attempt);
           continue;

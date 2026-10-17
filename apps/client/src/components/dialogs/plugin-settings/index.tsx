@@ -18,6 +18,26 @@ import { Save, Settings } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
+import { SecretSettingField } from './secret-field';
+import { secretIsSet } from './secret-value';
+
+/**
+ * The editable copy of the values. A `secret` setting's value from the
+ * route is `{ set }` — never the text — so its draft starts empty and
+ * only ever holds what the owner types to set or replace it.
+ */
+const toDraft = (
+  definitions: TPluginSettingDefinition[],
+  values: Record<string, unknown>
+): Record<string, unknown> => {
+  const draft: Record<string, unknown> = { ...values };
+
+  for (const def of definitions) {
+    if (def.type === 'secret') draft[def.key] = '';
+  }
+
+  return draft;
+};
 
 export type TPluginSettingsDialogProps = TDialogBaseProps & {
   pluginId: string;
@@ -121,7 +141,7 @@ const PluginSettingsDialog = memo(
 
           setDefinitions(result.definitions);
           setInitialValues(result.values);
-          setDraftValues(result.values);
+          setDraftValues(toDraft(result.definitions, result.values));
           setSelectedKey(result.definitions[0]?.key ?? null);
         } catch (error) {
           toast.error(getTrpcError(error, 'Failed to load plugin settings'));
@@ -162,6 +182,11 @@ const PluginSettingsDialog = memo(
           if (Boolean(currentValue) !== Boolean(initialValue)) {
             changed.add(def.key);
           }
+        } else if (def.type === 'secret') {
+          // Nothing to compare against: a typed value is a new value.
+          if (String(currentValue ?? '').length > 0) {
+            changed.add(def.key);
+          }
         } else if (String(currentValue ?? '') !== String(initialValue ?? '')) {
           changed.add(def.key);
         }
@@ -180,6 +205,15 @@ const PluginSettingsDialog = memo(
         const inputId = `setting-${def.key}`;
 
         switch (def.type) {
+          case 'secret':
+            return (
+              <SecretSettingField
+                id={inputId}
+                isSet={secretIsSet(initialValues[def.key])}
+                draft={String(currentValue ?? '')}
+                onChange={(value) => handleDraftChange(def.key, value)}
+              />
+            );
           case 'boolean':
             return (
               <Switch
@@ -212,7 +246,7 @@ const PluginSettingsDialog = memo(
             );
         }
       },
-      [draftValues, handleDraftChange]
+      [draftValues, handleDraftChange, initialValues]
     );
 
     const handleSave = useCallback(async () => {
@@ -227,11 +261,22 @@ const PluginSettingsDialog = memo(
           return;
         }
         const updates: Record<string, string | number | boolean> = {};
+        // What the panel knows afterwards: a saved secret is `{ set }`
+        // and its draft is emptied — the text is not kept around.
+        const savedValues: Record<string, unknown> = {};
+        const savedDrafts: Record<string, unknown> = {};
 
         for (const def of definitions) {
           if (!dirtyKeys.has(def.key)) continue;
 
           const rawValue = draftValues[def.key];
+
+          if (def.type === 'secret') {
+            updates[def.key] = String(rawValue ?? '');
+            savedValues[def.key] = { set: true };
+            savedDrafts[def.key] = '';
+            continue;
+          }
 
           if (def.type === 'number') {
             const parsed =
@@ -249,6 +294,9 @@ const PluginSettingsDialog = memo(
           } else {
             updates[def.key] = String(rawValue ?? '');
           }
+
+          savedValues[def.key] = updates[def.key];
+          savedDrafts[def.key] = updates[def.key];
         }
 
         for (const [key, value] of Object.entries(updates)) {
@@ -259,8 +307,8 @@ const PluginSettingsDialog = memo(
           });
         }
 
-        setInitialValues((prev) => ({ ...prev, ...updates }));
-        setDraftValues((prev) => ({ ...prev, ...updates }));
+        setInitialValues((prev) => ({ ...prev, ...savedValues }));
+        setDraftValues((prev) => ({ ...prev, ...savedDrafts }));
 
         toast.success('Settings saved');
       } catch (error) {
@@ -325,7 +373,11 @@ const PluginSettingsDialog = memo(
 
                         <div className="space-y-2">
                           <Label htmlFor={`setting-${selectedSetting.key}`}>
-                            Value
+                            {selectedSetting.type === 'secret'
+                              ? secretIsSet(initialValues[selectedSetting.key])
+                                ? 'Replace'
+                                : 'Set'
+                              : 'Value'}
                           </Label>
                           {renderSettingInput(selectedSetting)}
                         </div>

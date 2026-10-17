@@ -14,6 +14,7 @@
  */
 
 import type { RtpCapabilities } from 'mediasoup-client/types';
+import type { TPollUpdate } from '@pulse/server/types';
 
 type TAppEventMap = {
   'mention-user': { userId: number; username: string };
@@ -38,6 +39,12 @@ type TAppEventMap = {
   // A reconnect re-joined the voice session server-side; the voice
   // provider (the only owner of the media transports) has to run init.
   'voice-rejoin': { routerRtpCapabilities: RtpCapabilities; channelId: number };
+  // A poll's counts changed (vote, unvote, close); the card for that
+  // message merges them over its own view.
+  'poll-updated': TPollUpdate;
+  // The channel's Scheduled list / Follows tab should refetch.
+  'scheduled-posts-changed': { channelId: number };
+  'channel-follows-changed': { channelId: number };
 };
 
 type TAppEvent = keyof TAppEventMap;

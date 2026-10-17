@@ -13,7 +13,7 @@ import { messageMetadataQueue } from '../queues/message-metadata';
 import { VoiceRuntime } from '../runtimes/voice';
 import { loadBannedUsersCache } from '../utils/banned-cache';
 import { loadMediasoup } from '../utils/mediasoup';
-import { client, dbProxy, getTestDb } from './mock-db';
+import { client, dbProxy, getTestDb, lockClient } from './mock-db';
 import { seedDatabase } from './seed';
 import { TRUNCATE_ALL_SQL } from './truncate';
 
@@ -215,7 +215,7 @@ afterAll(async () => {
   // client.end() is the CONNECTION_ENDED flake.
   await drainFireAndForgetQueues();
 
-  await client.end();
+  await Promise.all([client.end(), lockClient.end()]);
 
   if (leakedMocks.length > 0) {
     throw new Error(

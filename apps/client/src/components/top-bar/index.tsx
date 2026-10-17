@@ -8,12 +8,13 @@ import { usePreviewMode } from '@/features/server/hooks';
 import { useDismissOnOutsideClick } from '@/hooks/use-dismiss-on-outside-click';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { cn } from '@/lib/utils';
-import { Hash, LayoutList, List, Lock, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
+import { CalendarClock, Hash, LayoutList, List, Lock, Megaphone, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SearchPopover } from '../search/search-popover';
 import { Tooltip } from '../ui/tooltip';
 import { NotificationDropdown } from './notification-dropdown';
 import { PinnedMessagesPanel } from './pinned-messages-panel';
+import { ScheduledPostsPopover } from './scheduled-posts-popover';
 import { ThreadListPopover } from './thread-list-popover';
 import { VolumeController } from './volume-controller';
 
@@ -40,6 +41,7 @@ const TopBar = memo(
     const [showPinned, setShowPinned] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [showThreads, setShowThreads] = useState(false);
+    const [showScheduled, setShowScheduled] = useState(false);
 
     // Dismiss-on-outside-click is anchored to each popover's containing
     // wrapper div (which holds both the toggle button and the popover
@@ -50,12 +52,15 @@ const TopBar = memo(
     const searchWrapperRef = useRef<HTMLDivElement>(null);
     const pinnedWrapperRef = useRef<HTMLDivElement>(null);
     const threadsWrapperRef = useRef<HTMLDivElement>(null);
+    const scheduledWrapperRef = useRef<HTMLDivElement>(null);
     const closeSearch = useCallback(() => setShowSearch(false), []);
     const closePinned = useCallback(() => setShowPinned(false), []);
     const closeThreads = useCallback(() => setShowThreads(false), []);
+    const closeScheduled = useCallback(() => setShowScheduled(false), []);
     useDismissOnOutsideClick(showSearch, searchWrapperRef, closeSearch);
     useDismissOnOutsideClick(showPinned, pinnedWrapperRef, closePinned);
     useDismissOnOutsideClick(showThreads, threadsWrapperRef, closeThreads);
+    useDismissOnOutsideClick(showScheduled, scheduledWrapperRef, closeScheduled);
 
     useEffect(() => {
       const handler = (e: KeyboardEvent) => {
@@ -75,7 +80,13 @@ const TopBar = memo(
         {/* Channel info on left */}
         {selectedChannel && (
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            {selectedChannel.type === 'TEXT' && (
+            {selectedChannel.type === 'TEXT' && selectedChannel.announcement && (
+              <Megaphone
+                className="h-4 w-4 text-muted-foreground/60 flex-shrink-0"
+                aria-label="Announcement channel"
+              />
+            )}
+            {selectedChannel.type === 'TEXT' && !selectedChannel.announcement && (
               <Hash className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
             )}
             {selectedChannel.type === 'VOICE' && (
@@ -184,6 +195,34 @@ const TopBar = memo(
                   />
                 )}
               </div>
+              {/* Scheduled messages are a member's own (or a moderator's view) — not a preview surface */}
+              {!previewMode && !selectedChannel.e2ee && (
+                <div className="relative" ref={scheduledWrapperRef}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowScheduled(!showScheduled)}
+                    className={cn(
+                      'h-7 px-2 transition-colors duration-150',
+                      showScheduled && 'bg-accent text-primary'
+                    )}
+                    aria-label="Scheduled messages"
+                    aria-expanded={showScheduled}
+                  >
+                    <Tooltip content="Scheduled messages">
+                      <div>
+                        <CalendarClock className={cn('w-4 h-4', showScheduled && 'text-primary')} />
+                      </div>
+                    </Tooltip>
+                  </Button>
+                  {showScheduled && (
+                    <ScheduledPostsPopover
+                      channelId={selectedChannel.id}
+                      onClose={closeScheduled}
+                    />
+                  )}
+                </div>
+              )}
               {/* Notification prefs are member-scoped — meaningless in preview */}
               {!previewMode && (
                 <NotificationDropdown channelId={selectedChannel.id} />

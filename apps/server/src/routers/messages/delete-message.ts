@@ -8,6 +8,7 @@ import { getFilesByMessageId } from '../../db/queries/files';
 import { getMessageInActiveServer } from '../../db/queries/messages';
 import { messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
+import { relayAnnouncementDeletion } from '../../utils/announcement-follow';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 
@@ -47,6 +48,7 @@ const deleteMessageRoute = serverProcedure()
     await db.delete(messages).where(eq(messages.id, input.messageId));
 
     publishMessage(input.messageId, targetMessage.channelId, 'delete');
+    void relayAnnouncementDeletion(targetMessage.channelId, [input.messageId]);
 
     eventBus.emit('message:deleted', {
       channelId: targetMessage.channelId,

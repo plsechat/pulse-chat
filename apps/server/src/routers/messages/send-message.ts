@@ -22,6 +22,8 @@ import { pluginManager } from '../../plugins';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
+import { relayAnnouncement } from '../../utils/announcement-follow';
+import { assertCanPostInChannel } from '../../utils/announcement-gate';
 import {
   assertNotTimedOut,
   checkAutomod,
@@ -77,6 +79,7 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
     // An automod timeout locks the member out of sending in this server
     // until the deadline (MANAGE_USERS bypasses).
     await assertNotTimedOut(ctx, channel.serverId);
+    await assertCanPostInChannel(ctx, channel);
 
     const isE2ee = !!input.e2ee;
 
@@ -356,6 +359,9 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
     }
 
     publishMessage(message!.id, input.channelId, 'create');
+    // Follower channels (local rows, federated relays) get their copy;
+    // a no-op for every channel that is not an announcement channel.
+    if (channel.announcement) void relayAnnouncement(message!.id, 'create');
 
     if (!isE2ee && targetContent) {
       enqueueProcessMetadata(targetContent, message!.id);

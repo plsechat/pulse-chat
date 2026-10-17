@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import z from 'zod';
 import { db } from '../../db';
 import { deleteShadowUsersByInstance } from '../../db/mutations/federation';
+import { pruneDirectoryCacheForInstance } from '../../db/queries/directory';
 import { getFederationInstanceById } from '../../db/queries/federation';
 import { federationInstances } from '../../db/schema';
 import { invalidateCorsCache } from '../../http/cors';
@@ -30,6 +31,11 @@ const blockInstanceRoute = instanceOwnerProcedure
     // Delete shadow users from this instance (and the DM channels they
     // leave behind — see deleteShadowUsersByInstance)
     await deleteShadowUsersByInstance(input.instanceId);
+
+    // A blocked row stays (so the peer's later requests are refused by
+    // status), so its cached listing has to go explicitly — a removed
+    // row cascades.
+    await pruneDirectoryCacheForInstance(input.instanceId);
 
     // Update status to blocked
     await db

@@ -13,7 +13,15 @@ import {
   useComposerHelpers,
   useTypingSignal
 } from '@/components/chat-primitives/use-composer-helpers';
+import { Dialog } from '@/components/dialogs/dialogs';
 import { GifPicker } from '@/components/gif-picker';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import { openDialog } from '@/features/dialogs/actions';
 import { TiptapInput } from '@/components/tiptap-input';
 import Spinner from '@/components/ui/spinner';
 import {
@@ -59,7 +67,18 @@ import {
   TYPING_MS
 } from '@pulse/shared';
 import { filesize } from 'filesize';
-import { ArrowDown, Clock, Plus, Reply, Send, X } from 'lucide-react';
+import {
+  ArrowDown,
+  BarChart3,
+  CalendarClock,
+  Clock,
+  Megaphone,
+  Paperclip,
+  Plus,
+  Reply,
+  Send,
+  X
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../../ui/button';
@@ -177,12 +196,19 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const previewMode = usePreviewMode();
   const previewMeta = usePreviewMeta();
   const { selectionMode, setMessageIds } = useSelection();
+  // An announcement channel takes posts from MANAGE_ANNOUNCEMENTS
+  // holders only; everyone else gets the read-only bar below (the
+  // server refuses the same way).
+  const announcementLocked =
+    !!currentChannel?.announcement && !can(Permission.MANAGE_ANNOUNCEMENTS);
   const canSendMessages = useMemo(() => {
     return (
       can(Permission.SEND_MESSAGES) &&
-      channelCan(ChannelPermission.SEND_MESSAGES)
+      channelCan(ChannelPermission.SEND_MESSAGES) &&
+      !announcementLocked
     );
-  }, [can, channelCan]);
+  }, [can, channelCan, announcementLocked]);
+
 
   useEffect(() => {
     setMessageIds(messages.map((m) => m.id));
@@ -297,6 +323,25 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     reattach,
     scrollToBottom
   });
+
+  const openPollDialog = useCallback(() => {
+    openDialog(Dialog.CREATE_POLL, { channelId });
+  }, [channelId]);
+
+  // Schedule takes the draft as it stands (content in the wire format,
+  // staged uploads by id) and clears the composer once the row exists.
+  const openScheduleDialog = useCallback(() => {
+    openDialog(Dialog.SCHEDULE_POST, {
+      channelId,
+      content: isHtmlEmpty(newMessage) ? '' : tiptapHtmlToTokens(newMessage),
+      fileIds: files.map((f) => f.id),
+      onScheduled: () => {
+        setNewMessage('');
+        setReplyingTo(null);
+        clearFiles();
+      }
+    });
+  }, [channelId, newMessage, files, clearFiles]);
 
   const handleReply = useCallback(
     (message: TJoinedMessage) => {
@@ -563,6 +608,18 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             Join
           </Button>
         </div>
+      ) : announcementLocked ? (
+        // Announcement channel, no announcer role: read and react only.
+        <div
+          className="mx-4 mb-3 md:mb-6 flex items-center gap-3 rounded-xl border border-border bg-secondary px-4 py-2.5"
+          role="status"
+          data-testid="announcement-locked"
+        >
+          <Megaphone className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate text-sm text-muted-foreground">
+            Only announcers can post here
+          </span>
+        </div>
       ) : (
         <div className="group/composer flex flex-col gap-1 px-4 pb-3 md:pb-6 pt-0">
           {replyingTo && (
@@ -643,18 +700,45 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
               className="hidden"
               onChange={onFileInputChange}
             />
-            {can(Permission.UPLOAD_FILES) && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading || !canSendMessages}
-                aria-label="Attach files"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-            )}
+            {/* "+" menu: attachments, a poll, or scheduling the draft.
+                Polls and scheduling need plaintext (the server tallies
+                and sends), so an encrypted channel offers files only. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+                  disabled={uploading || !canSendMessages}
+                  aria-label="Add to message"
+                >
+                  <Plus className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top">
+                {can(Permission.UPLOAD_FILES) && (
+                  <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                    <Paperclip className="h-4 w-4" />
+                    Attach files
+                  </DropdownMenuItem>
+                )}
+                {!isE2ee && (
+                  <DropdownMenuItem onSelect={openPollDialog}>
+                    <BarChart3 className="h-4 w-4" />
+                    Create poll
+                  </DropdownMenuItem>
+                )}
+                {!isE2ee && (
+                  <DropdownMenuItem
+                    onSelect={openScheduleDialog}
+                    disabled={isHtmlEmpty(newMessage) && files.length === 0}
+                  >
+                    <CalendarClock className="h-4 w-4" />
+                    Schedule message
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <TiptapInput
               toolbar
               value={newMessage}

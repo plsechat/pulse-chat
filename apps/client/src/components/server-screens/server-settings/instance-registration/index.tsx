@@ -14,6 +14,7 @@ type TRegistration = {
   allowNewUsers: boolean;
   registrationDisabledByEnv: boolean;
   methods: { password: boolean; oidc: boolean; social: boolean };
+  directory: { exposed: boolean; federationEnabled: boolean; effective: boolean };
 };
 
 const METHOD_LABELS: Record<keyof TRegistration['methods'], string> = {
@@ -40,6 +41,26 @@ const InstanceRegistration = () => {
     'Could not load the registration policy'
   );
   const [saving, setSaving] = useState(false);
+  const [savingDirectory, setSavingDirectory] = useState(false);
+
+  const toggleDirectory = async (exposeDirectory: boolean) => {
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+    setSavingDirectory(true);
+    try {
+      await trpc.admin.setRegistration.mutate({ exposeDirectory });
+      await query.refetch();
+      toast.success(
+        exposeDirectory
+          ? 'Peers can read the directory'
+          : 'The directory is no longer offered to peers'
+      );
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Could not update the directory setting'));
+    } finally {
+      setSavingDirectory(false);
+    }
+  };
 
   const toggle = async (allowNewUsers: boolean) => {
     const trpc = getTRPCClient();
@@ -78,6 +99,27 @@ const InstanceRegistration = () => {
                 checked={data.allowNewUsers}
                 disabled={saving}
                 onCheckedChange={toggle}
+              />
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection
+            title="Public directory"
+            description="Servers listed under Server Settings → General make up this instance's directory. Federated peers pull it daily for their own Directory tab."
+          >
+            <SettingRow
+              label="Expose this instance's directory to peers"
+              description={
+                data.directory.federationEnabled
+                  ? 'Off, peers get an empty listing; your members still see the local directory and the peers\' listings.'
+                  : 'Federation is off, so nothing is offered to anyone; the switch applies once federation is enabled.'
+              }
+            >
+              <Switch
+                checked={data.directory.exposed}
+                disabled={savingDirectory || !data.directory.federationEnabled}
+                aria-label="Expose this instance's directory to peers"
+                onCheckedChange={toggleDirectory}
               />
             </SettingRow>
           </SettingsSection>

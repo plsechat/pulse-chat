@@ -6,6 +6,7 @@ import z from 'zod';
 import { db } from '../db';
 import { channels, files, messages, webhooks } from '../db/schema';
 import { publishMessage } from '../db/publishers';
+import { relayAnnouncement } from '../utils/announcement-follow';
 import { logger } from '../logger';
 import { checkAutomod, executeAutomodActions } from '../utils/automod';
 import { getJsonBody, JsonBodyTooLargeError } from './helpers';
@@ -217,6 +218,8 @@ const webhookRouteHandler = async (
   }
 
   await publishMessage(message.id, webhook.channelId, 'create');
+  // Webhook posts into an announcement channel reach its followers too.
+  await relayAnnouncement(message.id, 'create');
 
   logger.info(
     'Webhook %s (%d) sent message to channel %d',

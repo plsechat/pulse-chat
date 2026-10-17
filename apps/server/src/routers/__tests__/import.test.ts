@@ -197,6 +197,11 @@ describe('import.listGuilds / preview', () => {
       scheduledEvents: 1
     });
     expect(preview.counts.estimatedMessages).toBeGreaterThan(0);
+    // Every recorded channel fits in one page, so the estimate is a count
+    // bounded by what the guild holds — never the lifetime extrapolation
+    // that once put a small community at hundreds of thousands.
+    const recorded = Object.values(fixture.messages).reduce((n, list) => n + list.length, 0);
+    expect(preview.counts.estimatedMessages).toBeLessThanOrEqual(recorded);
     expect(preview.estimateByDepth.none).toBe(0);
     expect(preview.estimateByDepth.last1000).toBeLessThanOrEqual(preview.estimateByDepth.all);
     expect(preview.estimatedSeconds).toBeGreaterThan(0);
@@ -455,10 +460,12 @@ describe('options', () => {
     const { caller } = await initTest(OWNER_ID);
     const { job } = await connectAndPreview(caller, token);
 
+    // The preview samples pages too; only the run's requests count here.
+    const previewCalls = calls.length;
     expect(await runWith(job.id, { ...ALL, history: 'last30days', attachments: 'skip' })).toBe('done');
     const general = (await channelByName('general'))!;
     expect((await messagesIn(general.id)).map((m) => m.content)).toEqual(['fresh']);
-    const firstPage = calls.find((c) => c.path === `/channels/${ids.general}/messages` && c.params.after !== undefined)!;
+    const firstPage = calls.slice(previewCalls).find((c) => c.path === `/channels/${ids.general}/messages` && c.params.after !== undefined)!;
     expect(BigInt(firstPage.params.after!)).toBe(BigInt(timestampToSnowflake(FIXED_NOW - 30 * 24 * 60 * 60 * 1000)));
   });
 
@@ -705,5 +712,45 @@ describe('placeholder claim', () => {
     const [user] = await tdb().select().from(users).where(eq(users.id, alice.userId));
     expect(user!.supabaseId.startsWith('placeholder:')).toBe(true);
     expect(/^[0-9a-f-]{36}$/.test(user!.supabaseId)).toBe(false);
+  });
+});
+
+describe('importing the same guild again', () => {
+  test('matches the layout the earlier job created instead of creating it again', async () => {
+    const { token } = useFixture();
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+    expect(await runWith(job.id, { ...ALL, attachments: 'skip', members: 'nobody' })).toBe('done');
+
+    const count = async () => ({
+      categories: (await tdb().select().from(categories).where(eq(categories.serverId, SERVER_ID))).length,
+      channels: (await tdb().select().from(channels).where(eq(channels.serverId, SERVER_ID))).length,
+      roles: (await tdb().select().from(roles).where(eq(roles.serverId, SERVER_ID))).length,
+      emojis: (await tdb().select().from(emojis).where(eq(emojis.serverId, SERVER_ID))).length
+    });
+    const before = await count();
+    const first = readImportState((await getImportJob(job.id))!).map;
+    expect(Object.keys(first.channels).length).toBeGreaterThan(0);
+
+    // One channel was deleted in between: that one alone comes back.
+    const deleted = (await channelByName('general'))!;
+    await tdb().delete(channels).where(eq(channels.id, deleted.id));
+
+    // The owner runs the import again (wider bot access, newer history):
+    // every other row is matched and nothing doubles.
+    const { job: again } = await connectAndPreview(caller, token);
+    expect(await runWith(again.id, { ...ALL, attachments: 'skip', members: 'nobody' })).toBe('done');
+
+    expect(await count()).toEqual(before);
+    const state = readImportState((await getImportJob(again.id))!);
+    expect(state.map.categories).toEqual(first.categories);
+    expect(state.map.roles).toEqual(first.roles);
+    expect(state.map.emojis).toEqual(first.emojis);
+    const general = (await channelByName('general'))!;
+    expect(general.id).not.toBe(deleted.id);
+    expect(state.map.channels).toEqual({ ...first.channels, [ids.general!]: general.id });
+    expect(Object.keys(state.map.threads).sort()).toEqual(Object.keys(first.threads).sort());
+    expect(state.warnings.some((w) => w.startsWith('Matched ') && w.includes('were not created again'))).toBe(true);
+    expect(await messagesIn(general.id)).toHaveLength(5);
   });
 });

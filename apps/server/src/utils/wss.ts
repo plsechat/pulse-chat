@@ -49,7 +49,7 @@ import {
   readSessionFamilyId,
   registerSessionSocket
 } from './session-registry';
-import { setWsStatsProvider } from './ws-stats';
+import { setOnlineUserIdsProvider, setWsStatsProvider } from './ws-stats';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
 import { removeUserFromVoice } from './voice-cleanup';
@@ -904,6 +904,19 @@ setWsStatsProvider(() => {
     connections += set.size;
   }
   return { onlineUsers, connections };
+});
+
+// The directory's "online" column: who has a live socket and is not
+// invisible — the same answer getStatusById gives a member list, so a
+// card never counts someone the roster shows as offline.
+setOnlineUserIdsProvider(() => {
+  const ids: number[] = [];
+  for (const [userId, set] of wsMapByUserId) {
+    if (set.size === 0) continue;
+    if (userStatusOverrides.get(userId) === UserStatus.INVISIBLE) continue;
+    ids.push(userId);
+  }
+  return ids;
 });
 
 export {

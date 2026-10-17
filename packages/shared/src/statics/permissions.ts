@@ -22,6 +22,9 @@ export enum Permission {
   MANAGE_AUTOMOD = "MANAGE_AUTOMOD",
   VIEW_REPORTS = "VIEW_REPORTS",
   MANAGE_EVENTS = "MANAGE_EVENTS",
+  MANAGE_ANNOUNCEMENTS = "MANAGE_ANNOUNCEMENTS",
+  USE_SOUNDBOARD = "USE_SOUNDBOARD",
+  MANAGE_SOUNDS = "MANAGE_SOUNDS",
 }
 
 export const permissionLabels: Record<Permission, string> = {
@@ -47,6 +50,9 @@ export const permissionLabels: Record<Permission, string> = {
   [Permission.MANAGE_AUTOMOD]: "Manage auto-moderation",
   [Permission.VIEW_REPORTS]: "Review reports",
   [Permission.MANAGE_EVENTS]: "Manage events",
+  [Permission.MANAGE_ANNOUNCEMENTS]: "Post announcements",
+  [Permission.USE_SOUNDBOARD]: "Use the soundboard",
+  [Permission.MANAGE_SOUNDS]: "Manage sounds",
 };
 
 export const permissionDescriptions: Record<Permission, string> = {
@@ -87,6 +93,12 @@ export const permissionDescriptions: Record<Permission, string> = {
     "Grants access to the server's report queue to review and act on member reports.",
   [Permission.MANAGE_EVENTS]:
     "Grants the ability to create and manage scheduled events, rosters and roster templates.",
+  [Permission.MANAGE_ANNOUNCEMENTS]:
+    "Grants the ability to post in announcement channels, which everyone can read.",
+  [Permission.USE_SOUNDBOARD]:
+    "Grants the ability to play soundboard sounds in voice channels.",
+  [Permission.MANAGE_SOUNDS]:
+    "Grants the ability to upload, edit, and delete soundboard sounds.",
 };
 
 export const DEFAULT_ROLE_PERMISSIONS = [
@@ -97,6 +109,7 @@ export const DEFAULT_ROLE_PERMISSIONS = [
   Permission.SHARE_SCREEN,
   Permission.ENABLE_WEBCAM,
   Permission.PIN_MESSAGES,
+  Permission.USE_SOUNDBOARD,
 ];
 
 export enum UploadHeaders {

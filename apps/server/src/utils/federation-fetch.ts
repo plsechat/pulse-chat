@@ -22,7 +22,10 @@
  *      host. Stops a runaway loop, hostile-peer retry storm, or
  *      compromised handler from hammering a single remote. 60
  *      burst, refilled at 60/minute (1/sec sustained). Self-prunes
- *      long-idle peers when the map crosses 1024 entries.
+ *      long-idle peers when the map crosses 1024 entries. A caller
+ *      that passes `rateLimitScope` gets its own bucket per host
+ *      (plugins: one budget each, so a chatty plugin cannot starve
+ *      federation or another plugin on the same host).
  *
  *   4. Bounded body: `.json()` / `.text()` on the returned response read
  *      through `readBodyWithCap` (default 1 MB), so a peer that answers a
@@ -93,6 +96,8 @@ export class FederationRateLimitError extends Error {
 export interface FederationFetchInit extends Omit<RequestInit, 'redirect'> {
   /** Cap for `.json()` / `.text()`; the raw `.body` stream is uncapped. */
   maxBytes?: number;
+  /** Names a separate per-host rate-limit bucket instead of the shared one. */
+  rateLimitScope?: string;
 }
 
 /**
@@ -147,7 +152,7 @@ export async function federationFetch(
   url: string,
   init: FederationFetchInit = {}
 ): Promise<FederationResponse> {
-  const { maxBytes = DEFAULT_MAX_RESPONSE_BYTES, ...requestInit } = init;
+  const { maxBytes = DEFAULT_MAX_RESPONSE_BYTES, rateLimitScope, ...requestInit } = init;
 
   // Validate at the fetch boundary so we catch:
   //   - Callers that forgot to validate up front
@@ -161,7 +166,9 @@ export async function federationFetch(
   const host = validated.host;
   const hostname = validated.hostname.replace(/^\[|\]$/g, '');
 
-  if (!_tryConsumeFederationToken(host)) {
+  const bucketKey = rateLimitScope ? `${rateLimitScope}|${host}` : host;
+
+  if (!_tryConsumeFederationToken(bucketKey)) {
     throw new FederationRateLimitError(host);
   }
 

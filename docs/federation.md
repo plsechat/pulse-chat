@@ -112,12 +112,13 @@ arrives in the body and is proven by the reverse fetch).
 | Group | Endpoints | Notes |
 | --- | --- | --- |
 | Peering | `GET /federation/info`, `POST /federation/request`, `/accept`, `/unpeer`, `/key-rotation` | `/accept` admits a `pending` sender row (we requested); `/unpeer` admits a `blocked` one (idempotent repeat) |
-| Discovery | `POST /federation/servers`, `/shares-server` | Both signed requests with signed responses; `/servers` lists federatable servers with one grouped member count |
+| Discovery | `POST /federation/servers`, `/shares-server`, `/directory` | All signed requests with signed responses; `/servers` lists federatable servers with one grouped member count; `/directory` answers the public-directory listing (≤ 200 rows, `limit` optional) — a signed empty list when the owner has not exposed the directory. Peers pull it daily and refresh counts hourly into `directory_cache` (`crons/directory.ts`); rows go with the peer |
 | Users | `POST /federation/user-info`, `/user-info-update`, `/report-user` | `user-info` is publicId-only, local users only, signed response |
 | Social | `POST /federation/friend-request`, `/friend-accept`, `/friend-remove` | Unknown subjects and blocks are `200 { ignored }` |
 | DMs | `POST /federation/dm-relay`, `/dm-group-create`, `/dm-group-add-member`, `/dm-group-remove-member`, `/dm-channel-state-update` | see *DM relay* |
 | E2EE | `POST /federation/get-prekey-bundle`, `/dm-sender-key`, `/channel-sender-key-notify`, `/identity-rotation-broadcast` | see `e2ee-sender-keys.md` |
 | Moderation | `POST /federation/member-removed` | see *Moderation propagation* |
+| Announcements | `POST /federation/announcement-follow`, `/announcement` | see *Announcement follow* |
 
 Remote users also join servers live over WS: a federated client opens a
 WS to the remote instance authenticated by federation token (no
@@ -260,6 +261,45 @@ represented by their shadow, the excerpt as a reporter-attested
 snapshot and the peer server reference appended to the details. Reports
 about users not homed there are `200 ignored`.
 
+## Announcement follow
+
+A channel on instance B can follow an announcement channel on instance
+A (`channel_follows`; see `utils/announcement-follow.ts` and
+`http/federation-announcement.ts`).
+
+- **Subscribing.** B's channel settings take the source's follow
+  address `A-domain/serverPublicId/channelPublicId`. B records the
+  follow (`source_instance_id` + `source_channel_public_id` +
+  local target) and asks A with a signed `POST
+  /federation/announcement-follow { action: 'follow', serverPublicId,
+  channelPublicId, targetChannelPublicId, targetChannelName,
+  targetServerName }`. A answers `200 { success, sourceChannelName,
+  sourceServerName }` and records the remote follower (`target_instance_id`
+  + `target_channel_public_id` + local source) when the server is
+  federatable and the channel a public announcement channel; anything
+  else is `200 { ignored: 'not_followable' }` and B rolls its row back.
+  A peer that is down gets the request from B's outbox (B shows the
+  follow as pending). `action: 'unfollow'` (B → A) and `action:
+  'removed'` (A → B, when A's side drops the follower) delete the
+  matching row; all three are idempotent.
+- **Relaying.** Each plain user post in the source (never a poll, a
+  system row or an encrypted row) is relayed to every active remote
+  follower as `POST /federation/announcement { action: 'create' |
+  'update', sourceServerPublicId, sourceServerName,
+  sourceChannelPublicId, sourceChannelName, targetChannelPublicId,
+  messageId, content, edited, author: { publicId, name, avatar } }`,
+  deletions as `{ action: 'delete', sourceChannelPublicId,
+  targetChannelPublicId, messageIds }` (≤ 100 ids). B applies it only
+  when its own row says that target follows that source on that peer
+  (`200 { ignored: 'not_following' }` otherwise). The author
+  materialises as a shadow user (publicId-keyed, avatar pulled from
+  A's `/public/`); the copy is a `type: 'system'` row whose content is
+  a JSON document keyed by `sourceKey = A-domain:channelPublicId:messageId`,
+  so a replayed create lands on the existing row and an update that
+  overtakes its create still creates it. Reactions are not relayed.
+  Bounds: content ≤ `MAX_MESSAGE_CONTENT_LENGTH`, names 32/100, avatar a
+  bare file name, structural fields 400.
+
 ## Version compatibility
 
 `GET /federation/info` advertises `version`. It is recorded in
@@ -278,7 +318,9 @@ come back empty), `/federation/user-info` no longer accepts numeric ids
 and returns a signed body, `/federation/accept` verifies the whole body
 (the older `{ domain }`-only signature is still accepted), and
 `/unpeer`, `/key-rotation`, `/report-user` are new (older peers answer
-`404`; the rows dead-letter).
+`404`; the rows dead-letter). v0.4.0 adds `/announcement-follow` and
+`/announcement` (an older peer answers `404`; following it dead-letters
+the same way, so the follow stays pending until the peer upgrades).
 
 Remote tRPC rename with a one-release alias: the session bootstrap a
 federated client calls on the remote instance is `others.openSession`

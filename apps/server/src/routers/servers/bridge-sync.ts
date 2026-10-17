@@ -1,6 +1,7 @@
 import { ActivityLogType, ChannelType, Permission } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { asc, desc, eq, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import type {
   TBridgeServerLink,
   TBridgeSyncReport,
@@ -15,9 +16,10 @@ import {
   listBridgeServerLinks,
   getBridgeServerLink
 } from '../../db/queries/bridge-links';
-import { categories, channels } from '../../db/schema';
+import { bridgeServerLinks, categories, channels } from '../../db/schema';
 import { logger } from '../../logger';
 import { getPluginActorUserId } from '../../plugins/actor';
+import { onPluginLoaded, onPluginNotify } from '../../plugins/subscriptions';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { serverProcedure } from '../../utils/procedures';
 import { BRIDGE_PLUGIN_ID, callBridgePlugin, isBridgePluginLoaded } from '../channels/bridge-_shared';
@@ -56,12 +58,19 @@ import { normalizeChannelName, planServerBridge, type TPairingPlan } from './bri
  *
  * Triggers: the owner linking or re-configuring (`link`), the button
  * (`manual`), a channel created here (`channel-created`, from
- * channels.add and the plugin channels.create action), the status being
- * opened while the plugin reports a change on the remote side
- * (`status`), and the once-a-minute tick (`tick`), which also picks up
- * the plugin's "something changed over there" counter — the plugin
- * cannot call a server route through the SDK, so the tick is how a
- * remote CHANNEL_CREATE/DELETE or a gateway reconnect reaches us.
+ * channels.add and the plugin channels.create action), the plugin
+ * signalling a change on the remote side through `ctx.server.notify`
+ * (`plugin`: a remote CHANNEL_CREATE/DELETE or a gateway reconnect
+ * starts a sync at once), the bridge plugin (re)loading (`load`: every
+ * server link is synced so a restart catches up without waiting), the
+ * status being opened while the plugin's change counter moved
+ * (`status`), and the once-a-minute tick (`tick`) — the backstop that
+ * reads the same counter in case a signal was lost, and reconciles
+ * every link in full now and then.
+ *
+ * Every run's outcome is written to the server link row (last_sync_at,
+ * last_error, last_report) so the status page shows the last sync
+ * after a restart; only "running" is in-process state.
  */
 
 /** Same bounds as channels.add / categories.add. */
@@ -315,6 +324,20 @@ const applyPlan = async (
   }
 };
 
+/** The outcome of a run, on the link row: what bridgeStatus reads after a restart. */
+const persistReport = async (linkId: number, report: TBridgeSyncReport): Promise<void> => {
+  try {
+    await db
+      .update(bridgeServerLinks)
+      .set({ lastSyncAt: report.finishedAt, lastError: report.error, lastReport: report })
+      .where(eq(bridgeServerLinks.id, linkId));
+  } catch (error) {
+    // The link may have been removed while the run was under way; the
+    // in-memory report still answers the status until the next run.
+    logger.debug('[bridge] could not persist the sync report of link %d: %s', linkId, errorMessage(error));
+  }
+};
+
 const runSync = async (serverId: number, trigger: TBridgeSyncTrigger): Promise<TBridgeSyncReport> => {
   const report: TBridgeSyncReport = {
     trigger,
@@ -327,9 +350,10 @@ const runSync = async (serverId: number, trigger: TBridgeSyncTrigger): Promise<T
     skipped: [],
     error: null
   };
+  let link: TBridgeServerLink | undefined;
 
   try {
-    const link = await getBridgeServerLink(BRIDGE_PLUGIN_ID, serverId);
+    link = await getBridgeServerLink(BRIDGE_PLUGIN_ID, serverId);
 
     if (!link) {
       report.error = 'This server is not linked to a remote server';
@@ -385,7 +409,16 @@ const runSync = async (serverId: number, trigger: TBridgeSyncTrigger): Promise<T
   } finally {
     report.finishedAt = Date.now();
     report.skipped = report.skipped.slice(0, 100);
-    lastReports.set(serverId, report);
+
+    // A server without a link has nothing to report against (a request
+    // from the plugin for a server unlinked meanwhile, or made up):
+    // nothing is remembered for it, not even the counter it came with.
+    if (link) {
+      lastReports.set(serverId, report);
+      await persistReport(link.id, report);
+    } else {
+      seenSyncRequests.delete(serverId);
+    }
   }
 
   return report;
@@ -432,9 +465,17 @@ const requestServerBridgeSync = async (serverId: number): Promise<void> => {
 
 setBridgeChannelCreatedHook(requestServerBridgeSync);
 
-const getServerBridgeSyncState = (serverId: number) => ({
+/**
+ * What the status shows: whether a run is under way (in-process only)
+ * and the last report — the one in memory, or the one the link row
+ * carries from before a restart.
+ */
+const getServerBridgeSyncState = (
+  serverId: number,
+  persisted: TBridgeSyncReport | null | undefined
+) => ({
   running: running.has(serverId),
-  last: lastReports.get(serverId) ?? null
+  last: lastReports.get(serverId) ?? persisted ?? null
 });
 
 /**
@@ -452,11 +493,71 @@ const noteSyncRequest = (serverId: number, requested: number | undefined, trigge
 };
 
 /**
+ * The plugin's signal, delivered in-process the moment it calls
+ * `ctx.server.notify('bridge:sync-requested', { serverId, requested })`:
+ * the counter is recorded as seen (so the tick does not sync the same
+ * change again) and a run starts at once — synchronously, so a caller
+ * that then waits for the runs in flight sees this one. A signal
+ * without a counter still starts a run. A server that is not linked
+ * costs the run's first lookup and nothing more: no report is kept and
+ * its counter is forgotten (runSync), so the plugin cannot grow the
+ * server's memory with ids it made up.
+ */
+const syncRequestSchema = z.object({
+  serverId: z.number().int().positive(),
+  requested: z.number().int().nonnegative().optional()
+});
+
+const onPluginSyncRequested = (payload: unknown): void => {
+  const parsed = syncRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    logger.debug('[bridge] ignored a malformed sync request from the plugin');
+    return;
+  }
+
+  const { serverId, requested } = parsed.data;
+
+  if (requested !== undefined) {
+    noteSyncRequest(serverId, requested, 'plugin');
+    return;
+  }
+
+  void syncServerBridge(serverId, 'plugin');
+};
+
+// Subscribed through the import-free registry: this module evaluates
+// inside the routers' import cycle with plugins/index.ts (see
+// plugins/subscriptions.ts), where the manager itself is not readable.
+onPluginNotify(BRIDGE_PLUGIN_ID, 'bridge:sync-requested', onPluginSyncRequested);
+
+/**
+ * The bridge plugin just (re)loaded — boot, or the owner toggled it on:
+ * every server link gets a run, so the channels created on either side
+ * while it was away are paired without waiting for the tick. Awaited
+ * by the loader as far as starting the runs; the runs themselves are
+ * detached as always.
+ */
+const onBridgePluginLoaded = async (pluginId: string): Promise<void> => {
+  if (pluginId !== BRIDGE_PLUGIN_ID) return;
+
+  const links = await listBridgeServerLinks(BRIDGE_PLUGIN_ID);
+
+  for (const link of links) {
+    void syncServerBridge(link.serverId, 'load');
+  }
+};
+
+onPluginLoaded(onBridgePluginLoaded);
+
+/**
  * The once-a-minute tick. Nothing to do without the plugin or without
  * server links (one SELECT). Otherwise one in-process status call tells
- * us which servers the plugin wants re-synced; every link also gets a
- * full reconcile every FULL_RECONCILE_EVERY_MS, and one straight away
- * when no run is on record (boot, plugin just enabled).
+ * us which servers the plugin wants re-synced (the backstop for a
+ * signal that was lost); every link also gets a full reconcile every
+ * FULL_RECONCILE_EVERY_MS, counted from the last run — the one in
+ * memory or, after a restart, the one on the row — and one straight
+ * away for a link that has never been synced.
  */
 const bridgeSyncTick = async (now: number = Date.now()): Promise<void> => {
   if (!isBridgePluginLoaded()) return;
@@ -478,7 +579,8 @@ const bridgeSyncTick = async (now: number = Date.now()): Promise<void> => {
     if (noteSyncRequest(link.serverId, status?.syncRequested?.[String(link.serverId)], 'tick')) continue;
 
     const last = lastReports.get(link.serverId);
-    const due = !last || (last.finishedAt !== null && now - last.finishedAt >= FULL_RECONCILE_EVERY_MS);
+    const lastFinishedAt = last ? last.finishedAt : link.lastSyncAt;
+    const due = lastFinishedAt === null || now - lastFinishedAt >= FULL_RECONCILE_EVERY_MS;
 
     if (due) void syncServerBridge(link.serverId, 'tick');
   }

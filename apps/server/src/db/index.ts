@@ -8,6 +8,19 @@ import { seedDatabase } from './seed';
 
 let db: PostgresJsDatabase;
 
+/**
+ * A second, small pool reserved for advisory-lock transactions
+ * (crons/advisory-lock.ts). A lock transaction pins its connection for
+ * the whole job while the job's own statements draw from `db` — so on
+ * the main pool, N locked jobs starting together (every cron fires at
+ * boot) would hold N of its connections while their statements queued
+ * for one more: with the twelfth locked cron that became a deadlock
+ * that stalled the whole server at start. Here they can only ever
+ * queue among themselves.
+ */
+let lockDb: PostgresJsDatabase;
+const LOCK_POOL_SIZE = 4;
+
 const loadDb = async () => {
   const databaseUrl = process.env.DATABASE_URL;
 
@@ -16,6 +29,7 @@ const loadDb = async () => {
   }
 
   const client = postgres(databaseUrl);
+  lockDb = drizzle({ client: postgres(databaseUrl, { max: LOCK_POOL_SIZE }) });
 
   db = drizzle({
     client,
@@ -78,4 +92,4 @@ const loadDb = async () => {
   // at this point can no longer find NULL rows and were removed.
 };
 
-export { db, loadDb };
+export { db, loadDb, lockDb };

@@ -6,10 +6,13 @@ import { cleanupExpiredAuthSessions } from './cleanup-auth-sessions';
 import { cleanupEmptyThreads } from './cleanup-empty-threads';
 import { cleanupFiles } from './cleanup-files';
 import { cleanupOrphanVoiceUsers } from './cleanup-orphan-voice';
+import { directoryTick } from './directory';
 import { eventsTick } from './events';
 import { drainOutboxTick } from './federation-outbox';
 import { pruneFederationReplayState } from './federation-seen-jti';
+import { closeExpiredPollsTick } from './polls';
 import { pruneExpiredLogs } from './retention';
+import { scheduledPostsTick } from './scheduled-posts';
 import { bridgeSyncTick } from '../routers/servers/bridge-sync';
 
 enum CRON_TIMES {
@@ -169,6 +172,26 @@ const loadCrons = () => {
     CRON_LOCK_IDS.FEDERATION_SEEN_JTI
   );
 
+  // Public directory: peers' listings are pulled in full daily (and at
+  // boot, so a restarted instance shows its peers' servers at once);
+  // the counts on the cached rows are refreshed hourly. Both are one
+  // signed, capped call per active peer, visited in sequence, so the
+  // lock only matters when a peer sits at the request timeout. No-op
+  // while federation is off.
+  scheduleCron(
+    'directory-pull',
+    CRON_TIMES.EVERY_DAY,
+    () => directoryTick('full'),
+    CRON_LOCK_IDS.DIRECTORY_PULL
+  );
+
+  scheduleCron(
+    'directory-counts',
+    CRON_TIMES.EVERY_HOUR,
+    () => directoryTick('counts'),
+    CRON_LOCK_IDS.DIRECTORY_COUNTS
+  );
+
   // Event timeline: reminders, the T-15 room, 'live', the end+15
   // teardown. Minute resolution is the contract the owner decided on
   // (15 min before / after); the lock keeps a slow tick (room creation
@@ -178,6 +201,25 @@ const loadCrons = () => {
     CRON_TIMES.EVERY_MINUTE,
     () => eventsTick(),
     CRON_LOCK_IDS.EVENTS
+  );
+
+  // Scheduled posts go out at minute resolution (the picker's unit); a
+  // tick with nothing due is one indexed SELECT. The lock keeps a slow
+  // tick (automod over a backlog) from overlapping the next.
+  scheduleCron(
+    'scheduled-posts',
+    CRON_TIMES.EVERY_MINUTE,
+    () => scheduledPostsTick(),
+    CRON_LOCK_IDS.SCHEDULED_POSTS
+  );
+
+  // Poll deadlines are minutes too; the conditional close makes a tick
+  // that overlaps a manual close harmless, the lock makes it rare.
+  scheduleCron(
+    'polls-close',
+    CRON_TIMES.EVERY_MINUTE,
+    () => closeExpiredPollsTick(),
+    CRON_LOCK_IDS.POLLS_CLOSE
   );
 };
 

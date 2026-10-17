@@ -109,6 +109,18 @@ export enum ServerEvents {
   // every persisted page so the wizard can show live progress and
   // resume where it left off.
   IMPORT_PROGRESS = "importProgress",
+
+  // Polls: every viewer of the channel receives the poll's counts (and
+  // voter ids when the poll is not anonymous) after a vote, unvote or
+  // close — the card redraws its bars from this alone.
+  POLL_UPDATE = "pollUpdate",
+  // A scheduled post of the channel was created, sent or cancelled; the
+  // Scheduled list refetches (the list route decides what the viewer
+  // may see).
+  SCHEDULED_POST_UPDATE = "scheduledPostUpdate",
+  // The follow relations of a channel changed (followed, unfollowed, a
+  // remote follower attached); the Follows tab refetches.
+  CHANNEL_FOLLOWS_UPDATE = "channelFollowsUpdate",
 }
 
 export type TNewMessage = {

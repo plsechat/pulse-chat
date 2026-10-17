@@ -55,7 +55,14 @@ mock.module('../config', () => ({
       turn: { urls: [] as string[], username: '', credential: '' },
       iceTransportPolicy: 'all' as 'all' | 'relay'
     },
-    federation: { enabled: false, domain: 'test.local' }
+    federation: {
+      enabled: false,
+      domain: 'test.local',
+      allowUserFederatableServers: false,
+      // Default on, as in config.ts: the directory receiver answers
+      // peers unless a test turns it off.
+      exposeDirectory: true
+    }
   },
   SERVER_PUBLIC_IP: '127.0.0.1',
   SERVER_PRIVATE_IP: '127.0.0.1'

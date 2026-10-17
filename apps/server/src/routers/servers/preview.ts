@@ -104,6 +104,7 @@ const previewServerRoute = protectedProcedure
             autoArchiveDuration: channels.autoArchiveDuration,
             forumDefaultSort: channels.forumDefaultSort,
             e2ee: channels.e2ee,
+            announcement: channels.announcement,
             publicId: channels.publicId,
             createdAt: channels.createdAt,
             updatedAt: channels.updatedAt

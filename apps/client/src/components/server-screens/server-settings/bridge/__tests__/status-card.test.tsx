@@ -31,6 +31,9 @@ const status = (overrides: Partial<TBridgeServerStatus> = {}): TBridgeServerStat
     createMissing: 'both',
     defaultDirection: 'inbound',
     createdBy: 1,
+    lastSyncAt: null,
+    lastError: null,
+    lastReport: null,
     createdAt: NOW - 3_600_000
   },
   remoteGuildName: 'Night Raiders',

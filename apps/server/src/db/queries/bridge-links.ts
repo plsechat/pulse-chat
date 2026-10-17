@@ -320,6 +320,9 @@ const toBridgeServerLinkView = (row: TBridgeServerLink): TBridgeServerLinkView =
   createMissing: row.createMissing,
   defaultDirection: row.defaultDirection,
   createdBy: row.createdBy,
+  lastSyncAt: row.lastSyncAt,
+  lastError: row.lastError,
+  lastReport: row.lastReport,
   createdAt: row.createdAt
 });
 

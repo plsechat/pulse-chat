@@ -1,8 +1,12 @@
 import type { TImportJob, TImportOptions, TImportStep, TImportStepCounts } from '../types';
 import { publishImportProgress } from '../db/publishers';
+import { and, eq, inArray } from 'drizzle-orm';
+import { db } from '../db';
 import {
   getImportJob,
+  getPreviousImportJobForGuild,
   pushImportError,
+  pushImportWarning,
   readImportOptions,
   readImportState,
   saveImportJobState,
@@ -10,6 +14,7 @@ import {
   transitionImportJob,
   type TImportState
 } from '../db/queries/import-jobs';
+import { categories, channels, emojis, roles } from '../db/schema';
 import { getInstanceServerSettings } from '../db/queries/server';
 import { logger } from '../logger';
 import {
@@ -190,6 +195,85 @@ const buildRunDeps = (token: string, overrides: TImportDeps): TImportRunDeps => 
 type TImportRunResult = 'done' | 'paused' | 'cancelled' | 'failed' | 'rerun' | 'skipped';
 
 /**
+ * A second import of the same guild into the same server starts from
+ * the previous job's id map, so the categories, channels, roles and
+ * emojis it created are matched instead of created again (messages were
+ * already safe: the link table skips one that landed before). Only rows
+ * that still exist are carried — the owner may have deleted some since.
+ * Runs once, before the first step; a resumed job keeps its own map.
+ */
+const seedMapFromPreviousImport = async (run: ImportRun, jobId: number): Promise<void> => {
+  const { map } = run.state;
+  const untouched =
+    run.state.stepsDone.length === 0 &&
+    Object.keys(map.categories).length === 0 &&
+    Object.keys(map.channels).length === 0 &&
+    Object.keys(map.roles).length === 0 &&
+    Object.keys(map.emojis).length === 0;
+  if (!untouched) return;
+
+  const previous = await getPreviousImportJobForGuild(run.serverId, run.guildId, jobId);
+  if (!previous) return;
+  const prior = readImportState(previous).map;
+
+  const live = {
+    categories: await liveIds(categories, run.serverId, Object.values(prior.categories)),
+    channels: await liveIds(channels, run.serverId, [
+      ...Object.values(prior.channels),
+      ...Object.values(prior.threads)
+    ]),
+    roles: await liveIds(roles, run.serverId, Object.values(prior.roles)),
+    emojis: await liveIds(emojis, run.serverId, Object.values(prior.emojis).map((e) => e.id))
+  };
+
+  for (const [sourceId, id] of Object.entries(prior.categories)) {
+    if (live.categories.has(id)) map.categories[sourceId] = id;
+  }
+  for (const [sourceId, id] of Object.entries(prior.channels)) {
+    if (live.channels.has(id)) map.channels[sourceId] = id;
+  }
+  for (const [sourceId, id] of Object.entries(prior.threads)) {
+    if (live.channels.has(id)) map.threads[sourceId] = id;
+  }
+  for (const [sourceId, id] of Object.entries(prior.roles)) {
+    if (live.roles.has(id)) map.roles[sourceId] = id;
+  }
+  for (const [sourceId, emoji] of Object.entries(prior.emojis)) {
+    if (live.emojis.has(emoji.id)) map.emojis[sourceId] = emoji;
+  }
+
+  const counted: Array<[number, string, string]> = [
+    [Object.keys(map.channels).length + Object.keys(map.threads).length, 'channel', 'channels'],
+    [Object.keys(map.categories).length, 'category', 'categories'],
+    [Object.keys(map.roles).length, 'role', 'roles'],
+    [Object.keys(map.emojis).length, 'emoji', 'emojis']
+  ];
+  const parts = counted
+    .filter(([n]) => n > 0)
+    .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  if (parts.length === 0) return;
+
+  const when = new Date(previous.createdAt).toISOString().slice(0, 10);
+  pushImportWarning(
+    run.state,
+    `Matched ${parts.join(', ')} from the import of ${when}; they were not created again.`
+  );
+};
+
+const liveIds = async (
+  table: typeof categories | typeof channels | typeof roles | typeof emojis,
+  serverId: number,
+  ids: number[]
+): Promise<Set<number>> => {
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.serverId, serverId), inArray(table.id, ids)));
+  return new Set(rows.map((row) => row.id));
+};
+
+/**
  * Drive one job to its end state. Safe to call for a job that is not
  * `running` (returns at once) and re-entrant across restarts. `rerun`
  * means a resume landed while this run was unwinding from a pause: the
@@ -234,6 +318,7 @@ const runImportJob = async (
   clearImportSignal(jobId);
 
   if (run.state.startedAt === null) run.state.startedAt = run.now();
+  await seedMapFromPreviousImport(run, jobId);
 
   try {
     for (const step of STEP_ORDER) {

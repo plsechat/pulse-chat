@@ -35,7 +35,7 @@ import {
 import { PLUGINS_PATH, PUBLIC_PATH } from '../../helpers/paths';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { _resetCacheForTests } from '../../utils/federation-allowlist';
-import { _resetFederationRateLimit } from '../../utils/federation-fetch';
+import { _resetFederationRateLimit, _tryConsumeFederationToken } from '../../utils/federation-fetch';
 import { pubsub } from '../../utils/pubsub';
 import { createEventActions, type TEventQueries } from '../actions/events';
 import { eventBus } from '../event-bus';
@@ -1182,6 +1182,33 @@ describe('ctx.fetch', () => {
       expect((await rejection(ctx.fetch('https://api.example/x', { method: 'get' }))).code).toBe('BAD_REQUEST');
     } finally {
       await cleanup();
+    }
+  });
+
+  test('draws on a budget of its own: 60 a minute per host per plugin, shared with neither another plugin nor federation', async () => {
+    const first = await loadPlugin('act-fetch-budget-a');
+    const second = await loadPlugin('act-fetch-budget-b');
+
+    try {
+      stubOutbound(() => new Response('ok', { status: 200 }));
+
+      for (let i = 0; i < 60; i++) {
+        expect((await first.ctx.fetch('https://api.example/v1/page')).status).toBe(200);
+      }
+
+      const refused = await rejection(first.ctx.fetch('https://api.example/v1/page'));
+      expect(refused.code).toBe('BAD_REQUEST');
+      expect(refused.message).toContain('rate limit exceeded for api.example');
+
+      // Another host is a separate bucket for the same plugin.
+      expect((await first.ctx.fetch('https://other.example/v1/page')).status).toBe(200);
+      // The other plugin still has its full budget for the drained host…
+      expect((await second.ctx.fetch('https://api.example/v1/page')).status).toBe(200);
+      // …and so does federation.
+      expect(_tryConsumeFederationToken('api.example')).toBe(true);
+    } finally {
+      await first.cleanup();
+      await second.cleanup();
     }
   });
 });

@@ -59,7 +59,9 @@ describe('discord-bridge plugin through the real loader', () => {
 
       const settings = await pluginManager.getPluginSettings(PLUGIN_ID);
       expect(settings.definitions.map((d) => d.key)).toEqual(['botToken', 'publicUrl']);
-      expect(settings.values).toEqual({ botToken: '', publicUrl: '' });
+      // The bot token is a secret: the route says whether one is set, never what.
+      expect(settings.definitions.find((d) => d.key === 'botToken')?.type).toBe('secret');
+      expect(settings.values).toEqual({ botToken: { set: false }, publicUrl: '' });
       expect(typeof settings.httpSecret).toBe('string');
 
       expect(pluginHttp.routeCount(PLUGIN_ID)).toBe(8);

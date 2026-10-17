@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { channels, messageFiles, messages } from '../../db/schema';
+import { relayAnnouncementDeletion } from '../../utils/announcement-follow';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
@@ -51,7 +52,16 @@ const purgeChannelRoute = serverProcedure(Permission.MANAGE_MESSAGES)
       await removeFile(row.fileId);
     }
 
-    await db.delete(messages).where(eq(messages.channelId, input.channelId));
+    // Copies of these in follower channels go too: their ids are only
+    // known from the rows being deleted.
+    const purged = await db
+      .delete(messages)
+      .where(eq(messages.channelId, input.channelId))
+      .returning({ id: messages.id });
+    void relayAnnouncementDeletion(
+      input.channelId,
+      purged.map((m) => m.id)
+    );
 
     const affectedUserIds = await getAffectedUserIdsForChannel(
       input.channelId,

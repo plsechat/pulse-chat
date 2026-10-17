@@ -19,7 +19,8 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
       topic: z.string().max(128).nullable().optional(),
       private: z.boolean().optional(),
       slowMode: z.number().int().min(0).max(21600).optional(),
-      e2ee: z.boolean().optional()
+      e2ee: z.boolean().optional(),
+      announcement: z.boolean().optional()
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -31,7 +32,8 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
         id: channels.id,
         type: channels.type,
         e2ee: channels.e2ee,
-        private: channels.private
+        private: channels.private,
+        announcement: channels.announcement
       })
       .from(channels)
       .where(
@@ -46,6 +48,19 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
       code: 'NOT_FOUND',
       message: 'Channel not found'
     });
+
+    // Announcement channels are plaintext text channels: other channels
+    // copy their posts, and ciphertext cannot be copied.
+    if (input.announcement !== undefined) {
+      invariant(channel.type === ChannelType.TEXT, {
+        code: 'BAD_REQUEST',
+        message: 'Only text channels can be announcement channels'
+      });
+      invariant(!input.announcement || (!channel.e2ee && input.e2ee !== true), {
+        code: 'BAD_REQUEST',
+        message: 'Encrypted channels cannot be announcement channels'
+      });
+    }
 
     // E2EE can only be enabled (not disabled), only on text channels, and
     // only by the server owner.
@@ -64,6 +79,11 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
         code: 'FORBIDDEN',
         message: 'Only the server owner can enable E2EE on channels'
       });
+
+      invariant(!channel.announcement || input.announcement === false, {
+        code: 'BAD_REQUEST',
+        message: 'Announcement channels cannot be encrypted'
+      });
     }
 
     const [updatedChannel] = await db
@@ -74,6 +94,7 @@ const updateChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
         private: input.private,
         slowMode: input.slowMode,
         e2ee: input.e2ee,
+        announcement: input.announcement,
         updatedAt: Date.now()
       })
       .where(eq(channels.id, channel.id))

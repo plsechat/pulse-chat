@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { onAppEvent } from '@/lib/events';
+import { parseTagsInput } from '@/screens/discover-view/directory-helpers';
 
 /**
  * Calls `refetch` whenever the watched Redux selector value changes,
@@ -112,6 +113,12 @@ type TGeneralSettings = {
   enablePlugins: boolean;
   discoverable: boolean;
   federatable: boolean;
+  // Public directory card. Tags are edited as comma-separated text and
+  // parsed on save (parseTagsInput).
+  directoryListed: boolean;
+  directoryDescription: string;
+  directoryTagsText: string;
+  directoryGame: string;
   storageUploadEnabled: boolean;
   storageUploadMaxFileSize: number;
   storageSpaceQuotaByUser: number;
@@ -129,6 +136,10 @@ export const useAdminGeneral = (serverId: number | undefined) => {
     enablePlugins: false,
     discoverable: false,
     federatable: false,
+    directoryListed: false,
+    directoryDescription: '',
+    directoryTagsText: '',
+    directoryGame: '',
     storageUploadEnabled: true,
     storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
     storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
@@ -152,6 +163,10 @@ export const useAdminGeneral = (serverId: number | undefined) => {
       enablePlugins: result.enablePlugins ?? false,
       discoverable: result.discoverable ?? false,
       federatable: result.federatable ?? false,
+      directoryListed: result.directoryListed ?? false,
+      directoryDescription: result.directoryDescription ?? '',
+      directoryTagsText: (result.directoryTags ?? []).join(', '),
+      directoryGame: result.directoryGame ?? '',
       storageUploadEnabled: result.storageUploadEnabled ?? true,
       storageUploadMaxFileSize:
         result.storageUploadMaxFileSize ?? STORAGE_MAX_FILE_SIZE,
@@ -180,6 +195,10 @@ export const useAdminGeneral = (serverId: number | undefined) => {
         enablePlugins: settings.enablePlugins,
         discoverable: settings.discoverable,
         federatable: settings.federatable,
+        directoryListed: settings.directoryListed,
+        directoryDescription: settings.directoryDescription,
+        directoryTags: parseTagsInput(settings.directoryTagsText),
+        directoryGame: settings.directoryGame,
         storageUploadEnabled: settings.storageUploadEnabled,
         storageUploadMaxFileSize: settings.storageUploadMaxFileSize,
         storageSpaceQuotaByUser: settings.storageSpaceQuotaByUser,
@@ -290,7 +309,8 @@ export const useAdminChannelGeneral = (channelId: number) => {
         name: channel?.name ?? '',
         topic: channel?.topic ?? null,
         private: channel?.private ?? false,
-        slowMode: channel?.slowMode ?? 0
+        slowMode: channel?.slowMode ?? 0,
+        announcement: channel?.announcement ?? false
       });
 
       toast.success('Channel updated');

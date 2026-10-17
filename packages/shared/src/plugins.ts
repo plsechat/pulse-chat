@@ -134,7 +134,14 @@ export type TCommandElement = {
   };
 };
 
-export type TPluginSettingType = "string" | "number" | "boolean";
+/**
+ * `secret`: a string the server stores encrypted under the instance's
+ * file-signing secret and never returns — `plugins.getSettings` reports
+ * it as `TPluginSecretSettingValue`, `plugins.updateSetting` takes a new
+ * value or `null` to clear it, and only the plugin's own `settings.get`
+ * sees the plaintext.
+ */
+export type TPluginSettingType = "string" | "number" | "boolean" | "secret";
 
 export type TPluginSettingDefinition = {
   key: string;
@@ -144,8 +151,12 @@ export type TPluginSettingDefinition = {
   defaultValue: string | number | boolean;
 };
 
+/** What the settings route says about a `secret` setting: whether one is set, never what it is. */
+export type TPluginSecretSettingValue = { set: boolean };
+
 export type TPluginSettingsResponse = {
   definitions: TPluginSettingDefinition[];
+  /** Per key; a `secret` setting is a `TPluginSecretSettingValue`, never the value. */
   values: Record<string, unknown>;
   /**
    * The secret external callers must send in `x-pulse-plugin-secret`

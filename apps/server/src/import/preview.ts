@@ -28,8 +28,11 @@ import { guildSummary } from './steps/structure';
  *
  * Messages cannot be counted without reading them, so the estimate is
  * built from what the ids tell us: a channel's first and last message
- * ids bracket its active lifetime, and one page of the newest messages
- * from the busiest channels gives a posting rate to extrapolate from.
+ * ids bracket its active lifetime, and the busiest channels are sampled
+ * at BOTH ends — the oldest page and the newest — for a posting rate to
+ * extrapolate from. One end alone misled badly: a burst in the newest
+ * page, stretched over three years, put a 1,500-message community at
+ * 900,000. A channel whose oldest page is not full is counted exactly.
  * It is an estimate and the wizard calls it one.
  */
 
@@ -47,24 +50,43 @@ type TChannelEstimate = {
   lifetimeMs: number;
   /** messages per ms, when sampled */
   rate: number | null;
+  /** The whole channel fit in its oldest page: this is the count. */
+  exact: number | null;
 };
 
-const sampleRate = async (
+/** Messages per ms across one page, or null when the page cannot tell. */
+const pageDensity = (page: unknown): number | null => {
+  if (!Array.isArray(page) || page.length < 2) return null;
+  const ids = (page as TDiscordMessage[]).map((m) => m.id).sort(compareSnowflakes);
+  const span = snowflakeToTimestamp(ids[ids.length - 1]!) - snowflakeToTimestamp(ids[0]!);
+  return span > 0 ? page.length / span : null;
+};
+
+const sampleChannel = async (
   client: DiscordApiClient,
   channel: TDiscordChannel
-): Promise<number | null> => {
+): Promise<Pick<TChannelEstimate, 'rate' | 'exact'>> => {
   try {
-    const page = await client.get<TDiscordMessage[]>(`/channels/${channel.id}/messages`, {
+    // Ascending from the channel's creation: a short page IS the channel.
+    const oldest = await client.get<TDiscordMessage[]>(`/channels/${channel.id}/messages`, {
+      limit: PAGE,
+      after: channel.id
+    });
+    if (!Array.isArray(oldest)) return { rate: null, exact: null };
+    if (oldest.length < PAGE) return { rate: null, exact: oldest.length };
+
+    const newest = await client.get<TDiscordMessage[]>(`/channels/${channel.id}/messages`, {
       limit: PAGE
     });
-    if (!Array.isArray(page) || page.length < 2) return page?.length ? 0 : null;
-
-    const ids = page.map((m) => m.id).sort(compareSnowflakes);
-    const span = snowflakeToTimestamp(ids[ids.length - 1]!) - snowflakeToTimestamp(ids[0]!);
-
-    return span > 0 ? page.length / span : null;
+    const densities = [pageDensity(oldest), pageDensity(newest)].filter(
+      (d): d is number => d !== null
+    );
+    if (densities.length === 0) return { rate: null, exact: null };
+    // The mean of the two ends: a burst at one end no longer stands for
+    // the whole lifetime.
+    return { rate: densities.reduce((a, b) => a + b, 0) / densities.length, exact: null };
   } catch {
-    return null;
+    return { rate: null, exact: null };
   }
 };
 
@@ -80,12 +102,15 @@ const estimateMessages = async (
         0,
         snowflakeToTimestamp(channel.last_message_id!) - snowflakeToTimestamp(channel.id)
       ),
-      rate: null
+      rate: null,
+      exact: null
     }))
     .sort((a, b) => compareSnowflakes(b.channel.last_message_id!, a.channel.last_message_id!));
 
   for (const entry of withActivity.slice(0, SAMPLE_CHANNELS)) {
-    entry.rate = await sampleRate(client, entry.channel);
+    const sample = await sampleChannel(client, entry.channel);
+    entry.rate = sample.rate;
+    entry.exact = sample.exact;
   }
 
   const sampledRates = withActivity
@@ -96,11 +121,14 @@ const estimateMessages = async (
 
   let total = 0;
   for (const entry of withActivity) {
-    // A sampled channel with a single message has rate 0 and exactly
-    // that message; an unsampled one borrows the median rate.
+    // A channel that fit in one page is counted; a sampled one is
+    // extrapolated from its own rate; an unsampled one borrows the median.
+    if (entry.exact !== null) {
+      total += entry.exact;
+      continue;
+    }
     const rate = entry.rate ?? medianRate;
-    const guess = entry.rate === 0 ? 1 : rate * entry.lifetimeMs;
-    total += Math.max(entry.rate !== null ? 1 : 0, Math.round(guess));
+    total += Math.max(entry.rate !== null ? PAGE : 0, Math.round(rate * entry.lifetimeMs));
   }
 
   // The estimate is for "all"; `scaleEstimate` derives the other depths.

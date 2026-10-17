@@ -24,6 +24,7 @@ import {
   userSignedPreKeys
 } from '../db/schema';
 import { isBlockBetween } from '../db/queries/blocks';
+import { pruneDirectoryCacheForInstance } from '../db/queries/directory';
 import { findDmChannelBetween, getDmMessage } from '../db/queries/dms';
 import { areFriends, getJoinedFriendRequest } from '../db/queries/friends';
 import { getFirstServer, sharesServerWith } from '../db/queries/servers';
@@ -40,6 +41,7 @@ import {
   verifyChallenge
 } from '../utils/federation';
 import { _tryConsumeBundleFetchToken } from '../utils/bundle-fetch-rate-limit';
+import { pullDirectoryOnActivation } from '../utils/directory-sync';
 import { federationFetch } from '../utils/federation-fetch';
 import { fetchPeerVersion, peerVersionFrom } from '../utils/federation-peer-version';
 import { SERVER_VERSION } from '../utils/env';
@@ -342,6 +344,10 @@ const federationAcceptHandler = async (
     .where(eq(federationInstances.id, instance.id));
 
   invalidateCorsCache();
+
+  // The pairing is active on both sides now: pull the peer's listed
+  // servers into our Directory without waiting for the daily tick.
+  pullDirectoryOnActivation({ id: instance.id, domain: instance.domain });
 
   pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {
     domain: fromDomain,
@@ -1034,6 +1040,9 @@ const federationUnpeerHandler = async (
     .where(eq(federationInstances.id, instance.id));
 
   const swept = await deleteShadowUsersByInstance(instance.id);
+  // The row stays blocked rather than deleted, so the peer's cached
+  // directory listing is dropped here instead of by the FK cascade.
+  await pruneDirectoryCacheForInstance(instance.id);
   invalidateCorsCache();
 
   pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {

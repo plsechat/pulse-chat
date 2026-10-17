@@ -67,11 +67,12 @@ import type {
  * Whole-server links: the server decides the pairing; this side lists
  * the remote channels (with categories and what it would not bridge),
  * creates a remote channel — and its category — when asked, and watches
- * the gateway for channel changes in a linked guild. A plugin cannot
- * call a server route through the SDK, so a change over there (or a
- * reconnect, after which anything may have happened) only bumps a
- * per-server counter that the server reads from `status` on its next
- * tick and answers with a sync.
+ * the gateway for channel changes in a linked guild. A change over
+ * there (or a reconnect, after which anything may have happened) bumps
+ * a per-server counter and signals the server through
+ * `ctx.server.notify('bridge:sync-requested')`, which syncs at once;
+ * the counter is also reported from `status` so the server's minute
+ * tick catches a signal that was lost.
  */
 
 export const PLUGIN_ID = 'discord-bridge';
@@ -675,9 +676,18 @@ export class Bridge {
 
   // ─── whole-server links: asking the server for a sync ───────────────
 
-  /** Something changed over there for this server; the server's next tick syncs it. */
+  /** Something changed over there for this server: tell the server now; the counter is the tick's backstop. */
   private requestSync(serverId: number) {
-    this.syncRequested.set(serverId, (this.syncRequested.get(serverId) ?? 0) + 1);
+    const requested = (this.syncRequested.get(serverId) ?? 0) + 1;
+    this.syncRequested.set(serverId, requested);
+
+    try {
+      this.ctx.server.notify('bridge:sync-requested', { serverId, requested });
+    } catch (error) {
+      this.ctx.debug(
+        `Could not signal the server for a sync of server ${serverId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   private requestSyncForGuild(remoteGuildId: string) {

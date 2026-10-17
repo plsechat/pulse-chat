@@ -5,6 +5,7 @@ import { db } from '../../db';
 import { federationInstances } from '../../db/schema';
 import { config } from '../../config';
 import { instanceOwnerProcedure } from '../../utils/procedures';
+import { pullDirectoryOnActivation } from '../../utils/directory-sync';
 import { enqueueRelay } from '../../utils/federation-outbox';
 import { fetchPeerVersion } from '../../utils/federation-peer-version';
 import { pubsub } from '../../utils/pubsub';
@@ -57,6 +58,11 @@ const acceptInstanceRoute = instanceOwnerProcedure
     });
 
     invalidateCorsCache();
+
+    // The peer's listed servers appear in our Directory without waiting
+    // for the daily pull; the peer's own pull happens when it processes
+    // our acceptance.
+    pullDirectoryOnActivation({ id: instance!.id, domain: instance!.domain });
 
     pubsub.publish(ServerEvents.FEDERATION_INSTANCE_UPDATE, {
       domain: instance!.domain,

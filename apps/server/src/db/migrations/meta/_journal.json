@@ -288,6 +288,13 @@
       "when": 1792197085938,
       "tag": "0040_bridge_server_links",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792212595614,
+      "tag": "0041_round_two_tables",
+      "breakpoints": true
     }
   ]
 }

@@ -3,11 +3,13 @@ import { Bridge } from './bridge';
 import { createFileStorage } from './store';
 
 /**
- * Plugin entry. Settings are read through the SDK's settings store,
- * which keeps them as plain JSON in the server's plugin_data table —
- * the bot token included. The instance owner is the only one who can
- * read them back (the plugin settings route), but anyone with the
- * database has them; the README says so in plain words.
+ * Plugin entry. Settings are read through the SDK's settings store.
+ * The bot token is a `secret` setting: the server keeps it encrypted
+ * under the instance's file-signing secret, no route returns it (the
+ * settings panel only says whether one is set), and `settings.get` is
+ * the one place its plaintext comes back — here, to dial the gateway.
+ * A token saved before SDK 0.3 (stored in the clear) is encrypted by
+ * the server on the first load after the upgrade.
  */
 
 const settingDefinitions = [
@@ -15,8 +17,8 @@ const settingDefinitions = [
     key: 'botToken',
     name: 'Bot token',
     description:
-      'Token of the bot application that sits in the remote server(s). Needs the Server Members and Message Content intents switched on, and Manage Webhooks, Manage Messages, Manage Threads, Manage Events and Add Reactions where it is used. Picked up within 15 seconds of a change.',
-    type: 'string',
+      'Token of the bot application that sits in the remote server(s). Needs the Server Members and Message Content intents switched on, and Manage Webhooks, Manage Messages, Manage Threads, Manage Events and Add Reactions where it is used. Stored encrypted and never shown again; picked up within 15 seconds of a change.',
+    type: 'secret',
     defaultValue: ''
   },
   {

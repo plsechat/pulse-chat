@@ -1,5 +1,6 @@
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
+import { PollCard } from '@/components/chat-primitives/poll-card';
 import { ReplyPreview } from '@/components/chat-primitives/reply-preview';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { requestConfirmation } from '@/features/dialogs/actions';
@@ -235,7 +236,11 @@ const Message = memo(
           )}
           {!isEditing ? (
             <>
-              <MessageRenderer message={message} />
+              {message.type === 'poll' ? (
+                <PollCard messageId={message.id} question={message.content} />
+              ) : (
+                <MessageRenderer message={message} />
+              )}
               {message.threadId && (
                 <ThreadIndicator threadId={message.threadId} />
               )}

@@ -161,3 +161,4 @@ export enum DisconnectCode {
    *  reconnect. Standard-range code so the WebSocket layer forwards it. */
   FEDERATION_TOKEN_EXPIRED = 4005,
 }
+export * from "./directory";

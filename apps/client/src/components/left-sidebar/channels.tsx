@@ -41,7 +41,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { TChannel } from '@pulse/server/types';
 import { ChannelPermission, ChannelType, Permission } from '@pulse/shared';
-import { Hash, LayoutList, Volume2 } from 'lucide-react';
+import { Hash, LayoutList, Megaphone, Volume2 } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { ChannelContextMenu } from '../context-menus/channel';
@@ -143,7 +143,11 @@ const Text = memo(({ channel, ...props }: TTextProps) => {
   return (
     <ItemWrapper {...props} hasUnread={unreadCount > 0}>
       <span className="channel-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-        <Hash className="h-4 w-4" />
+        {channel.announcement ? (
+          <Megaphone className="h-4 w-4" aria-label="Announcement channel" />
+        ) : (
+          <Hash className="h-4 w-4" />
+        )}
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
         <span className="truncate">{channel.name}</span>

@@ -109,6 +109,15 @@ const subscribeToMessages = () => {
     ),
     subscribe('onThreadDelete', trpc.threads.onThreadDelete, () =>
       emitAppEvent('threads-changed')
+    ),
+    subscribe('onPollUpdate', trpc.polls.onUpdate, (update) =>
+      emitAppEvent('poll-updated', update)
+    ),
+    subscribe('onScheduledPostUpdate', trpc.scheduled.onUpdate, ({ channelId }) =>
+      emitAppEvent('scheduled-posts-changed', { channelId })
+    ),
+    subscribe('onChannelFollowsUpdate', trpc.follows.onUpdate, ({ channelId }) =>
+      emitAppEvent('channel-follows-changed', { channelId })
     )
   ];
 

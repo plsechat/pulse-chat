@@ -9,7 +9,7 @@ import type {
   TImportStep,
   TImportStepCounts
 } from '../../types';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, notInArray, sql } from 'drizzle-orm';
 import { db } from '..';
 import { externalIdentities, importJobs } from '../schema';
 
@@ -218,6 +218,35 @@ const getLatestImportJobForServer = async (serverId: number): Promise<TImportJob
   return row;
 };
 
+/**
+ * The newest earlier job that brought THE SAME guild into this server
+ * and got past the structure steps — its id map says which categories,
+ * channels, roles and emojis already stand for the source's. A re-run
+ * (the owner widened the bot's access, or wants newer history) seeds
+ * its own map from it instead of creating the whole layout again.
+ */
+const getPreviousImportJobForGuild = async (
+  serverId: number,
+  guildId: string,
+  beforeJobId: number
+): Promise<TImportJob | undefined> => {
+  const [row] = await db
+    .select()
+    .from(importJobs)
+    .where(
+      and(
+        eq(importJobs.serverId, serverId),
+        lt(importJobs.id, beforeJobId),
+        notInArray(importJobs.status, ACTIVE_STATUSES),
+        sql`${importJobs.options}->>'guildId' = ${guildId}`
+      )
+    )
+    .orderBy(desc(importJobs.id))
+    .limit(1);
+
+  return row;
+};
+
 /** Jobs a previous process left mid-run; the runner picks them up at boot. */
 const listRunningImportJobs = async (): Promise<TImportJob[]> =>
   db.select().from(importJobs).where(eq(importJobs.status, 'running'));
@@ -306,6 +335,7 @@ export {
   getActiveImportJobForServer,
   getImportJob,
   getLatestImportJobForServer,
+  getPreviousImportJobForGuild,
   listRunningImportJobs,
   pushImportError,
   pushImportWarning,

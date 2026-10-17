@@ -8,6 +8,7 @@ import { emojisRouter } from './emojis';
 import { eventsRouter } from './events';
 import { federationRouter } from './federation';
 import { filesRouter } from './files';
+import { followsRouter } from './follows';
 import { friendsRouter } from './friends';
 import { importRouter } from './import';
 import { invitesRouter } from './invites';
@@ -16,8 +17,10 @@ import { nameplatesRouter } from './nameplates';
 import { notesRouter } from './notes';
 import { notificationsRouter } from './notifications';
 import { othersRouter } from './others';
+import { scheduledRouter } from './scheduled';
 import { searchRouter } from './search';
 import { pluginsRouter } from './plugins';
+import { pollsRouter } from './polls';
 import { rolesRouter } from './roles';
 import { serversRouter } from './servers';
 import { threadsRouter } from './threads';
@@ -56,7 +59,10 @@ const appRouter = t.router({
   automod: automodRouter,
   blocks: blocksRouter,
   federation: federationRouter,
-  e2ee: e2eeRouter
+  e2ee: e2eeRouter,
+  polls: pollsRouter,
+  scheduled: scheduledRouter,
+  follows: followsRouter
 });
 
 type AppRouter = typeof appRouter;

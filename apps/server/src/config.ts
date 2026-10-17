@@ -67,6 +67,10 @@ type TConfig = {
     // federatable. When true, any server owner may make their own server
     // federatable. Instance-owner-controlled; see federation/set-config.
     allowUserFederatableServers: boolean;
+    // Whether /federation/directory answers peers with this instance's
+    // listed servers. Default on; only meaningful while federation is
+    // enabled. Instance-owner-controlled (Instance → Registration).
+    exposeDirectory: boolean;
   };
 };
 
@@ -102,7 +106,8 @@ let config: TConfig = {
   federation: {
     enabled: false,
     domain: '',
-    allowUserFederatableServers: false
+    allowUserFederatableServers: false,
+    exposeDirectory: true
   }
 };
 
@@ -169,6 +174,10 @@ config.mediasoup.video.initialAvailableOutgoingBitrate = Number(config.mediasoup
 config.federation.enabled = String(config.federation.enabled) === 'true';
 config.federation.allowUserFederatableServers =
   String(config.federation.allowUserFederatableServers) === 'true';
+// An INI written before this key existed carries the boolean default
+// through the merge, so an upgraded instance stays exposed (default on).
+config.federation.exposeDirectory =
+  String(config.federation.exposeDirectory) === 'true';
 
 // Env vars take precedence over the INI file. The INI is operator-
 // persisted runtime state; env vars are explicit overrides applied

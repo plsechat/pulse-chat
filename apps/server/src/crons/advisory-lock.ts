@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { db } from '../db';
+import { lockDb } from '../db';
 
 /**
  * Instance-wide mutual exclusion for periodic jobs. Every replica runs
@@ -12,9 +12,12 @@ import { db } from '../db';
  * transaction pins and released automatically when the transaction
  * ends, which sidesteps the pooled-connection trap of the session-level
  * variant (lock on connection A, unlock attempted on connection B, lock
- * held until A closes). The job's own statements may run on any
- * connection — the open transaction only carries the lock, it holds no
- * table locks.
+ * held until A closes). The job's own statements run on the main pool
+ * — the open transaction only carries the lock, it holds no table
+ * locks — and the transaction itself lives on `lockDb`, a pool of its
+ * own: on the main pool, every locked cron firing at boot pinned a
+ * connection while its statements queued for one more, and the twelfth
+ * locked cron turned that into a deadlock that stalled the server.
  *
  * Lock ids are arbitrary 32-bit keys; keep them distinct from the
  * migration lock in db/index.ts (827394827).
@@ -27,7 +30,11 @@ const CRON_LOCK_IDS = {
   CLEANUP_AUTH_SESSIONS: 827394905,
   FEDERATION_OUTBOX: 827394906,
   FEDERATION_SEEN_JTI: 827394910,
-  EVENTS: 827394911
+  EVENTS: 827394911,
+  DIRECTORY_PULL: 827394912,
+  DIRECTORY_COUNTS: 827394913,
+  POLLS_CLOSE: 827394914,
+  SCHEDULED_POSTS: 827394915
 } as const;
 
 type TLockOutcome<T> = { acquired: false } | { acquired: true; result: T };
@@ -40,7 +47,7 @@ const tryWithAdvisoryLock = async <T>(
   lockId: number,
   fn: () => Promise<T>
 ): Promise<TLockOutcome<T>> =>
-  db.transaction(async (tx) => {
+  lockDb.transaction(async (tx) => {
     const rows = await tx.execute<{ locked: boolean }>(
       sql`SELECT pg_try_advisory_xact_lock(${lockId}) AS locked`
     );

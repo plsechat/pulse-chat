@@ -6,6 +6,7 @@ import { removeFile } from '../../db/mutations/files';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { channels, messageFiles, messages } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
+import { relayAnnouncementDeletion } from '../../utils/announcement-follow';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
@@ -70,6 +71,7 @@ const bulkDeleteMessagesRoute = serverProcedure(Permission.MANAGE_MESSAGES)
     for (const id of foundIds) {
       eventBus.emit('message:deleted', { channelId, messageId: id });
     }
+    void relayAnnouncementDeletion(channelId, foundIds);
 
     return { deletedCount: foundIds.length };
   });

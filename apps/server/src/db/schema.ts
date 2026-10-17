@@ -3,7 +3,7 @@ import {
   type TNameStyle,
   type TUserPreferences
 } from '@pulse/shared';
-import type { TActivityLogDetailsMap } from '../types';
+import type { TActivityLogDetailsMap, TBridgeSyncReport } from '../types';
 import {
   type AnyPgColumn,
   bigint,
@@ -111,11 +111,19 @@ const servers = pgTable(
     enablePlugins: boolean('enable_plugins').notNull(),
     discoverable: boolean('discoverable').notNull().default(false),
     federatable: boolean('federatable').notNull().default(false),
+    // Public directory listing (opt-in, MANAGE_SETTINGS): the card copy
+    // shown on this instance's Directory tab and offered to federated
+    // peers through /federation/directory.
+    directoryListed: boolean('directory_listed').notNull().default(false),
+    directoryDescription: text('directory_description'),
+    directoryTags: jsonb('directory_tags').$type<string[]>(),
+    directoryGame: text('directory_game'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
     uniqueIndex('servers_public_id_idx').on(t.publicId),
+    index('servers_directory_listed_idx').on(t.directoryListed),
     index('servers_owner_idx').on(t.ownerId),
     index('servers_name_idx').on(t.name),
     index('servers_discoverable_idx').on(t.discoverable),
@@ -228,6 +236,9 @@ const channels = pgTable(
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
     e2ee: boolean('e2ee').notNull().default(false),
+    // A TEXT channel only MANAGE_ANNOUNCEMENTS holders can post in;
+    // everyone reads and reacts, and other channels can follow it.
+    announcement: boolean('announcement').notNull().default(false),
     publicId: text('public_id').notNull().unique(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
@@ -283,6 +294,14 @@ const users = pgTable(
     // is validated against nameStyleSchema on equip and on federation
     // receive; see TNameStyle.
     nameStyle: jsonb('name_style').$type<TNameStyle>(),
+    // What the user is playing, reported by the desktop shell while the
+    // "share what you're playing" preference is on. Cleared on sign-out
+    // and by the presence cron after 6 h so a crashed shell leaves no
+    // ghost. Null when not playing or not sharing.
+    gamePresence: jsonb('game_presence').$type<{
+      name: string;
+      startedAt: number;
+    }>(),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
@@ -1721,6 +1740,11 @@ const bridgeServerLinks = pgTable(
     createdBy: integer('created_by').references(() => users.id, {
       onDelete: 'set null'
     }),
+    // Outcome of the last pairing run, persisted so bridgeStatus survives
+    // a restart; only "running" stays in-process.
+    lastSyncAt: bigint('last_sync_at', { mode: 'number' }),
+    lastError: text('last_error'),
+    lastReport: jsonb('last_report').$type<TBridgeSyncReport>(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull()
   },
   (t) => [
@@ -1729,7 +1753,248 @@ const bridgeServerLinks = pgTable(
   ]
 );
 
+/**
+ * A poll carried by a message (its metadata says kind 'poll'); the
+ * message row owns the poll, the poll owns its votes. `closesAt` is the
+ * author's deadline, `closedAt` when it actually closed — by hand or by
+ * the cron once the deadline passed.
+ */
+const polls = pgTable(
+  'polls',
+  {
+    id: serial('id').primaryKey(),
+    messageId: integer('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    options: jsonb('options').$type<{ key: string; label: string }[]>().notNull(),
+    multiple: boolean('multiple').notNull().default(false),
+    anonymous: boolean('anonymous').notNull().default(false),
+    closesAt: bigint('closes_at', { mode: 'number' }),
+    closedAt: bigint('closed_at', { mode: 'number' }),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('polls_message_idx').on(t.messageId),
+    index('polls_channel_idx').on(t.channelId),
+    // The closing cron scans open polls whose deadline passed.
+    index('polls_closes_idx').on(t.closesAt)
+  ]
+);
+
+/** One row per chosen option; a single-choice poll holds one per voter. */
+const pollVotes = pgTable(
+  'poll_votes',
+  {
+    id: serial('id').primaryKey(),
+    pollId: integer('poll_id')
+      .notNull()
+      .references(() => polls.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    optionKey: text('option_key').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('poll_votes_poll_user_option_idx').on(
+      t.pollId,
+      t.userId,
+      t.optionKey
+    ),
+    index('poll_votes_poll_idx').on(t.pollId)
+  ]
+);
+
+/**
+ * A message waiting for its send time. The per-minute cron posts it
+ * through the same path as a user send (automod, mentions, fan-out) as
+ * the author, then records the message it became. Cancelled rows keep
+ * their timestamp so the list can show "cancelled" until pruned.
+ */
+const scheduledPosts = pgTable(
+  'scheduled_posts',
+  {
+    id: serial('id').primaryKey(),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    sendAt: bigint('send_at', { mode: 'number' }).notNull(),
+    sentMessageId: integer('sent_message_id').references(
+      () => messages.id,
+      { onDelete: 'set null' }
+    ),
+    cancelledAt: bigint('cancelled_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('scheduled_posts_channel_idx').on(t.channelId),
+    index('scheduled_posts_user_idx').on(t.userId),
+    // The sender cron picks rows by send time; sent/cancelled rows are
+    // filtered in the query.
+    index('scheduled_posts_send_at_idx').on(t.sendAt)
+  ]
+);
+
+/**
+ * Attachments a scheduled post will carry, held as a real file reference
+ * (not ids in JSON) so the orphan-file scan sees them and the cleanup
+ * cron does not delete an upload before its post goes out.
+ */
+const scheduledPostFiles = pgTable(
+  'scheduled_post_files',
+  {
+    scheduledPostId: integer('scheduled_post_id')
+      .notNull()
+      .references(() => scheduledPosts.id, { onDelete: 'cascade' }),
+    fileId: integer('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.scheduledPostId, t.fileId] }),
+    index('scheduled_post_files_file_idx').on(t.fileId)
+  ]
+);
+
+/**
+ * A channel following an announcement channel. The row lives on the
+ * instance that owns the local side(s): both channels local → both ids
+ * set; a remote source → `sourceInstanceId` + `sourceChannelPublicId`
+ * with the local target; a remote follower (recorded on the source's
+ * instance so it can relay) → `targetInstanceId` + `targetChannelPublicId`
+ * with the local source. Exactly one side may be remote.
+ */
+const channelFollows = pgTable(
+  'channel_follows',
+  {
+    id: serial('id').primaryKey(),
+    sourceChannelId: integer('source_channel_id').references(
+      () => channels.id,
+      { onDelete: 'cascade' }
+    ),
+    sourceInstanceId: integer('source_instance_id').references(
+      () => federationInstances.id,
+      { onDelete: 'cascade' }
+    ),
+    sourceChannelPublicId: text('source_channel_public_id'),
+    targetChannelId: integer('target_channel_id').references(
+      () => channels.id,
+      { onDelete: 'cascade' }
+    ),
+    targetInstanceId: integer('target_instance_id').references(
+      () => federationInstances.id,
+      { onDelete: 'cascade' }
+    ),
+    targetChannelPublicId: text('target_channel_public_id'),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    // NULLs are distinct in a unique index, so each shape gets its own
+    // guard: local→local, remote source→local, local source→remote.
+    uniqueIndex('channel_follows_local_idx').on(
+      t.sourceChannelId,
+      t.targetChannelId
+    ),
+    uniqueIndex('channel_follows_remote_source_idx').on(
+      t.sourceInstanceId,
+      t.sourceChannelPublicId,
+      t.targetChannelId
+    ),
+    uniqueIndex('channel_follows_remote_target_idx').on(
+      t.sourceChannelId,
+      t.targetInstanceId,
+      t.targetChannelPublicId
+    ),
+    index('channel_follows_source_idx').on(t.sourceChannelId),
+    index('channel_follows_target_idx').on(t.targetChannelId)
+  ]
+);
+
+/**
+ * Soundboard clips per server. The file dies with the sound and the
+ * sound with its file; the orphan-file scan probes `file_id`.
+ */
+const serverSounds = pgTable(
+  'server_sounds',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    fileId: integer('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    emoji: text('emoji'),
+    volume: integer('volume').notNull().default(100),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('server_sounds_server_name_idx').on(t.serverId, t.name),
+    index('server_sounds_file_idx').on(t.fileId)
+  ]
+);
+
+/**
+ * A federated peer's directory listing as last pulled (daily, and when
+ * the peer is added); rows go with the peer. Counts are refreshed on
+ * their own schedule, so `fetchedAt` is the staleness the card shows.
+ */
+const directoryCache = pgTable(
+  'directory_cache',
+  {
+    id: serial('id').primaryKey(),
+    instanceId: integer('instance_id')
+      .notNull()
+      .references(() => federationInstances.id, { onDelete: 'cascade' }),
+    serverPublicId: text('server_public_id').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    tags: jsonb('tags').$type<string[]>(),
+    game: text('game'),
+    memberCount: integer('member_count').notNull().default(0),
+    onlineCount: integer('online_count').notNull().default(0),
+    logoUrl: text('logo_url'),
+    // Whether the peer's server takes a join password, so the card can
+    // ask before the join instead of after a refusal.
+    hasPassword: boolean('has_password').notNull().default(false),
+    fetchedAt: bigint('fetched_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('directory_cache_instance_server_idx').on(
+      t.instanceId,
+      t.serverPublicId
+    ),
+    index('directory_cache_game_idx').on(t.game)
+  ]
+);
+
 export {
+  polls,
+  pollVotes,
+  scheduledPosts,
+  scheduledPostFiles,
+  channelFollows,
+  serverSounds,
+  directoryCache,
   bridgeServerLinks,
   bridgeLinks,
   externalIdentities,

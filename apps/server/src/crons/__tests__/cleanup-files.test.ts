@@ -29,7 +29,10 @@ import {
   messageReactions,
   messages,
   nameplates,
+  scheduledPostFiles,
+  scheduledPosts,
   servers,
+  serverSounds,
   settings,
   users,
   webhooks
@@ -175,6 +178,32 @@ const REFERENCE_SEEDERS: Record<string, (fileId: number) => Promise<void>> = {
       avatarFileId: fileId,
       createdBy: 1,
       serverId: 1,
+      createdAt: Date.now()
+    });
+  },
+  'scheduled_post_files.file_id': async (fileId) => {
+    const [post] = await getTestDb()
+      .insert(scheduledPosts)
+      .values({
+        channelId: 1,
+        userId: 1,
+        content: `scheduled-${fileId}`,
+        sendAt: Date.now() + 60_000,
+        createdAt: Date.now()
+      })
+      .returning({ id: scheduledPosts.id });
+    await getTestDb().insert(scheduledPostFiles).values({
+      scheduledPostId: post!.id,
+      fileId,
+      createdAt: Date.now()
+    });
+  },
+  'server_sounds.file_id': async (fileId) => {
+    await getTestDb().insert(serverSounds).values({
+      serverId: 1,
+      name: `sound-${fileId}`,
+      fileId,
+      createdBy: 1,
       createdAt: Date.now()
     });
   }

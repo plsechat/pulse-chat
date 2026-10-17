@@ -43,7 +43,7 @@ const bridgeStatusRoute = serverProcedure(Permission.MANAGE_SETTINGS).query(
         link: row ? toBridgeServerLinkView(row) : null,
         remoteGuildName: null,
         counts,
-        sync: getServerBridgeSyncState(serverId)
+        sync: getServerBridgeSyncState(serverId, row?.lastReport)
       };
     }
 
@@ -93,7 +93,7 @@ const bridgeStatusRoute = serverProcedure(Permission.MANAGE_SETTINGS).query(
       link: row ? toBridgeServerLinkView(row) : null,
       remoteGuildName: row ? (status.guilds?.[row.remoteGuildId]?.name ?? null) : null,
       counts,
-      sync: getServerBridgeSyncState(serverId)
+      sync: getServerBridgeSyncState(serverId, row?.lastReport)
     };
   }
 );

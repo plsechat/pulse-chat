@@ -1,5 +1,24 @@
 # @pulse/plugin-sdk changelog
 
+## 0.3.0 — 2026-10-16
+
+Nothing removed. A plugin that declares `"sdk": "^0.1"` or `"^0.2"` keeps loading on a 0.3 server.
+
+### Added — settings
+
+- Setting type `secret` (`{ key, name, description?, type: "secret", defaultValue: "" }`). The server stores the value encrypted under the instance's file-signing secret; `settings.get(key)` returns the plaintext to the plugin only; `plugins.getSettings` reports `{ set: boolean }` and never the value; `plugins.updateSetting` takes a new value or `null` to clear it. The settings panel shows a masked write-only field ("Set" / "Replace").
+- A value stored in the clear before a setting became `secret` is encrypted on the plugin's first load after the change and the plaintext row is replaced (the official bridge's bot token went through this).
+
+### Added — `PluginContext`
+
+- `server.notify(topic, payload?)` — a one-way, in-process signal to the server. Server features subscribe per plugin id and topic (`pluginManager.onNotify`) and act at once; the bridge's `bridge:sync-requested` is the first. Topic ≤ 64 chars, payload ≤ 16 KiB as JSON (`BAD_REQUEST` otherwise); a call from an unloaded plugin instance is dropped.
+- `fetch` now draws on the plugin's **own** per-host budget (60 a minute per host, per plugin) instead of the one federation shares.
+
+### Added — loader
+
+- Hot reload on toggle: when a plugin is switched on and its entry file changed since it was last loaded in this process, the new file runs (the loader imports a copy under `<plugin dir>/.runtime/`; older copies are removed). Only the entry file is copied, so ship one bundled file — a relative import inside the entry does not resolve from the copy.
+- `pluginManager.onPluginLoaded(listener)` / `onPluginUnloaded(listener)` for server-side features that react to a plugin coming and going (the bridge syncs every server link when it loads).
+
 ## 0.2.0 — 2026-10-16
 
 Nothing removed. A plugin that declares `"sdk": "^0.1"` keeps loading on a 0.2 server (the loader treats every range that admits 0.1.x as compatible, because 0.2 is a strict superset).

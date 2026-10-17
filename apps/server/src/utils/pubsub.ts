@@ -21,6 +21,7 @@ import type {
   TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
+  TPollUpdate,
   TPublicServerSettings,
   TServerSummary
 } from '../types';
@@ -355,6 +356,13 @@ type Events = {
   // Community import: the owner who started the job gets the full view
   // after every persisted page.
   [ServerEvents.IMPORT_PROGRESS]: TImportJobView;
+
+  // Poll counts to every viewer of the channel (own votes travel only
+  // through the vote routes' return values).
+  [ServerEvents.POLL_UPDATE]: TPollUpdate;
+  // "Refetch" pings for the Scheduled list and the Follows tab.
+  [ServerEvents.SCHEDULED_POST_UPDATE]: { channelId: number };
+  [ServerEvents.CHANNEL_FOLLOWS_UPDATE]: { channelId: number };
 };
 
 class PubSub {

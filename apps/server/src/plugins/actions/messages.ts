@@ -12,6 +12,10 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
 import { publishMessage } from '../../db/publishers';
+import {
+  relayAnnouncement,
+  relayAnnouncementDeletion
+} from '../../utils/announcement-follow';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { getEmojiFileIdByEmojiName } from '../../db/queries/emojis';
 import { getFilesByMessageId } from '../../db/queries/files';
@@ -454,6 +458,9 @@ const createMessageActions = ({
     }
 
     await publishMessage(messageId, channel.id, 'create');
+    // A plugin post into an announcement channel reaches its followers
+    // like a member's would; the relay is a no-op elsewhere.
+    await relayAnnouncement(messageId, 'create');
 
     if (content.length > 0) {
       enqueueProcessMetadata(content, messageId);
@@ -508,6 +515,7 @@ const createMessageActions = ({
       .where(eq(messages.id, message.id));
 
     await publishMessage(message.id, channel.id, 'update');
+    await relayAnnouncement(message.id, 'update');
     enqueueProcessMetadata(content, message.id);
 
     eventBus.emit('message:updated', {
@@ -532,6 +540,7 @@ const createMessageActions = ({
     await db.delete(messages).where(eq(messages.id, message.id));
 
     await publishMessage(message.id, channel.id, 'delete');
+    await relayAnnouncementDeletion(channel.id, [message.id]);
 
     eventBus.emit('message:deleted', {
       messageId: message.id,

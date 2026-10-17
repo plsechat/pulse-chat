@@ -228,6 +228,11 @@ export const onLoad = (ctx) => {
     const created = await actions.channels.create({ serverId: req.body.serverId, name: req.body.name, type: 'TEXT' });
     return { status: 200, body: { id: created.id } };
   });
+  // Test-only: the plugin signalling a remote change the way the real one does.
+  ctx.http.register('test/notify', (req) => {
+    ctx.server.notify('bridge:sync-requested', req.body);
+    return { status: 200, body: { ok: true } };
+  });
 };
 export const onUnload = () => {};
 `;
@@ -278,6 +283,13 @@ const loadFixturePlugin = async () => {
 const fixture = () => globalThis.__bridgeServerFixture!;
 const fixtureCalls = (route: string) =>
   fixture().calls.filter((c) => c.path === route);
+
+/** The fixture plugin calls `ctx.server.notify('bridge:sync-requested', body)`. */
+const pluginNotifies = async (body: unknown) => {
+  const handler = pluginHttp.get(BRIDGE_PLUGIN_ID, 'test/notify');
+  expect(handler).toBeDefined();
+  await handler!({ method: 'POST', path: 'test/notify', headers: {}, query: {}, body });
+};
 
 const linkRows = () =>
   getTestDb().select().from(bridgeLinks).orderBy(bridgeLinks.channelId);
@@ -807,12 +819,135 @@ describe('keeping in step', () => {
       await awaitServerBridgeSyncs();
       expect(fixtureCalls('channels')).toHaveLength(1);
 
-      // Nothing on record (restart): the first tick syncs.
+      // After a restart (the plugin's counter starts over with the
+      // server) the row remembers the last run: a fresh one means no
+      // sync, an old one means a reconcile.
       resetServerBridgeSyncState();
+      fixture().syncRequested['1'] = 0;
       fixture().calls.length = 0;
-      await bridgeSyncTick(now);
+      await bridgeSyncTick(Date.now());
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(0);
+
+      await getTestDb()
+        .update(bridgeServerLinks)
+        .set({ lastSyncAt: Date.now() - 31 * 60_000 });
+      await bridgeSyncTick(Date.now());
       await awaitServerBridgeSyncs();
       expect(fixtureCalls('channels')).toHaveLength(1);
+
+      // A link never synced (no row state at all) is synced by the first tick.
+      resetServerBridgeSyncState();
+      await getTestDb()
+        .update(bridgeServerLinks)
+        .set({ lastSyncAt: null, lastError: null, lastReport: null });
+      fixture().calls.length = 0;
+      await bridgeSyncTick(Date.now());
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(1);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('the plugin signalling a remote change starts a sync at once; the tick does not repeat it; unlinked or malformed signals are ignored', async () => {
+    const { caller } = await initTest(1);
+    const cleanup = await loadFixturePlugin();
+
+    try {
+      await linkServer(caller);
+      fixture().calls.length = 0;
+
+      // What the real plugin does on CHANNEL_CREATE/DELETE and reconnect:
+      // bump its counter and tell the server.
+      fixture().syncRequested['1'] = 1;
+      await pluginNotifies({ serverId: 1, requested: 1 });
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(1);
+      expect((await caller.servers.bridgeStatus()).sync.last?.trigger).toBe('plugin');
+
+      // The tick sees the counter it already acted on: nothing more.
+      fixture().calls.length = 0;
+      await bridgeSyncTick(Date.now());
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(0);
+
+      // A signal without a counter still syncs; the same counter again does not.
+      await pluginNotifies({ serverId: 1 });
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(1);
+      await pluginNotifies({ serverId: 1, requested: 1 });
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(1);
+
+      // A server that is not linked, and nonsense, do nothing.
+      await pluginNotifies({ serverId: 999, requested: 7 });
+      await pluginNotifies({ serverId: 'one' });
+      await pluginNotifies(null);
+      await awaitServerBridgeSyncs();
+      expect(fixtureCalls('channels')).toHaveLength(1);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('the bridge plugin (re)loading syncs every server link straight away', async () => {
+    const { caller } = await initTest(1);
+    const cleanup = await loadFixturePlugin();
+
+    try {
+      await linkServer(caller);
+      fixture().calls.length = 0;
+      resetServerBridgeSyncState();
+
+      await pluginManager.togglePlugin(BRIDGE_PLUGIN_ID, false);
+      await pluginManager.togglePlugin(BRIDGE_PLUGIN_ID, true);
+      await awaitServerBridgeSyncs();
+
+      expect(fixtureCalls('channels')).toHaveLength(1);
+      expect((await caller.servers.bridgeStatus()).sync.last?.trigger).toBe('load');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('the outcome of every run is kept on the server link and answers the status after a restart', async () => {
+    const { caller } = await initTest(1);
+    const cleanup = await loadFixturePlugin();
+
+    try {
+      await linkServer(caller);
+
+      const [row] = await serverLinkRows();
+      expect(row!.lastSyncAt).not.toBeNull();
+      expect(row!.lastError).toBeNull();
+      expect(row!.lastReport).toMatchObject({
+        trigger: 'link',
+        paired: 1,
+        error: null,
+        finishedAt: row!.lastSyncAt
+      });
+
+      // The in-process state is gone (restart): the status still shows the run.
+      resetServerBridgeSyncState();
+      const status = await caller.servers.bridgeStatus();
+      expect(status.sync).toEqual({ running: false, last: row!.lastReport });
+      expect(status.link).toMatchObject({
+        lastSyncAt: row!.lastSyncAt,
+        lastError: null,
+        lastReport: row!.lastReport
+      });
+
+      // A failed run is remembered the same way, error included.
+      fixture().configured = false;
+      await syncServerBridge(1, 'manual');
+      const [after] = await serverLinkRows();
+      expect(after!.lastError).toBe('No bot token is configured');
+      expect(after!.lastReport).toMatchObject({ trigger: 'manual', error: 'No bot token is configured' });
+      expect(after!.lastSyncAt).toBeGreaterThanOrEqual(row!.lastSyncAt!);
+
+      resetServerBridgeSyncState();
+      expect((await caller.servers.bridgeStatus()).sync.last).toEqual(after!.lastReport);
     } finally {
       await cleanup();
     }

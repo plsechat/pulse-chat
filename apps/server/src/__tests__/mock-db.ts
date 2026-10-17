@@ -32,6 +32,10 @@ if (!testDatabaseUrl) {
 
 const client = postgres(testDatabaseUrl);
 let tdb: PostgresJsDatabase = drizzle({ client });
+// Mirrors db/index.ts: advisory-lock transactions run on their own
+// small pool so locked crons can never starve the main one.
+const lockClient = postgres(testDatabaseUrl, { max: 4 });
+const lockDb: PostgresJsDatabase = drizzle({ client: lockClient });
 
 const setTestDb = (newDb: PostgresJsDatabase) => {
   tdb = newDb;
@@ -56,6 +60,7 @@ const dbProxy = new Proxy({} as PostgresJsDatabase, {
 // Mock the db module BEFORE any other code imports it
 mock.module('../db/index', () => ({
   db: dbProxy,
+  lockDb,
   loadDb: async () => {} // No-op in tests
 }));
 
@@ -98,4 +103,4 @@ await tdb.execute(TRUNCATE_ALL_SQL);
 
 await seedDatabase(tdb);
 
-export { client, dbProxy, DRIZZLE_PATH, getTestDb, setTestDb };
+export { client, dbProxy, DRIZZLE_PATH, getTestDb, lockClient, setTestDb };

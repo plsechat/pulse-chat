@@ -2,7 +2,9 @@ import {
   useHomeUserById,
   useUserById
 } from '@/features/server/users/hooks';
+import { AnnouncementCard } from '@/components/chat-primitives/announcement-card';
 import { useChatScope } from '@/components/chat-primitives/chat-scope-context';
+import { parseAnnouncementRow } from '@/features/follows/announcement-rows';
 import { EventCard } from '@/components/chat-primitives/event-card';
 import { ServerScreen } from '@/components/server-screens/screens';
 import { parseEventSystemRow } from '@/features/events/system-rows';
@@ -20,6 +22,7 @@ import { memo } from 'react';
 
 type SystemMessageProps = {
   message: {
+    id: number;
     userId: number;
     content: string | null;
     createdAt: number;
@@ -109,6 +112,12 @@ const SystemMessage = memo(({ message }: SystemMessageProps) => {
   const eventRow = parseEventSystemRow(message.content);
   if (eventRow) {
     return <EventCard row={eventRow} date={date} />;
+  }
+
+  // A copy of a post from a followed announcement channel.
+  const announcement = parseAnnouncementRow(message.content);
+  if (announcement) {
+    return <AnnouncementCard messageId={message.id} row={announcement} date={date} />;
   }
 
   return null;

@@ -14,7 +14,7 @@ export type { TInvokerContext, TPluginCapability };
  * in its package.json as `pulse.sdk` (a semver range); the server refuses
  * to load a plugin whose range this version does not satisfy. Every 0.x
  * minor is a strict superset of the previous one, so a range that admits
- * an older 0.x minor (for example `^0.1` on a 0.2 server) still loads.
+ * an older 0.x minor (for example `^0.2` on a 0.3 server) still loads.
  */
 export const PLUGIN_SDK_VERSION: string = pkg.version;
 
@@ -205,11 +205,18 @@ type SettingValueType<T extends TPluginSettingDefinition> =
       ? number
       : T["type"] extends "boolean"
         ? boolean
-        : unknown;
+        : T["type"] extends "secret"
+          ? string
+          : unknown;
 
 export interface PluginSettings<
   T extends readonly TPluginSettingDefinition[] = TPluginSettingDefinition[],
 > {
+  /**
+   * The current value. A `secret` setting comes back as its plaintext
+   * (an empty string while unset): the plugin is the only reader; the
+   * server stores it encrypted and never returns it to a client.
+   */
   get<K extends T[number]["key"]>(
     key: K,
   ): SettingValueType<Extract<T[number], { key: K }>>;
@@ -521,7 +528,8 @@ export interface PluginContext {
   /**
    * Outbound HTTP through the server's hardened client: `http(s)` only,
    * private and link-local targets refused, DNS pinned, redirects
-   * refused, per-host rate limited, body bounded. The runtime's global
+   * refused, rate limited per host in the plugin's own budget (60 a
+   * minute, shared with nobody), body bounded. The runtime's global
    * `fetch` is still reachable from plugin code but is unsupported —
    * the loader does not sandbox.
    */
@@ -535,6 +543,19 @@ export interface PluginContext {
      * settings). Bodies are capped at 1 MiB; requests are rate limited.
      */
     register(path: string, handler: TPluginHttpHandler): void;
+  };
+
+  server: {
+    /**
+     * Signal the server in-process. Server features that know the
+     * plugin subscribe to a topic by plugin id and act at once (the
+     * bridge's `bridge:sync-requested`, for example); a topic nothing
+     * listens to is dropped. `topic` is 1–64 characters, `payload`
+     * must serialise to JSON of at most 16 KiB — out of bounds throws
+     * a `BAD_REQUEST` action error. Delivery is one-way: nothing comes
+     * back, and a call after the plugin was unloaded is ignored.
+     */
+    notify(topic: string, payload?: unknown): void;
   };
 
   commands: {

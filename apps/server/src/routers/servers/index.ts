@@ -6,6 +6,7 @@ import { bridgeSyncRoute } from './bridge-sync';
 import { bridgeUnlinkRoute } from './bridge-unlink';
 import { createServerRoute } from './create';
 import { deleteServerRoute } from './delete';
+import { directoryGamesRoute, directoryRoute } from './directory';
 import { discoverServersRoute } from './discover';
 import { onMemberJoinRoute, onMemberLeaveRoute, onUnreadCountUpdateRoute } from './events';
 import { getAllServersRoute } from './get-all';
@@ -33,6 +34,8 @@ export const serversRouter = t.router({
   joinDiscover: joinDiscoverRoute,
   joinFederated: joinFederatedRoute,
   discover: discoverServersRoute,
+  directory: directoryRoute,
+  directoryGames: directoryGamesRoute,
   preview: previewServerRoute,
   leavePreview: leavePreviewRoute,
   leave: leaveServerRoute,

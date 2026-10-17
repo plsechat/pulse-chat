@@ -12,6 +12,7 @@ import { messages } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
 import { eventBus } from '../../plugins/event-bus';
 import { enqueueProcessMetadata } from '../../queues/message-metadata';
+import { relayAnnouncement } from '../../utils/announcement-follow';
 import { checkAutomod, executeAutomodActions } from '../../utils/automod';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
@@ -111,6 +112,8 @@ const editMessageRoute = serverProcedure()
       .where(eq(messages.id, input.messageId));
 
     publishMessage(input.messageId, message.channelId, 'update');
+    // Copies in follower channels track the edit (no-op elsewhere).
+    void relayAnnouncement(input.messageId, 'update');
 
     if (!message.e2ee && input.content) {
       enqueueProcessMetadata(input.content, input.messageId);

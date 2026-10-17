@@ -1,5 +1,9 @@
 import {
   ActivityLogType,
+  DIRECTORY_DESCRIPTION_MAX_LENGTH,
+  DIRECTORY_GAME_MAX_LENGTH,
+  DIRECTORY_TAG_MAX_LENGTH,
+  DIRECTORY_TAGS_MAX,
   Permission,
   ServerEvents,
   StorageOverflowAction
@@ -33,7 +37,22 @@ const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
       storageOverflowAction: z.enum(StorageOverflowAction).optional(),
       enablePlugins: z.boolean().optional(),
       discoverable: z.boolean().optional(),
-      federatable: z.boolean().optional()
+      federatable: z.boolean().optional(),
+      // Public directory opt-in (card copy). Tags are trimmed and
+      // deduplicated case-insensitively; an empty description or game
+      // clears the field.
+      directoryListed: z.boolean().optional(),
+      directoryDescription: z
+        .string()
+        .trim()
+        .max(DIRECTORY_DESCRIPTION_MAX_LENGTH)
+        .optional()
+        .nullable(),
+      directoryTags: z
+        .array(z.string().trim().min(1).max(DIRECTORY_TAG_MAX_LENGTH))
+        .max(DIRECTORY_TAGS_MAX)
+        .optional(),
+      directoryGame: z.string().trim().max(DIRECTORY_GAME_MAX_LENGTH).optional().nullable()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -43,6 +62,35 @@ const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
       code: 'NOT_FOUND',
       message: 'Server not found'
     });
+
+    // A listing is only a card with working buttons while the server
+    // has an open join path: the Directory reuses servers.preview /
+    // servers.joinDiscover (which require `discoverable`) and both
+    // refuse a server that is not accepting members. Checked on the
+    // RESULTING state so turning discoverable off in the same save as
+    // the listing is refused too.
+    const resultingListed = input.directoryListed ?? server.directoryListed;
+    if (resultingListed) {
+      const resultingDiscoverable = input.discoverable ?? server.discoverable;
+      const resultingAllowNewUsers = input.allowNewUsers ?? server.allowNewUsers;
+      invariant(resultingDiscoverable && resultingAllowNewUsers, {
+        code: 'BAD_REQUEST',
+        message:
+          'A listed server must be discoverable and accepting new members'
+      });
+    }
+
+    if (input.directoryTags !== undefined) {
+      const seen = new Set<string>();
+      input.directoryTags = input.directoryTags.filter((tag) => {
+        const key = tag.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    if (input.directoryDescription === '') input.directoryDescription = null;
+    if (input.directoryGame === '') input.directoryGame = null;
 
     // "Federatable" is owner-controlled and instance-gated, unlike the
     // rest of these MANAGE_SETTINGS fields: only the server OWNER may

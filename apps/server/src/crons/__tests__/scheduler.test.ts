@@ -6,7 +6,9 @@
  * run skip instead of doubling the work.
  */
 import { describe, expect, test, spyOn } from 'bun:test';
-import { tryWithAdvisoryLock } from '../advisory-lock';
+import { sql } from 'drizzle-orm';
+import { CRON_LOCK_IDS, tryWithAdvisoryLock } from '../advisory-lock';
+import { getTestDb } from '../../__tests__/mock-db';
 import { scheduleCron } from '../index';
 import { logger } from '../../logger';
 
@@ -72,5 +74,34 @@ describe('scheduleCron', () => {
 
     const after = await tryWithAdvisoryLock(LOCK, async () => 'free again');
     expect(after).toEqual({ acquired: true, result: 'free again' });
+  });
+
+  test('every locked cron can fire at once without starving the main pool', async () => {
+    // runOnInit fires every cron at boot, so this many lock transactions
+    // open together while each job's own statements draw from the main
+    // pool (ten connections). When the lock transactions lived on that
+    // same pool, the twelfth locked cron turned boot into a deadlock:
+    // every job held a connection and waited for one more. More
+    // contenders than the pool has connections must still all finish.
+    const lockIds = Object.values(CRON_LOCK_IDS);
+    expect(lockIds.length).toBeGreaterThan(10);
+
+    const outcomes = await Promise.race([
+      Promise.all(
+        lockIds.map((lockId) =>
+          tryWithAdvisoryLock(lockId, async () => {
+            const rows = await getTestDb().execute<{ one: number }>(
+              sql`SELECT 1 AS one`
+            );
+            return rows[0]?.one;
+          })
+        )
+      ),
+      Bun.sleep(4000).then(() => {
+        throw new Error('locked jobs starved the pool');
+      })
+    ]);
+
+    expect(outcomes.every((o) => o.acquired && o.result === 1)).toBe(true);
   });
 });

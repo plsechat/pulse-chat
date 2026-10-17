@@ -41,6 +41,10 @@ const getSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS).query(
       storageOverflowAction: server.storageOverflowAction,
       discoverable: server.discoverable,
       federatable: server.federatable,
+      directoryListed: server.directoryListed,
+      directoryDescription: server.directoryDescription,
+      directoryTags: server.directoryTags ?? [],
+      directoryGame: server.directoryGame,
       logo: logo ?? null
     };
   }

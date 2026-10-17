@@ -27,7 +27,12 @@ import {
 } from '@/features/server/hooks';
 import { useAdminGeneral } from '@/features/server/admin/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
+import { validateDirectoryCard } from '@/screens/discover-view/directory-helpers';
 import {
+  DIRECTORY_DESCRIPTION_MAX_LENGTH,
+  DIRECTORY_GAME_MAX_LENGTH,
+  DIRECTORY_TAG_MAX_LENGTH,
+  DIRECTORY_TAGS_MAX,
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MAX_QUOTA_PER_USER,
   STORAGE_MIN_FILE_SIZE,
@@ -67,6 +72,19 @@ const General = memo(() => {
 
   const canToggleFederatable =
     isInstanceOwner || federatableServersAllowed || settings.federatable;
+
+  // The directory card: the listing needs an open join path (the route
+  // refuses it otherwise), so the switch follows Discoverable + Allow
+  // New Users, and turning either off takes the listing with it.
+  const canList = settings.discoverable && settings.allowNewUsers;
+  const cardErrors = validateDirectoryCard({
+    listed: settings.directoryListed,
+    description: settings.directoryDescription,
+    tagsText: settings.directoryTagsText,
+    game: settings.directoryGame,
+    discoverable: settings.discoverable,
+    allowNewUsers: settings.allowNewUsers
+  });
 
   if (loading) {
     return <LoadingCard className="h-[600px]" />;
@@ -116,7 +134,10 @@ const General = memo(() => {
         >
           <Switch
             checked={settings.allowNewUsers}
-            onCheckedChange={(checked) => onChange('allowNewUsers', checked)}
+            onCheckedChange={(checked) => {
+              onChange('allowNewUsers', checked);
+              if (!checked) onChange('directoryListed', false);
+            }}
           />
         </Group>
 
@@ -126,7 +147,81 @@ const General = memo(() => {
         >
           <Switch
             checked={settings.discoverable}
-            onCheckedChange={(checked) => onChange('discoverable', checked)}
+            onCheckedChange={(checked) => {
+              onChange('discoverable', checked);
+              if (!checked) onChange('directoryListed', false);
+            }}
+          />
+        </Group>
+
+        <div className="border-t border-border pt-4">
+          <h3 className="text-base font-semibold">Public directory</h3>
+          <p className="text-sm text-muted-foreground">
+            A card on the Directory tab of this instance and, when the server is
+            federatable, of its federated peers.
+          </p>
+        </div>
+
+        <Group
+          label="List in the directory"
+          description={
+            canList
+              ? 'Show a card with the description, tags and game below.'
+              : 'Turn on Discoverable and Allow New Users first — a listing needs an open way in.'
+          }
+        >
+          <Switch
+            checked={settings.directoryListed}
+            disabled={!canList}
+            aria-label="List in the directory"
+            onCheckedChange={(checked) => onChange('directoryListed', checked)}
+          />
+          {cardErrors.directoryListed && (
+            <p className="text-sm text-destructive" role="alert">
+              {cardErrors.directoryListed}
+            </p>
+          )}
+        </Group>
+
+        <Group
+          label="Directory description"
+          description={`What the card says about the community (${settings.directoryDescription.length}/${DIRECTORY_DESCRIPTION_MAX_LENGTH}).`}
+        >
+          <Textarea
+            value={settings.directoryDescription}
+            onChange={(e) => onChange('directoryDescription', e.target.value)}
+            placeholder="Who you are and what you do together"
+            rows={3}
+            maxLength={DIRECTORY_DESCRIPTION_MAX_LENGTH}
+            aria-label="Directory description"
+            error={cardErrors.directoryDescription || errors.directoryDescription}
+          />
+        </Group>
+
+        <Group
+          label="Tags"
+          description={`Up to ${DIRECTORY_TAGS_MAX} tags of ${DIRECTORY_TAG_MAX_LENGTH} characters, separated by commas. Searchable.`}
+        >
+          <Input
+            value={settings.directoryTagsText}
+            onChange={(e) => onChange('directoryTagsText', e.target.value)}
+            placeholder="casual, ranked, weekends"
+            aria-label="Directory tags"
+            error={cardErrors.directoryTags || errors.directoryTags}
+          />
+        </Group>
+
+        <Group
+          label="Game"
+          description="The game or activity the community is about; the Directory filters by it."
+        >
+          <Input
+            value={settings.directoryGame}
+            onChange={(e) => onChange('directoryGame', e.target.value)}
+            placeholder="Chess"
+            maxLength={DIRECTORY_GAME_MAX_LENGTH}
+            aria-label="Directory game"
+            error={cardErrors.directoryGame || errors.directoryGame}
           />
         </Group>
 

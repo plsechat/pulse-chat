@@ -12,12 +12,14 @@ import { cn } from '@/lib/utils';
 import { ChannelPermission } from '@pulse/shared';
 import {
   Bell,
+  CalendarClock,
   Hash,
   Headphones,
   HeadphoneOff,
   LayoutList,
   List,
   Lock,
+  Megaphone,
   Menu,
   Mic,
   MicOff,
@@ -36,6 +38,7 @@ import { memo, useCallback, useState, type ReactNode } from 'react';
 import { SearchPopover } from '../search/search-popover';
 import { NotificationDropdown } from '../top-bar/notification-dropdown';
 import { PinnedMessagesPanel } from '../top-bar/pinned-messages-panel';
+import { ScheduledPostsPopover } from '../top-bar/scheduled-posts-popover';
 import { ThreadListPopover } from '../top-bar/thread-list-popover';
 import { VolumeController } from '../top-bar/volume-controller';
 import { Button } from '../ui/button';
@@ -53,7 +56,7 @@ type TMobileHeaderProps = {
   title?: string;
 };
 
-type TMobileSheet = 'menu' | 'search' | 'pinned' | 'threads' | null;
+type TMobileSheet = 'menu' | 'search' | 'pinned' | 'threads' | 'scheduled' | null;
 
 const alwaysAllowed = () => true;
 
@@ -251,7 +254,13 @@ const MobileHeader = memo(
           </Button>
 
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            {!title && channelType === 'TEXT' && (
+            {!title && channelType === 'TEXT' && selectedChannel?.announcement && (
+              <Megaphone
+                className="h-4 w-4 text-muted-foreground/60 flex-shrink-0"
+                aria-label="Announcement channel"
+              />
+            )}
+            {!title && channelType === 'TEXT' && !selectedChannel?.announcement && (
               <Hash className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
             )}
             {!title && channelType === 'VOICE' && (
@@ -349,6 +358,13 @@ const MobileHeader = memo(
                     label="Threads"
                     onClick={() => setSheet('threads')}
                   />
+                  {!previewMode && !textChannel.e2ee && (
+                    <MenuRow
+                      icon={<CalendarClock className="h-4 w-4" />}
+                      label="Scheduled messages"
+                      onClick={() => setSheet('scheduled')}
+                    />
+                  )}
                   {/* Notification prefs are member-scoped — meaningless in preview */}
                   {!previewMode && (
                     <NotificationDropdown channelId={textChannel.id}>
@@ -381,7 +397,12 @@ const MobileHeader = memo(
             {/* The panels bring their own header with a close button; the
                 sheet's corner X is hidden so the two do not overlap. */}
             <Sheet
-              open={sheet === 'search' || sheet === 'pinned' || sheet === 'threads'}
+              open={
+                sheet === 'search' ||
+                sheet === 'pinned' ||
+                sheet === 'threads' ||
+                sheet === 'scheduled'
+              }
               onOpenChange={(open) => !open && closeSheet()}
             >
               <SheetContent
@@ -394,7 +415,9 @@ const MobileHeader = memo(
                     ? 'Search messages'
                     : sheet === 'pinned'
                       ? 'Pinned messages'
-                      : 'Threads'}
+                      : sheet === 'scheduled'
+                        ? 'Scheduled messages'
+                        : 'Threads'}
                 </SheetTitle>
                 <SheetDescription className="sr-only">
                   {textChannel.name}
@@ -412,6 +435,12 @@ const MobileHeader = memo(
                       channelId={textChannel.id}
                       onClose={closeSheet}
                       sheet
+                    />
+                  )}
+                  {sheet === 'scheduled' && (
+                    <ScheduledPostsPopover
+                      channelId={textChannel.id}
+                      onClose={closeSheet}
                     />
                   )}
                 </div>

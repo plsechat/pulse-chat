@@ -42,6 +42,8 @@ type TRestCall = {
 
 type TAction = { name: string; input: unknown };
 
+type TNotification = { topic: string; payload: unknown };
+
 export type TFixtureTransport = {
   calls: TRestCall[];
   /** Override or add an answer for `METHOD /path` (path without query). */
@@ -235,6 +237,8 @@ export const createFakeTimers = () => {
 export type TFakeContext = {
   ctx: PluginContext;
   actions: TAction[];
+  /** Every `ctx.server.notify` the bridge made, in order. */
+  notifications: TNotification[];
   logs: string[];
   errors: string[];
   routes: Map<string, TPluginHttpHandler>;
@@ -247,6 +251,7 @@ export type TFakeContext = {
 
 export const createFakeContext = (fetch: PluginContext['fetch']): TFakeContext => {
   const actions: TAction[] = [];
+  const notifications: TNotification[] = [];
   const logs: string[] = [];
   const errors: string[] = [];
   const routes = new Map<string, TPluginHttpHandler>();
@@ -408,6 +413,11 @@ export const createFakeContext = (fetch: PluginContext['fetch']): TFakeContext =
         routes.set(path, handler);
       }
     },
+    server: {
+      notify: (topic: string, payload?: unknown) => {
+        notifications.push({ topic, payload });
+      }
+    },
     commands: {
       register: () => {}
     },
@@ -425,6 +435,7 @@ export const createFakeContext = (fetch: PluginContext['fetch']): TFakeContext =
   return {
     ctx,
     actions,
+    notifications,
     logs,
     errors,
     routes,

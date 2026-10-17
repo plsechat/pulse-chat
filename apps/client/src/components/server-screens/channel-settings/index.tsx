@@ -6,6 +6,7 @@ import type { TServerScreenBaseProps } from '../screens';
 import { ServerScreenLayout } from '../server-screen-layout';
 import { Bridge } from './bridge';
 import { useBridgeStatus } from './bridge/hooks';
+import { Follows } from './follows';
 import { General } from './general';
 import { ChannelPermissions } from './permissions';
 import { Security } from './security';
@@ -22,6 +23,9 @@ const ChannelSettings = memo(({ close, channelId }: TChannelSettingsProps) => {
   const bridge = useBridgeStatus(channelId);
   const showBridge =
     can(Permission.MANAGE_CHANNELS) && bridge.status !== null && bridge.status.available;
+  // Following is a MANAGE_CHANNELS affair on the target's server; the
+  // tab is offered on every text channel (any of them may follow).
+  const showFollows = can(Permission.MANAGE_CHANNELS);
 
   return (
     <ServerScreenLayout close={close} title="Channel Settings">
@@ -31,6 +35,7 @@ const ChannelSettings = memo(({ close, channelId }: TChannelSettingsProps) => {
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
+            {showFollows && <TabsTrigger value="follows">Follows</TabsTrigger>}
             {showBridge && <TabsTrigger value="bridge">Bridge</TabsTrigger>}
           </TabsList>
 
@@ -43,6 +48,11 @@ const ChannelSettings = memo(({ close, channelId }: TChannelSettingsProps) => {
           <TabsContent value="security" className="space-y-6">
             <Security channelId={channelId} />
           </TabsContent>
+          {showFollows && (
+            <TabsContent value="follows" className="space-y-6">
+              <Follows channelId={channelId} />
+            </TabsContent>
+          )}
           {showBridge && bridge.status && (
             <TabsContent value="bridge" className="space-y-6">
               <Bridge channelId={channelId} status={bridge.status} refresh={bridge.refresh} />

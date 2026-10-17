@@ -745,14 +745,15 @@ export type TBridgeServerLinkSummary = {
   mode: TBridgeMode;
   defaultDirection: TBridgeDirection;
 };
-export type TBridgeSyncTrigger = 'link' | 'manual' | 'channel-created' | 'tick' | 'status';
+/** `plugin`: the bridge plugin signalled a remote change; `load`: the plugin (re)loaded. */
+export type TBridgeSyncTrigger = 'link' | 'manual' | 'channel-created' | 'tick' | 'status' | 'plugin' | 'load';
 /** A channel a sync left alone, and why, in the owner's words. */
 export type TBridgeSkippedChannel = {
   name: string;
   side: 'here' | 'there';
   reason: string;
 };
-/** The outcome of one sync run (kept in memory; the tick refreshes it after a restart). */
+/** The outcome of one sync run; persisted on the server link (last_report) so the status survives a restart. */
 export type TBridgeSyncReport = {
   trigger: TBridgeSyncTrigger;
   startedAt: number;
@@ -784,4 +785,129 @@ export type TBridgeServerStatus = {
     running: boolean;
     last: TBridgeSyncReport | null;
   };
+};
+
+// -------------------- public directory --------------------
+/** How the Directory orders its cards; the default is `online`. */
+export type TDirectorySort = 'online' | 'members' | 'name';
+/**
+ * One Directory card. A local row carries `serverId` and `joined` for
+ * the Discover-style preview/join; a federated row (from
+ * directory_cache) carries its instance and the `fetchedAt` the card
+ * shows as staleness. `logo` is a bare /public/ file name for a local
+ * row and an absolute URL on the peer for a federated one.
+ */
+export type TDirectoryEntry = {
+  source: 'local' | 'federated';
+  serverId: number | null;
+  publicId: string;
+  name: string;
+  description: string | null;
+  tags: string[];
+  game: string | null;
+  memberCount: number;
+  onlineCount: number;
+  logo: string | null;
+  hasPassword: boolean;
+  joined: boolean;
+  instance: { id: number; domain: string; name: string } | null;
+  fetchedAt: number | null;
+};
+
+// ── Polls, scheduled posts, announcement follows (v0.4.0 / F6) ──────────
+
+export type TPollOptionView = {
+  key: string;
+  label: string;
+  votes: number;
+  /**
+   * Who chose this option — empty on an anonymous poll, and capped at
+   * POLL_VOTER_LIST_CAP ids on a busy one (the count is still exact).
+   */
+  voterIds: number[];
+};
+
+/** What every viewer of the channel gets: counts, never the viewer's own choice. */
+export type TPollUpdate = {
+  id: number;
+  messageId: number;
+  channelId: number;
+  question: string;
+  options: TPollOptionView[];
+  multiple: boolean;
+  anonymous: boolean;
+  closesAt: number | null;
+  closedAt: number | null;
+  createdBy: number | null;
+  createdAt: number;
+  /** Distinct voters (a multiple-choice voter counts once). */
+  totalVoters: number;
+};
+
+/** `polls.get` and the vote routes: the update plus the caller's own choices. */
+export type TPollView = TPollUpdate & { ownVotes: string[] };
+
+export type TScheduledPostView = {
+  id: number;
+  channelId: number;
+  userId: number;
+  content: string;
+  sendAt: number;
+  createdAt: number;
+  files: { id: number; name: string; originalName: string; size: number }[];
+};
+
+export type TFollowEndpoint =
+  | {
+      kind: 'local';
+      channelId: number;
+      channelName: string;
+      serverId: number;
+      serverName: string;
+    }
+  | {
+      kind: 'remote';
+      domain: string;
+      channelPublicId: string;
+      /** Known once the peer confirmed the follow (or named its follower channel). */
+      channelName: string | null;
+      serverName: string | null;
+    };
+
+export type TChannelFollowView = {
+  id: number;
+  createdAt: number;
+  source: TFollowEndpoint;
+  target: TFollowEndpoint;
+};
+
+/** An announcement channel the caller may follow from another channel. */
+export type TFollowSourceCandidate = {
+  serverId: number;
+  serverName: string;
+  channelId: number;
+  channelName: string;
+};
+
+/**
+ * The JSON body of an announcement copy — a `type: 'system'` row in a
+ * follower channel. `sourceKey` identifies the source message across
+ * instances (`local:<channelId>:<messageId>` or
+ * `<domain>:<channelPublicId>:<messageId>`) so edits and deletions find
+ * the copy and a replayed relay lands on the same row.
+ */
+export type TAnnouncementRow = {
+  kind: 'announcement';
+  sourceKey: string;
+  source: {
+    domain: string | null;
+    serverPublicId: string;
+    serverName: string;
+    channelPublicId: string;
+    channelName: string;
+  };
+  messageId: number;
+  content: string;
+  author: { publicId: string; name: string; avatarUrl: string | null };
+  edited: boolean;
 };

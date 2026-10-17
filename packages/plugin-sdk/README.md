@@ -1,9 +1,9 @@
 # Pulse Plugin SDK
 
-TypeScript types for building Pulse server plugins. SDK version: `0.2.0` (see [CHANGELOG.md](./CHANGELOG.md)).
+TypeScript types for building Pulse server plugins. SDK version: `0.3.0` (see [CHANGELOG.md](./CHANGELOG.md)).
 
 > [!NOTE]
-> Plugins are experimental. The `PluginContext` API may change between minor versions. Declare the SDK range your plugin was built against (`pulse.sdk`, below) so the server refuses a mismatched plugin with a clear load error instead of failing at runtime. Every 0.x minor so far is a strict superset of the previous one: a `^0.1` plugin loads unchanged on a 0.2 server.
+> Plugins are experimental. The `PluginContext` API may change between minor versions. Declare the SDK range your plugin was built against (`pulse.sdk`, below) so the server refuses a mismatched plugin with a clear load error instead of failing at runtime. Every 0.x minor so far is a strict superset of the previous one: a `^0.1` or `^0.2` plugin loads unchanged on a 0.3 server.
 
 ## How plugins run
 
@@ -25,7 +25,7 @@ Run `bun init` in a new folder (e.g. `my-plugin`) and set up `package.json` like
   "type": "module",
   "pulse": {
     "entry": "index.js",
-    "sdk": "^0.2",
+    "sdk": "^0.3",
     "author": "Me",
     "description": "My first Pulse plugin",
     "homepage": "https://example.com/my-plugin",
@@ -124,6 +124,8 @@ The plugin directory is `<data dir>/plugins/<plugin-id>/`, where the data direct
 ### `onLoad(ctx: PluginContext)` — required
 
 Called when the plugin is enabled (at boot, or when toggled on). Register event listeners, commands, settings and HTTP routes here. If `onLoad` throws, the error is recorded as the plugin's `loadError`, `onUnload` runs, and the plugin stays unloaded.
+
+**Hot reload.** Toggling a plugin off and on runs the entry file as it is on disk now: when its modification time changed since the last load in this process, the loader copies it to `<plugin dir>/.runtime/<name>.<mtime>.js` and imports the copy (the runtime caches a module by path for the life of the process, so the original path would run the old code); older copies are removed. Only the entry file is copied — a relative `import "./other.js"` inside it does not resolve from the copy — so bundle your plugin into one file (`bun build … --target bun`) if you want to update it without a server restart. Bare imports from the plugin's own `node_modules` keep resolving.
 
 ### `onUnload(ctx: UnloadPluginContext)` — optional
 
@@ -298,7 +300,7 @@ Bounds: title ≤ 120, description ≤ 2000, gameTag ≤ 40, 1–12 roles (`key`
 
 ### `fetch(url, init?)` → `TPluginFetchResponse`
 
-Outbound HTTP through the server's hardened client: `http(s)` only; private, link-local and loopback targets refused (operator allowlist aside); DNS pinned between validation and connect; redirects refused; per-host outbound rate limit; body read through a cap.
+Outbound HTTP through the server's hardened client: `http(s)` only; private, link-local and loopback targets refused (operator allowlist aside); DNS pinned between validation and connect; redirects refused; a per-host outbound rate limit of 60 a minute in a budget of the plugin's own (another plugin or federation talking to the same host does not draw on it, nor you on theirs); body read through a cap. A refused request rejects with `BAD_REQUEST` and a message naming the host; wait a second and retry.
 
 ```typescript
 const res = await ctx.fetch("https://api.example/v1/status", {
@@ -330,6 +332,17 @@ ctx.http.register("webhook", async ({ method, body, query, headers }) => {
 - Return `{ status, body?, headers? }`: a string body is sent as `text/plain`, anything else as JSON, no body sends nothing. Framing and security headers you set are dropped. A thrown handler answers 500 and the error goes to the plugin log; a handler that takes longer than 30 s is cut off.
 - Requests are rate limited per source address (120/min per plugin) and per plugin (600/min).
 
+### `server.notify(topic, payload?)`
+
+A one-way, in-process signal to the server. Server features that know your plugin subscribe to a topic by plugin id (`pluginManager.onNotify(pluginId, topic, handler)` on the server side) and act the moment you call it; a topic nobody listens to is dropped with a debug line in your log. The official bridge uses `bridge:sync-requested` with `{ serverId, requested }` to have a remote channel change paired at once instead of on the next minute tick.
+
+```typescript
+ctx.server.notify("bridge:sync-requested", { serverId: 1, requested: 3 });
+```
+
+- `topic`: 1–64 characters. `payload`: anything that serialises to JSON of at most 16 KiB (omit it for none). Out of bounds throws a `BAD_REQUEST` action error synchronously.
+- Nothing comes back. A handler that fails is logged under your plugin's log; a call made from an instance of your plugin that has since been unloaded (a timer you forgot to clear) is ignored.
+
 ### `commands.register(command)`
 
 Registers a slash command users can invoke from the composer.
@@ -351,9 +364,11 @@ ctx.commands.register({
 
 ### `settings.register(definitions)` → `Promise<PluginSettings>`
 
-Declares typed, admin-editable settings. Each definition is `{ key, name, description?, type: "string" | "number" | "boolean", defaultValue }`. Values persist in the database, merge over the defaults on every load, and admins change them from the panel (`plugins.updateSetting` / `plugins.getSettings`). Keys starting with `__` are reserved for the loader.
+Declares typed, admin-editable settings. Each definition is `{ key, name, description?, type: "string" | "number" | "boolean" | "secret", defaultValue }`. Values persist in the database, merge over the defaults on every load, and admins change them from the panel (`plugins.updateSetting` / `plugins.getSettings`). Keys starting with `__` are reserved for the loader.
 
 The returned object has `get(key)` and `set(key, value)`; `set` persists asynchronously and logs an error for an unregistered key. Pass the definitions `as const` to get typed `get`/`set`.
+
+**`secret`** is for tokens and keys. The server stores the value encrypted under the instance's file-signing secret and never returns it: `plugins.getSettings` reports `{ set: boolean }`, the panel shows a masked write-only field ("Set" / "Replace"), `plugins.updateSetting` takes a new value or `null` to clear it, and `get(key)` hands your plugin the plaintext (an empty string while unset). `defaultValue` is `""`. If a setting you shipped as `string` becomes `secret`, the value already stored is encrypted on the next load and the plaintext row replaced. Keep the plaintext out of your logs; the loader never logs it.
 
 ### `actions.voice`
 
