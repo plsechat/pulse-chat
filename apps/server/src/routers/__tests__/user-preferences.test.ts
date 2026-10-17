@@ -81,15 +81,16 @@ describe('user preferences', () => {
   test('appearance.layout round-trips and rejects unknown layouts', async () => {
     const { caller } = await initTest();
 
+    // The tab layout is the default; the traditional rail is the opt-in.
     const defaults = await caller.users.getPreferences();
-    expect(defaults.appearance.layout).toBe('classic');
+    expect(defaults.appearance.layout).toBe('deck');
 
     const updated = await caller.users.updatePreferences({
-      appearance: { layout: 'deck' }
+      appearance: { layout: 'classic' }
     });
-    expect(updated.appearance.layout).toBe('deck');
+    expect(updated.appearance.layout).toBe('classic');
     expect((await caller.users.getPreferences()).appearance.layout).toBe(
-      'deck'
+      'classic'
     );
 
     await expect(
