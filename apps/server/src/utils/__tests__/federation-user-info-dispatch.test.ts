@@ -90,6 +90,8 @@ const updatesAmong = (calls: { url: string }[]) =>
   calls.filter((c) => c.url.includes('/federation/user-info-update'));
 
 const waitForUpdates = async (calls: { url: string }[], n: number) => {
+  // Expecting none: give a wrong relay a moment to show up before asserting.
+  if (n === 0) await new Promise((r) => setTimeout(r, 150));
   for (let i = 0; i < 200 && updatesAmong(calls).length < n; i++) {
     await new Promise((r) => setTimeout(r, 10));
   }
