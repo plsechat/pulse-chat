@@ -6,6 +6,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
+import { notifyBridgeChannelCreated } from '../../routers/servers/bridge-hooks';
 import {
   categories,
   channels,
@@ -181,6 +182,10 @@ const createChannelActions = (
         type: channel.type as ChannelType
       }
     });
+
+    // Same hook as channels.add: a whole-server bridge pairs the new
+    // channel (detached; only the link lookup is awaited).
+    await notifyBridgeChannelCreated(channel.serverId);
 
     return toPluginChannel(channel);
   };

@@ -1678,6 +1678,13 @@ const bridgeLinks = pgTable(
     createdBy: integer('created_by').references(() => users.id, {
       onDelete: 'set null'
     }),
+    /** Set when a server-level link produced this pair. */
+    serverLinkId: integer('server_link_id').references(
+      () => bridgeServerLinks.id,
+      { onDelete: 'cascade' }
+    ),
+    /** Opted out of the server link: kept so a sync does not re-add it. */
+    excluded: boolean('excluded').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull()
   },
   (t) => [
@@ -1686,7 +1693,44 @@ const bridgeLinks = pgTable(
   ]
 );
 
+
+/**
+ * A whole community linked to a remote server by the bridge plugin. The
+ * per-channel links it produces carry `serverLinkId`; `mode` says
+ * whether missing channels are created (`mirror`) or only same-name
+ * channels pair (`match`).
+ */
+const bridgeServerLinks = pgTable(
+  'bridge_server_links',
+  {
+    id: serial('id').primaryKey(),
+    pluginId: text('plugin_id').notNull(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    remoteGuildId: text('remote_guild_id').notNull(),
+    mode: text('mode').$type<'mirror' | 'match'>().notNull().default('match'),
+    createMissing: text('create_missing')
+      .$type<'both' | 'here' | 'there' | 'none'>()
+      .notNull()
+      .default('none'),
+    defaultDirection: text('default_direction')
+      .$type<'both' | 'inbound' | 'outbound'>()
+      .notNull()
+      .default('both'),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('bridge_server_links_plugin_server_idx').on(t.pluginId, t.serverId),
+    uniqueIndex('bridge_server_links_plugin_guild_idx').on(t.pluginId, t.remoteGuildId)
+  ]
+);
+
 export {
+  bridgeServerLinks,
   bridgeLinks,
   externalIdentities,
   importJobs,

@@ -21,12 +21,15 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { cn } from '@/lib/utils';
 import { getTRPCClient } from '@/lib/trpc';
 import type { TBridgeDirection, TBridgeStatus } from '@pulse/server/types';
-import { Link2, Link2Off, RefreshCw } from 'lucide-react';
+import { CircleMinus, CirclePlus, Link2, Link2Off, RefreshCw } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
+  describeDirectionInheritance,
+  describeServerLinkState,
   DIRECTION_OPTIONS,
   directionLabel,
+  INHERIT_DIRECTION,
   remoteChannelLabel,
   summarizeConnection,
   whyNotBridgeable
@@ -63,17 +66,31 @@ const DirectionSelect = memo(
   ({
     value,
     onChange,
-    disabled
+    disabled,
+    inheritFrom
   }: {
     value: TBridgeDirection;
     onChange: (direction: TBridgeDirection) => void;
     disabled?: boolean;
+    /** Under a server link: the default a channel inherits; adds a "server default" choice. */
+    inheritFrom?: TBridgeDirection;
   }) => (
-    <Select value={value} onValueChange={(next) => onChange(next as TBridgeDirection)} disabled={disabled}>
+    <Select
+      value={inheritFrom !== undefined && value === inheritFrom ? INHERIT_DIRECTION : value}
+      onValueChange={(next) =>
+        onChange(next === INHERIT_DIRECTION && inheritFrom !== undefined ? inheritFrom : (next as TBridgeDirection))
+      }
+      disabled={disabled}
+    >
       <SelectTrigger className="w-full sm:w-64" aria-label="Direction">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
+        {inheritFrom !== undefined && (
+          <SelectItem value={INHERIT_DIRECTION}>
+            Server default ({directionLabel(inheritFrom).toLowerCase()})
+          </SelectItem>
+        )}
         {DIRECTION_OPTIONS.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {option.label}
@@ -86,15 +103,26 @@ const DirectionSelect = memo(
 
 /**
  * Channel Settings → Bridge. Offered only while the bridge plugin runs
- * (the parent checks `status.available`). Two states: no link yet —
- * pick a server and a channel the bot can see, choose a direction,
- * link; linked — the pair, the direction (changeable in place), today's
- * count, the last error, and Unlink.
+ * (the parent checks `status.available`). States: no link yet — pick a
+ * server and a channel the bot can see, choose a direction, link;
+ * linked — the pair, the direction (changeable in place), today's count,
+ * the last error, and Unlink. Under a whole-server link the pair is
+ * shown as part of it: the direction inherits the server default unless
+ * overridden here, Exclude replaces Unlink (the sync would otherwise
+ * pair the channel again), an excluded channel offers Include, and an
+ * unpaired channel says what the next sync will do and may be excluded
+ * ahead of it. A channel linked by hand keeps working on its own.
  */
 const Bridge = memo(({ channelId, status, refresh }: TBridgeProps) => {
   const channel = useChannelById(channelId);
   const link = status.link;
-  const listing = useRemoteListing(status.configured, link?.remoteGuildId ?? null);
+  const serverLink = status.serverLink;
+  const relation = describeServerLinkState(status);
+  const underServerLink = relation.kind === 'paired' || relation.kind === 'excluded';
+  const listing = useRemoteListing(
+    status.configured && relation.kind !== 'excluded',
+    link && !link.excluded ? link.remoteGuildId : (serverLink?.remoteGuildId ?? null)
+  );
   const [remoteChannelId, setRemoteChannelId] = useState<string | null>(null);
   const [direction, setDirection] = useState<TBridgeDirection>('both');
   const [busy, setBusy] = useState(false);
@@ -148,6 +176,36 @@ const Bridge = memo(({ channelId, status, refresh }: TBridgeProps) => {
     [link, submitLink]
   );
 
+  const setExcluded = useCallback(
+    async (excluded: boolean) => {
+      if (excluded) {
+        const confirmed = await requestConfirmation({
+          title: 'Exclude this channel',
+          message:
+            'The pair ends and the webhook on the other side is removed; the channel over there stays. The server link leaves this channel alone from now on until you include it again.',
+          confirmLabel: 'Exclude',
+          variant: 'danger'
+        });
+        if (!confirmed) return;
+      }
+
+      const trpc = getTRPCClient();
+      if (!trpc) return;
+
+      setBusy(true);
+      try {
+        await trpc.channels.bridgeExclude.mutate({ channelId, excluded });
+        await refresh();
+        toast.success(excluded ? 'Channel excluded from the server link' : 'Channel included again — pairing');
+      } catch (error) {
+        toast.error(getTrpcError(error, excluded ? 'Could not exclude the channel' : 'Could not include the channel'));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [channelId, refresh]
+  );
+
   const onUnlink = useCallback(async () => {
     const confirmed = await requestConfirmation({
       title: 'Unlink this channel',
@@ -193,7 +251,20 @@ const Bridge = memo(({ channelId, status, refresh }: TBridgeProps) => {
           </Alert>
         )}
 
-        {status.bridgeable && link && (
+        {status.bridgeable && relation.kind !== 'none' && (
+          <p className="text-sm" role="note">
+            {relation.text}
+          </p>
+        )}
+
+        {status.bridgeable && relation.kind === 'excluded' && (
+          <Button variant="outline" onClick={() => void setExcluded(false)} disabled={busy}>
+            <CirclePlus className="h-4 w-4" aria-hidden="true" />
+            Include again
+          </Button>
+        )}
+
+        {status.bridgeable && link && !link.excluded && (
           <>
             <Group label="Linked to">
               <p className="text-sm">
@@ -204,9 +275,18 @@ const Bridge = memo(({ channelId, status, refresh }: TBridgeProps) => {
 
             <Group
               label="Direction"
-              description={DIRECTION_OPTIONS.find((o) => o.value === link.direction)?.description}
+              description={
+                underServerLink && serverLink
+                  ? `${DIRECTION_OPTIONS.find((o) => o.value === link.direction)?.description ?? ''} ${describeDirectionInheritance(link.direction, serverLink.defaultDirection)}`
+                  : DIRECTION_OPTIONS.find((o) => o.value === link.direction)?.description
+              }
             >
-              <DirectionSelect value={link.direction} onChange={onDirectionChange} disabled={busy} />
+              <DirectionSelect
+                value={link.direction}
+                onChange={onDirectionChange}
+                disabled={busy}
+                inheritFrom={underServerLink && serverLink ? serverLink.defaultDirection : undefined}
+              />
             </Group>
 
             <Group label="Today">
@@ -229,16 +309,39 @@ const Bridge = memo(({ channelId, status, refresh }: TBridgeProps) => {
                 <RefreshCw className="h-4 w-4" aria-hidden="true" />
                 Refresh
               </Button>
-              <Button variant="destructive" onClick={() => void onUnlink()} disabled={busy}>
-                <Link2Off className="h-4 w-4" aria-hidden="true" />
-                Unlink
-              </Button>
+              {underServerLink ? (
+                <Button variant="destructive" onClick={() => void setExcluded(true)} disabled={busy}>
+                  <CircleMinus className="h-4 w-4" aria-hidden="true" />
+                  Exclude this channel
+                </Button>
+              ) : (
+                <Button variant="destructive" onClick={() => void onUnlink()} disabled={busy}>
+                  <Link2Off className="h-4 w-4" aria-hidden="true" />
+                  Unlink
+                </Button>
+              )}
             </div>
           </>
         )}
 
+        {status.bridgeable && relation.kind === 'unpaired' && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void refresh()} disabled={busy}>
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Refresh
+            </Button>
+            <Button variant="outline" onClick={() => void setExcluded(true)} disabled={busy}>
+              <CircleMinus className="h-4 w-4" aria-hidden="true" />
+              Exclude this channel
+            </Button>
+          </div>
+        )}
+
         {status.bridgeable && !link && (
           <>
+            {relation.kind === 'unpaired' && (
+              <p className="text-sm font-medium">Or link it by hand</p>
+            )}
             <Group
               label="Server"
               description="The bot lists the servers it has been added to. Add it there first if the one you want is missing."

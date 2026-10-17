@@ -4,6 +4,9 @@ import type {
   TBridgeStatus
 } from '@pulse/server/types';
 
+/** Select value meaning "follow the server link's default direction". */
+export const INHERIT_DIRECTION = 'inherit';
+
 /**
  * Pure helpers for the Bridge tab: the three directions with the
  * sentence each one means, and the one-line state of the connection.
@@ -81,3 +84,60 @@ export const whyNotBridgeable = (channel: { e2ee: boolean; type: string }): stri
   channel.e2ee
     ? 'This channel is end-to-end encrypted. The server cannot read its messages, so it cannot mirror them to another service.'
     : 'Only text channels can be bridged; threads under a bridged channel follow it automatically.';
+
+export type TServerLinkState =
+  | { kind: 'none' }
+  /** Paired under the server link: shown as part of it, Exclude instead of Unlink. */
+  | { kind: 'paired'; text: string }
+  /** Opted out of the server link; the sync leaves it alone. */
+  | { kind: 'excluded'; text: string }
+  /** Linked by hand while a server link exists: the link stands on its own. */
+  | { kind: 'manual'; text: string }
+  /** Under a server link but not paired (yet). */
+  | { kind: 'unpaired'; text: string };
+
+const guildName = (status: Pick<TBridgeStatus, 'serverLink'>) =>
+  status.serverLink?.remoteGuildName ?? 'the remote server';
+
+/** How this channel relates to the server link, in one sentence. */
+export const describeServerLinkState = (
+  status: Pick<TBridgeStatus, 'link' | 'serverLink'>
+): TServerLinkState => {
+  const { link, serverLink } = status;
+
+  if (link && link.serverLinkId !== null) {
+    if (link.excluded) {
+      return {
+        kind: 'excluded',
+        text: `Excluded from the server link to ${guildName(status)}. Nothing flows, and the next sync leaves this channel alone.`
+      };
+    }
+    return { kind: 'paired', text: `Bridged with the server link to ${guildName(status)}.` };
+  }
+
+  if (!serverLink) return { kind: 'none' };
+
+  if (link) {
+    return {
+      kind: 'manual',
+      text: `Linked on its own. The server link to ${guildName(status)} leaves this channel to its own pair.`
+    };
+  }
+
+  return {
+    kind: 'unpaired',
+    text:
+      serverLink.mode === 'mirror'
+        ? `Not paired yet. The next sync pairs it with a channel of the same name in ${guildName(status)}, or creates one there when the link creates channels there.`
+        : `Not paired yet. The next sync pairs it with a channel of the same name in ${guildName(status)}.`
+  };
+};
+
+/** Whether a paired channel follows the server default or set its own direction. */
+export const describeDirectionInheritance = (
+  direction: TBridgeDirection,
+  defaultDirection: TBridgeDirection
+): string =>
+  direction === defaultDirection
+    ? `Inherits the server default (${directionLabel(defaultDirection).toLowerCase()}).`
+    : `Overrides the server default (${directionLabel(defaultDirection).toLowerCase()}).`;

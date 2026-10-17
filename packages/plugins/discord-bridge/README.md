@@ -1,6 +1,6 @@
 # discord-bridge
 
-An official PULSE plugin that mirrors a text channel with a channel on a Discord server, both ways: messages, edits, deletions, reactions, threads and scheduled events. Each side shows the other's authors by name and avatar. Voice is not bridged.
+An official PULSE plugin that mirrors a community with a Discord server, both ways: messages, edits, deletions, reactions, threads and scheduled events. Link the whole server once and every text channel is paired by name (or created on the side that lacks it); single channels can also be linked by hand. Each side shows the other's authors by name and avatar. Voice is not bridged.
 
 It ships inside the PULSE image under the data directory's `plugins/` folder and is **off by default**. It is written against the plugin SDK 0.2 only — no server internals.
 
@@ -9,9 +9,20 @@ It ships inside the PULSE image under the data directory's `plugins/` folder and
 1. **Create a bot** in the developer portal of the other service: an application with a bot user. Under the bot's settings switch on the two privileged intents, **Server Members** and **Message Content** — without the second every message arrives empty.
 2. **Add the bot to the server(s)** you want to bridge with these permissions: View Channels, Read Message History, Send Messages, Manage Webhooks, Manage Messages, Manage Threads, Create Public Threads, Send Messages in Threads, Add Reactions, Manage Events.
 3. **Enable the plugin** as the instance owner: Server Settings → Instance → Plugins → `discord-bridge` → switch it on, then open its settings and paste the **Bot token**. Set the **Public address** of the instance (for example `https://chat.example.com`) so member avatars and attachment links resolve on the other side. The token is picked up within 15 seconds; no reload needed.
-4. **Link a channel**: Channel Settings → Bridge (needs Manage Channels; the tab appears only while the plugin runs). Pick the server and the channel the bot can see, choose a direction (both ways / only from there / only from here) and link. The plugin creates a webhook on the remote channel; messages written here are posted through it under the author's name and avatar.
+4. **Link the server**: Server Settings → Integrations → Bridge (needs Manage Settings; the section appears only while the plugin runs). Pick the remote server the bot sits in, choose how channels pair — **Match by name** (text and announcement channels with the same name, case-insensitively: `General Chat` here is `general-chat` there) or **Mirror** (match by name and create what is missing on both sides, only here, or only there, categories included) — and a default direction, then **Link server**. The server pairs the channels in the background (one webhook per pair, paced by the API's rate limits, so a large first sync takes a few minutes) and the section shows the counts: paired, created here, created there, skipped with the reason, excluded.
+5. **Or link single channels**: Channel Settings → Bridge (needs Manage Channels). Pick the server and the channel the bot can see, choose a direction and link. A channel linked by hand keeps working beside a server link ("linked on its own").
+
+Under a server link each channel's Bridge tab shows its pair, lets it override the direction (it inherits the server default otherwise) and offers **Exclude this channel**, which ends the pair and keeps the channel out of every later sync; **Include again** puts it back.
 
 Threads under a bridged channel follow it automatically. Scheduled events of a server are mirrored to the first linked remote server and back.
+
+### How a server link keeps itself in step
+
+- A text channel created **here** is paired on the spot (the server's channel-create path runs a sync).
+- A text channel created or deleted **over there** reaches the gateway; the plugin cannot call a server route through the SDK, so it bumps a per-server counter the server reads once a minute and answers with a sync. The same happens after a gateway reconnect (anything may have changed meanwhile), and every link gets a full reconcile every 30 minutes regardless.
+- A rename on either side keeps the pair: pairs are remembered by id, names only matter the moment a pair is formed.
+- A **deletion** on either side ends the pair and nothing else: the channel on the other side stays. Deletions are never mirrored.
+- "Sync channels now" in the section runs a sync at once. Private channels here are never paired automatically (their audience was chosen on purpose) — link them by hand if you mean to.
 
 ## What is refused
 
@@ -41,7 +52,9 @@ Threads under a bridged channel follow it automatically. Scheduled events of a s
 
 ## Status
 
-Channel Settings → Bridge shows: connected as which bot (or why not), the link, the direction, how many messages were mirrored since midnight UTC, and the last error for that link.
+Channel Settings → Bridge shows: connected as which bot (or why not), the link, the direction, how many messages were mirrored since midnight UTC, and the last error for that link. Server Settings → Bridge shows the server link, how many channels are paired / excluded / linked on their own, the last sync (when, what it paired, created and removed, what it skipped and why) and the last error.
+
+Server links: at most 500 channels per sync on each side (the rest is reported as skipped); one sync at a time per server, a request arriving meanwhile queues one follow-up run; remote channel and category creation goes through the same paced REST client; unlinking a server removes its pairs and webhooks (webhook deletion runs in the background under the same budget) and keeps every channel on both sides.
 
 ## Development
 

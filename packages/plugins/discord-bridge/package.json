@@ -7,7 +7,7 @@
     "entry": "dist/index.js",
     "sdk": "^0.2.0",
     "author": "PULSE",
-    "description": "Mirror a text channel with a channel on a Discord server: messages, edits, deletions, reactions, threads and scheduled events flow both ways. Voice is not bridged.",
+    "description": "Mirror a community with a Discord server: link the whole server once (channels pair by name or get created on either side, new channels follow) or link single channels. Messages, edits, deletions, reactions, threads and scheduled events flow both ways. Voice is not bridged.",
     "capabilities": ["moderate-messages"]
   },
   "scripts": {

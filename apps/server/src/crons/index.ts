@@ -10,6 +10,7 @@ import { eventsTick } from './events';
 import { drainOutboxTick } from './federation-outbox';
 import { pruneFederationReplayState } from './federation-seen-jti';
 import { pruneExpiredLogs } from './retention';
+import { bridgeSyncTick } from '../routers/servers/bridge-sync';
 
 enum CRON_TIMES {
   EVERY_30_SECONDS = '*/30 * * * * *',
@@ -135,6 +136,14 @@ const loadCrons = () => {
     cleanupExpiredAuthSessions,
     CRON_LOCK_IDS.CLEANUP_AUTH_SESSIONS
   );
+
+  // Whole-server bridge: one cheap SELECT a minute while no server is
+  // linked; with links, one in-process call asks the bridge plugin
+  // whether the remote side changed (a channel created or deleted over
+  // there, a gateway reconnect) and re-pairs the servers that need it.
+  // The plugin cannot call a server route through the SDK, so this tick
+  // is its way back to us. In-process state, deliberately unlocked.
+  scheduleCron('bridge-sync', CRON_TIMES.EVERY_MINUTE, () => bridgeSyncTick());
 
   // Federation outbox: queued relays to peers that were down or
   // rate-limited. 30 s matches the first backoff step, so a relay that

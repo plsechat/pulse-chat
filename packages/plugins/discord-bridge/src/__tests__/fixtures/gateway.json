@@ -1,8 +1,20 @@
 {
-  "hello": { "op": 10, "d": { "heartbeat_interval": 41250 } },
-  "heartbeatAck": { "op": 11 },
-  "reconnect": { "op": 7 },
-  "invalidSessionNotResumable": { "op": 9, "d": false },
+  "hello": {
+    "op": 10,
+    "d": {
+      "heartbeat_interval": 41250
+    }
+  },
+  "heartbeatAck": {
+    "op": 11
+  },
+  "reconnect": {
+    "op": 7
+  },
+  "invalidSessionNotResumable": {
+    "op": 9,
+    "d": false
+  },
   "ready": {
     "op": 0,
     "s": 1,
@@ -11,7 +23,11 @@
       "v": 10,
       "session_id": "sess-1",
       "resume_gateway_url": "wss://gateway-us-east1-b.discord.gg",
-      "user": { "id": "900000000000000001", "username": "pulse-bridge", "bot": true }
+      "user": {
+        "id": "900000000000000001",
+        "username": "pulse-bridge",
+        "bot": true
+      }
     }
   },
   "readyUntrustedResume": {
@@ -21,10 +37,19 @@
     "d": {
       "session_id": "sess-evil",
       "resume_gateway_url": "wss://evil.example.com",
-      "user": { "id": "900000000000000001", "username": "pulse-bridge", "bot": true }
+      "user": {
+        "id": "900000000000000001",
+        "username": "pulse-bridge",
+        "bot": true
+      }
     }
   },
-  "resumed": { "op": 0, "s": 9, "t": "RESUMED", "d": {} },
+  "resumed": {
+    "op": 0,
+    "s": 9,
+    "t": "RESUMED",
+    "d": {}
+  },
   "guildCreate": {
     "op": 0,
     "s": 2,
@@ -34,16 +59,50 @@
       "name": "Night Raiders",
       "icon": "abc123",
       "roles": [
-        { "id": "300000000000000001", "name": "@everyone" },
-        { "id": "300000000000000002", "name": "Officers" }
+        {
+          "id": "300000000000000001",
+          "name": "@everyone"
+        },
+        {
+          "id": "300000000000000002",
+          "name": "Officers"
+        }
       ],
       "channels": [
-        { "id": "200000000000000009", "type": 4, "name": "Chat", "position": 0 },
-        { "id": "200000000000000001", "type": 0, "name": "general", "parent_id": "200000000000000009", "position": 1 },
-        { "id": "200000000000000002", "type": 0, "name": "raids", "parent_id": "200000000000000009", "position": 2 },
-        { "id": "200000000000000003", "type": 2, "name": "Voice", "position": 3 }
+        {
+          "id": "200000000000000009",
+          "type": 4,
+          "name": "Chat",
+          "position": 0
+        },
+        {
+          "id": "200000000000000001",
+          "type": 0,
+          "name": "general",
+          "parent_id": "200000000000000009",
+          "position": 1
+        },
+        {
+          "id": "200000000000000002",
+          "type": 0,
+          "name": "raids",
+          "parent_id": "200000000000000009",
+          "position": 2
+        },
+        {
+          "id": "200000000000000003",
+          "type": 2,
+          "name": "Voice",
+          "position": 3
+        }
       ],
-      "emojis": [{ "id": "400000000000000001", "name": "pogchamp", "animated": false }]
+      "emojis": [
+        {
+          "id": "400000000000000001",
+          "name": "pogchamp",
+          "animated": false
+        }
+      ]
     }
   },
   "messageCreate": {
@@ -54,15 +113,51 @@
       "guild_id": "100000000000000001",
       "type": 0,
       "content": "hey <@600000000000000002> see <#200000000000000002> <:pogchamp:400000000000000001> <@&300000000000000002> at <t:1760000000:f> @here",
-      "author": { "id": "600000000000000001", "username": "carol", "global_name": "Carol", "avatar": "c0ffee" },
-      "member": { "nick": "Caz", "avatar": null },
-      "mentions": [{ "id": "600000000000000002", "username": "dave", "global_name": "Dave" }],
-      "attachments": [
-        { "id": "700000000000000001", "filename": "shot.png", "size": 1234, "url": "https://cdn.discordapp.com/attachments/1/2/shot.png", "content_type": "image/png" },
-        { "id": "700000000000000002", "filename": "evil.png", "size": 12, "url": "https://evil.example.com/x.png", "content_type": "image/png" }
+      "author": {
+        "id": "600000000000000001",
+        "username": "carol",
+        "global_name": "Carol",
+        "avatar": "c0ffee"
+      },
+      "member": {
+        "nick": "Caz",
+        "avatar": null
+      },
+      "mentions": [
+        {
+          "id": "600000000000000002",
+          "username": "dave",
+          "global_name": "Dave"
+        }
       ],
-      "embeds": [{ "title": "A link", "url": "https://example.org/post" }],
-      "sticker_items": [{ "id": "800000000000000001", "name": "wave" }]
+      "attachments": [
+        {
+          "id": "700000000000000001",
+          "filename": "shot.png",
+          "size": 1234,
+          "url": "https://cdn.discordapp.com/attachments/1/2/shot.png",
+          "content_type": "image/png"
+        },
+        {
+          "id": "700000000000000002",
+          "filename": "evil.png",
+          "size": 12,
+          "url": "https://evil.example.com/x.png",
+          "content_type": "image/png"
+        }
+      ],
+      "embeds": [
+        {
+          "title": "A link",
+          "url": "https://example.org/post"
+        }
+      ],
+      "sticker_items": [
+        {
+          "id": "800000000000000001",
+          "name": "wave"
+        }
+      ]
     }
   },
   "messageCreatePlain": {
@@ -73,7 +168,12 @@
       "guild_id": "100000000000000001",
       "type": 0,
       "content": "plain words",
-      "author": { "id": "600000000000000001", "username": "carol", "global_name": "Carol", "avatar": null }
+      "author": {
+        "id": "600000000000000001",
+        "username": "carol",
+        "global_name": "Carol",
+        "avatar": null
+      }
     }
   },
   "messageCreateReply": {
@@ -84,8 +184,15 @@
       "guild_id": "100000000000000001",
       "type": 19,
       "content": "replying",
-      "author": { "id": "600000000000000002", "username": "dave", "global_name": "Dave" },
-      "message_reference": { "message_id": "500000000000000002", "channel_id": "200000000000000001" }
+      "author": {
+        "id": "600000000000000002",
+        "username": "dave",
+        "global_name": "Dave"
+      },
+      "message_reference": {
+        "message_id": "500000000000000002",
+        "channel_id": "200000000000000001"
+      }
     }
   },
   "messageCreateFromOurWebhook": {
@@ -97,7 +204,11 @@
       "type": 0,
       "content": "echo of our own mirror",
       "webhook_id": "910000000000000001",
-      "author": { "id": "910000000000000001", "username": "Ali", "bot": true }
+      "author": {
+        "id": "910000000000000001",
+        "username": "Ali",
+        "bot": true
+      }
     }
   },
   "messageCreateSystem": {
@@ -107,7 +218,10 @@
       "channel_id": "200000000000000001",
       "type": 7,
       "content": "",
-      "author": { "id": "600000000000000003", "username": "newbie" }
+      "author": {
+        "id": "600000000000000003",
+        "username": "newbie"
+      }
     }
   },
   "messageCreateUnlinked": {
@@ -117,7 +231,10 @@
       "channel_id": "200000000000000002",
       "type": 0,
       "content": "not bridged",
-      "author": { "id": "600000000000000001", "username": "carol" }
+      "author": {
+        "id": "600000000000000001",
+        "username": "carol"
+      }
     }
   },
   "messageUpdate": {
@@ -127,7 +244,11 @@
       "channel_id": "200000000000000001",
       "guild_id": "100000000000000001",
       "content": "plain words, edited",
-      "author": { "id": "600000000000000001", "username": "carol", "global_name": "Carol" },
+      "author": {
+        "id": "600000000000000001",
+        "username": "carol",
+        "global_name": "Carol"
+      },
       "edited_timestamp": "2026-10-16T12:00:00Z"
     }
   },
@@ -136,12 +257,20 @@
     "d": {
       "id": "500000000000000002",
       "channel_id": "200000000000000001",
-      "embeds": [{ "url": "https://example.org" }]
+      "embeds": [
+        {
+          "url": "https://example.org"
+        }
+      ]
     }
   },
   "messageDelete": {
     "t": "MESSAGE_DELETE",
-    "d": { "id": "500000000000000002", "channel_id": "200000000000000001", "guild_id": "100000000000000001" }
+    "d": {
+      "id": "500000000000000002",
+      "channel_id": "200000000000000001",
+      "guild_id": "100000000000000001"
+    }
   },
   "reactionAdd": {
     "t": "MESSAGE_REACTION_ADD",
@@ -150,7 +279,10 @@
       "channel_id": "200000000000000001",
       "message_id": "500000000000000002",
       "guild_id": "100000000000000001",
-      "emoji": { "id": null, "name": "👍" }
+      "emoji": {
+        "id": null,
+        "name": "\ud83d\udc4d"
+      }
     }
   },
   "reactionAddCustom": {
@@ -159,7 +291,10 @@
       "user_id": "600000000000000002",
       "channel_id": "200000000000000001",
       "message_id": "500000000000000002",
-      "emoji": { "id": "400000000000000001", "name": "pogchamp" }
+      "emoji": {
+        "id": "400000000000000001",
+        "name": "pogchamp"
+      }
     }
   },
   "reactionRemove": {
@@ -168,7 +303,10 @@
       "user_id": "600000000000000002",
       "channel_id": "200000000000000001",
       "message_id": "500000000000000002",
-      "emoji": { "id": null, "name": "👍" }
+      "emoji": {
+        "id": null,
+        "name": "\ud83d\udc4d"
+      }
     }
   },
   "reactionAddByBot": {
@@ -177,7 +315,10 @@
       "user_id": "900000000000000001",
       "channel_id": "200000000000000001",
       "message_id": "500000000000000002",
-      "emoji": { "id": null, "name": "👍" }
+      "emoji": {
+        "id": null,
+        "name": "\ud83d\udc4d"
+      }
     }
   },
   "threadCreate": {
@@ -212,7 +353,11 @@
       "guild_id": "100000000000000001",
       "type": 0,
       "content": "inside the thread",
-      "author": { "id": "600000000000000002", "username": "dave", "global_name": "Dave" }
+      "author": {
+        "id": "600000000000000002",
+        "username": "dave",
+        "global_name": "Dave"
+      }
     }
   },
   "scheduledEventCreate": {
@@ -226,7 +371,9 @@
       "scheduled_end_time": "2026-10-20T22:00:00Z",
       "status": 1,
       "creator_id": "600000000000000001",
-      "entity_metadata": { "location": "Voice" }
+      "entity_metadata": {
+        "location": "Voice"
+      }
     }
   },
   "scheduledEventCreateByBot": {
@@ -261,6 +408,81 @@
       "name": "Raid night (moved)",
       "scheduled_start_time": "2026-10-20T20:00:00Z",
       "status": 1
+    }
+  },
+  "channelCreate": {
+    "op": 0,
+    "s": 40,
+    "t": "CHANNEL_CREATE",
+    "d": {
+      "id": "200000000000000011",
+      "type": 0,
+      "name": "strategy",
+      "guild_id": "100000000000000001",
+      "parent_id": "200000000000000009",
+      "position": 4
+    }
+  },
+  "channelCreateVoice": {
+    "op": 0,
+    "s": 41,
+    "t": "CHANNEL_CREATE",
+    "d": {
+      "id": "200000000000000012",
+      "type": 2,
+      "name": "Raid Voice",
+      "guild_id": "100000000000000001",
+      "position": 5
+    }
+  },
+  "channelCreateOtherGuild": {
+    "op": 0,
+    "s": 42,
+    "t": "CHANNEL_CREATE",
+    "d": {
+      "id": "200000000000000013",
+      "type": 0,
+      "name": "lobby",
+      "guild_id": "100000000000000002",
+      "position": 1
+    }
+  },
+  "channelUpdateRename": {
+    "op": 0,
+    "s": 43,
+    "t": "CHANNEL_UPDATE",
+    "d": {
+      "id": "200000000000000001",
+      "type": 0,
+      "name": "general-renamed",
+      "guild_id": "100000000000000001",
+      "parent_id": "200000000000000009",
+      "position": 1
+    }
+  },
+  "channelDeleteLinked": {
+    "op": 0,
+    "s": 44,
+    "t": "CHANNEL_DELETE",
+    "d": {
+      "id": "200000000000000001",
+      "type": 0,
+      "name": "general-renamed",
+      "guild_id": "100000000000000001",
+      "parent_id": "200000000000000009",
+      "position": 1
+    }
+  },
+  "channelDeleteUnlinked": {
+    "op": 0,
+    "s": 45,
+    "t": "CHANNEL_DELETE",
+    "d": {
+      "id": "200000000000000004",
+      "type": 0,
+      "name": "news",
+      "guild_id": "100000000000000001",
+      "position": 3
     }
   }
 }

@@ -1,4 +1,9 @@
 import { t } from '../../utils/trpc';
+import { bridgeLinkRoute } from './bridge-link';
+import { bridgeRemoteGuildsRoute } from './bridge-remote-guilds';
+import { bridgeStatusRoute } from './bridge-status';
+import { bridgeSyncRoute } from './bridge-sync';
+import { bridgeUnlinkRoute } from './bridge-unlink';
 import { createServerRoute } from './create';
 import { deleteServerRoute } from './delete';
 import { discoverServersRoute } from './discover';
@@ -36,6 +41,11 @@ export const serversRouter = t.router({
   getUnreadCounts: getUnreadCountsRoute,
   getMembers: getServerMembersRoute,
   transferOwner: transferOwnerRoute,
+  bridgeStatus: bridgeStatusRoute,
+  bridgeLink: bridgeLinkRoute,
+  bridgeUnlink: bridgeUnlinkRoute,
+  bridgeSync: bridgeSyncRoute,
+  bridgeRemoteGuilds: bridgeRemoteGuildsRoute,
   onMemberJoin: onMemberJoinRoute,
   onMemberLeave: onMemberLeaveRoute,
   onUnreadCountUpdate: onUnreadCountUpdateRoute

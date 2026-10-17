@@ -37,6 +37,22 @@ export type TLink = {
   direction: TDirection;
 };
 
+export type TBridgeMode = 'mirror' | 'match';
+export type TCreateMissing = 'both' | 'here' | 'there' | 'none';
+
+/**
+ * The plugin's copy of a whole-server link (the server holds the
+ * record). It tells the gateway handlers which guilds are watched for
+ * channel changes; the pairing itself happens on the server.
+ */
+export type TServerLink = {
+  serverId: number;
+  remoteGuildId: string;
+  mode: TBridgeMode;
+  createMissing: TCreateMissing;
+  defaultDirection: TDirection;
+};
+
 export type TThreadLink = {
   localThreadId: number;
   remoteThreadId: string;
@@ -70,6 +86,8 @@ export type TPersona = {
 export type TPersistedState = {
   version: 1;
   links: TLink[];
+  /** Absent in files written before whole-server links existed. */
+  serverLinks?: TServerLink[];
   threads: TThreadLink[];
   messages: TMessageLink[];
   events: TEventLink[];
@@ -177,6 +195,17 @@ const isLink = (value: unknown): value is TLink =>
   typeof value.webhookId === 'string' &&
   isDirection(value.direction);
 
+const isServerLink = (value: unknown): value is TServerLink =>
+  isRecord(value) &&
+  Number.isInteger(value.serverId) &&
+  typeof value.remoteGuildId === 'string' &&
+  (value.mode === 'mirror' || value.mode === 'match') &&
+  (value.createMissing === 'both' ||
+    value.createMissing === 'here' ||
+    value.createMissing === 'there' ||
+    value.createMissing === 'none') &&
+  isDirection(value.defaultDirection);
+
 const isThreadLink = (value: unknown): value is TThreadLink =>
   isRecord(value) &&
   Number.isInteger(value.localThreadId) &&
@@ -215,6 +244,7 @@ const takeValid = <T>(list: unknown, guard: (v: unknown) => v is T, max: number)
  */
 export class BridgeStore {
   readonly links = new Map<number, TLink>();
+  readonly serverLinks = new Map<number, TServerLink>();
   readonly threads = new Map<number, TThreadLink>();
   private readonly threadsByRemote = new Map<string, TThreadLink>();
   private readonly messagesByLocal = new BoundedMap<number, TMessageLink>(MAX_MESSAGE_LINKS);
@@ -248,6 +278,9 @@ export class BridgeStore {
 
     for (const link of takeValid(parsed.links, isLink, 10_000)) {
       this.links.set(link.channelId, link);
+    }
+    for (const link of takeValid(parsed.serverLinks, isServerLink, 1_000)) {
+      this.serverLinks.set(link.serverId, link);
     }
     for (const thread of takeValid(parsed.threads, isThreadLink, MAX_THREAD_LINKS)) {
       this.setThread(thread, false);
@@ -302,6 +335,29 @@ export class BridgeStore {
       if (thread.channelId === channelId) this.removeThread(thread.localThreadId);
     }
 
+    this.markDirty();
+    return link;
+  }
+
+  // ─── server links ───────────────────────────────────────────────────
+
+  serverLinkForGuild(remoteGuildId: string): TServerLink | undefined {
+    for (const link of this.serverLinks.values()) {
+      if (link.remoteGuildId === remoteGuildId) return link;
+    }
+    return undefined;
+  }
+
+  setServerLink(link: TServerLink): void {
+    this.serverLinks.set(link.serverId, link);
+    this.markDirty();
+  }
+
+  removeServerLink(serverId: number): TServerLink | undefined {
+    const link = this.serverLinks.get(serverId);
+    if (!link) return undefined;
+
+    this.serverLinks.delete(serverId);
     this.markDirty();
     return link;
   }
@@ -436,6 +492,7 @@ export class BridgeStore {
     return {
       version: 1,
       links: [...this.links.values()],
+      serverLinks: [...this.serverLinks.values()],
       threads: [...this.threads.values()],
       messages: [...this.messagesByLocal.values()],
       events: [...this.eventsByLocal.values()],

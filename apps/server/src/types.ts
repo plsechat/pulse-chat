@@ -25,6 +25,7 @@ import type {
   activityLog,
   automodRules,
   bridgeLinks,
+  bridgeServerLinks,
   categories,
   channelNotificationSettings,
   channelReadStates,
@@ -723,4 +724,64 @@ export type TBridgeStatus = {
   mirroredToday: number;
   /** The last failure mirroring this channel, if any. */
   linkError: string | null;
+  /** The whole-server link this channel falls under, when the server has one. */
+  serverLink: TBridgeServerLinkSummary | null;
+};
+
+// -------------------- WHOLE-SERVER BRIDGE --------------------
+/** One row of bridge_server_links: a community linked to one remote server. */
+export type TBridgeServerLink = InferSelectModel<typeof bridgeServerLinks>;
+/** `match`: same-name channels pair; `mirror`: match AND create what is missing. */
+export type TBridgeMode = TBridgeServerLink['mode'];
+/** Which side gets the channels it lacks (mirror mode only). */
+export type TBridgeCreateMissing = TBridgeServerLink['createMissing'];
+export type TBridgeServerLinkView = Omit<TBridgeServerLink, 'pluginId'>;
+/** What the channel tab needs to know about the server link above it. */
+export type TBridgeServerLinkSummary = {
+  id: number;
+  remoteGuildId: string;
+  /** From the plugin's guild cache; null until the gateway has seen the guild. */
+  remoteGuildName: string | null;
+  mode: TBridgeMode;
+  defaultDirection: TBridgeDirection;
+};
+export type TBridgeSyncTrigger = 'link' | 'manual' | 'channel-created' | 'tick' | 'status';
+/** A channel a sync left alone, and why, in the owner's words. */
+export type TBridgeSkippedChannel = {
+  name: string;
+  side: 'here' | 'there';
+  reason: string;
+};
+/** The outcome of one sync run (kept in memory; the tick refreshes it after a restart). */
+export type TBridgeSyncReport = {
+  trigger: TBridgeSyncTrigger;
+  startedAt: number;
+  finishedAt: number | null;
+  paired: number;
+  createdHere: number;
+  createdThere: number;
+  removed: number;
+  skipped: TBridgeSkippedChannel[];
+  error: string | null;
+};
+export type TBridgeServerStatus = {
+  /** The bridge plugin is loaded; the section is offered only then. */
+  available: boolean;
+  configured: boolean;
+  connected: boolean;
+  botUser: { id: string; name: string } | null;
+  lastError: string | null;
+  link: TBridgeServerLinkView | null;
+  remoteGuildName: string | null;
+  counts: {
+    /** Server-linked channels with a live webhook. */
+    paired: number;
+    excluded: number;
+    /** Channels linked on their own, before or beside the server link. */
+    manual: number;
+  };
+  sync: {
+    running: boolean;
+    last: TBridgeSyncReport | null;
+  };
 };

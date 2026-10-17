@@ -9,6 +9,7 @@ import { enqueueActivityLog } from '../../queues/activity-log';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { serverProcedureFor } from '../../utils/procedures';
+import { notifyBridgeChannelCreated } from '../servers/bridge-hooks';
 
 const addChannelRoute = serverProcedureFor(Permission.MANAGE_CHANNELS)
   .input(
@@ -85,6 +86,11 @@ const addChannelRoute = serverProcedureFor(Permission.MANAGE_CHANNELS)
         type: channel.type as ChannelType
       }
     });
+
+    // A server bridged as a whole picks the new channel up: the pairing
+    // itself runs detached (webhook creation is paced); only the
+    // "is this server linked" lookup is awaited here.
+    await notifyBridgeChannelCreated(channel.serverId);
 
     return channel.id;
   });

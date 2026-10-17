@@ -31,7 +31,8 @@ Every subsystem was audited end to end — HTTP edge, authorization, federation,
 
 ### Chat bridge
 
-- An official bridge plugin ships in the image, off by default. Enable it under Instance → Plugins, give it a bot token, and any text channel gets a **Bridge** tab in Channel Settings: pick the remote server and channel, choose the direction, link. Messages, edits, deletions, reactions, threads and scheduled events then flow both ways, and each side shows the other's authors by name and avatar. Encrypted channels cannot be bridged. Voice is not bridged.
+- An official bridge plugin ships in the image, off by default. Enable it under Instance → Plugins, give it a bot token, and link your **whole community** to a server on the other side from Server Settings → Integrations → Bridge: channels pair by name, or get created where missing on either side with their categories, new channels on either side follow automatically, and deletions are never mirrored. Each channel's own **Bridge** tab can opt out, set its own direction, or link a channel by hand. Messages, edits, deletions, reactions, threads and scheduled events flow both ways, and each side shows the other's authors by name and avatar. Encrypted channels cannot be bridged. Voice is not bridged.
+- Screen share keeps its frame rate at high quality: the encoder budget now follows the chosen resolution and frame rate (up to 16 Mbps for 2160p at 60), and a 30 or 60 fps share protects motion rather than text sharpness. The container health probe follows the configured port.
 
 ### Plugin SDK 0.2
 

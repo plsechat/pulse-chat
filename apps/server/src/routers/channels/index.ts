@@ -1,5 +1,6 @@
 import { t } from '../../utils/trpc';
 import { addChannelRoute } from './add-channel';
+import { bridgeExcludeRoute } from './bridge-exclude';
 import { bridgeLinkRoute } from './bridge-link';
 import { bridgeRemoteChannelsRoute } from './bridge-remote-channels';
 import { bridgeStatusRoute } from './bridge-status';
@@ -40,6 +41,7 @@ export const channelsRouter = t.router({
   bridgeUnlink: bridgeUnlinkRoute,
   bridgeStatus: bridgeStatusRoute,
   bridgeRemoteChannels: bridgeRemoteChannelsRoute,
+  bridgeExclude: bridgeExcludeRoute,
   onCreate: onChannelCreateRoute,
   onDelete: onChannelDeleteRoute,
   onUpdate: onChannelUpdateRoute,

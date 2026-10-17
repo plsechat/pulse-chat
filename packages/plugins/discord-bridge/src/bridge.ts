@@ -22,11 +22,13 @@ import {
   quoteLine,
   MAX_AUTHOR_NAME
 } from './mapping';
+import { normalizeChannelName } from './pairing';
 import { RestClient, RestError } from './rest';
 import {
   BridgeStore,
   type TDirection,
   type TLink,
+  type TServerLink,
   type TStateStorage
 } from './store';
 import type {
@@ -61,6 +63,15 @@ import type {
  * call the HTTP handlers below); this module keeps a copy without any
  * secret so it can resume after a restart, and resolves webhook tokens
  * through the bot when it needs one.
+ *
+ * Whole-server links: the server decides the pairing; this side lists
+ * the remote channels (with categories and what it would not bridge),
+ * creates a remote channel — and its category — when asked, and watches
+ * the gateway for channel changes in a linked guild. A plugin cannot
+ * call a server route through the SDK, so a change over there (or a
+ * reconnect, after which anything may have happened) only bumps a
+ * per-server counter that the server reads from `status` on its next
+ * tick and answers with a sync.
  */
 
 export const PLUGIN_ID = 'discord-bridge';
@@ -78,6 +89,18 @@ const SNOWFLAKE = /^\d{1,20}$/;
 const MIRRORED_MESSAGE_TYPES = new Set([0, 19]);
 /** Channel types the picker offers: text and announcement. */
 const LINKABLE_CHANNEL_TYPES = new Set([0, 5]);
+/** Guild channel types a whole-server sync reports as left alone, in the owner's words. */
+const SKIPPED_CHANNEL_TYPES = new Map<number, string>([
+  [2, 'voice channel'],
+  [13, 'stage channel'],
+  [15, 'forum'],
+  [16, 'media channel']
+]);
+const REMOTE_CATEGORY_TYPE = 4;
+const REMOTE_TEXT_TYPE = 0;
+/** Remote channel and category names are capped by the API at 100. */
+const MAX_REMOTE_NAME = 100;
+const MAX_REMOVE_MANY = 500;
 const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
 const REMOTE_EVENT_CANCELLED = 4;
 
@@ -136,6 +159,16 @@ export type TBridgeStatusReport = {
   lastError: string | null;
   botUser: { id: string; name: string } | null;
   links: Record<string, TLinkStatus>;
+  /** Names from the gateway cache for the guild ids asked. */
+  guilds: Record<string, { name: string }>;
+  /** Per server id: bumped when the remote side changed; the server syncs when it moves. */
+  syncRequested: Record<string, number>;
+};
+
+type TStatusQuery = {
+  channelIds: number[];
+  serverIds: number[];
+  guildIds: string[];
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -190,6 +223,7 @@ export class Bridge {
   private readonly mirrored = new Map<number, { day: string; count: number }>();
   private readonly linkErrors = new Map<number, string>();
   private readonly pushedEvents = new Map<string, string>();
+  private readonly syncRequested = new Map<number, number>();
   private inboundEventsInFlight = 0;
   private started = false;
   private activeToken = '';
@@ -211,6 +245,11 @@ export class Bridge {
       timers: options.timers,
       random: options.random,
       onDispatch: (type, data) => this.handleDispatch(type, data),
+      // After a (re)connect anything may have changed over there while
+      // we were not listening: every server link asks for a sync.
+      onStatus: (status) => {
+        if (status.connected) this.requestSyncForAllServers();
+      },
       log: (...message) => this.ctx.debug(...message)
     });
   }
@@ -271,6 +310,10 @@ export class Bridge {
     this.ctx.http.register('channels', (request) => this.handleChannelsRoute(request));
     this.ctx.http.register('links/upsert', (request) => this.handleLinkUpsert(request));
     this.ctx.http.register('links/remove', (request) => this.handleLinkRemove(request));
+    this.ctx.http.register('links/remove-many', (request) => this.handleLinkRemoveMany(request));
+    this.ctx.http.register('server-links/upsert', (request) => this.handleServerLinkUpsert(request));
+    this.ctx.http.register('server-links/remove', (request) => this.handleServerLinkRemove(request));
+    this.ctx.http.register('remote/create-channel', (request) => this.handleRemoteCreateChannel(request));
     this.ctx.http.register('status', (request) => this.handleStatus(request));
   }
 
@@ -300,7 +343,9 @@ export class Bridge {
 
       const channels = await this.rest.get<TRemoteChannel[]>(`/guilds/${guildId}/channels`);
       const categories = new Map(
-        channels.filter((c) => c.type === 4).map((c) => [c.id, boundText(c.name, 100)])
+        channels
+          .filter((c) => c.type === REMOTE_CATEGORY_TYPE)
+          .map((c) => [c.id, boundText(c.name, MAX_REMOTE_NAME)])
       );
       const linkable = channels
         .filter((c) => LINKABLE_CHANNEL_TYPES.has(c.type))
@@ -308,12 +353,25 @@ export class Bridge {
         .map((c) => ({
           id: c.id,
           guildId,
-          name: boundText(c.name, 100, 'unnamed'),
+          name: boundText(c.name, MAX_REMOTE_NAME, 'unnamed'),
+          parentId: c.parent_id ?? null,
           parentName: c.parent_id ? (categories.get(c.parent_id) ?? null) : null,
           position: c.position ?? 0
         }));
+      const skipped = channels
+        .filter((c) => SKIPPED_CHANNEL_TYPES.has(c.type))
+        .map((c) => ({
+          id: c.id,
+          name: boundText(c.name, MAX_REMOTE_NAME, 'unnamed'),
+          reason: SKIPPED_CHANNEL_TYPES.get(c.type)!
+        }));
 
-      return json(200, { guilds, channels: linkable });
+      return json(200, {
+        guilds,
+        channels: linkable,
+        categories: [...categories.entries()].map(([id, name]) => ({ id, name })),
+        skipped
+      });
     } catch (error) {
       return json(502, { error: `Could not list the remote channels: ${errorMessage(error)}` });
     }
@@ -403,19 +461,182 @@ export class Bridge {
     return json(200, { removed: true });
   }
 
-  private handleStatus(request: TPluginHttpRequest): TPluginHttpResponse {
+  private async handleLinkRemoveMany(request: TPluginHttpRequest): Promise<TPluginHttpResponse> {
     const body = isRecord(request.body) ? request.body : {};
     const channelIds = Array.isArray(body.channelIds)
-      ? body.channelIds.filter((id): id is number => Number.isInteger(id)).slice(0, 100)
-      : [];
+      ? body.channelIds
+          .filter((id): id is number => Number.isInteger(id) && (id as number) > 0)
+          .slice(0, MAX_REMOVE_MANY)
+      : null;
 
-    return json(200, this.statusReport(channelIds));
+    if (!channelIds) return json(400, { error: 'Invalid channel ids' });
+
+    const webhookIds: string[] = [];
+
+    for (const channelId of channelIds) {
+      const link = this.store.removeLink(channelId);
+      this.linkErrors.delete(channelId);
+      this.mirrored.delete(channelId);
+      if (!link) continue;
+
+      this.webhookTokens.delete(link.webhookId);
+      webhookIds.push(link.webhookId);
+    }
+
+    // The links are gone now; the webhooks go one by one under the REST
+    // budget, so a server with hundreds of pairs does not hold the
+    // owner's request open for minutes. A webhook left behind is inert.
+    if (this.configured && webhookIds.length > 0) {
+      void this.chain('webhook-cleanup', async () => {
+        for (const webhookId of webhookIds) {
+          try {
+            await this.rest.delete(`/webhooks/${webhookId}`, { reason: 'Server bridge removed' });
+          } catch (error) {
+            this.ctx.debug(`Could not delete webhook ${webhookId}: ${errorMessage(error)}`);
+          }
+        }
+      });
+    }
+
+    return json(200, { removed: webhookIds.length });
   }
 
-  statusReport(channelIds: number[]): TBridgeStatusReport {
+  private handleServerLinkUpsert(request: TPluginHttpRequest): TPluginHttpResponse {
+    const body = isRecord(request.body) ? request.body : {};
+    const { serverId, remoteGuildId, mode, createMissing, defaultDirection } = body;
+
+    if (
+      !Number.isInteger(serverId) ||
+      (serverId as number) <= 0 ||
+      typeof remoteGuildId !== 'string' ||
+      !SNOWFLAKE.test(remoteGuildId) ||
+      (mode !== 'mirror' && mode !== 'match') ||
+      (createMissing !== 'both' &&
+        createMissing !== 'here' &&
+        createMissing !== 'there' &&
+        createMissing !== 'none') ||
+      (defaultDirection !== 'both' && defaultDirection !== 'inbound' && defaultDirection !== 'outbound')
+    ) {
+      return json(400, { error: 'Invalid server link' });
+    }
+
+    this.store.setServerLink({
+      serverId: serverId as number,
+      remoteGuildId,
+      mode,
+      createMissing,
+      defaultDirection
+    });
+
+    return json(200, { ok: true });
+  }
+
+  private handleServerLinkRemove(request: TPluginHttpRequest): TPluginHttpResponse {
+    const body = isRecord(request.body) ? request.body : {};
+    const serverId = body.serverId;
+
+    if (!Number.isInteger(serverId) || (serverId as number) <= 0) {
+      return json(400, { error: 'Invalid server id' });
+    }
+
+    const removed = this.store.removeServerLink(serverId as number);
+    this.syncRequested.delete(serverId as number);
+
+    return json(200, { removed: removed !== undefined });
+  }
+
+  /**
+   * Create a text channel over there for a whole-server mirror, under a
+   * category of the given name — found by normalised name among the
+   * guild's categories, created when there is none. The fresh listing
+   * (not the gateway cache) is what decides, so two syncs in a row do
+   * not make two categories.
+   */
+  private async handleRemoteCreateChannel(request: TPluginHttpRequest): Promise<TPluginHttpResponse> {
+    if (!this.configured) return json(409, { error: 'No bot token is configured' });
+
+    const body = isRecord(request.body) ? request.body : {};
+    const guildId = body.guildId;
+    const name = boundText(typeof body.name === 'string' ? body.name : '', MAX_REMOTE_NAME);
+    const categoryName =
+      typeof body.categoryName === 'string' ? boundText(body.categoryName, MAX_REMOTE_NAME) : '';
+
+    if (typeof guildId !== 'string' || !SNOWFLAKE.test(guildId) || name.length === 0) {
+      return json(400, { error: 'Invalid channel' });
+    }
+
+    try {
+      let parent: { id: string; name: string } | null = null;
+
+      if (categoryName.length > 0) {
+        const wanted = normalizeChannelName(categoryName);
+        const channels = await this.rest.get<TRemoteChannel[]>(`/guilds/${guildId}/channels`);
+        const known = channels.find(
+          (c) => c.type === REMOTE_CATEGORY_TYPE && normalizeChannelName(c.name ?? '') === wanted
+        );
+
+        if (known) {
+          parent = { id: known.id, name: boundText(known.name, MAX_REMOTE_NAME) };
+        } else {
+          const created = await this.rest.post<TRemoteChannel>(`/guilds/${guildId}/channels`, {
+            body: { name: categoryName, type: REMOTE_CATEGORY_TYPE },
+            reason: 'Server bridge: category mirrored'
+          });
+          parent = { id: created.id, name: boundText(created.name, MAX_REMOTE_NAME, categoryName) };
+          this.cacheChannel({ ...created, guild_id: guildId });
+        }
+      }
+
+      const created = await this.rest.post<TRemoteChannel>(`/guilds/${guildId}/channels`, {
+        body: { name, type: REMOTE_TEXT_TYPE, parent_id: parent?.id },
+        reason: 'Server bridge: channel mirrored'
+      });
+      this.cacheChannel({ ...created, guild_id: guildId });
+
+      return json(200, {
+        id: created.id,
+        name: boundText(created.name, MAX_REMOTE_NAME, name),
+        parentId: parent?.id ?? null,
+        parentName: parent?.name ?? null
+      });
+    } catch (error) {
+      return json(502, { error: `Could not create the remote channel: ${errorMessage(error)}` });
+    }
+  }
+
+  private handleStatus(request: TPluginHttpRequest): TPluginHttpResponse {
+    const body = isRecord(request.body) ? request.body : {};
+    const ints = (value: unknown) =>
+      Array.isArray(value) ? value.filter((id): id is number => Number.isInteger(id)).slice(0, 500) : [];
+    const snowflakes = (value: unknown) =>
+      Array.isArray(value)
+        ? value.filter((id): id is string => typeof id === 'string' && SNOWFLAKE.test(id)).slice(0, 100)
+        : [];
+
+    return json(
+      200,
+      this.statusReport({
+        channelIds: ints(body.channelIds),
+        serverIds: ints(body.serverIds),
+        guildIds: snowflakes(body.guildIds)
+      })
+    );
+  }
+
+  statusReport(query: number[] | TStatusQuery): TBridgeStatusReport {
+    const asked: TStatusQuery = Array.isArray(query)
+      ? { channelIds: query, serverIds: [], guildIds: [] }
+      : query;
     const { status } = this.gateway;
     const links: Record<string, TLinkStatus> = {};
     const today = dayOf(this.now());
+    const serverIds = new Set(asked.serverIds);
+    const channelIds = new Set(asked.channelIds);
+
+    // A server's links are every link into it (whole-server status).
+    for (const link of this.store.links.values()) {
+      if (serverIds.has(link.serverId)) channelIds.add(link.channelId);
+    }
 
     for (const channelId of channelIds) {
       const counter = this.mirrored.get(channelId);
@@ -424,6 +645,17 @@ export class Bridge {
         mirroredToday: counter && counter.day === today ? counter.count : 0,
         lastError: this.linkErrors.get(channelId) ?? null
       };
+    }
+
+    const guilds: Record<string, { name: string }> = {};
+    for (const guildId of asked.guildIds) {
+      const cached = this.guilds.get(guildId);
+      if (cached && cached.name.length > 0) guilds[guildId] = { name: cached.name };
+    }
+
+    const syncRequested: Record<string, number> = {};
+    for (const serverId of asked.serverIds) {
+      syncRequested[String(serverId)] = this.syncRequested.get(serverId) ?? 0;
     }
 
     return {
@@ -435,8 +667,31 @@ export class Bridge {
         status.botUserId && status.botUsername
           ? { id: status.botUserId, name: status.botUsername }
           : null,
-      links
+      links,
+      guilds,
+      syncRequested
     };
+  }
+
+  // ─── whole-server links: asking the server for a sync ───────────────
+
+  /** Something changed over there for this server; the server's next tick syncs it. */
+  private requestSync(serverId: number) {
+    this.syncRequested.set(serverId, (this.syncRequested.get(serverId) ?? 0) + 1);
+  }
+
+  private requestSyncForGuild(remoteGuildId: string) {
+    const link = this.store.serverLinkForGuild(remoteGuildId);
+    if (link) this.requestSync(link.serverId);
+  }
+
+  private requestSyncForAllServers() {
+    for (const link of this.store.serverLinks.values()) this.requestSync(link.serverId);
+  }
+
+  /** Tests: the counter the server reads for a server. */
+  syncRequestsFor(serverId: number): number {
+    return this.syncRequested.get(serverId) ?? 0;
   }
 
   // ─── helpers ────────────────────────────────────────────────────────
@@ -591,10 +846,12 @@ export class Bridge {
         if (isRecord(data) && typeof data.id === 'string') this.guilds.delete(data.id);
         return;
       case 'CHANNEL_CREATE':
+        return this.onRemoteChannelCreate(data as TRemoteChannel);
       case 'CHANNEL_UPDATE':
+        // A rename keeps the pair: links are by id. Only the cache moves.
         return this.cacheChannel(data as TRemoteChannel);
       case 'CHANNEL_DELETE':
-        return this.forgetChannel(data as TRemoteChannel);
+        return this.onRemoteChannelDelete(data as TRemoteChannel);
       case 'GUILD_ROLE_CREATE':
       case 'GUILD_ROLE_UPDATE': {
         const payload = data as { guild_id: string; role: TRemoteRole };
@@ -665,12 +922,36 @@ export class Bridge {
     this.guild(channel.guild_id).channels.set(channel.id, channel);
   }
 
-  private forgetChannel(channel: TRemoteChannel) {
+  private onRemoteChannelCreate(channel: TRemoteChannel) {
+    this.cacheChannel(channel);
+
+    // A new text channel in a guild linked as a whole: the server pairs
+    // it (by name, or by creating its twin here) on its next sync.
+    if (channel?.guild_id && LINKABLE_CHANNEL_TYPES.has(channel.type)) {
+      this.requestSyncForGuild(channel.guild_id);
+    }
+  }
+
+  private onRemoteChannelDelete(channel: TRemoteChannel) {
     if (!channel?.id) return;
     if (channel.guild_id) this.guilds.get(channel.guild_id)?.channels.delete(channel.id);
 
     const thread = this.store.threadByRemote(channel.id);
     if (thread) this.store.removeThread(thread.localThreadId);
+
+    // A linked remote channel is gone: the pair ends here (nothing is
+    // deleted on our side — deletion is never mirrored) and the server
+    // drops its row on the next sync.
+    const link = this.store.linkByRemoteChannel(channel.id);
+    if (link) {
+      this.store.removeLink(link.channelId);
+      this.webhookTokens.delete(link.webhookId);
+      this.linkErrors.delete(link.channelId);
+      this.requestSync(link.serverId);
+      this.ctx.log(`Remote channel ${channel.id} was deleted; channel ${link.channelId} is no longer bridged`);
+    } else if (channel.guild_id && LINKABLE_CHANNEL_TYPES.has(channel.type)) {
+      this.requestSyncForGuild(channel.guild_id);
+    }
   }
 
   private inboundLookup(guildId: string) {
@@ -1306,4 +1587,4 @@ export class Bridge {
   }
 }
 
-export type { TRemoteUser };
+export type { TRemoteUser, TServerLink };

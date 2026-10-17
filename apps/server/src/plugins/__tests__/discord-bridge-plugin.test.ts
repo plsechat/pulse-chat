@@ -62,7 +62,7 @@ describe('discord-bridge plugin through the real loader', () => {
       expect(settings.values).toEqual({ botToken: '', publicUrl: '' });
       expect(typeof settings.httpSecret).toBe('string');
 
-      expect(pluginHttp.routeCount(PLUGIN_ID)).toBe(4);
+      expect(pluginHttp.routeCount(PLUGIN_ID)).toBe(8);
       for (const event of ['message:created', 'message:updated', 'message:deleted', 'message:reaction', 'thread:created', 'event:created'] as const) {
         expect(eventBus.getPluginHandlersCount(PLUGIN_ID, event)).toBe(1);
       }
@@ -78,8 +78,19 @@ describe('discord-bridge plugin through the real loader', () => {
         connected: false,
         botUser: null,
         link: null,
-        mirroredToday: 0
+        mirroredToday: 0,
+        serverLink: null
       });
+      expect(await caller.servers.bridgeStatus()).toMatchObject({
+        available: true,
+        configured: false,
+        link: null,
+        counts: { paired: 0, excluded: 0, manual: 0 },
+        sync: { running: false, last: null }
+      });
+      await expect(
+        caller.servers.bridgeLink({ remoteGuildId: '100000000000000001', mode: 'match' })
+      ).rejects.toThrow('No bot token is configured');
       await expect(
         caller.channels.bridgeLink({
           channelId,

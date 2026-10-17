@@ -22,7 +22,9 @@ export const SECTION_PERMISSIONS = {
   nameplates: Permission.MANAGE_EMOJIS,
   webhooks: Permission.MANAGE_WEBHOOKS,
   automod: Permission.MANAGE_AUTOMOD,
-  events: Permission.MANAGE_EVENTS
+  events: Permission.MANAGE_EVENTS,
+  // Listed only while the bridge plugin runs (the shell asks the server).
+  bridge: Permission.MANAGE_SETTINGS
 } as const satisfies Record<string, Permission>;
 
 export type TPermissionedSection = keyof typeof SECTION_PERMISSIONS;

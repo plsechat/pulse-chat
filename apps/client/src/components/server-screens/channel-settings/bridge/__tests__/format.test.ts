@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  describeDirectionInheritance,
+  describeServerLinkState,
   DIRECTION_OPTIONS,
   directionLabel,
   remoteChannelLabel,
@@ -46,5 +48,51 @@ describe('bridge tab copy', () => {
   test('the refusal reasons match the server wording', () => {
     expect(whyNotBridgeable({ e2ee: true, type: 'TEXT' })).toContain('end-to-end encrypted');
     expect(whyNotBridgeable({ e2ee: false, type: 'VOICE' })).toContain('Only text channels');
+  });
+
+  test('the server-link line names the state the channel is in', () => {
+    const serverLink = {
+      id: 1,
+      remoteGuildId: '1',
+      remoteGuildName: 'Night Raiders',
+      mode: 'match' as const,
+      defaultDirection: 'both' as const
+    };
+    const link = {
+      id: 5,
+      channelId: 10,
+      remoteGuildId: '1',
+      remoteChannelId: '2',
+      webhookId: '9',
+      serverLinkId: 1,
+      excluded: false,
+      direction: 'both' as const,
+      createdBy: 1,
+      createdAt: 0
+    };
+
+    expect(describeServerLinkState({ link: null, serverLink: null })).toEqual({ kind: 'none' });
+    expect(describeServerLinkState({ link, serverLink })).toEqual({
+      kind: 'paired',
+      text: 'Bridged with the server link to Night Raiders.'
+    });
+    expect(describeServerLinkState({ link: { ...link, excluded: true, webhookId: null }, serverLink }).kind).toBe('excluded');
+    expect(describeServerLinkState({ link: { ...link, serverLinkId: null }, serverLink })).toMatchObject({ kind: 'manual' });
+    expect(describeServerLinkState({ link: null, serverLink })).toEqual({
+      kind: 'unpaired',
+      text: 'Not paired yet. The next sync pairs it with a channel of the same name in Night Raiders.'
+    });
+    expect(
+      describeServerLinkState({ link: null, serverLink: { ...serverLink, mode: 'mirror', remoteGuildName: null } })
+    ).toMatchObject({ kind: 'unpaired', text: expect.stringContaining('or creates one there') });
+    expect(describeServerLinkState({ link: null, serverLink: { ...serverLink, remoteGuildName: null } })).toMatchObject({
+      kind: 'unpaired',
+      text: expect.stringContaining('the remote server')
+    });
+  });
+
+  test('direction inheritance is stated against the server default', () => {
+    expect(describeDirectionInheritance('both', 'both')).toBe('Inherits the server default (both ways).');
+    expect(describeDirectionInheritance('inbound', 'both')).toBe('Overrides the server default (both ways).');
   });
 });

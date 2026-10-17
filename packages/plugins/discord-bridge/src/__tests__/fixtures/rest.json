@@ -2,60 +2,147 @@
   "routes": {
     "GET /users/@me/guilds": {
       "status": 200,
-      "headers": { "x-ratelimit-remaining": "4", "x-ratelimit-reset-after": "1" },
+      "headers": {
+        "x-ratelimit-remaining": "4",
+        "x-ratelimit-reset-after": "1"
+      },
       "body": [
-        { "id": "100000000000000001", "name": "Night Raiders", "icon": "abc123" },
-        { "id": "100000000000000002", "name": "Second Guild", "icon": null }
+        {
+          "id": "100000000000000001",
+          "name": "Night Raiders",
+          "icon": "abc123"
+        },
+        {
+          "id": "100000000000000002",
+          "name": "Second Guild",
+          "icon": null
+        }
       ]
     },
     "GET /guilds/100000000000000001/channels": {
       "status": 200,
       "body": [
-        { "id": "200000000000000009", "type": 4, "name": "Chat", "position": 0 },
-        { "id": "200000000000000002", "type": 0, "name": "raids", "parent_id": "200000000000000009", "position": 2 },
-        { "id": "200000000000000001", "type": 0, "name": "general", "parent_id": "200000000000000009", "position": 1 },
-        { "id": "200000000000000004", "type": 5, "name": "news", "parent_id": null, "position": 3 },
-        { "id": "200000000000000003", "type": 2, "name": "Voice", "position": 4 },
-        { "id": "200000000000000005", "type": 15, "name": "forum", "position": 5 }
+        {
+          "id": "200000000000000009",
+          "type": 4,
+          "name": "Chat",
+          "position": 0
+        },
+        {
+          "id": "200000000000000002",
+          "type": 0,
+          "name": "raids",
+          "parent_id": "200000000000000009",
+          "position": 2
+        },
+        {
+          "id": "200000000000000001",
+          "type": 0,
+          "name": "general",
+          "parent_id": "200000000000000009",
+          "position": 1
+        },
+        {
+          "id": "200000000000000004",
+          "type": 5,
+          "name": "news",
+          "parent_id": null,
+          "position": 3
+        },
+        {
+          "id": "200000000000000003",
+          "type": 2,
+          "name": "Voice",
+          "position": 4
+        },
+        {
+          "id": "200000000000000005",
+          "type": 15,
+          "name": "forum",
+          "position": 5
+        }
       ]
     },
     "POST /channels/200000000000000001/webhooks": {
       "status": 200,
-      "body": { "id": "910000000000000001", "token": "wh-token-1", "channel_id": "200000000000000001" }
+      "body": {
+        "id": "910000000000000001",
+        "token": "wh-token-1",
+        "channel_id": "200000000000000001"
+      }
     },
     "POST /channels/200000000000000002/webhooks": {
       "status": 200,
-      "body": { "id": "910000000000000002", "token": "wh-token-2", "channel_id": "200000000000000002" }
+      "body": {
+        "id": "910000000000000002",
+        "token": "wh-token-2",
+        "channel_id": "200000000000000002"
+      }
     },
     "GET /webhooks/910000000000000001": {
       "status": 200,
-      "body": { "id": "910000000000000001", "token": "wh-token-1-refetched", "channel_id": "200000000000000001" }
+      "body": {
+        "id": "910000000000000001",
+        "token": "wh-token-1-refetched",
+        "channel_id": "200000000000000001"
+      }
     },
-    "DELETE /webhooks/910000000000000001": { "status": 204 },
-    "DELETE /webhooks/910000000000000002": { "status": 204 },
+    "DELETE /webhooks/910000000000000001": {
+      "status": 204
+    },
+    "DELETE /webhooks/910000000000000002": {
+      "status": 204
+    },
     "POST /webhooks/910000000000000001/wh-token-1": {
       "status": 200,
-      "body": { "id": "520000000000000001", "channel_id": "200000000000000001" }
+      "body": {
+        "id": "520000000000000001",
+        "channel_id": "200000000000000001"
+      }
     },
     "POST /webhooks/910000000000000001/wh-token-1-refetched": {
       "status": 200,
-      "body": { "id": "520000000000000002", "channel_id": "200000000000000001" }
+      "body": {
+        "id": "520000000000000002",
+        "channel_id": "200000000000000001"
+      }
     },
     "PATCH /webhooks/910000000000000001/wh-token-1/messages/:id": {
       "status": 200,
-      "body": { "id": "520000000000000001", "channel_id": "200000000000000001" }
+      "body": {
+        "id": "520000000000000001",
+        "channel_id": "200000000000000001"
+      }
     },
-    "DELETE /webhooks/910000000000000001/wh-token-1/messages/:id": { "status": 204 },
-    "DELETE /channels/:id/messages/:id": { "status": 204 },
-    "PUT /channels/:id/messages/:id/reactions/:emoji/@me": { "status": 204 },
-    "DELETE /channels/:id/messages/:id/reactions/:emoji/@me": { "status": 204 },
+    "DELETE /webhooks/910000000000000001/wh-token-1/messages/:id": {
+      "status": 204
+    },
+    "DELETE /channels/:id/messages/:id": {
+      "status": 204
+    },
+    "PUT /channels/:id/messages/:id/reactions/:emoji/@me": {
+      "status": 204
+    },
+    "DELETE /channels/:id/messages/:id/reactions/:emoji/@me": {
+      "status": 204
+    },
     "POST /channels/200000000000000001/messages/:id/threads": {
       "status": 201,
-      "body": { "id": "560000000000000001", "type": 11, "name": "local thread", "parent_id": "200000000000000001" }
+      "body": {
+        "id": "560000000000000001",
+        "type": 11,
+        "name": "local thread",
+        "parent_id": "200000000000000001"
+      }
     },
     "POST /channels/200000000000000001/threads": {
       "status": 201,
-      "body": { "id": "560000000000000002", "type": 11, "name": "local thread 2", "parent_id": "200000000000000001" }
+      "body": {
+        "id": "560000000000000002",
+        "type": 11,
+        "name": "local thread 2",
+        "parent_id": "200000000000000001"
+      }
     },
     "POST /guilds/100000000000000001/scheduled-events": {
       "status": 200,
@@ -80,6 +167,19 @@
         "status": 1
       }
     },
-    "DELETE /guilds/100000000000000001/scheduled-events/:id": { "status": 204 }
+    "DELETE /guilds/100000000000000001/scheduled-events/:id": {
+      "status": 204
+    },
+    "POST /guilds/100000000000000001/channels": {
+      "status": 201,
+      "body": {
+        "id": "200000000000000077",
+        "type": 0,
+        "name": "strategy",
+        "guild_id": "100000000000000001",
+        "parent_id": null,
+        "position": 9
+      }
+    }
   }
 }

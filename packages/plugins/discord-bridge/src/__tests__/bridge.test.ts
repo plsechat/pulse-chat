@@ -39,7 +39,16 @@ describe('lifecycle and routes', () => {
     await h.bridge.start();
 
     expect(h.sockets.sockets).toHaveLength(0);
-    expect([...h.fake.routes.keys()].sort()).toEqual(['channels', 'links/remove', 'links/upsert', 'status']);
+    expect([...h.fake.routes.keys()].sort()).toEqual([
+      'channels',
+      'links/remove',
+      'links/remove-many',
+      'links/upsert',
+      'remote/create-channel',
+      'server-links/remove',
+      'server-links/upsert',
+      'status'
+    ]);
 
     const status = await h.call('status', { channelIds: [10] });
     expect(status.body).toMatchObject({ configured: false, connected: false, botUser: null });
@@ -62,9 +71,9 @@ describe('lifecycle and routes', () => {
 
     const channels = await h.call('channels', { guildId: GUILD });
     expect((channels.body as { channels: unknown[] }).channels).toEqual([
-      { id: GENERAL, guildId: GUILD, name: 'general', parentName: 'Chat', position: 1 },
-      { id: RAIDS, guildId: GUILD, name: 'raids', parentName: 'Chat', position: 2 },
-      { id: '200000000000000004', guildId: GUILD, name: 'news', parentName: null, position: 3 }
+      { id: GENERAL, guildId: GUILD, name: 'general', parentId: '200000000000000009', parentName: 'Chat', position: 1 },
+      { id: RAIDS, guildId: GUILD, name: 'raids', parentId: '200000000000000009', parentName: 'Chat', position: 2 },
+      { id: '200000000000000004', guildId: GUILD, name: 'news', parentId: null, parentName: null, position: 3 }
     ]);
 
     expect((await h.call('channels', { guildId: 'not-a-snowflake' })).status).toBe(400);

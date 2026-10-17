@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { TBridgeStatus } from '../../types';
 import {
   getBridgeLinkByChannelId,
+  getBridgeServerLink,
   readBridgeWebhookToken,
   toBridgeLinkView
 } from '../../db/queries/bridge-links';
@@ -21,6 +22,7 @@ type TPluginStatus = {
   lastError: string | null;
   botUser: { id: string; name: string } | null;
   links: Record<string, { known: boolean; mirroredToday: number; lastError: string | null }>;
+  guilds?: Record<string, { name: string }>;
 };
 
 /**
@@ -30,7 +32,9 @@ type TPluginStatus = {
  * are in hand: a link the server has but the plugin lost (its state
  * file gone) is pushed again with the decrypted token; a link the
  * plugin holds but the server dropped (unlinked while the plugin was
- * down) is removed from the plugin.
+ * down) is removed from the plugin. The server link the channel falls
+ * under (if any) rides along so the tab can show the pair as part of it
+ * and offer Exclude instead of Unlink.
  */
 const bridgeStatusRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(z.object({ channelId: z.number().int().positive() }))
@@ -39,6 +43,17 @@ const bridgeStatusRoute = serverProcedure(Permission.MANAGE_CHANNELS)
     const row = await getBridgeLinkByChannelId(BRIDGE_PLUGIN_ID, channel.id);
     const link = row ? toBridgeLinkView(row) : null;
     const bridgeable = !channel.e2ee && channel.type === 'TEXT';
+    const serverRow = await getBridgeServerLink(BRIDGE_PLUGIN_ID, channel.serverId);
+    const serverLink = (remoteGuildName: string | null) =>
+      serverRow
+        ? {
+            id: serverRow.id,
+            remoteGuildId: serverRow.remoteGuildId,
+            remoteGuildName,
+            mode: serverRow.mode,
+            defaultDirection: serverRow.defaultDirection
+          }
+        : null;
 
     if (!isBridgePluginLoaded()) {
       return {
@@ -50,14 +65,19 @@ const bridgeStatusRoute = serverProcedure(Permission.MANAGE_CHANNELS)
         lastError: null,
         link,
         mirroredToday: 0,
-        linkError: null
+        linkError: null,
+        serverLink: serverLink(null)
       };
     }
 
-    const status = await callBridgePlugin<TPluginStatus>('status', { channelIds: [channel.id] });
+    const status = await callBridgePlugin<TPluginStatus>('status', {
+      channelIds: [channel.id],
+      guildIds: serverRow ? [serverRow.remoteGuildId] : []
+    });
     let live = status.links[String(channel.id)] ?? { known: false, mirroredToday: 0, lastError: null };
 
-    if (row && !live.known) {
+    // An excluded row has no webhook: nothing for the plugin to hold.
+    if (row && !row.excluded && row.webhookId !== null && !live.known) {
       await callBridgePlugin('links/upsert', {
         channelId: row.channelId,
         serverId: channel.serverId,
@@ -68,7 +88,7 @@ const bridgeStatusRoute = serverProcedure(Permission.MANAGE_CHANNELS)
         webhookToken: readBridgeWebhookToken(row)
       }).catch(() => undefined);
       live = { ...live, known: true };
-    } else if (!row && live.known) {
+    } else if ((!row || row.excluded) && live.known) {
       await callBridgePlugin('links/remove', { channelId: channel.id }).catch(() => undefined);
       live = { known: false, mirroredToday: 0, lastError: null };
     }
@@ -82,7 +102,8 @@ const bridgeStatusRoute = serverProcedure(Permission.MANAGE_CHANNELS)
       lastError: status.fatal ?? status.lastError,
       link,
       mirroredToday: live.mirroredToday,
-      linkError: live.lastError
+      linkError: live.lastError,
+      serverLink: serverLink(serverRow ? (status.guilds?.[serverRow.remoteGuildId]?.name ?? null) : null)
     };
   });
 

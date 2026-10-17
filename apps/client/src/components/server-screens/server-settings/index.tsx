@@ -28,6 +28,7 @@ import {
   Globe,
   HardDrive,
   IdCard,
+  Link2,
   MonitorPlay,
   Puzzle,
   ScrollText,
@@ -45,6 +46,8 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { AutoMod } from './automod';
+import { Bridge } from './bridge';
+import { useServerBridgeAvailable } from './bridge/hooks';
 import { Emojis } from './emojis';
 import { Events } from './events';
 import { Federation } from './federation';
@@ -109,6 +112,7 @@ const SECTION_TITLES: Record<Section, string> = {
   webhooks: 'Webhooks',
   automod: 'Auto-Mod',
   events: 'Events',
+  bridge: 'Bridge',
   import: 'Import',
   federation: 'Federation',
   'instance-users': 'All Accounts',
@@ -134,6 +138,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   webhooks: 'Post messages from external services.',
   automod: 'Automatic moderation rules.',
   events: 'Roster templates for the Raid Planner.',
+  bridge: 'Mirror this whole community with a server on another chat service.',
   import:
     'Bring a community over from another chat service: channels, roles, emoji, members and history.',
   federation: 'Peer this instance with others.',
@@ -166,6 +171,7 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   webhooks: Webhooks,
   automod: AutoMod,
   events: Events,
+  bridge: Bridge,
   import: Import,
   federation: Federation,
   'instance-users': InstanceUsers,
@@ -194,6 +200,9 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
   const activeInstanceDomain = useActiveInstanceDomain();
   const joinedServers = useJoinedServers();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // The Bridge section exists only while the bridge plugin is loaded on
+  // the instance; asked once per server, and only with the permission.
+  const bridgeAvailable = useServerBridgeAvailable(can(SECTION_PERMISSIONS['bridge']));
 
   const activeServer = useMemo(
     () => joinedServers.find((s) => s.id === activeServerId),
@@ -276,6 +285,12 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
             label: 'Auto-Mod',
             icon: <Bot className="h-4 w-4" />,
             allowed: can(SECTION_PERMISSIONS['automod'])
+          },
+          {
+            id: 'bridge',
+            label: 'Bridge',
+            icon: <Link2 className="h-4 w-4" />,
+            allowed: can(SECTION_PERMISSIONS['bridge']) && bridgeAvailable
           },
           {
             // Owner only: an import rewrites the server's name and icon
@@ -370,7 +385,7 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
         items: cat.items.filter((item) => item.allowed)
       }))
       .filter((cat) => cat.items.length > 0);
-  }, [can, activeInstanceDomain, isInstanceOwner, isOwner]);
+  }, [can, activeInstanceDomain, isInstanceOwner, isOwner, bridgeAvailable]);
 
   const firstAllowed = navSections[0]?.items[0]?.id ?? 'general';
   const isAllowed = useCallback(
