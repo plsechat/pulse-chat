@@ -612,7 +612,6 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       await attachMicStream();
     }
   }, [
-    screenQuality,
     localScreenShareStream,
     setLocalScreenShare,
     localScreenShareProducer,
@@ -897,6 +896,8 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     attachMicStream,
     setSystemAudioActive,
     screenVideoConstraints,
+    screenQuality.framerate,
+    screenQuality.resolution,
     devices.screenAudioBitrate,
     devices.shareSystemAudio
   ]);
@@ -1164,6 +1165,8 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     localScreenShareProducer,
     localScreenShareAudioProducer,
     screenVideoConstraints,
+    screenQuality.framerate,
+    screenQuality.resolution,
     devices.screenAudioBitrate
   ]);
 
