@@ -458,8 +458,14 @@ describe('federated follows', () => {
       relayId: `create:${news.publicId}:${id}:0`
     });
     expect(typeof (calls[0]!.body.author as { publicId: string }).publicId).toBe('string');
-    // Delivered inline: nothing left queued.
-    expect(await tdb.select().from(federationOutbox)).toHaveLength(0);
+    // Delivered inline: nothing left queued. The row is removed after the
+    // peer's response resolves, which is after the fetch spy saw the call.
+    let outbox = await tdb.select().from(federationOutbox);
+    for (let i = 0; i < 200 && outbox.length > 0; i++) {
+      await Bun.sleep(10);
+      outbox = await tdb.select().from(federationOutbox);
+    }
+    expect(outbox).toHaveLength(0);
 
     await owner.messages.edit({ messageId: id, content: 'hello peers (edited)' });
     for (let i = 0; i < 200 && calls.length < 2; i++) await Bun.sleep(10);

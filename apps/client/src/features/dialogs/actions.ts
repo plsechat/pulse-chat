@@ -3,15 +3,27 @@ import type { TGenericObject } from '@pulse/shared';
 import { store } from '../store';
 import { dialogSliceActions } from './slice';
 
+/**
+ * Closing waits out the fade before the dialog stops rendering. A
+ * dialog opened inside that window (a confirmation reached from a
+ * popover right after a form dialog closed, say) must not be cleared
+ * by the earlier close's timer: every open or close starts a new
+ * generation and a close only lands if it is still the latest.
+ */
+let dialogGeneration = 0;
+
 export const openDialog = (dialog: Dialog, props?: TGenericObject) => {
+  dialogGeneration += 1;
   store.dispatch(dialogSliceActions.openDialog({ dialog, props }));
 };
 
 export const closeDialogs = () => {
+  const generation = ++dialogGeneration;
   store.dispatch(dialogSliceActions.setClosing(true));
 
   // allow fade out animation to complete before stopping rendering, otherwise it looks choppy
   setTimeout(() => {
+    if (generation !== dialogGeneration) return;
     store.dispatch(dialogSliceActions.closeDialogs());
 
     setTimeout(() => {
@@ -103,5 +115,6 @@ export const requestTextInput = async ({
 };
 
 export const resetDialogs = () => {
+  dialogGeneration += 1;
   store.dispatch(dialogSliceActions.resetDialogs());
 };

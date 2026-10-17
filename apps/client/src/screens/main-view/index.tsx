@@ -173,9 +173,14 @@ const MainViewInner = memo(() => {
           on actual phones, where MobileBottomNav's Servers button
           is the documented entry point.
         */}
-          <div className="hidden min-[480px]:flex">
-            <ServerStrip />
-          </div>
+          {/* The deck's tab strip already lists every open community with
+              Home, Discover and "Create or join" on it; the rail beside the
+              channel list would show the same servers a second time. */}
+          {!deck && (
+            <div className="hidden min-[480px]:flex">
+              <ServerStrip />
+            </div>
+          )}
           <div
             key={
               deck

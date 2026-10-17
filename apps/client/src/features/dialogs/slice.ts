@@ -28,6 +28,8 @@ export const dialogSlice = createSlice({
       state.openDialog = action.payload.dialog;
       state.props = action.payload.props || {};
       state.isOpen = true;
+      // Opening over a dialog that is still fading out replaces it.
+      state.closing = false;
     },
     closeDialogs: (state) => {
       state.openDialog = undefined;
