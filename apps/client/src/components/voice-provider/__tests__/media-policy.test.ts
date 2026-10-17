@@ -5,13 +5,16 @@
  * Run via: bun test apps/client/src/components/voice-provider/__tests__/media-policy.test.ts
  */
 
-import { describe, expect, test } from 'bun:test';
 import { clampScreenResolution, SCREEN_RESOLUTIONS } from '@pulse/shared';
+import { describe, expect, test } from 'bun:test';
 import {
   describeMicError,
   SCREEN_SHARE_MAX_BITRATE,
   screenShareAudioConstraints,
+  screenShareContentHint,
+  screenShareDegradationPreference,
   screenShareEncodings,
+  screenShareMaxBitrate,
   transportIceOptions
 } from '../media-policy';
 
@@ -56,12 +59,35 @@ describe('screenShareAudioConstraints', () => {
   });
 });
 
-describe('screenShareEncodings', () => {
-  test('one layer capped under the 6 Mbps server ceiling', () => {
-    const encodings = screenShareEncodings();
-    expect(encodings).toHaveLength(1);
-    expect(encodings[0]!.maxBitrate).toBe(SCREEN_SHARE_MAX_BITRATE);
-    expect(SCREEN_SHARE_MAX_BITRATE).toBeLessThan(6_000_000);
+describe('screen share encoder budget', () => {
+  test('one layer whose ceiling follows resolution and frame rate', () => {
+    expect(screenShareEncodings('1080p', 15)).toHaveLength(1);
+    expect(screenShareMaxBitrate('1080p', 15)).toBe(3_500_000);
+    expect(screenShareMaxBitrate('1080p', 30)).toBe(5_000_000);
+    expect(screenShareMaxBitrate('1080p', 60)).toBe(8_000_000);
+    expect(screenShareMaxBitrate('2160p', 60)).toBe(SCREEN_SHARE_MAX_BITRATE);
+    expect(screenShareMaxBitrate('240p', 15)).toBe(350_000);
+  });
+
+  test('unknown or missing settings fall back to 1080p at 30', () => {
+    expect(screenShareMaxBitrate(undefined, undefined)).toBe(5_000_000);
+    expect(screenShareMaxBitrate('9000p', 30)).toBe(5_000_000);
+  });
+
+  test('never exceeds the server producer cap', () => {
+    for (const r of SCREEN_RESOLUTIONS) {
+      for (const f of [15, 30, 60]) {
+        expect(screenShareMaxBitrate(r, f)).toBeLessThanOrEqual(20_000_000);
+      }
+    }
+  });
+
+  test('hint and degradation axis follow the frame rate', () => {
+    expect(screenShareContentHint(15)).toBe('detail');
+    expect(screenShareContentHint(30)).toBe('motion');
+    expect(screenShareContentHint(60)).toBe('motion');
+    expect(screenShareDegradationPreference(15)).toBe('maintain-resolution');
+    expect(screenShareDegradationPreference(60)).toBe('maintain-framerate');
   });
 });
 
@@ -77,7 +103,10 @@ describe('transportIceOptions', () => {
       transportIceOptions({
         iceServers: [
           {
-            urls: ['turn:turn.example:3478?transport=udp', 'turns:turn.example:5349'],
+            urls: [
+              'turn:turn.example:3478?transport=udp',
+              'turns:turn.example:5349'
+            ],
             username: 'u',
             credential: 'c'
           }
@@ -86,7 +115,10 @@ describe('transportIceOptions', () => {
     ).toEqual({
       iceServers: [
         {
-          urls: ['turn:turn.example:3478?transport=udp', 'turns:turn.example:5349'],
+          urls: [
+            'turn:turn.example:3478?transport=udp',
+            'turns:turn.example:5349'
+          ],
           username: 'u',
           credential: 'c'
         }
@@ -101,7 +133,13 @@ describe('transportIceOptions', () => {
         iceTransportPolicy: 'relay'
       })
     ).toEqual({
-      iceServers: [{ urls: 'turn:turn.example:3478', username: undefined, credential: undefined }],
+      iceServers: [
+        {
+          urls: 'turn:turn.example:3478',
+          username: undefined,
+          credential: undefined
+        }
+      ],
       iceTransportPolicy: 'relay'
     });
   });

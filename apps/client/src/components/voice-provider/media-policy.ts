@@ -55,18 +55,58 @@ export const screenShareAudioConstraints = (
     : false;
 
 /**
- * Client-side ceiling for the screen video encoder. The server caps the
- * producer at 6 Mbps; without a ceiling of its own the encoder pushes
- * every bit the estimator allows, which on a software encoder (Firefox
- * OpenH264, VP8/VP9 anywhere) is the fan-spinning heat users reported.
- * 2.5 Mbps is plenty for 1080p screen content with `contentHint =
- * 'detail'` (sedentary frames, crisp text).
+ * Screen-share encoder budget. The ceiling follows what the user asked
+ * for: a still 1080p desktop at 15 fps needs a few Mbps, a 1440p or
+ * 2160p game at 60 fps needs ten or more — one flat 2.5 Mbps cap (the
+ * earlier value) made the encoder drop most frames at those settings
+ * and viewers got a slideshow. The ladder is per resolution at 30 fps,
+ * scaled for 15 and 60, and never exceeds the server's producer cap
+ * (routers/voice/produce.ts). Higher rungs cost more CPU on a software
+ * encoder; the Stream Quality menu is the user's say over that trade.
  */
-export const SCREEN_SHARE_MAX_BITRATE = 2_500_000;
+export const SCREEN_SHARE_MAX_BITRATE = 20_000_000;
 
-export const screenShareEncodings = (): RTCRtpEncodingParameters[] => [
-  { maxBitrate: SCREEN_SHARE_MAX_BITRATE }
+const SCREEN_BITRATE_AT_30: Record<string, number> = {
+  '240p': 500_000,
+  '360p': 900_000,
+  '480p': 1_500_000,
+  '720p': 3_000_000,
+  '1080p': 5_000_000,
+  '1440p': 9_000_000,
+  '2160p': 16_000_000
+};
+
+export const screenShareMaxBitrate = (
+  resolution: string | undefined,
+  framerate: number | undefined
+): number => {
+  const base = SCREEN_BITRATE_AT_30[resolution ?? '1080p'] ?? 5_000_000;
+  const fps = framerate ?? 30;
+  const scale = fps <= 15 ? 0.7 : fps >= 60 ? 1.6 : 1;
+  return Math.min(SCREEN_SHARE_MAX_BITRATE, Math.round(base * scale));
+};
+
+export const screenShareEncodings = (
+  resolution?: string,
+  framerate?: number
+): RTCRtpEncodingParameters[] => [
+  { maxBitrate: screenShareMaxBitrate(resolution, framerate) }
 ];
+
+/**
+ * What the encoder should protect when it cannot afford everything. At
+ * 15 fps the share is a desktop or document: keep the text crisp
+ * (`detail`, hold resolution). At 30 fps and above it is video or a game:
+ * keep the motion smooth (`motion`, hold the frame rate).
+ */
+export const screenShareContentHint = (
+  framerate: number | undefined
+): 'detail' | 'motion' => ((framerate ?? 15) >= 30 ? 'motion' : 'detail');
+
+export const screenShareDegradationPreference = (
+  framerate: number | undefined
+): RTCDegradationPreference =>
+  (framerate ?? 15) >= 30 ? 'maintain-framerate' : 'maintain-resolution';
 
 export type TTransportIceOptions = Pick<
   TransportOptions,

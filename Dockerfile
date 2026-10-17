@@ -45,6 +45,7 @@ RUN cd packages/plugins/discord-bridge && bun run build
 FROM oven/bun:${BUN_VERSION}
 COPY --from=builder /app/apps/server/build/out/pulse /pulse
 COPY --from=builder /app/docker/pulse-entrypoint.sh /entrypoint.sh
+COPY --from=builder /app/docker/healthcheck.ts /healthcheck.ts
 COPY --from=builder /app/packages/plugins/discord-bridge/package.json \
                     /app/packages/plugins/discord-bridge/README.md \
                     /opt/pulse/plugins/discord-bridge/
@@ -63,10 +64,11 @@ RUN useradd --system --user-group --no-create-home pulse \
     && chmod 711 /root /root/.config \
     && chmod +x /pulse /entrypoint.sh
 
-# Default port 5443; the compose healthcheck mirrors this. Node-free image
-# tooling is `bun`, so the probe is a one-liner fetch rather than curl.
+# The probe follows the configured port (PULSE_PORT, then config.ini,
+# then 5443); the compose healthchecks run the same script. Node-free
+# image tooling is `bun`, so it is a bun script rather than curl.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
-  CMD bun -e "fetch('http://127.0.0.1:5443/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+  CMD bun /healthcheck.ts
 
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["/entrypoint.sh"]

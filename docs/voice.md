@@ -93,9 +93,14 @@ makes that harmless.
   defaults 510 kbps / on / on / on).
 - Produce caps (`routers/voice/produce.ts`, enforced server-side via
   `superRefine` so a client cannot claim more): audio and screen-audio
-  510 kbps, webcam 3 Mbps, screen share 6 Mbps, at most 60 fps and 3
+  510 kbps, webcam 3 Mbps, screen share 20 Mbps, at most 60 fps and 3
   encodings per producer; external (plugin) streams use the same
-  audio/video ceilings.
+  audio/video ceilings. The client asks for less than the cap: a ladder
+  per resolution and frame rate (`media-policy.ts`, 1080p15 ≈ 3.5 Mbps,
+  1440p60 ≈ 14 Mbps, 2160p60 = 16 Mbps) with `contentHint` `detail` at
+  15 fps and `motion` at 30/60, and a degradation preference that holds
+  resolution at 15 fps and the frame rate above — a flat 2.5 Mbps cap
+  used to turn high-resolution 60 fps shares into a slideshow.
 - Screen-share hover previews are a pull model: the sharer pushes a
   bounded JPEG data-URL periodically (`updateStreamPreview`, only while
   actually sharing); roster hover queries it (`getStreamPreview`,

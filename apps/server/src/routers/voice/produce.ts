@@ -24,7 +24,7 @@ import {
 const MAX_BITRATE_BY_KIND: Record<StreamKind, number> = {
   [StreamKind.AUDIO]: 510_000, // Opus stereo high-quality
   [StreamKind.VIDEO]: 3_000_000, // 3 Mbps comfortable HD camera
-  [StreamKind.SCREEN]: 6_000_000, // 6 Mbps screen share
+  [StreamKind.SCREEN]: 20_000_000, // 20 Mbps: 2160p at 60 fps needs ~16
   [StreamKind.SCREEN_AUDIO]: 510_000,
   [StreamKind.EXTERNAL_VIDEO]: 3_000_000,
   [StreamKind.EXTERNAL_AUDIO]: 510_000

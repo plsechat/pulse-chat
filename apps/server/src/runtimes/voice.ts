@@ -59,7 +59,7 @@ const defaultRouterOptions: RouterOptions<AppData> = {
         'packetization-mode': 1,
         'profile-level-id': '42e01f',
         'level-asymmetry-allowed': 1,
-        'x-google-start-bitrate': 1000
+        'x-google-start-bitrate': 3000
       }
     },
     {
@@ -67,7 +67,7 @@ const defaultRouterOptions: RouterOptions<AppData> = {
       mimeType: 'video/VP8',
       clockRate: 90000,
       parameters: {
-        'x-google-start-bitrate': 1000
+        'x-google-start-bitrate': 3000
       }
     },
     {

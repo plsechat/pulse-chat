@@ -95,7 +95,7 @@ let config: TConfig = {
       dtx: true
     },
     video: {
-      initialAvailableOutgoingBitrate: 6000000
+      initialAvailableOutgoingBitrate: 10000000
     }
   },
   webrtc: defaultWebrtcIceConfig(),

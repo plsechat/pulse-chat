@@ -187,7 +187,7 @@ Full, commented templates — copy the one that matches your setup to `.env`:
 | mediasoup | `audio.stereo` | `true` | Opus stereo |
 | mediasoup | `audio.fec` | `true` | Opus in-band forward error correction |
 | mediasoup | `audio.dtx` | `true` | Opus discontinuous transmission (silence suppression) |
-| mediasoup | `video.initialAvailableOutgoingBitrate` | `6000000` | Initial estimated outgoing bandwidth per transport (bps) |
+| mediasoup | `video.initialAvailableOutgoingBitrate` | `10000000` | Initial estimated outgoing bandwidth per transport (bps) |
 | webrtc | `turn.urls[]` | — | TURN relay URLs for clients that cannot reach the media port; INI list syntax `urls[]=turn:…` (`WEBRTC_TURN_URLS` overrides) |
 | webrtc | `turn.username` / `turn.credential` | — | Relay credentials, handed to every client (`WEBRTC_TURN_USERNAME` / `WEBRTC_TURN_CREDENTIAL` override) |
 | webrtc | `iceTransportPolicy` | `all` | `relay` forces clients through the relay (`WEBRTC_ICE_TRANSPORT_POLICY` overrides) |

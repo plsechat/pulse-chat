@@ -1,4 +1,5 @@
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import { useInfo } from '@/features/server/hooks';
 import { playSound } from '@/features/server/sounds/actions';
 import { SoundType } from '@/features/server/types';
 import {
@@ -9,6 +10,7 @@ import { logVoice } from '@/helpers/browser-logger';
 import { getResWidthHeight } from '@/helpers/get-res-with-height';
 import { onAppEvent } from '@/lib/events';
 import { getVoiceTRPCClient } from '@/lib/trpc';
+import { Resolution, type TDeviceSettings } from '@/types';
 import {
   clampScreenFramerate,
   clampScreenResolution,
@@ -26,18 +28,8 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { useDevices } from '../devices-provider/hooks/use-devices';
-import { useInfo } from '@/features/server/hooks';
-import { Resolution, type TDeviceSettings } from '@/types';
 import { FloatingPinnedCard } from './floating-pinned-card';
 import { useLocalStreams } from './hooks/use-local-streams';
-import {
-  describeMicError,
-  SCREEN_SHARE_MAX_BITRATE,
-  screenShareAudioConstraints,
-  screenShareEncodings,
-  transportIceOptions
-} from './media-policy';
-import { MicPipeline } from './mic-pipeline';
 import { useRemoteStreams } from './hooks/use-remote-streams';
 import {
   useTransportStats,
@@ -46,6 +38,16 @@ import {
 import { useTransports, type TTransportType } from './hooks/use-transports';
 import { useVoiceControls } from './hooks/use-voice-controls';
 import { useVoiceEvents } from './hooks/use-voice-events';
+import {
+  describeMicError,
+  screenShareAudioConstraints,
+  screenShareContentHint,
+  screenShareDegradationPreference,
+  screenShareEncodings,
+  screenShareMaxBitrate,
+  transportIceOptions
+} from './media-policy';
+import { MicPipeline } from './mic-pipeline';
 import { VolumeControlProvider } from './volume-control-context';
 
 type AudioVideoRefs = {
@@ -150,7 +152,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     ConnectionStatus.DISCONNECTED
   );
   const [sharingSystemAudio, setSharingSystemAudio] = useState(false);
-  const [realOutputSinkId, setRealOutputSinkId] = useState<string | undefined>(undefined);
+  const [realOutputSinkId, setRealOutputSinkId] = useState<string | undefined>(
+    undefined
+  );
   // Outgoing screen-share audio mute — pauses the SCREEN_AUDIO producer
   // (listeners get silence) without touching the mic or the capture.
   const [screenAudioMuted, setScreenAudioMuted] = useState(false);
@@ -197,15 +201,13 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   // ceiling. A device pref left above a since-lowered cap is pulled back
   // down here, before capture — the client-side half of the policy (the
   // Stream Quality menu already hides above-cap options).
-  const screenVideoConstraints = useMemo(
+  const screenQuality = useMemo(
     () => ({
-      ...getResWidthHeight(
-        clampScreenResolution(
-          devices?.screenResolution,
-          info?.maxScreenResolution
-        ) as Resolution | undefined
-      ),
-      frameRate: clampScreenFramerate(
+      resolution: clampScreenResolution(
+        devices?.screenResolution,
+        info?.maxScreenResolution
+      ) as Resolution | undefined,
+      framerate: clampScreenFramerate(
         devices?.screenFramerate,
         info?.maxScreenFramerate
       )
@@ -216,6 +218,13 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       info?.maxScreenResolution,
       info?.maxScreenFramerate
     ]
+  );
+  const screenVideoConstraints = useMemo(
+    () => ({
+      ...getResWidthHeight(screenQuality.resolution),
+      frameRate: screenQuality.framerate
+    }),
+    [screenQuality]
   );
 
   const getOrCreateRefs = useCallback((remoteId: number): AudioVideoRefs => {
@@ -262,7 +271,11 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   // The session rebuild is defined after the transports (it needs them);
   // the transports' failure handler reaches it through this ref.
   const rebuildSessionRef = useRef<
-    ((routerRtpCapabilities: RtpCapabilities, channelId: number) => Promise<void>) | null
+    | ((
+        routerRtpCapabilities: RtpCapabilities,
+        channelId: number
+      ) => Promise<void>)
+    | null
   >(null);
 
   /**
@@ -598,7 +611,17 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       logVoice('Restoring mic to original settings after system-audio share');
       await attachMicStream();
     }
-  }, [localScreenShareStream, setLocalScreenShare, localScreenShareProducer, localScreenShareAudioProducer, sharingSystemAudio, localAudioProducer, attachMicStream, setSystemAudioActive]);
+  }, [
+    screenQuality,
+    localScreenShareStream,
+    setLocalScreenShare,
+    localScreenShareProducer,
+    localScreenShareAudioProducer,
+    sharingSystemAudio,
+    localAudioProducer,
+    attachMicStream,
+    setSystemAudioActive
+  ]);
 
   const startScreenShareStream = useCallback(async () => {
     try {
@@ -620,18 +643,23 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       const videoTrack = stream.getVideoTracks()[0];
 
       if (videoTrack) {
-        // Screen content is text and mostly still frames: 'detail' makes
-        // the encoder spend its bits on sharpness rather than motion
-        // smoothing — crisper for viewers, and cheaper on a software
-        // encoder than the default "treat it as video".
-        videoTrack.contentHint = 'detail';
+        // What to protect under pressure follows the chosen frame rate:
+        // a 15 fps desktop keeps its text crisp, a 30/60 fps game keeps
+        // its motion (see media-policy).
+        videoTrack.contentHint = screenShareContentHint(
+          screenQuality.framerate
+        );
 
         // Detect if sharing screen/window (system audio) vs tab (isolated audio)
         const displaySurface = videoTrack.getSettings().displaySurface;
         const hasAudio = stream.getAudioTracks().length > 0;
         const isSystemAudio = hasAudio && displaySurface !== 'browser';
 
-        logVoice('Screen share surface type', { displaySurface, hasAudio, isSystemAudio });
+        logVoice('Screen share surface type', {
+          displaySurface,
+          hasAudio,
+          isSystemAudio
+        });
         setSystemAudioActive(isSystemAudio);
 
         // Prefer H264 for screen share. On Apple Silicon (and most
@@ -649,11 +677,33 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
           await producerTransport.current?.produce({
             track: videoTrack,
             codec: h264Codec,
-            // Client-side bitrate ceiling (see media-policy): without it
-            // the encoder burns CPU pushing every bit the estimator allows.
-            encodings: screenShareEncodings(),
+            // Bitrate budget for the chosen resolution and frame rate (see
+            // media-policy): without a ceiling the encoder burns CPU
+            // pushing every bit the estimator allows.
+            encodings: screenShareEncodings(
+              screenQuality.resolution,
+              screenQuality.framerate
+            ),
             appData: { kind: StreamKind.SCREEN }
           });
+
+        // Tell the encoder which axis to hold when bandwidth or CPU runs
+        // short; the default ("balanced") halves the frame rate first,
+        // which is exactly the slideshow a 60 fps share must not become.
+        const screenSender = localScreenShareProducer.current?.rtpSender;
+        if (screenSender) {
+          try {
+            const params = screenSender.getParameters();
+            params.degradationPreference = screenShareDegradationPreference(
+              screenQuality.framerate
+            );
+            await screenSender.setParameters(params);
+          } catch (error) {
+            logVoice('Error setting screen share degradation preference', {
+              error
+            });
+          }
+        }
 
         localScreenShareProducer.current?.on('@close', async () => {
           logVoice('Screen share producer closed');
@@ -683,24 +733,31 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
           window.pulseDesktop?.audioCapture?.stop();
         } else if (window.pulseDesktop?.audioCapture) {
           try {
-            const available = await window.pulseDesktop.audioCapture.isAvailable();
+            const available =
+              await window.pulseDesktop.audioCapture.isAvailable();
             if (available) {
-              logVoice('macOS: Starting system audio capture via virtual device');
+              logVoice(
+                'macOS: Starting system audio capture via virtual device'
+              );
 
               // Remove any audio track from getDisplayMedia — we'll replace it
               // with our virtual device capture which is more reliable
               if (audioTrack) {
-                logVoice('macOS: Removing system picker audio track in favor of virtual device');
+                logVoice(
+                  'macOS: Removing system picker audio track in favor of virtual device'
+                );
                 audioTrack.stop();
                 stream.removeTrack(audioTrack);
                 audioTrack = undefined as unknown as MediaStreamTrack;
               }
 
-              const captureResult = await window.pulseDesktop.audioCapture.start();
+              const captureResult =
+                await window.pulseDesktop.audioCapture.start();
 
               if (captureResult) {
                 // Find the Pulse Audio virtual input device
-                const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+                const mediaDevices =
+                  await navigator.mediaDevices.enumerateDevices();
 
                 logVoice('macOS: Available audio input devices', {
                   devices: mediaDevices
@@ -709,21 +766,26 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
                 });
 
                 const pulseInput = mediaDevices.find(
-                  (d) => d.kind === 'audioinput' && d.label.includes('Pulse Audio')
+                  (d) =>
+                    d.kind === 'audioinput' && d.label.includes('Pulse Audio')
                 );
 
                 if (pulseInput) {
-                  logVoice('macOS: Capturing from Pulse Audio device', { deviceId: pulseInput.deviceId });
-                  const audioStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                      deviceId: { exact: pulseInput.deviceId },
-                      autoGainControl: false,
-                      echoCancellation: false,
-                      noiseSuppression: false,
-                      channelCount: 2,
-                      sampleRate: 48000
-                    }
+                  logVoice('macOS: Capturing from Pulse Audio device', {
+                    deviceId: pulseInput.deviceId
                   });
+                  const audioStream = await navigator.mediaDevices.getUserMedia(
+                    {
+                      audio: {
+                        deviceId: { exact: pulseInput.deviceId },
+                        autoGainControl: false,
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        channelCount: 2,
+                        sampleRate: 48000
+                      }
+                    }
+                  );
 
                   audioTrack = audioStream.getAudioTracks()[0];
                   if (audioTrack) {
@@ -734,10 +796,15 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
                     // chat audio directly to it (bypassing the aggregate device).
                     // This prevents remote users' voices from being re-captured.
                     const realOutput = mediaDevices.find(
-                      (d) => d.kind === 'audiooutput' && d.label.includes(captureResult.realOutputDeviceName)
+                      (d) =>
+                        d.kind === 'audiooutput' &&
+                        d.label.includes(captureResult.realOutputDeviceName)
                     );
                     if (realOutput) {
-                      logVoice('macOS: Routing voice to real output', { deviceId: realOutput.deviceId, label: realOutput.label });
+                      logVoice('macOS: Routing voice to real output', {
+                        deviceId: realOutput.deviceId,
+                        label: realOutput.label
+                      });
                       setRealOutputSinkId(realOutput.deviceId);
                     }
 
@@ -752,17 +819,23 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
                       !localAudioProducer.current.closed &&
                       !micMutedRef.current
                     ) {
-                      logVoice('macOS: Re-acquiring mic with echo cancellation');
+                      logVoice(
+                        'macOS: Re-acquiring mic with echo cancellation'
+                      );
                       await attachMicStream();
                     }
                   }
                 } else {
-                  logVoice('macOS: Pulse Audio input device not found, available inputs listed above');
+                  logVoice(
+                    'macOS: Pulse Audio input device not found, available inputs listed above'
+                  );
                   window.pulseDesktop.audioCapture.stop();
                 }
               }
             } else {
-              logVoice('macOS: Audio driver not available, using system audio track if present');
+              logVoice(
+                'macOS: Audio driver not available, using system audio track if present'
+              );
             }
           } catch (err) {
             logVoice('macOS: System audio capture failed', { error: err });
@@ -928,7 +1001,9 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       } else if (audioProducer && !audioProducer.closed) {
         // New source has no audio — close() fires the '@close' handler
         // registered at produce time, which notifies voice.closeProducer.
-        logVoice('New source has no audio, closing screen share audio producer');
+        logVoice(
+          'New source has no audio, closing screen share audio producer'
+        );
         audioProducer.close();
         localScreenShareAudioProducer.current = undefined;
       }
@@ -985,42 +1060,46 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
   }, [localScreenShareAudioProducer]);
 
   // Hot-swap webcam track on the existing producer when device settings change
-  const reapplyWebcamSettings = useCallback(async (webcamEnabled: boolean) => {
-    if (!webcamEnabled) return;
-    if (!localVideoProducer.current || localVideoProducer.current.closed) return;
+  const reapplyWebcamSettings = useCallback(
+    async (webcamEnabled: boolean) => {
+      if (!webcamEnabled) return;
+      if (!localVideoProducer.current || localVideoProducer.current.closed)
+        return;
 
-    try {
-      logVoice('Reapplying webcam settings mid-call');
+      try {
+        logVoice('Reapplying webcam settings mid-call');
 
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          deviceId: { ideal: devices.webcamId },
-          frameRate: devices.webcamFramerate,
-          ...getResWidthHeight(devices.webcamResolution)
-        }
-      });
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            deviceId: { ideal: devices.webcamId },
+            frameRate: devices.webcamFramerate,
+            ...getResWidthHeight(devices.webcamResolution)
+          }
+        });
 
-      const newTrack = newStream.getVideoTracks()[0];
-      if (!newTrack) return;
+        const newTrack = newStream.getVideoTracks()[0];
+        if (!newTrack) return;
 
-      // Stop old tracks
-      localVideoStream?.getVideoTracks().forEach((t) => t.stop());
+        // Stop old tracks
+        localVideoStream?.getVideoTracks().forEach((t) => t.stop());
 
-      await localVideoProducer.current!.replaceTrack({ track: newTrack });
-      setLocalVideoStream(newStream);
-      logVoice('Webcam settings reapplied successfully');
-    } catch (error) {
-      logVoice('Error reapplying webcam settings', { error });
-    }
-  }, [
-    localVideoProducer,
-    localVideoStream,
-    setLocalVideoStream,
-    devices.webcamId,
-    devices.webcamFramerate,
-    devices.webcamResolution
-  ]);
+        await localVideoProducer.current!.replaceTrack({ track: newTrack });
+        setLocalVideoStream(newStream);
+        logVoice('Webcam settings reapplied successfully');
+      } catch (error) {
+        logVoice('Error reapplying webcam settings', { error });
+      }
+    },
+    [
+      localVideoProducer,
+      localVideoStream,
+      setLocalVideoStream,
+      devices.webcamId,
+      devices.webcamFramerate,
+      devices.webcamResolution
+    ]
+  );
 
   // Live re-apply screen-share quality on an ACTIVE share. Resolution and
   // framerate go through applyConstraints on the captured track (downscales
@@ -1037,8 +1116,11 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       }
     }
 
-    // The video ceiling is a constant, but a constraints change can land
-    // the encoder on fresh parameters — pin it again alongside.
+    // A new resolution or frame rate means a new bitrate budget, hint and
+    // degradation axis — re-pin all three alongside the constraints.
+    if (videoTrack && videoTrack.readyState === 'live') {
+      videoTrack.contentHint = screenShareContentHint(screenQuality.framerate);
+    }
     const videoSender = localScreenShareProducer.current?.closed
       ? undefined
       : localScreenShareProducer.current?.rtpSender;
@@ -1046,7 +1128,13 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
       try {
         const params = videoSender.getParameters();
         if (params.encodings?.length) {
-          params.encodings[0].maxBitrate = SCREEN_SHARE_MAX_BITRATE;
+          params.encodings[0].maxBitrate = screenShareMaxBitrate(
+            screenQuality.resolution,
+            screenQuality.framerate
+          );
+          params.degradationPreference = screenShareDegradationPreference(
+            screenQuality.framerate
+          );
           await videoSender.setParameters(params);
           logVoice('Screen share video bitrate ceiling re-applied live');
         }
@@ -1316,7 +1404,16 @@ const VoiceProvider = memo(({ children }: TVoiceProviderProps) => {
     if (screenChanged && ownVoiceState.sharingScreen) {
       reapplyScreenShareSettings();
     }
-  }, [devices, connectionStatus, attachMicStream, reapplyWebcamSettings, reapplyScreenShareSettings, ownVoiceState.micMuted, ownVoiceState.webcamEnabled, ownVoiceState.sharingScreen]);
+  }, [
+    devices,
+    connectionStatus,
+    attachMicStream,
+    reapplyWebcamSettings,
+    reapplyScreenShareSettings,
+    ownVoiceState.micMuted,
+    ownVoiceState.webcamEnabled,
+    ownVoiceState.sharingScreen
+  ]);
 
   const contextValue = useMemo<TVoiceProvider>(
     () => ({

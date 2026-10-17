@@ -72,7 +72,7 @@ services:
     # Mirrors the image's HEALTHCHECK so `docker compose ps` / orchestrators
     # see a wedged server; /healthz is the server's liveness route.
     healthcheck:
-      test: ["CMD-SHELL", "bun -e \"fetch('http://127.0.0.1:5443/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      test: ["CMD", "bun", "/healthcheck.ts"]
       interval: 10s
       timeout: 5s
       retries: 12
