@@ -1,6 +1,5 @@
-import type { TDevices } from '@/types';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { TServerSummary } from '@pulse/shared';
+import type { TServerSummary } from '@pulse/server/types';
 
 export type TActiveView = 'home' | 'server' | 'discover';
 
@@ -12,15 +11,19 @@ export type TFederatedServerEntry = {
   federationToken: string;
   tokenExpiresAt: number;
   /** Our user id WITHIN this federated instance. Cached at first
-   *  contact (joinServer or users.getMyId) so flows like Phase B
+   *  contact (openSession or users.getMyId) so flows like Phase B
    *  redistribute can target each instance's chains under the right
-   *  author id without re-fetching joinServer. */
+   *  author id without re-fetching openSession. */
   ownUserId?: number;
+  /** The home instance's last relay failure against this peer (for
+   *  example `unsupported:/federation/...` from an older peer). Shown
+   *  as a warning badge on the rail entry; absent when the pairing is
+   *  healthy. */
+  peerWarning?: string;
 };
 
 export interface TAppState {
   loading: boolean;
-  devices: TDevices | undefined;
   modViewOpen: boolean;
   modViewUserId?: number;
   activeView: TActiveView;
@@ -49,7 +52,6 @@ export interface TAppState {
 
 const initialState: TAppState = {
   loading: true,
-  devices: undefined,
   modViewOpen: false,
   modViewUserId: undefined,
   activeView: 'home',
@@ -72,9 +74,7 @@ export const appSlice = createSlice({
     setAppLoading: (state, action: PayloadAction<boolean>) => {
       state.loading = action.payload;
     },
-    setDevices: (state, action: PayloadAction<TDevices>) => {
-      state.devices = action.payload;
-    },
+
     setModViewOpen: (
       state,
       action: PayloadAction<{
@@ -111,8 +111,9 @@ export const appSlice = createSlice({
       }
     },
     /**
-     * Live-sync a joined server's rail summary (name/logo) from a
-     * SERVER_SETTINGS_UPDATE. Matched by the globally-unique publicId —
+     * Live-sync a joined server's summary (name/description/logo) from a
+     * SERVER_SETTINGS_UPDATE — the rail, the deck tabs and the Discover
+     * card all read it. Matched by the globally-unique publicId —
      * numeric ids collide across federated instances.
      */
     updateJoinedServerInfo: (
@@ -120,6 +121,7 @@ export const appSlice = createSlice({
       action: PayloadAction<{
         publicId: string;
         name?: string;
+        description?: string | null;
         logo?: TServerSummary['logo'];
       }>
     ) => {
@@ -130,8 +132,11 @@ export const appSlice = createSlice({
       if (action.payload.name !== undefined) {
         entry.name = action.payload.name;
       }
-      // `undefined` = sender didn't include a logo (older server) — leave
-      // it alone. `null` = logo removed.
+      // `undefined` = sender didn't include the field (older server) —
+      // leave it alone. `null` / '' = cleared.
+      if (action.payload.description !== undefined) {
+        entry.description = action.payload.description;
+      }
       if (action.payload.logo !== undefined) {
         entry.logo = action.payload.logo;
       }

@@ -1,5 +1,5 @@
 import { PaginatedTable } from '@/components/paginated-table';
-import type { TJoinedUser } from '@pulse/shared';
+import type { TJoinedUser } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { TableUser } from './table-user';
 
@@ -32,7 +32,7 @@ const UsersTable = memo(({ users }: TUsersTableProps) => {
           <div>Actions</div>
         </>
       }
-      gridCols="grid-cols-[60px_1fr_120px_120px_120px_80px_50px]"
+      gridCols="grid-cols-[3rem_minmax(7rem,1fr)_minmax(0,6rem)_5.25rem_5.25rem_3.25rem_2.25rem]"
       itemsPerPage={8}
       searchPlaceholder="Search users by name or identity..."
       emptyMessage="No users found"

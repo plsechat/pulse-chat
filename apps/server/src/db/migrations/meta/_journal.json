@@ -204,6 +204,111 @@
       "when": 1784758394169,
       "tag": "0028_polite_freak",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792095112074,
+      "tag": "0029_strip_manage_updates_permission",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792102705339,
+      "tag": "0030_normalize_local_auth_emails",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792106550735,
+      "tag": "0031_charming_shadowcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792117675464,
+      "tag": "0032_supreme_hardball",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792117684143,
+      "tag": "0033_robust_randall_flagg",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792117911937,
+      "tag": "0034_server_members_timed_out_until",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792123136507,
+      "tag": "0035_local_auth_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792125066866,
+      "tag": "0036_b5_federation",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792185647177,
+      "tag": "0037_events_plugin_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792188683559,
+      "tag": "0038_import_jobs_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792192836632,
+      "tag": "0039_bridge_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792197085938,
+      "tag": "0040_bridge_server_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792212595614,
+      "tag": "0041_round_two_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792229205033,
+      "tag": "0042_message_tombstones",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792297839206,
+      "tag": "0043_planner_switch_owner_permissions",
+      "breakpoints": true
     }
   ]
 }

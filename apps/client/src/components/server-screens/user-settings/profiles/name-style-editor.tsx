@@ -2,7 +2,8 @@ import { Button } from '@/components/ui/button';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
 import { cn } from '@/lib/utils';
-import type { TJoinedPublicUser, TNameStyle } from '@pulse/shared';
+import type { TNameStyle } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { NAME_STYLE_EFFECTS, NAME_STYLE_FONTS } from '@pulse/shared';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 

@@ -1,28 +1,22 @@
 import { Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { files, servers } from '../../db/schema';
-import { protectedProcedure } from '../../utils/trpc';
+import { invariant } from '../../utils/invariant';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const getSettingsRoute = protectedProcedure
-  .input(
-    z.object({
-      serverId: z.number()
-    })
-  )
-  .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
-
+const getSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS).query(
+  async ({ input }) => {
     const [server] = await db
       .select()
       .from(servers)
       .where(eq(servers.id, input.serverId))
       .limit(1);
 
-    if (!server) {
-      throw new Error('Server not found');
-    }
+    invariant(server, {
+      code: 'NOT_FOUND',
+      message: 'Server not found'
+    });
 
     const logo = server.logoId
       ? (
@@ -40,6 +34,7 @@ const getSettingsRoute = protectedProcedure
       password: server.password,
       allowNewUsers: server.allowNewUsers,
       enablePlugins: server.enablePlugins,
+      enableEvents: server.enableEvents,
       storageUploadEnabled: server.storageUploadEnabled,
       storageQuota: server.storageQuota,
       storageUploadMaxFileSize: server.storageUploadMaxFileSize,
@@ -47,8 +42,13 @@ const getSettingsRoute = protectedProcedure
       storageOverflowAction: server.storageOverflowAction,
       discoverable: server.discoverable,
       federatable: server.federatable,
+      directoryListed: server.directoryListed,
+      directoryDescription: server.directoryDescription,
+      directoryTags: server.directoryTags ?? [],
+      directoryGame: server.directoryGame,
       logo: logo ?? null
     };
-  });
+  }
+);
 
 export { getSettingsRoute };

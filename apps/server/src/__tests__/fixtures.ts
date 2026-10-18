@@ -10,6 +10,7 @@ import { randomUUIDv7 } from 'bun';
 import {
   categories,
   channels,
+  friendships,
   rolePermissions,
   roles,
   serverMembers,
@@ -17,7 +18,9 @@ import {
   userRoles,
   users
 } from '../db/schema';
+import { VoiceRuntime } from '../runtimes/voice';
 import { getTestDb } from './mock-db';
+import { testsBaseUrl } from './setup';
 
 /**
  * Drizzle-typed test fixtures. Use these instead of raw `INSERT INTO ...`
@@ -197,12 +200,149 @@ const grantTestUserRole = async (userId: number, roleId: number) => {
   });
 };
 
+/**
+ * A TEXT channel with no seeded messages in the bootstrap server.
+ * Exact-count tests need one: seeded channel 1 carries a message and
+ * channel 2 is the VOICE channel, which no longer accepts messages.
+ */
+const createEmptyTextChannel = async (name: string) => {
+  const [channel] = await getTestDb()
+    .insert(channels)
+    .values({
+      type: ChannelType.TEXT,
+      name,
+      position: 50,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    })
+    .returning();
+
+  return channel!;
+};
+
+/** A VOICE channel (no category) in `serverId`; returns the full row. */
+const insertVoiceChannel = async (serverId = 1) => {
+  const [channel] = await getTestDb()
+    .insert(channels)
+    .values({
+      type: ChannelType.VOICE,
+      name: `voice-${randomUUIDv7()}`,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      position: 999,
+      serverId,
+      publicId: randomUUIDv7(),
+      createdAt: Date.now()
+    })
+    .returning();
+  return channel!;
+};
+
+/** A second server next to the bootstrap one; returns the full row. */
+const insertOtherServer = async () => {
+  const [server] = await getTestDb()
+    .insert(servers)
+    .values({
+      name: `Other Server ${randomUUIDv7().slice(0, 8)}`,
+      publicId: randomUUIDv7(),
+      allowNewUsers: true,
+      storageUploadEnabled: true,
+      storageQuota: STORAGE_QUOTA,
+      storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+      storageSpaceQuotaByUser: STORAGE_MIN_QUOTA_PER_USER,
+      storageOverflowAction: STORAGE_OVERFLOW_ACTION,
+      enablePlugins: false,
+      createdAt: Date.now()
+    })
+    .returning();
+  return server!;
+};
+
+/** A fresh local user who is a plain member of the bootstrap server. */
+const insertMemberUser = async () => {
+  const tdb = getTestDb();
+  const suffix = randomUUIDv7();
+  const [user] = await tdb
+    .insert(users)
+    .values({
+      supabaseId: `member-supa-${suffix}`,
+      name: `MemberUser-${suffix.slice(0, 8)}`,
+      publicId: `member-pid-${suffix}`,
+      createdAt: Date.now()
+    })
+    .returning();
+
+  await tdb.insert(serverMembers).values({
+    userId: user!.id,
+    serverId: 1,
+    nickname: null,
+    joinedAt: Date.now()
+  });
+
+  return user!;
+};
+
+/**
+ * Stage a user as "in voice" by constructing the runtime directly.
+ * Voice runtimes are pure in-memory state (router creation only happens
+ * on real joins), and the module-level runtime map is NOT reset by the
+ * between-test TRUNCATE — callers must destroy what they create.
+ */
+const stageUserInVoice = (channelId: number, userId: number) => {
+  const runtime = new VoiceRuntime(channelId);
+  runtime.addUser(userId, { micMuted: false, soundMuted: false });
+  return runtime;
+};
+
+/** A local (non-federated) user who is already friends with user 1. */
+const seedLocalFriend = async (name = 'localFriend'): Promise<number> => {
+  const tdb = getTestDb();
+  const [local] = await tdb
+    .insert(users)
+    .values({
+      supabaseId: `local-${name}`,
+      name,
+      publicId: `local-pid-${name}`,
+      isFederated: false,
+      createdAt: Date.now()
+    })
+    .returning();
+  await tdb.insert(friendships).values({
+    userId: 1,
+    friendId: local!.id,
+    createdAt: Date.now()
+  });
+  return local!.id;
+};
+
+/** POST /auth/provision with a bearer token (session bootstrap). */
+const provision = (token: string, body?: { invite?: string }) =>
+  fetch(`${testsBaseUrl}/auth/provision`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(body ?? {})
+  });
+
 export {
+  createEmptyTextChannel,
   createTestCategory,
   createTestChannel,
   createTestRole,
   createTestServer,
   createTestServerMember,
   createTestUser,
-  grantTestUserRole
+  grantTestUserRole,
+  insertMemberUser,
+  insertOtherServer,
+  insertVoiceChannel,
+  provision,
+  seedLocalFriend,
+  stageUserInVoice
 };

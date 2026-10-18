@@ -50,18 +50,49 @@ const CommandsList = memo(
                       {cmd.description}
                     </div>
                   )}
-                  {cmd.args && cmd.args.length > 0 && (
-                    <div
+                  {cmd.subcommands && cmd.subcommands.length > 0 ? (
+                    // The verbs are the command's real surface; the
+                    // positional arguments such a command still
+                    // declares are its legacy spelling and would only
+                    // read as a wrong "N arguments".
+                    <ul
                       className={cn(
-                        'text-xs mt-1',
+                        'text-xs mt-1.5 space-y-1',
                         selectedCommand === cmd.name
                           ? 'text-primary-foreground/70'
                           : 'text-muted-foreground'
                       )}
                     >
-                      {cmd.args.length} argument
-                      {cmd.args.length !== 1 ? 's' : ''}
-                    </div>
+                      {cmd.subcommands.map((sub) => (
+                        <li key={sub.name}>
+                          <span className="font-mono">
+                            {cmd.name} {sub.name}
+                            {sub.args?.map((arg) => (
+                              <span key={arg.name}>
+                                {' '}
+                                {arg.required ? `<${arg.name}>` : `[${arg.name}]`}
+                              </span>
+                            ))}
+                          </span>
+                          {sub.description && <> — {sub.description}</>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    cmd.args &&
+                    cmd.args.length > 0 && (
+                      <div
+                        className={cn(
+                          'text-xs mt-1',
+                          selectedCommand === cmd.name
+                            ? 'text-primary-foreground/70'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {cmd.args.length} argument
+                        {cmd.args.length !== 1 ? 's' : ''}
+                      </div>
+                    )
                   )}
                 </button>
               ))}

@@ -29,7 +29,7 @@ type TPopoverPanelShellProps = {
   loadingMessage?: string;
   empty?: boolean;
   emptyMessage?: string;
-  /** Override the default w-96 max-h-96 sizing if a panel needs more room. */
+  /** Override the default 24rem-wide (viewport-capped) max-h-96 sizing if a panel needs more room. */
   className?: string;
   /** Header-row trailing content (filters, badges) rendered before the close button. */
   headerExtras?: ReactNode;
@@ -75,7 +75,7 @@ const PopoverPanelShell = memo(
     return (
       <div
         className={cn(
-          'absolute right-0 top-full mt-1 z-50 w-96 max-h-96 overflow-hidden rounded-lg border border-border/60 bg-popover shadow-xl shadow-black/40 flex flex-col animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right',
+          'absolute right-0 top-full mt-1 z-50 w-[min(24rem,calc(100vw-1rem))] max-h-96 overflow-hidden rounded-lg border border-border/60 bg-popover shadow-xl shadow-black/40 flex flex-col animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 origin-top-right',
           className
         )}
       >
@@ -97,6 +97,7 @@ const PopoverPanelShell = memo(
               size="sm"
               className="h-6 w-6 p-0"
               onClick={onClose}
+              aria-label="Close"
             >
               <X className="w-3 h-3" />
             </Button>

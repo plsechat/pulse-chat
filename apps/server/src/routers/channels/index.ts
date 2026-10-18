@@ -1,5 +1,10 @@
 import { t } from '../../utils/trpc';
 import { addChannelRoute } from './add-channel';
+import { bridgeExcludeRoute } from './bridge-exclude';
+import { bridgeLinkRoute } from './bridge-link';
+import { bridgeRemoteChannelsRoute } from './bridge-remote-channels';
+import { bridgeStatusRoute } from './bridge-status';
+import { bridgeUnlinkRoute } from './bridge-unlink';
 import { deleteChannelRoute } from './delete-channel';
 import { deletePermissionsRoute } from './delete-permissions';
 import {
@@ -32,6 +37,11 @@ export const channelsRouter = t.router({
   reorder: reorderChannelsRoute,
   markAsRead: markAsReadRoute,
   rotateFileAccessToken: rotateFileAccessTokenRoute,
+  bridgeLink: bridgeLinkRoute,
+  bridgeUnlink: bridgeUnlinkRoute,
+  bridgeStatus: bridgeStatusRoute,
+  bridgeRemoteChannels: bridgeRemoteChannelsRoute,
+  bridgeExclude: bridgeExcludeRoute,
   onCreate: onChannelCreateRoute,
   onDelete: onChannelDeleteRoute,
   onUpdate: onChannelUpdateRoute,

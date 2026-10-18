@@ -1,4 +1,3 @@
-import { ServerEvents } from '@pulse/shared';
 import { timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -11,6 +10,7 @@ import {
 } from '../../db/queries/servers';
 import { userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
+import { announceMemberJoin } from '../../utils/membership-events';
 import {
   checkPasswordRateLimit,
   recordPasswordFailure,
@@ -98,10 +98,12 @@ const joinDiscoverRoute = protectedProcedure
     const servers = await getServersByUserId(ctx.userId);
     const summary = servers.find((s) => s.id === server.id)!;
 
-    ctx.pubsub.publishFor(ctx.userId, ServerEvents.SERVER_MEMBER_JOIN, {
-      serverId: server.id,
+    await announceMemberJoin({
+      pubsub: ctx.pubsub,
+      server,
       userId: ctx.userId,
-      server: summary
+      username: ctx.user.name,
+      summary
     });
 
     return summary;

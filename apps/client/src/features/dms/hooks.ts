@@ -7,13 +7,10 @@ import {
   dmActiveCallsSelector,
   dmCallByChannelIdSelector,
   dmChannelsSelector,
-  dmMessagesSelector,
-  dmsLoadingSelector,
   dmTypingUsersSelector,
   ownDmCallChannelIdSelector,
   ringingCallsSelector,
-  selectedDmChannelIdSelector,
-  selectedDmChannelSelector
+  selectedDmChannelIdSelector
 } from './selectors';
 
 /**
@@ -39,16 +36,9 @@ export const useDmChannels = () => {
   }, [channels, blocked, ownUserId]);
 };
 
+/** The open DM — Redux is the single source of truth for the selection. */
 export const useSelectedDmChannelId = () =>
   useSelector(selectedDmChannelIdSelector);
-
-export const useSelectedDmChannel = () =>
-  useSelector(selectedDmChannelSelector);
-
-export const useDmMessages = (dmChannelId: number) =>
-  useSelector((state: IRootState) => dmMessagesSelector(state, dmChannelId));
-
-export const useDmsLoading = () => useSelector(dmsLoadingSelector);
 
 export const useDmActiveCalls = () => useSelector(dmActiveCallsSelector);
 

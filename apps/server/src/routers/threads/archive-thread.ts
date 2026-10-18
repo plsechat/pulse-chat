@@ -1,27 +1,21 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { and, count, eq, max } from 'drizzle-orm';
+import { and, asc, count, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
-import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, messages } from '../../db/schema';
-import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
+import { getThreadViewerIds } from './_shared';
 
-const archiveThreadRoute = protectedProcedure
+const archiveThreadRoute = serverProcedure()
   .input(
     z.object({
-      threadId: z.number(),
+      threadId: z.number().int().positive(),
       archived: z.boolean()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Scope to active server so a user with MANAGE_CHANNELS in server B
     // can't archive a thread in server A (audit recurring rule:
     // pulse-rule-cross-server-scope).
@@ -40,7 +34,24 @@ const archiveThreadRoute = protectedProcedure
       return ctx.throwValidationError('threadId', 'Thread not found');
     }
 
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+    // The post's author is the author of the oldest message in it.
+    const [firstMsg] = await db
+      .select({ userId: messages.userId })
+      .from(messages)
+      .where(eq(messages.channelId, thread.id))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .limit(1);
+
+    const isCreator = firstMsg?.userId === ctx.userId;
+
+    // Archiving is a moderation action. Reopening is too, except for the
+    // author's own post: imported posts arrive archived and the author
+    // should not need a moderator to continue their own thread.
+    if (!input.archived && isCreator) {
+      await ctx.needsPermission(Permission.SEND_MESSAGES, thread.serverId);
+    } else {
+      await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+    }
 
     await db
       .update(channels)
@@ -58,15 +69,15 @@ const archiveThreadRoute = protectedProcedure
       .from(messages)
       .where(eq(messages.channelId, input.threadId));
 
-    const memberIds = await getServerMemberIds(thread.serverId);
-    pubsub.publishFor(memberIds, ServerEvents.THREAD_UPDATE, {
+    const viewerIds = await getThreadViewerIds(thread.id);
+    pubsub.publishFor(viewerIds, ServerEvents.THREAD_UPDATE, {
       id: thread.id,
       name: thread.name,
       messageCount: stats?.messageCount ?? 0,
       lastMessageAt: stats?.lastMessageAt ? Number(stats.lastMessageAt) : null,
       archived: input.archived,
       parentChannelId: thread.parentChannelId!,
-      creatorId: 0
+      creatorId: firstMsg?.userId ?? 0
     });
   });
 

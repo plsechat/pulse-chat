@@ -82,10 +82,11 @@ const FileCard = ({
       </div>
       {onRemove && (
         <Button
-          size="icon"
+          size="icon-sm"
           variant="ghost"
-          className="h-8 w-8 shrink-0 transition-opacity duration-200"
+          className="transition-opacity duration-200"
           onClick={onRemoveClick}
+          aria-label={`Remove ${name}`}
         >
           <Trash className="h-4 w-4" />
         </Button>

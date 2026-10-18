@@ -93,6 +93,24 @@ export type AuthBackend = {
    * and never call PULSE for it. */
   refreshSession?(refreshToken: string): Promise<SignInResult>;
 
+  /** Revoke the session family behind a token — logout. Either token
+   * identifies the family (the refresh token when the access token has
+   * already expired). Idempotent and silent on garbage: the logout
+   * route answers 200 either way so it cannot be used as an oracle for
+   * token validity. Optional: local backend only, like refreshSession. */
+  revokeSession?(opts: {
+    refreshToken?: string;
+    accessToken?: string;
+  }): Promise<void>;
+
+  /** Revoke every session family of an auth-side user id, optionally
+   * sparing one (the caller's own, after a password change). Optional:
+   * local backend only. */
+  revokeAllSessions?(
+    userId: string,
+    opts?: { exceptFamilyId?: string }
+  ): Promise<void>;
+
   /** Admin: create a user. Used by /register. */
   createUser(opts: {
     email: string;

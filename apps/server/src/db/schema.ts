@@ -1,10 +1,12 @@
 import {
-  type TActivityLogDetailsMap,
   type TMessageMetadata,
   type TNameStyle,
   type TUserPreferences
 } from '@pulse/shared';
+import type { TActivityLogDetailsMap, TBridgeSyncReport } from '../types';
+import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   index,
@@ -24,7 +26,12 @@ const files = pgTable(
     name: text('name').notNull().unique(),
     originalName: text('original_name').notNull(),
     md5: text('md5').notNull(),
-    userId: integer('user_id').notNull(),
+    // Uploads die with their uploader. Account deletion tombstones the
+    // users row (files untouched); only a hard DELETE of the row — manual
+    // SQL, tests — reaches this cascade.
+    userId: integer('user_id')
+      .notNull()
+      .references((): AnyPgColumn => users.id, { onDelete: 'cascade' }),
     size: integer('size').notNull(),
     mimeType: text('mime_type').notNull(),
     extension: text('extension').notNull(),
@@ -46,7 +53,7 @@ const settings = pgTable(
     name: text('name').notNull(),
     description: text('description'),
     password: text('password'),
-    serverId: text('server_id').notNull(),
+    serverId: text('server_id').primaryKey(),
     logoId: integer('logo_id').references(() => files.id, {
       onDelete: 'set null'
     }),
@@ -69,11 +76,7 @@ const settings = pgTable(
       .notNull()
       .default('1080p'),
     screenMaxFramerate: integer('screen_max_framerate').notNull().default(60)
-  },
-  (t) => [
-    index('settings_server_idx').on(t.serverId),
-    uniqueIndex('settings_server_unique_idx').on(t.serverId)
-  ]
+  }
 );
 
 const servers = pgTable(
@@ -88,8 +91,13 @@ const servers = pgTable(
     logoId: integer('logo_id').references(() => files.id, {
       onDelete: 'set null'
     }),
+    // RESTRICT, not SET NULL: a null owner re-opens the bootstrap
+    // "first registrant becomes owner" claim (http/register-user.ts), so
+    // a hard delete of an owner row must fail at the DB. Ownership is
+    // transferred first (servers.transferOwner); account deletion
+    // already refuses owners at the app layer.
     ownerId: integer('owner_id').references(() => users.id, {
-      onDelete: 'set null'
+      onDelete: 'restrict'
     }),
     allowNewUsers: boolean('allow_new_users').notNull(),
     storageUploadEnabled: boolean('storage_uploads_enabled').notNull(),
@@ -102,13 +110,26 @@ const servers = pgTable(
     }).notNull(),
     storageOverflowAction: text('storage_overflow_action').notNull(),
     enablePlugins: boolean('enable_plugins').notNull(),
+    // Per-community Planner switch (MANAGE_SETTINGS). Off = the planner UI,
+    // event routes, ICS feed, reminders, SDK event actions and the import
+    // step all refuse; existing events stay untouched and return when it
+    // is switched on again (nothing is cancelled by the switch).
+    enableEvents: boolean('enable_events').notNull().default(true),
     discoverable: boolean('discoverable').notNull().default(false),
     federatable: boolean('federatable').notNull().default(false),
+    // Public directory listing (opt-in, MANAGE_SETTINGS): the card copy
+    // shown on this instance's Directory tab and offered to federated
+    // peers through /federation/directory.
+    directoryListed: boolean('directory_listed').notNull().default(false),
+    directoryDescription: text('directory_description'),
+    directoryTags: jsonb('directory_tags').$type<string[]>(),
+    directoryGame: text('directory_game'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
     uniqueIndex('servers_public_id_idx').on(t.publicId),
+    index('servers_directory_listed_idx').on(t.directoryListed),
     index('servers_owner_idx').on(t.ownerId),
     index('servers_name_idx').on(t.name),
     index('servers_discoverable_idx').on(t.discoverable),
@@ -134,7 +155,11 @@ const serverMembers = pgTable(
     muted: boolean('muted').notNull().default(false),
     notificationLevel: text('notification_level').notNull().default('default'),
     position: integer('position').notNull().default(0),
-    nickname: text('nickname')
+    nickname: text('nickname'),
+    // Automod `timeout_user`: while this is in the future the member may
+    // neither send messages nor join voice in this server (MANAGE_USERS
+    // holders bypass). Null / past = not timed out.
+    timedOutUntil: bigint('timed_out_until', { mode: 'number' })
   },
   (t) => [
     primaryKey({ columns: [t.serverId, t.userId] }),
@@ -154,13 +179,19 @@ const roles = pgTable(
     serverId: integer('server_id')
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
+    // Rank within the server: higher = more senior. The owner role is the
+    // highest, the default role the lowest. A caller may only create,
+    // edit, assign, delete or reorder roles STRICTLY below their own
+    // highest role (the server owner bypasses the ceiling).
+    position: integer('position').notNull().default(0),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
     index('roles_is_default_idx').on(t.isDefault),
     index('roles_is_persistent_idx').on(t.isPersistent),
-    index('roles_server_idx').on(t.serverId)
+    index('roles_server_idx').on(t.serverId),
+    index('roles_server_position_idx').on(t.serverId, t.position)
   ]
 );
 
@@ -202,11 +233,18 @@ const channels = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     slowMode: integer('slow_mode').notNull().default(0),
-    parentChannelId: integer('parent_channel_id'),
+    // Threads and forum posts die with their parent channel.
+    parentChannelId: integer('parent_channel_id').references(
+      (): AnyPgColumn => channels.id,
+      { onDelete: 'cascade' }
+    ),
     archived: boolean('archived').notNull().default(false),
     autoArchiveDuration: integer('auto_archive_duration').default(1440),
     forumDefaultSort: text('forum_default_sort').default('latest'),
     e2ee: boolean('e2ee').notNull().default(false),
+    // A TEXT channel only MANAGE_ANNOUNCEMENTS holders can post in;
+    // everyone reads and reacts, and other channels can follow it.
+    announcement: boolean('announcement').notNull().default(false),
     publicId: text('public_id').notNull().unique(),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
@@ -262,6 +300,14 @@ const users = pgTable(
     // is validated against nameStyleSchema on equip and on federation
     // receive; see TNameStyle.
     nameStyle: jsonb('name_style').$type<TNameStyle>(),
+    // What the user is playing, reported by the desktop shell while the
+    // "share what you're playing" preference is on. Cleared on sign-out
+    // and by the presence cron after 6 h so a crashed shell leaves no
+    // ghost. Null when not playing or not sharing.
+    gamePresence: jsonb('game_presence').$type<{
+      name: string;
+      startedAt: number;
+    }>(),
     banned: boolean('banned').notNull().default(false),
     banReason: text('ban_reason'),
     bannedAt: bigint('banned_at', { mode: 'number' }),
@@ -275,7 +321,10 @@ const users = pgTable(
       .notNull()
       .$defaultFn(() => Date.now()),
     isFederated: boolean('is_federated').notNull().default(false),
-    federatedInstanceId: integer('federated_instance_id'),
+    federatedInstanceId: integer('federated_instance_id').references(
+      (): AnyPgColumn => federationInstances.id,
+      { onDelete: 'set null' }
+    ),
     federatedUsername: text('federated_username'),
     publicId: text('public_id').notNull().unique(),
     federatedPublicId: text('federated_public_id'),
@@ -285,13 +334,19 @@ const users = pgTable(
   (t) => [
     uniqueIndex('users_supabase_id_idx').on(t.supabaseId),
     index('users_name_idx').on(t.name),
+    // Orphan-file scan (getOrphanedFileIds) probes these per file.
+    index('users_avatar_idx').on(t.avatarId),
+    index('users_banner_idx').on(t.bannerId),
     index('users_banned_idx').on(t.banned),
     index('users_last_login_idx').on(t.lastLoginAt),
     index('users_federated_idx').on(t.isFederated),
     index('users_federated_instance_idx').on(t.federatedInstanceId),
-    uniqueIndex('users_federated_identity_idx').on(
+    // A shadow is identified by its home instance + the publicId its home
+    // issued; federated_username is informational only (a peer may rename
+    // or renumber, and two users can share a display name).
+    uniqueIndex('users_federated_public_identity_idx').on(
       t.federatedInstanceId,
-      t.federatedUsername
+      t.federatedPublicId
     ),
     uniqueIndex('users_public_id_idx').on(t.publicId),
     index('users_federated_public_id_idx').on(t.federatedPublicId)
@@ -360,7 +415,11 @@ const messages = pgTable(
       .references(() => channels.id, { onDelete: 'cascade' }),
     editable: boolean('editable').default(true),
     metadata: jsonb('metadata').$type<TMessageMetadata[]>(),
-    replyToId: integer('reply_to_id'),
+    // Deleting the target leaves a "reply to a deleted message".
+    replyToId: integer('reply_to_id').references(
+      (): AnyPgColumn => messages.id,
+      { onDelete: 'set null' }
+    ),
     pinned: boolean('pinned').notNull().default(false),
     pinnedAt: bigint('pinned_at', { mode: 'number' }),
     pinnedBy: integer('pinned_by').references(() => users.id, {
@@ -369,7 +428,10 @@ const messages = pgTable(
     threadId: integer('thread_id').references(() => channels.id, {
       onDelete: 'set null'
     }),
-    webhookId: integer('webhook_id'),
+    webhookId: integer('webhook_id').references(
+      (): AnyPgColumn => webhooks.id,
+      { onDelete: 'set null' }
+    ),
     edited: boolean('edited').notNull().default(false),
     type: text('type').notNull().default('user'),
     mentionedUserIds: jsonb('mentioned_user_ids').$type<number[]>(),
@@ -387,7 +449,24 @@ const messages = pgTable(
     ),
     forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' })
+    updatedAt: bigint('updated_at', { mode: 'number' }),
+    /**
+     * Tombstone. A deleted message keeps its row: `deletedAt` is when,
+     * `deletedBy` who (the author, a MANAGE_MESSAGES holder, the
+     * moderator resolving a report, a plugin's actor; null once that
+     * account is gone, and for a follower copy whose source was deleted
+     * on another instance). Content, attachments, reactions, link
+     * metadata, mentions, the forward header and the pin are cleared at
+     * deletion (db/mutations/messages.ts); `replyToId`, `threadId` and
+     * `type` stay so replies, threads and the row's place in the list
+     * survive. The row renders as "Message deleted" until the retention
+     * sweep (crons/tombstones.ts) hard-deletes it after
+     * `config.server.tombstoneRetentionDays`.
+     */
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    deletedBy: integer('deleted_by').references(() => users.id, {
+      onDelete: 'set null'
+    })
   },
   (t) => [
     index('messages_user_idx').on(t.userId),
@@ -397,7 +476,16 @@ const messages = pgTable(
     index('messages_pinned_idx').on(t.pinned),
     index('messages_channel_pinned_idx').on(t.channelId, t.pinned),
     index('messages_thread_idx').on(t.threadId),
-    index('messages_webhook_idx').on(t.webhookId)
+    index('messages_webhook_idx').on(t.webhookId),
+    // Unread counts filter `channel_id = ? AND id > last_read_id`.
+    index('messages_channel_id_idx').on(t.channelId, t.id),
+    // Mention counts filter `mentioned_user_ids @> '[<userId>]'`.
+    index('messages_mentioned_users_idx').using('gin', t.mentionedUserIds),
+    // The retention sweep deletes `deleted_at < cutoff`; partial so the
+    // live rows (deleted_at NULL) never enter it.
+    index('messages_deleted_at_idx')
+      .on(t.deletedAt)
+      .where(sql`${t.deletedAt} IS NOT NULL`)
   ]
 );
 
@@ -503,7 +591,8 @@ const messageReactions = pgTable(
     index('reaction_msg_idx').on(t.messageId),
     index('reaction_emoji_idx').on(t.emoji),
     index('reaction_user_idx').on(t.userId),
-    index('reaction_msg_emoji_idx').on(t.messageId, t.emoji)
+    index('reaction_msg_emoji_idx').on(t.messageId, t.emoji),
+    index('reaction_file_idx').on(t.fileId)
   ]
 );
 
@@ -536,9 +625,12 @@ const activityLog = pgTable(
   'activity_log',
   {
     id: serial('id').primaryKey(),
-    userId: integer('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    // NULL = a system event with no human actor (SERVER_STARTED and the
+    // like). The old NOT NULL + default actor `1` violated the FK on a
+    // fresh database, where no user exists yet.
+    userId: integer('user_id').references(() => users.id, {
+      onDelete: 'cascade'
+    }),
     type: text('type').notNull(),
     details: jsonb('details').$type<
       TActivityLogDetailsMap[keyof TActivityLogDetailsMap]
@@ -763,11 +855,20 @@ const dmChannels = pgTable(
     // look up the local mirror by this column. Null for same-
     // instance groups and all 1:1 DMs.
     federationGroupId: text('federation_group_id'),
+    // Canonical identity of a 1:1 pair, identical on every instance that
+    // mirrors it: the two members' stable identities sorted and joined
+    // with '|' (`local:<publicId>` / `federated:<domain>:<publicId>`).
+    // Creation upserts on it, so two first messages crossing in flight
+    // (or a relay retried by the outbox) cannot mint two channels for
+    // the same pair. Null for groups.
+    pairKey: text('pair_key'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
   (t) => [
-    index('dm_channels_federation_group_id_idx').on(t.federationGroupId)
+    index('dm_channels_federation_group_id_idx').on(t.federationGroupId),
+    index('dm_channels_icon_file_idx').on(t.iconFileId),
+    uniqueIndex('dm_channels_pair_key_idx').on(t.pairKey)
   ]
 );
 
@@ -802,7 +903,10 @@ const dmMessages = pgTable(
       .notNull()
       .references(() => dmChannels.id, { onDelete: 'cascade' }),
     metadata: jsonb('metadata').$type<TMessageMetadata[]>(),
-    replyToId: integer('reply_to_id'),
+    replyToId: integer('reply_to_id').references(
+      (): AnyPgColumn => dmMessages.id,
+      { onDelete: 'set null' }
+    ),
     pinned: boolean('pinned').notNull().default(false),
     pinnedAt: bigint('pinned_at', { mode: 'number' }),
     pinnedBy: integer('pinned_by').references(() => users.id, {
@@ -817,15 +921,33 @@ const dmMessages = pgTable(
     ),
     forwardedFromName: text('forwarded_from_name'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' })
+    updatedAt: bigint('updated_at', { mode: 'number' }),
+    // Set on messages that arrived over /federation/dm-relay: the
+    // sender's per-relay id, unique so a relay the peer's outbox retries
+    // lands once. Null for local messages.
+    federationRelayId: text('federation_relay_id'),
+    /**
+     * Tombstone, same semantics as messages.deletedAt / deletedBy: the
+     * author (the only one who may delete in a DM) or the moderator who
+     * resolved a report. Plaintext and ciphertext are cleared alike —
+     * an encrypted row keeps nothing a key could still open.
+     */
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    deletedBy: integer('deleted_by').references(() => users.id, {
+      onDelete: 'set null'
+    })
   },
   (t) => [
     index('dm_messages_user_idx').on(t.userId),
     index('dm_messages_channel_idx').on(t.dmChannelId),
+    uniqueIndex('dm_messages_federation_relay_id_idx').on(t.federationRelayId),
     index('dm_messages_created_idx').on(t.createdAt),
     index('dm_messages_channel_created_idx').on(t.dmChannelId, t.createdAt),
     index('dm_messages_pinned_idx').on(t.pinned),
-    index('dm_messages_channel_pinned_idx').on(t.dmChannelId, t.pinned)
+    index('dm_messages_channel_pinned_idx').on(t.dmChannelId, t.pinned),
+    index('dm_messages_deleted_at_idx')
+      .on(t.deletedAt)
+      .where(sql`${t.deletedAt} IS NOT NULL`)
   ]
 );
 
@@ -866,7 +988,8 @@ const dmMessageReactions = pgTable(
     primaryKey({ columns: [t.dmMessageId, t.userId, t.emoji] }),
     index('dm_reaction_msg_idx').on(t.dmMessageId),
     index('dm_reaction_emoji_idx').on(t.emoji),
-    index('dm_reaction_user_idx').on(t.userId)
+    index('dm_reaction_user_idx').on(t.userId),
+    index('dm_reaction_file_idx').on(t.fileId)
   ]
 );
 
@@ -964,7 +1087,8 @@ const webhooks = pgTable(
   (t) => [
     uniqueIndex('webhooks_token_idx').on(t.token),
     index('webhooks_channel_idx').on(t.channelId),
-    index('webhooks_server_idx').on(t.serverId)
+    index('webhooks_server_idx').on(t.serverId),
+    index('webhooks_avatar_file_idx').on(t.avatarFileId)
   ]
 );
 
@@ -1080,6 +1204,10 @@ const reports = pgTable(
       onDelete: 'set null'
     }),
     resolvedAt: bigint('resolved_at', { mode: 'number' }),
+    /** Null for reports filed here; `federated:<domain>` when a peer
+     *  forwarded a report about one of our users over
+     *  /federation/report-user. */
+    source: text('source'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull()
   },
   (t) => [
@@ -1094,7 +1222,12 @@ const federationKeys = pgTable('federation_keys', {
   id: serial('id').primaryKey(),
   publicKey: text('public_key').notNull(),
   privateKey: text('private_key').notNull(),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+  // Key rotation: the newest row with retired_at NULL signs; a retired
+  // row still verifies incoming signatures until its grace window
+  // (24 h after retired_at) has passed, so peers that have not yet
+  // applied the rotation are not cut off mid-way.
+  retiredAt: bigint('retired_at', { mode: 'number' })
 });
 
 const federationInstances = pgTable(
@@ -1110,6 +1243,19 @@ const federationInstances = pgTable(
       onDelete: 'set null'
     }),
     lastSeenAt: bigint('last_seen_at', { mode: 'number' }),
+    // Compatibility signal: the peer's advertised version (from its
+    // /federation/info at pairing, refreshed when it talks to us) and
+    // the last relay failure we saw from it (`unsupported:<path>` for a
+    // 404 from an older peer, else the status/error), so the UI can mark
+    // a pairing as degraded instead of failing silently.
+    peerVersion: text('peer_version'),
+    lastError: text('last_error'),
+    lastErrorAt: bigint('last_error_at', { mode: 'number' }),
+    // Key rotation grace: when a peer announces a new key, its previous
+    // one stays accepted for 24 h from key_rotated_at so relays the peer
+    // signed just before (or queued in its outbox) still verify.
+    previousPublicKey: text('previous_public_key'),
+    keyRotatedAt: bigint('key_rotated_at', { mode: 'number' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' })
   },
@@ -1117,6 +1263,50 @@ const federationInstances = pgTable(
     uniqueIndex('federation_instances_domain_idx').on(t.domain),
     index('federation_instances_status_idx').on(t.status)
   ]
+);
+
+/**
+ * Durable outbox for outbound federation relays. A relay is inserted
+ * here and attempted at once; on failure it stays with a backoff
+ * schedule and the outbox cron retries it per peer in order, so a peer
+ * that is restarting receives the friend request / DM / kick / key
+ * distribution it would otherwise have lost. Rows are deleted on
+ * success; `dead_at` marks a row that exhausted its attempts (or hit
+ * a 404 from an older peer) and is shown to the instance owner.
+ */
+const federationOutbox = pgTable(
+  'federation_outbox',
+  {
+    id: serial('id').primaryKey(),
+    instanceId: integer('instance_id')
+      .notNull()
+      .references(() => federationInstances.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    payload: jsonb('payload').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: bigint('next_attempt_at', { mode: 'number' }).notNull(),
+    lastError: text('last_error'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    deadAt: bigint('dead_at', { mode: 'number' })
+  },
+  (t) => [
+    index('federation_outbox_due_idx').on(t.deadAt, t.nextAttemptAt),
+    index('federation_outbox_instance_idx').on(t.instanceId)
+  ]
+);
+
+/**
+ * Replay protection for signed federation challenges that survives a
+ * restart: every accepted jti is inserted here (ON CONFLICT DO NOTHING
+ * is the atomic "seen?" check) and pruned once its TTL has passed.
+ */
+const federationSeenJti = pgTable(
+  'federation_seen_jti',
+  {
+    jti: text('jti').primaryKey(),
+    expiresAt: bigint('expires_at', { mode: 'number' }).notNull()
+  },
+  (t) => [index('federation_seen_jti_expires_idx').on(t.expiresAt)]
 );
 
 const userFederatedServers = pgTable(
@@ -1278,6 +1468,15 @@ const dmE2eeSenderKeys = pgTable(
     index('dm_e2ee_sender_keys_channel_to_idx').on(
       t.dmChannelId,
       t.toUserId
+    ),
+    // Mirrors e2ee_sender_keys_unique_idx: one SKDM row per (channel,
+    // from, to, chain). The client's ensureDmGroupSenderKey is not
+    // single-flight, so dms.distributeSenderKeys upserts on this tuple.
+    uniqueIndex('dm_e2ee_sender_keys_unique_idx').on(
+      t.dmChannelId,
+      t.fromUserId,
+      t.toUserId,
+      t.senderKeyId
     )
   ]
 );
@@ -1306,7 +1505,545 @@ const localAuthUsers = pgTable(
   (t) => [uniqueIndex('local_auth_users_email_idx').on(t.email)]
 );
 
+/**
+ * Local-auth refresh-token sessions — one row per refresh token the
+ * local backend has minted. `id` is the token's `jti`; `familyId` ties a
+ * sign-in and every rotation descended from it together (the access
+ * token carries it as `sid`). A refresh marks its row revoked and
+ * records the child it was `replacedBy`; a reuse of an already-rotated
+ * token outside the race window revokes the whole family. Logout and
+ * password changes revoke families too, so getUser can reject an
+ * access token whose family no longer has a live row. Expired rows are
+ * swept by the cleanup-auth-sessions cron.
+ */
+const localAuthSessions = pgTable(
+  'local_auth_sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => localAuthUsers.id, { onDelete: 'cascade' }),
+    familyId: text('family_id').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
+    revokedAt: bigint('revoked_at', { mode: 'number' }),
+    replacedBy: text('replaced_by')
+  },
+  (t) => [
+    index('local_auth_sessions_user_idx').on(t.userId),
+    index('local_auth_sessions_family_idx').on(t.familyId)
+  ]
+);
+
+
+/**
+ * Scheduled community events ("raids"): a title, a window, a host and a
+ * roster. At T-15 min the scheduler creates the voice room named here
+ * and 15 min after `endsAt` it removes it again (a lingering member does
+ * not keep the room alive — owner decision). `reminderStage` records
+ * which reminders already went out (0 none, 1 = 24 h, 2 = 1 h, 3 =
+ * start) so a restarted process never repeats one.
+ */
+const events = pgTable(
+  'events',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    gameTag: text('game_tag'),
+    startsAt: bigint('starts_at', { mode: 'number' }).notNull(),
+    endsAt: bigint('ends_at', { mode: 'number' }).notNull(),
+    hostId: integer('host_id').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    templateId: integer('template_id').references(
+      () => eventRosterTemplates.id,
+      { onDelete: 'set null' }
+    ),
+    /** Snapshot of the template roles at creation, so later template edits
+     *  do not reshape a roster people already signed up to. */
+    roles: jsonb('roles')
+      .$type<{ key: string; label: string; cap: number | null; color: string | null }[]>()
+      .notNull(),
+    maxParticipants: integer('max_participants'),
+    announceChannelId: integer('announce_channel_id').references(
+      () => channels.id,
+      { onDelete: 'set null' }
+    ),
+    voiceChannelId: integer('voice_channel_id').references(
+      () => channels.id,
+      { onDelete: 'set null' }
+    ),
+    status: text('status').$type<'scheduled' | 'live' | 'done' | 'cancelled'>().notNull().default('scheduled'),
+    reminderStage: integer('reminder_stage').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('events_server_starts_idx').on(t.serverId, t.startsAt),
+    index('events_status_starts_idx').on(t.status, t.startsAt)
+  ]
+);
+
+/** One row per member per event; `position` orders the bench. */
+const eventSignups = pgTable(
+  'event_signups',
+  {
+    id: serial('id').primaryKey(),
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    roleKey: text('role_key').notNull(),
+    status: text('status').$type<'confirmed' | 'bench' | 'declined'>().notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('event_signups_event_user_idx').on(t.eventId, t.userId),
+    index('event_signups_event_status_idx').on(t.eventId, t.status)
+  ]
+);
+
+/** Reusable roster shapes per server (Tank/Healer/DPS, Flex …). */
+const eventRosterTemplates = pgTable(
+  'event_roster_templates',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    roles: jsonb('roles')
+      .$type<{ key: string; label: string; cap: number | null; color: string | null }[]>()
+      .notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [uniqueIndex('event_roster_templates_server_name_idx').on(t.serverId, t.name)]
+);
+
+/**
+ * Messages a plugin posted or mirrored, keyed by the plugin's own id for
+ * them (a bridge's remote message id), so an edit or delete arriving
+ * later finds our row and a mirrored message is never posted twice.
+ */
+const pluginMessageLinks = pgTable(
+  'plugin_message_links',
+  {
+    id: serial('id').primaryKey(),
+    pluginId: text('plugin_id').notNull(),
+    externalId: text('external_id').notNull(),
+    messageId: integer('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('plugin_message_links_plugin_external_idx').on(t.pluginId, t.externalId),
+    index('plugin_message_links_message_idx').on(t.messageId)
+  ]
+);
+
+
+/**
+ * A community import from an external chat service: one resumable job
+ * per server at a time. `progress` keeps per-step counters and cursors
+ * so a restart continues where it stopped; the source token is stored
+ * encrypted only while the job can still run and is erased when it
+ * ends, whatever the outcome.
+ */
+const importJobs = pgTable(
+  'import_jobs',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    source: text('source').notNull(),
+    status: text('status')
+      .$type<'pending' | 'running' | 'paused' | 'done' | 'failed' | 'cancelled'>()
+      .notNull()
+      .default('pending'),
+    step: text('step'),
+    progress: jsonb('progress').$type<Record<string, unknown>>().notNull().default({}),
+    options: jsonb('options').$type<Record<string, unknown>>().notNull().default({}),
+    error: text('error'),
+    tokenCiphertext: text('token_ciphertext'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull()
+  },
+  (t) => [index('import_jobs_server_status_idx').on(t.serverId, t.status)]
+);
+
+/**
+ * Who a user is on an external service. An imported author starts as a
+ * placeholder (a shadow user that cannot sign in); when a real account
+ * signs in through the matching provider with the same external id,
+ * the placeholder's content is moved to that account and the row is
+ * re-pointed, so history survives the move.
+ */
+const externalIdentities = pgTable(
+  'external_identities',
+  {
+    id: serial('id').primaryKey(),
+    provider: text('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    displayName: text('display_name'),
+    avatarUrl: text('avatar_url'),
+    placeholder: boolean('placeholder').notNull().default(true),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('external_identities_provider_external_idx').on(t.provider, t.externalId),
+    index('external_identities_user_idx').on(t.userId)
+  ]
+);
+
+
+/**
+ * A channel here mirrored to a channel on an external chat service by an
+ * official bridge plugin. The remote webhook token is stored encrypted
+ * and never leaves the server; `direction` limits the mirror to one way.
+ */
+const bridgeLinks = pgTable(
+  'bridge_links',
+  {
+    id: serial('id').primaryKey(),
+    pluginId: text('plugin_id').notNull(),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    remoteGuildId: text('remote_guild_id').notNull(),
+    remoteChannelId: text('remote_channel_id').notNull(),
+    webhookId: text('webhook_id'),
+    webhookTokenCiphertext: text('webhook_token_ciphertext'),
+    direction: text('direction')
+      .$type<'both' | 'inbound' | 'outbound'>()
+      .notNull()
+      .default('both'),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    /** Set when a server-level link produced this pair. */
+    serverLinkId: integer('server_link_id').references(
+      () => bridgeServerLinks.id,
+      { onDelete: 'cascade' }
+    ),
+    /** Opted out of the server link: kept so a sync does not re-add it. */
+    excluded: boolean('excluded').notNull().default(false),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('bridge_links_plugin_channel_idx').on(t.pluginId, t.channelId),
+    uniqueIndex('bridge_links_plugin_remote_idx').on(t.pluginId, t.remoteChannelId)
+  ]
+);
+
+
+/**
+ * A whole community linked to a remote server by the bridge plugin. The
+ * per-channel links it produces carry `serverLinkId`; `mode` says
+ * whether missing channels are created (`mirror`) or only same-name
+ * channels pair (`match`).
+ */
+const bridgeServerLinks = pgTable(
+  'bridge_server_links',
+  {
+    id: serial('id').primaryKey(),
+    pluginId: text('plugin_id').notNull(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    remoteGuildId: text('remote_guild_id').notNull(),
+    mode: text('mode').$type<'mirror' | 'match'>().notNull().default('match'),
+    createMissing: text('create_missing')
+      .$type<'both' | 'here' | 'there' | 'none'>()
+      .notNull()
+      .default('none'),
+    defaultDirection: text('default_direction')
+      .$type<'both' | 'inbound' | 'outbound'>()
+      .notNull()
+      .default('both'),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    // Outcome of the last pairing run, persisted so bridgeStatus survives
+    // a restart; only "running" stays in-process.
+    lastSyncAt: bigint('last_sync_at', { mode: 'number' }),
+    lastError: text('last_error'),
+    lastReport: jsonb('last_report').$type<TBridgeSyncReport>(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('bridge_server_links_plugin_server_idx').on(t.pluginId, t.serverId),
+    uniqueIndex('bridge_server_links_plugin_guild_idx').on(t.pluginId, t.remoteGuildId)
+  ]
+);
+
+/**
+ * A poll carried by a message (its metadata says kind 'poll'); the
+ * message row owns the poll, the poll owns its votes. `closesAt` is the
+ * author's deadline, `closedAt` when it actually closed — by hand or by
+ * the cron once the deadline passed.
+ */
+const polls = pgTable(
+  'polls',
+  {
+    id: serial('id').primaryKey(),
+    messageId: integer('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    options: jsonb('options').$type<{ key: string; label: string }[]>().notNull(),
+    multiple: boolean('multiple').notNull().default(false),
+    anonymous: boolean('anonymous').notNull().default(false),
+    closesAt: bigint('closes_at', { mode: 'number' }),
+    closedAt: bigint('closed_at', { mode: 'number' }),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('polls_message_idx').on(t.messageId),
+    index('polls_channel_idx').on(t.channelId),
+    // The closing cron scans open polls whose deadline passed.
+    index('polls_closes_idx').on(t.closesAt)
+  ]
+);
+
+/** One row per chosen option; a single-choice poll holds one per voter. */
+const pollVotes = pgTable(
+  'poll_votes',
+  {
+    id: serial('id').primaryKey(),
+    pollId: integer('poll_id')
+      .notNull()
+      .references(() => polls.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    optionKey: text('option_key').notNull(),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('poll_votes_poll_user_option_idx').on(
+      t.pollId,
+      t.userId,
+      t.optionKey
+    ),
+    index('poll_votes_poll_idx').on(t.pollId)
+  ]
+);
+
+/**
+ * A message waiting for its send time. The per-minute cron posts it
+ * through the same path as a user send (automod, mentions, fan-out) as
+ * the author, then records the message it became. Cancelled rows keep
+ * their timestamp so the list can show "cancelled" until pruned.
+ */
+const scheduledPosts = pgTable(
+  'scheduled_posts',
+  {
+    id: serial('id').primaryKey(),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    sendAt: bigint('send_at', { mode: 'number' }).notNull(),
+    sentMessageId: integer('sent_message_id').references(
+      () => messages.id,
+      { onDelete: 'set null' }
+    ),
+    cancelledAt: bigint('cancelled_at', { mode: 'number' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    index('scheduled_posts_channel_idx').on(t.channelId),
+    index('scheduled_posts_user_idx').on(t.userId),
+    // The sender cron picks rows by send time; sent/cancelled rows are
+    // filtered in the query.
+    index('scheduled_posts_send_at_idx').on(t.sendAt)
+  ]
+);
+
+/**
+ * Attachments a scheduled post will carry, held as a real file reference
+ * (not ids in JSON) so the orphan-file scan sees them and the cleanup
+ * cron does not delete an upload before its post goes out.
+ */
+const scheduledPostFiles = pgTable(
+  'scheduled_post_files',
+  {
+    scheduledPostId: integer('scheduled_post_id')
+      .notNull()
+      .references(() => scheduledPosts.id, { onDelete: 'cascade' }),
+    fileId: integer('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    primaryKey({ columns: [t.scheduledPostId, t.fileId] }),
+    index('scheduled_post_files_file_idx').on(t.fileId)
+  ]
+);
+
+/**
+ * A channel following an announcement channel. The row lives on the
+ * instance that owns the local side(s): both channels local → both ids
+ * set; a remote source → `sourceInstanceId` + `sourceChannelPublicId`
+ * with the local target; a remote follower (recorded on the source's
+ * instance so it can relay) → `targetInstanceId` + `targetChannelPublicId`
+ * with the local source. Exactly one side may be remote.
+ */
+const channelFollows = pgTable(
+  'channel_follows',
+  {
+    id: serial('id').primaryKey(),
+    sourceChannelId: integer('source_channel_id').references(
+      () => channels.id,
+      { onDelete: 'cascade' }
+    ),
+    sourceInstanceId: integer('source_instance_id').references(
+      () => federationInstances.id,
+      { onDelete: 'cascade' }
+    ),
+    sourceChannelPublicId: text('source_channel_public_id'),
+    targetChannelId: integer('target_channel_id').references(
+      () => channels.id,
+      { onDelete: 'cascade' }
+    ),
+    targetInstanceId: integer('target_instance_id').references(
+      () => federationInstances.id,
+      { onDelete: 'cascade' }
+    ),
+    targetChannelPublicId: text('target_channel_public_id'),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    // NULLs are distinct in a unique index, so each shape gets its own
+    // guard: local→local, remote source→local, local source→remote.
+    uniqueIndex('channel_follows_local_idx').on(
+      t.sourceChannelId,
+      t.targetChannelId
+    ),
+    uniqueIndex('channel_follows_remote_source_idx').on(
+      t.sourceInstanceId,
+      t.sourceChannelPublicId,
+      t.targetChannelId
+    ),
+    uniqueIndex('channel_follows_remote_target_idx').on(
+      t.sourceChannelId,
+      t.targetInstanceId,
+      t.targetChannelPublicId
+    ),
+    index('channel_follows_source_idx').on(t.sourceChannelId),
+    index('channel_follows_target_idx').on(t.targetChannelId)
+  ]
+);
+
+/**
+ * Soundboard clips per server. The file dies with the sound and the
+ * sound with its file; the orphan-file scan probes `file_id`.
+ */
+const serverSounds = pgTable(
+  'server_sounds',
+  {
+    id: serial('id').primaryKey(),
+    serverId: integer('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    fileId: integer('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    emoji: text('emoji'),
+    volume: integer('volume').notNull().default(100),
+    createdBy: integer('created_by').references(() => users.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('server_sounds_server_name_idx').on(t.serverId, t.name),
+    index('server_sounds_file_idx').on(t.fileId)
+  ]
+);
+
+/**
+ * A federated peer's directory listing as last pulled (daily, and when
+ * the peer is added); rows go with the peer. Counts are refreshed on
+ * their own schedule, so `fetchedAt` is the staleness the card shows.
+ */
+const directoryCache = pgTable(
+  'directory_cache',
+  {
+    id: serial('id').primaryKey(),
+    instanceId: integer('instance_id')
+      .notNull()
+      .references(() => federationInstances.id, { onDelete: 'cascade' }),
+    serverPublicId: text('server_public_id').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    tags: jsonb('tags').$type<string[]>(),
+    game: text('game'),
+    memberCount: integer('member_count').notNull().default(0),
+    onlineCount: integer('online_count').notNull().default(0),
+    logoUrl: text('logo_url'),
+    // Whether the peer's server takes a join password, so the card can
+    // ask before the join instead of after a refusal.
+    hasPassword: boolean('has_password').notNull().default(false),
+    fetchedAt: bigint('fetched_at', { mode: 'number' }).notNull()
+  },
+  (t) => [
+    uniqueIndex('directory_cache_instance_server_idx').on(
+      t.instanceId,
+      t.serverPublicId
+    ),
+    index('directory_cache_game_idx').on(t.game)
+  ]
+);
+
 export {
+  polls,
+  pollVotes,
+  scheduledPosts,
+  scheduledPostFiles,
+  channelFollows,
+  serverSounds,
+  directoryCache,
+  bridgeServerLinks,
+  bridgeLinks,
+  externalIdentities,
+  importJobs,
+  events,
+  eventRosterTemplates,
+  eventSignups,
+  pluginMessageLinks,
   activityLog,
   automodRules,
   categories,
@@ -1326,6 +2063,8 @@ export {
   emojis,
   federationInstances,
   federationKeys,
+  federationOutbox,
+  federationSeenJti,
   userFederatedServers,
   files,
   forumPostTags,
@@ -1333,6 +2072,7 @@ export {
   friendRequests,
   friendships,
   invites,
+  localAuthSessions,
   localAuthUsers,
   logins,
   messageFiles,

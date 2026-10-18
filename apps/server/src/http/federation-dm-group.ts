@@ -24,7 +24,7 @@
  */
 
 import { ServerEvents } from '@pulse/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
 import {
@@ -35,14 +35,26 @@ import {
   users
 } from '../db/schema';
 import { config } from '../config';
-import { findOrCreateShadowUserByPublicId } from '../db/mutations/federation';
+import {
+  findOrCreateShadowUserByPublicId,
+  verifyRemoteUserAttestation
+} from '../db/mutations/federation';
 import { logger } from '../logger';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { pubsub } from '../utils/pubsub';
 import { signedJsonResponse } from '../utils/federation';
 import {
   authorizeFederationRequest,
-  jsonResponse
+  isPeerDomain,
+  isPeerPublicId,
+  isPeerSenderKeyId,
+  jsonResponse,
+  MAX_PEER_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_PEER_DM_GROUP_MEMBERS,
+  MAX_PEER_GROUP_NAME_LENGTH,
+  MAX_PEER_IDENTITY_KEY_LENGTH,
+  MAX_PEER_NAME_LENGTH,
+  peerString
 } from './federation-helpers';
 
 type IncomingFederatedMember = {
@@ -53,18 +65,39 @@ type IncomingFederatedMember = {
 };
 
 /**
+ * Validate and bound one wire member descriptor. Structural fields
+ * (publicId, instanceDomain) are rejected when malformed; the display
+ * name is truncated and falls back to the publicId when missing.
+ */
+function sanitizeIncomingMember(
+  raw: unknown
+): IncomingFederatedMember | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { publicId, instanceDomain, name } = raw as Record<string, unknown>;
+  if (!isPeerPublicId(publicId) || !isPeerDomain(instanceDomain)) return null;
+  return {
+    publicId,
+    instanceDomain,
+    name:
+      peerString(name, MAX_PEER_NAME_LENGTH) ||
+      publicId.slice(0, MAX_PEER_NAME_LENGTH)
+  };
+}
+
+/**
  * Resolve a member descriptor to a local user id. Three cases:
  *   1. Member's instanceDomain == our domain → find the local user
  *      by publicId. Must already exist.
- *   2. Member's instanceDomain == requesting peer's domain → use
- *      `findOrCreateShadowUser` against that peer's instance row.
+ *   2. Member's instanceDomain == requesting peer's domain → shadow
+ *      against that peer's instance row, with the name the peer sent
+ *      (it is that user's home, so its word is authoritative).
  *   3. Member's instanceDomain is neither ours nor the requester's
- *      → look up the third instance in our federationInstances
- *      table; if active, create a shadow against it. If we don't
- *      know the instance, return null (best-effort: this member
- *      simply won't appear in our local mirror; messages routed
- *      through them will fall back to the requesting peer being
- *      able to see them).
+ *      → the announcing peer is NOT that user's home and cannot vouch
+ *      for them: ask the third instance itself (signed user-info) and
+ *      take ITS name. Unknown, inactive or unreachable instance, or a
+ *      user it does not know → null (best-effort: this member simply
+ *      won't appear in our local mirror, and dm-relay drops their
+ *      messages as a non-member).
  */
 async function resolveMemberToLocalUserId(
   member: IncomingFederatedMember,
@@ -80,29 +113,45 @@ async function resolveMemberToLocalUserId(
     return localUser?.id ?? null;
   }
 
-  let instanceId: number;
   if (member.instanceDomain === requesterDomain) {
-    instanceId = requesterInstanceId;
-  } else {
-    const [otherInstance] = await db
-      .select({ id: federationInstances.id, status: federationInstances.status })
-      .from(federationInstances)
-      .where(eq(federationInstances.domain, member.instanceDomain))
-      .limit(1);
-    if (!otherInstance || otherInstance.status !== 'active') {
-      logger.warn(
-        '[dm-group-create] skipping member from unfederated peer %s',
-        sanitizeForLog(member.instanceDomain)
-      );
-      return null;
-    }
-    instanceId = otherInstance.id;
+    const shadow = await findOrCreateShadowUserByPublicId(
+      requesterInstanceId,
+      member.publicId,
+      member.name
+    );
+    return shadow.id;
+  }
+
+  const [otherInstance] = await db
+    .select({ id: federationInstances.id, status: federationInstances.status })
+    .from(federationInstances)
+    .where(eq(federationInstances.domain, member.instanceDomain))
+    .limit(1);
+  if (!otherInstance || otherInstance.status !== 'active') {
+    logger.warn(
+      '[dm-group-create] skipping member from unfederated peer %s',
+      sanitizeForLog(member.instanceDomain)
+    );
+    return null;
+  }
+
+  const attested = await verifyRemoteUserAttestation(
+    member.instanceDomain,
+    member.publicId
+  );
+  if (!attested) {
+    logger.warn(
+      '[dm-group-create] %s did not attest member %s — skipping',
+      sanitizeForLog(member.instanceDomain),
+      sanitizeForLog(member.publicId)
+    );
+    return null;
   }
 
   const shadow = await findOrCreateShadowUserByPublicId(
-    instanceId,
+    otherInstance.id,
     member.publicId,
-    member.name
+    attested.name
   );
   return shadow.id;
 }
@@ -117,18 +166,32 @@ const federationDmGroupCreateHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const name = (signedBody.name as string | null) ?? null;
-  const ownerPublicId = signedBody.ownerPublicId as string;
-  const members = signedBody.members as IncomingFederatedMember[];
+  const federationGroupId = signedBody.federationGroupId;
+  const name = peerString(signedBody.name, MAX_PEER_GROUP_NAME_LENGTH) ?? null;
+  const ownerPublicId = signedBody.ownerPublicId;
+  const rawMembers = signedBody.members;
 
   if (
-    !federationGroupId ||
-    !ownerPublicId ||
-    !Array.isArray(members) ||
-    members.length === 0
+    !isPeerPublicId(federationGroupId) ||
+    !isPeerPublicId(ownerPublicId) ||
+    !Array.isArray(rawMembers) ||
+    rawMembers.length === 0
   ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+
+  // Every member may mint a shadow user — bound the list and reject
+  // malformed entries outright rather than skipping them silently.
+  if (rawMembers.length > MAX_PEER_DM_GROUP_MEMBERS) {
+    return jsonResponse(res, 400, { error: 'Too many members' });
+  }
+  const members: IncomingFederatedMember[] = [];
+  for (const raw of rawMembers) {
+    const member = sanitizeIncomingMember(raw);
+    if (!member) {
+      return jsonResponse(res, 400, { error: 'Invalid member descriptor' });
+    }
+    members.push(member);
   }
 
   // Idempotent: a re-announce of the same group should be a no-op.
@@ -218,12 +281,10 @@ const federationDmGroupAddMemberHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const addedMember = signedBody.addedMember as
-    | IncomingFederatedMember
-    | undefined;
+  const federationGroupId = signedBody.federationGroupId;
+  const addedMember = sanitizeIncomingMember(signedBody.addedMember);
 
-  if (!federationGroupId || !addedMember?.publicId) {
+  if (!isPeerPublicId(federationGroupId) || !addedMember) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -297,10 +358,10 @@ const federationDmGroupRemoveMemberHandler = async (
   if (!auth) return;
   const { signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const removedPublicId = signedBody.removedPublicId as string;
+  const federationGroupId = signedBody.federationGroupId;
+  const removedPublicId = signedBody.removedPublicId;
 
-  if (!federationGroupId || !removedPublicId) {
+  if (!isPeerPublicId(federationGroupId) || !isPeerPublicId(removedPublicId)) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -361,20 +422,24 @@ const federationDmSenderKeyHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const federationGroupId = signedBody.federationGroupId as string;
-  const senderKeyId = signedBody.senderKeyId as number;
-  const fromPublicId = signedBody.fromPublicId as string;
-  const toPublicId = signedBody.toPublicId as string;
-  const distributionMessage = signedBody.distributionMessage as string;
+  const federationGroupId = signedBody.federationGroupId;
+  const senderKeyId = signedBody.senderKeyId;
+  const fromPublicId = signedBody.fromPublicId;
+  const toPublicId = signedBody.toPublicId;
+  const distributionMessage = signedBody.distributionMessage;
 
   if (
-    !federationGroupId ||
-    typeof senderKeyId !== 'number' ||
-    !fromPublicId ||
-    !toPublicId ||
-    !distributionMessage
+    !isPeerPublicId(federationGroupId) ||
+    !isPeerSenderKeyId(senderKeyId) ||
+    !isPeerPublicId(fromPublicId) ||
+    !isPeerPublicId(toPublicId) ||
+    typeof distributionMessage !== 'string' ||
+    distributionMessage.length === 0
   ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
+  }
+  if (distributionMessage.length > MAX_PEER_DISTRIBUTION_MESSAGE_LENGTH) {
+    return jsonResponse(res, 400, { error: 'distributionMessage too large' });
   }
 
   const [mirror] = await db
@@ -405,14 +470,30 @@ const federationDmSenderKeyHandler = async (
     return jsonResponse(res, 404, { error: 'Local recipient not found' });
   }
 
-  await db.insert(dmE2eeSenderKeys).values({
-    dmChannelId: mirror.id,
-    senderKeyId,
-    fromUserId: shadowSender.id,
-    toUserId: localRecipient.id,
-    distributionMessage,
-    createdAt: Date.now()
-  });
+  // Same tuple relayed twice (peer retry) updates the stored distribution
+  // instead of tripping the unique index.
+  await db
+    .insert(dmE2eeSenderKeys)
+    .values({
+      dmChannelId: mirror.id,
+      senderKeyId,
+      fromUserId: shadowSender.id,
+      toUserId: localRecipient.id,
+      distributionMessage,
+      createdAt: Date.now()
+    })
+    .onConflictDoUpdate({
+      target: [
+        dmE2eeSenderKeys.dmChannelId,
+        dmE2eeSenderKeys.fromUserId,
+        dmE2eeSenderKeys.toUserId,
+        dmE2eeSenderKeys.senderKeyId
+      ],
+      set: {
+        distributionMessage: sql`excluded.distribution_message`,
+        createdAt: Date.now()
+      }
+    });
 
   pubsub.publishFor(
     localRecipient.id,
@@ -443,10 +524,15 @@ const federationIdentityRotationHandler = async (
   if (!auth) return;
   const { instance, signedBody, fromDomain } = auth;
 
-  const fromPublicId = signedBody.fromPublicId as string;
-  const newIdentityPublicKey = signedBody.newIdentityPublicKey as string;
+  const fromPublicId = signedBody.fromPublicId;
+  const newIdentityPublicKey = signedBody.newIdentityPublicKey;
 
-  if (!fromPublicId || !newIdentityPublicKey) {
+  if (
+    !isPeerPublicId(fromPublicId) ||
+    typeof newIdentityPublicKey !== 'string' ||
+    newIdentityPublicKey.length === 0 ||
+    newIdentityPublicKey.length > MAX_PEER_IDENTITY_KEY_LENGTH
+  ) {
     return jsonResponse(res, 400, { error: 'Missing required fields' });
   }
 
@@ -516,6 +602,9 @@ const federationIdentityRotationHandler = async (
     ServerEvents.E2EE_IDENTITY_RESET,
     {
       userId: shadow.id,
+      // Federated rotations propagate over DMs only (Phase D / D3);
+      // there is no shared server channel to re-key.
+      channelIds: [],
       newIdentityPublicKey
     }
   );

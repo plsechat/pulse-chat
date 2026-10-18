@@ -6,7 +6,12 @@ import {
   connect
 } from '@/features/server/actions';
 import { loadFederatedServers } from '@/features/app/actions';
+import {
+  captureVoiceSession,
+  rejoinVoiceAfterReconnect
+} from '@/features/server/voice/rejoin';
 import { store } from '@/features/store';
+import { isNonRecoverable } from '@/lib/home-socket';
 import { getAccessToken } from '@/lib/supabase';
 import { DisconnectCode } from '@pulse/shared';
 
@@ -17,12 +22,6 @@ const MAX_DELAY_MS = 30000;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let attemptCount = 0;
 let isReconnecting = false;
-
-/** Whether the disconnect code is non-recoverable (banned, or the
- *  account no longer exists). */
-const isNonRecoverable = (code: number) =>
-  code === DisconnectCode.BANNED ||
-  code === DisconnectCode.ACCOUNT_DELETED;
 
 /** Exponential backoff with jitter: base * 2^attempt + random jitter, capped. */
 const getDelay = (attempt: number) => {
@@ -58,6 +57,11 @@ const attemptReconnect = async () => {
   );
 
   try {
+    // Taken before connect(): its fresh voice snapshots wipe the dead
+    // session from Redux, and the client's own state is the only record
+    // that a call was live when the socket dropped.
+    const voiceSession = captureVoiceSession(store.getState());
+
     await connect();
 
     // Re-establish federated connections
@@ -66,6 +70,8 @@ const attemptReconnect = async () => {
     // Success — clear reconnecting state
     console.log('[reconnect] reconnected successfully');
     stopReconnecting();
+
+    void rejoinVoiceAfterReconnect(voiceSession);
   } catch (error) {
     console.warn('[reconnect] attempt failed:', error);
 
@@ -139,3 +145,14 @@ const onOnline = () => {
 
 /** Check if we're currently in a reconnection loop. */
 export const isCurrentlyReconnecting = () => isReconnecting;
+
+/** Internals exposed for unit tests only. */
+export const __testing = {
+  getDelay,
+  MAX_ATTEMPTS,
+  BASE_DELAY_MS,
+  MAX_DELAY_MS,
+  /** Whether a retry timer is pending. */
+  hasPendingTimer: () => reconnectTimer !== null,
+  attemptReconnect
+};

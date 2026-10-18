@@ -1,31 +1,41 @@
-import { serializer } from '@/components/chat-primitives/serializer';
+import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { PopoverPanelShell } from '@/components/chat-primitives/popover-panel-shell';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
+import { decryptDmMessages } from '@/features/dms/actions';
+import { useDmChannels } from '@/features/dms/hooks';
+import { dmMessagesSelector } from '@/features/dms/selectors';
 import { useHomeUserById } from '@/features/server/users/hooks';
+import type { IRootState } from '@/features/store';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { longDateTime } from '@/helpers/time-format';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedDmMessage } from '@pulse/shared';
+import type { TJoinedDmMessage } from '@pulse/server/types';
 import { format } from 'date-fns';
-import parse from 'html-react-parser';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Lock, Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { toast } from 'sonner';
+import { appendDmSearchHits, matchDmMessages } from './dm-search-match';
 
 type TDmSearchPopoverProps = {
   dmChannelId: number;
   onClose: () => void;
 };
 
+/**
+ * Encrypted conversations are searched on this device (see
+ * dm-search-match.ts): one round walks the loaded window plus this many
+ * older history pages (50 messages each, resolved through the plaintext
+ * caches), and "Search older messages" continues from where it stopped.
+ * 300 messages matches the live message-window cap.
+ */
+const LOCAL_PAGES_PER_ROUND = 6;
+
 const DmSearchResult = memo(
-  ({ message, query: _query }: { message: TJoinedDmMessage; query: string }) => {
+  ({ message }: { message: TJoinedDmMessage }) => {
     // HOME-space id — see dm-pin-banner.
     const user = useHomeUserById(message.userId);
-
-    const messageHtml = useMemo(() => {
-      return parse(message.content ?? '', {
-        replace: (domNode) => serializer(domNode, () => {})
-      });
-    }, [message.content]);
 
     return (
       <div className="p-3 border-b border-border/30 last:border-b-0 hover:bg-secondary/30">
@@ -38,8 +48,10 @@ const DmSearchResult = memo(
             {format(new Date(message.createdAt), longDateTime())}
           </span>
         </div>
-        <div className="pl-7 text-sm msg-content">
-          {message.content ? messageHtml : null}
+        <div className="pl-7 text-sm">
+          {/* Shared sanitize/tokenize pipeline — never an HTML parse of
+              raw content here (audit A8-16). */}
+          <ChatMessageBody message={message} homeScope compact />
         </div>
       </div>
     );
@@ -55,14 +67,80 @@ const DmSearchPopover = memo(
     const [nextCursor, setNextCursor] = useState<number | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    // Monotonic token so a slow older search can't overwrite a newer one.
+    const searchSeqRef = useRef(0);
+
+    const dmChannels = useDmChannels();
+    const isE2ee = useMemo(
+      () => dmChannels.find((c) => c.id === dmChannelId)?.e2ee ?? false,
+      [dmChannels, dmChannelId]
+    );
+
+    // The decrypted window this conversation currently shows; read
+    // through a ref so an in-flight search sees the latest decrypts.
+    const loadedMessages = useSelector((state: IRootState) =>
+      dmMessagesSelector(state, dmChannelId)
+    );
+    const loadedRef = useRef(loadedMessages);
+    loadedRef.current = loadedMessages;
 
     useEffect(() => {
       inputRef.current?.focus();
     }, []);
 
+    /**
+     * Encrypted DM: the server cannot see plaintext, so match on this
+     * device. First round = the loaded window, then older pages from
+     * below it; each page is resolved through `decryptDmMessages` (the
+     * IDB plaintext caches first, the ratchet/chain where it still
+     * can). A continuation (`cursor`) resumes paging from there.
+     */
+    const searchLocally = useCallback(
+      async (searchQuery: string, cursor: number | undefined, seq: number) => {
+        const trpc = getHomeTRPCClient();
+        if (!trpc) return;
+
+        let hits: TJoinedDmMessage[] = [];
+        let pageCursor: number | null | undefined = cursor;
+        if (cursor === undefined) {
+          const loaded = loadedRef.current;
+          hits = matchDmMessages(loaded, searchQuery);
+          pageCursor = loaded[0]?.createdAt ?? undefined;
+          setResults(hits);
+          setSearched(true);
+        }
+
+        let pages = 0;
+        while (pages < LOCAL_PAGES_PER_ROUND) {
+          // Pages older than `pageCursor` (newest first); undefined means
+          // the latest page — only when nothing is loaded at all.
+          const page: { messages: TJoinedDmMessage[]; nextCursor: number | null } =
+            await trpc.dms.getMessages.query({
+              dmChannelId,
+              cursor: pageCursor ?? undefined
+            });
+          const decrypted = await decryptDmMessages(page.messages);
+          if (seq !== searchSeqRef.current) return;
+          hits = appendDmSearchHits(hits, matchDmMessages(decrypted, searchQuery));
+          setResults((prev) =>
+            cursor === undefined ? hits : appendDmSearchHits(prev, hits)
+          );
+          setSearched(true);
+          pages++;
+          pageCursor = page.nextCursor;
+          if (pageCursor == null) break;
+        }
+
+        setNextCursor(pageCursor ?? null);
+      },
+      [dmChannelId]
+    );
+
     const performSearch = useCallback(
       async (searchQuery: string, cursor?: number) => {
-        if (!searchQuery.trim()) {
+        const seq = ++searchSeqRef.current;
+        const trimmed = searchQuery.trim();
+        if (!trimmed) {
           setResults([]);
           setSearched(false);
           setNextCursor(null);
@@ -72,33 +150,37 @@ const DmSearchPopover = memo(
         setLoading(true);
 
         try {
-          const trpc = getHomeTRPCClient();
-          if (!trpc) {
-            setLoading(false);
+          if (isE2ee) {
+            await searchLocally(trimmed, cursor, seq);
             return;
           }
+
+          const trpc = getHomeTRPCClient();
+          if (!trpc) return;
           const result = await trpc.dms.searchMessages.query({
-            query: searchQuery.trim(),
+            query: trimmed,
             dmChannelId,
             cursor: cursor ?? undefined,
             limit: 25
           });
+          if (seq !== searchSeqRef.current) return;
 
           if (cursor) {
-            setResults((prev) => [...prev, ...result.messages]);
+            setResults((prev) => appendDmSearchHits(prev, result.messages));
           } else {
             setResults(result.messages);
           }
 
           setNextCursor(result.nextCursor);
           setSearched(true);
-        } catch {
-          // Search failed silently
+        } catch (err) {
+          if (seq !== searchSeqRef.current) return;
+          toast.error(getTrpcError(err, 'Search failed'));
         } finally {
-          setLoading(false);
+          if (seq === searchSeqRef.current) setLoading(false);
         }
       },
-      [dmChannelId]
+      [dmChannelId, isE2ee, searchLocally]
     );
 
     const onQueryChange = useCallback(
@@ -157,6 +239,7 @@ const DmSearchPopover = memo(
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Search messages..."
+          aria-label="Search messages"
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
         />
         {loading && (
@@ -172,7 +255,7 @@ const DmSearchPopover = memo(
       <PopoverPanelShell
         customHeader={customHeader}
         onClose={onClose}
-        className="w-[28rem] max-h-[32rem]"
+        className="w-[min(28rem,calc(100vw-1rem))] max-h-[32rem]"
         footer={
           nextCursor && !loading ? (
             <div className="p-2 text-center border-t border-border/20">
@@ -182,12 +265,21 @@ const DmSearchPopover = memo(
                 className="text-xs"
                 onClick={onLoadMore}
               >
-                Load more results
+                {isE2ee ? 'Search older messages' : 'Load more results'}
               </Button>
             </div>
           ) : undefined
         }
       >
+        {isE2ee && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border/20 bg-muted/30">
+            <Lock className="h-3 w-3 text-emerald-500 shrink-0" />
+            <span>
+              Encrypted conversation: searching messages loaded on this device
+            </span>
+          </div>
+        )}
+
         {showStartHint && (
           <div className="p-6 text-center text-sm text-muted-foreground">
             <Search className="mx-auto mb-2 h-8 w-8 opacity-40" />
@@ -204,7 +296,7 @@ const DmSearchPopover = memo(
         )}
 
         {results.map((message) => (
-          <DmSearchResult key={message.id} message={message} query={query} />
+          <DmSearchResult key={message.id} message={message} />
         ))}
       </PopoverPanelShell>
     );

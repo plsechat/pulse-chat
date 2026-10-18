@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import type { ReactNode } from 'react';
+import { targetLabel } from './report-utils';
 
 type TReportRowBase = {
   id: number;
@@ -20,19 +21,6 @@ type TReportRowBase = {
   resolverName: string | null;
 };
 
-/**
- * The name a reviewer should act on: the server nickname they know the
- * person by, disambiguated by the account name when the two differ.
- * The short publicId beside it is the canonical check — it matches the
- * popover's "Copy User ID" and the All Accounts search.
- */
-const targetLabel = (r: {
-  targetName: string;
-  targetNickname: string | null;
-}): string =>
-  r.targetNickname && r.targetNickname !== r.targetName
-    ? `${r.targetNickname} (${r.targetName})`
-    : r.targetName;
 
 const REASON_LABELS: Record<string, string> = {
   illegal: 'Illegal content',
@@ -123,5 +111,5 @@ const ReportCard = ({
   </div>
 );
 
-export { ReportCard, targetLabel };
+export { ReportCard };
 export type { TReportRowBase };

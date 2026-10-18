@@ -1,4 +1,4 @@
-import type { TJoinedNameplate } from '@pulse/shared';
+import type { TJoinedNameplate } from '../../types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '..';
 import { files, nameplates, serverMembers } from '../schema';

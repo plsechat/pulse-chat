@@ -1,6 +1,84 @@
-import { ChannelType } from '@pulse/shared';
-import { describe, expect, test } from 'bun:test';
-import { initTest } from '../../__tests__/helpers';
+import {
+  ChannelPermission,
+  ChannelType,
+  MAX_FILES_PER_POST,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  ServerEvents,
+  type TTempFile
+} from '@pulse/shared';
+import { randomUUIDv7 } from 'bun';
+import { describe, expect, spyOn, test } from 'bun:test';
+import { eq } from 'drizzle-orm';
+import {
+  createEmptyTextChannel,
+  createTestChannel
+} from '../../__tests__/fixtures';
+import { initTest, login, uploadFile } from '../../__tests__/helpers';
+import { getTestDb } from '../../__tests__/mock-db';
+import {
+  channelUserPermissions,
+  channels,
+  forumPostTags,
+  threadFollowers
+} from '../../db/schema';
+import { pubsub } from '../../utils/pubsub';
+
+/** Upload a (fake) PNG as the owner; called inside the test, not beforeEach. */
+const uploadTempImage = async (): Promise<TTempFile> => {
+  const response = await login('testowner', 'password123');
+  const data = (await response.json()) as { accessToken: string };
+  const res = await uploadFile(
+    new File(['png'], `img-${randomUUIDv7().slice(0, 8)}.png`, {
+      type: 'image/png'
+    }),
+    data.accessToken
+  );
+  return (await res.json()) as TTempFile;
+};
+
+/** A private channel of `type` in the bootstrap server, no override rows. */
+const insertPrivateChannel = async (name: string, type: ChannelType) => {
+  const [channel] = await getTestDb()
+    .insert(channels)
+    .values({
+      type,
+      name,
+      position: 80,
+      private: true,
+      fileAccessToken: randomUUIDv7(),
+      fileAccessTokenUpdatedAt: Date.now(),
+      publicId: randomUUIDv7(),
+      categoryId: 1,
+      serverId: 1,
+      createdAt: Date.now()
+    })
+    .returning();
+  return channel!;
+};
+
+const grantChannelPermissions = async (
+  channelId: number,
+  userId: number,
+  permissions: ChannelPermission[]
+) => {
+  await getTestDb().insert(channelUserPermissions).values(
+    permissions.map((permission) => ({
+      channelId,
+      userId,
+      permission,
+      allow: true,
+      createdAt: Date.now()
+    }))
+  );
+};
+
+const loadChannel = async (id: number) => {
+  const [row] = await getTestDb()
+    .select()
+    .from(channels)
+    .where(eq(channels.id, id));
+  return row!;
+};
 
 describe('forums', () => {
   // ── Channel creation ──────────────────────────────────────────────
@@ -128,7 +206,7 @@ describe('forums', () => {
     ).rejects.toThrow();
   });
 
-  test('should reject forum post with content exceeding 4000 chars', async () => {
+  test('should cap forum post content at the plaintext message budget', async () => {
     const { caller } = await initTest();
 
     const forumId = await caller.channels.add({
@@ -142,9 +220,17 @@ describe('forums', () => {
       caller.threads.createForumPost({
         channelId: forumId,
         title: 'Valid title',
-        content: 'a'.repeat(4001)
+        content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1)
       })
     ).rejects.toThrow();
+
+    // A post is an ordinary message in its thread — same cap, not 4000.
+    const { threadId } = await caller.threads.createForumPost({
+      channelId: forumId,
+      title: 'Long but legal',
+      content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH)
+    });
+    expect(typeof threadId).toBe('number');
   });
 
   // ── Listing threads ───────────────────────────────────────────────
@@ -311,6 +397,183 @@ describe('forums', () => {
     await expect(
       caller.threads.archive({ threadId: 99999, archived: true })
     ).rejects.toThrow();
+  });
+
+  test('the author may unarchive their own post but not archive it; others may do neither', async () => {
+    const { caller: admin } = await initTest(1);
+    const { caller: author } = await initTest(2);
+    const { caller: other } = await initTest(3);
+
+    const forumId = await admin.channels.add({
+      type: ChannelType.FORUM,
+      name: 'author-unarchive',
+      categoryId: 1,
+      serverId: 1
+    });
+    const { threadId } = await author.threads.createForumPost({
+      channelId: forumId,
+      title: 'Mine',
+      content: 'my post'
+    });
+
+    await expect(
+      author.threads.archive({ threadId, archived: true })
+    ).rejects.toThrow('Insufficient permissions');
+
+    await admin.threads.archive({ threadId, archived: true });
+    await expect(
+      other.threads.archive({ threadId, archived: false })
+    ).rejects.toThrow('Insufficient permissions');
+
+    await author.threads.archive({ threadId, archived: false });
+    const [post] = await author.threads.getAll({ channelId: forumId });
+    expect(post!.id).toBe(threadId);
+    expect(post!.archived).toBe(false);
+  });
+
+  test('replies to an archived post are refused until it is unarchived', async () => {
+    const { caller: admin } = await initTest(1);
+    const { caller: member } = await initTest(2);
+
+    const forumId = await admin.channels.add({
+      type: ChannelType.FORUM,
+      name: 'closed-replies',
+      categoryId: 1,
+      serverId: 1
+    });
+    const { threadId } = await admin.threads.createForumPost({
+      channelId: forumId,
+      title: 'Closed',
+      content: 'no more replies'
+    });
+    await admin.threads.archive({ threadId, archived: true });
+
+    await expect(
+      member.messages.send({ channelId: threadId, content: 'late reply' })
+    ).rejects.toThrow('This thread is archived');
+    await expect(
+      admin.messages.send({ channelId: threadId, content: 'even for mods' })
+    ).rejects.toThrow('This thread is archived');
+
+    await admin.threads.archive({ threadId, archived: false });
+    const messageId = await member.messages.send({
+      channelId: threadId,
+      content: 'reopened'
+    });
+    expect(typeof messageId).toBe('number');
+  });
+
+  test('updatePostTags publishes the post\'s real archived flag', async () => {
+    const { caller } = await initTest(1);
+
+    const forumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'tags-archived',
+      categoryId: 1,
+      serverId: 1
+    });
+    const tag = await caller.threads.createForumTag({
+      channelId: forumId,
+      name: 'keep'
+    });
+    const { threadId } = await caller.threads.createForumPost({
+      channelId: forumId,
+      title: 'Archived with tags',
+      content: 'x'
+    });
+    await caller.threads.archive({ threadId, archived: true });
+
+    const publishFor = spyOn(pubsub, 'publishFor');
+    try {
+      await caller.threads.updatePostTags({ threadId, tagIds: [tag!.id] });
+
+      const update = publishFor.mock.calls.find(
+        (c) =>
+          c[1] === ServerEvents.THREAD_UPDATE &&
+          (c[2] as { id: number }).id === threadId
+      );
+      expect(update).toBeDefined();
+      expect((update![2] as { archived: boolean }).archived).toBe(true);
+    } finally {
+      publishFor.mockRestore();
+    }
+  });
+
+  // ── Attachments ───────────────────────────────────────────────────
+
+  test('post attachments are capped at MAX_FILES_PER_POST', async () => {
+    const { caller } = await initTest(1);
+
+    const forumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'too-many-files',
+      categoryId: 1,
+      serverId: 1
+    });
+
+    await expect(
+      caller.threads.createForumPost({
+        channelId: forumId,
+        title: 'album',
+        content: 'x',
+        files: Array.from({ length: MAX_FILES_PER_POST + 1 }, () => 'temp-id')
+      })
+    ).rejects.toThrow();
+  });
+
+  test('firstImage of a private post carries an access token; a public one does not', async () => {
+    const { caller } = await initTest(1);
+
+    const privateForum = await insertPrivateChannel(
+      'private-images',
+      ChannelType.FORUM
+    );
+    const publicForumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'public-images',
+      categoryId: 1,
+      serverId: 1
+    });
+
+    const privateImage = await uploadTempImage();
+    const { threadId: privateThreadId } = await caller.threads.createForumPost({
+      channelId: privateForum.id,
+      title: 'private pic',
+      content: 'look',
+      files: [privateImage.id]
+    });
+    const publicImage = await uploadTempImage();
+    const { threadId: publicThreadId } = await caller.threads.createForumPost({
+      channelId: publicForumId,
+      title: 'public pic',
+      content: 'look',
+      files: [publicImage.id]
+    });
+
+    const [privatePost] = await caller.threads.getAll({
+      channelId: privateForum.id
+    });
+    expect(privatePost!.id).toBe(privateThreadId);
+    expect(privatePost!.firstImage?.name).toBeTruthy();
+    expect(privatePost!.firstImage?._accessToken).toBeTruthy();
+
+    const [publicPost] = await caller.threads.getAll({
+      channelId: publicForumId
+    });
+    expect(publicPost!.id).toBe(publicThreadId);
+    expect(publicPost!.firstImage?.name).toBeTruthy();
+    expect(publicPost!.firstImage?._accessToken).toBeUndefined();
+
+    // A post without an image reports none.
+    const { threadId: plainId } = await caller.threads.createForumPost({
+      channelId: publicForumId,
+      title: 'no pic',
+      content: 'text only'
+    });
+    const plain = (
+      await caller.threads.getAll({ channelId: publicForumId })
+    ).find((t) => t.id === plainId);
+    expect(plain!.firstImage).toBeUndefined();
   });
 
   // ── Forum tags ────────────────────────────────────────────────────
@@ -620,5 +883,280 @@ describe('forums', () => {
         name: 'a'.repeat(51)
       })
     ).rejects.toThrow();
+  });
+
+  test('should reject a tag colour that is not hex', async () => {
+    const { caller } = await initTest();
+
+    const forumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'css-colour',
+      categoryId: 1,
+      serverId: 1
+    });
+
+    await expect(
+      caller.threads.createForumTag({
+        channelId: forumId,
+        name: 'bad',
+        color: 'url(javascript:1)'
+      })
+    ).rejects.toThrow('Invalid hex color');
+
+    const tag = await caller.threads.createForumTag({
+      channelId: forumId,
+      name: 'good',
+      color: '#abc'
+    });
+    await expect(
+      caller.threads.updateForumTag({ tagId: tag!.id, color: 'red' })
+    ).rejects.toThrow('Invalid hex color');
+  });
+
+  // ── Channel-level authorization ───────────────────────────────────
+
+  test('posting into a private forum needs channel SEND_MESSAGES', async () => {
+    const { caller: member } = await initTest(2);
+    const forum = await insertPrivateChannel('private-forum', ChannelType.FORUM);
+
+    await expect(
+      member.threads.createForumPost({
+        channelId: forum.id,
+        title: 'sneak',
+        content: 'in'
+      })
+    ).rejects.toThrow('Insufficient channel permissions');
+
+    await grantChannelPermissions(forum.id, 2, [
+      ChannelPermission.VIEW_CHANNEL,
+      ChannelPermission.SEND_MESSAGES
+    ]);
+    const { caller: allowed } = await initTest(2);
+    const { threadId } = await allowed.threads.createForumPost({
+      channelId: forum.id,
+      title: 'allowed',
+      content: 'in'
+    });
+
+    // The post inherits the forum's visibility and its viewer set.
+    const thread = await loadChannel(threadId);
+    expect(thread.private).toBe(true);
+
+    const { caller: outsider } = await initTest(3);
+    await expect(
+      outsider.messages.get({ channelId: threadId, limit: 10 })
+    ).rejects.toThrow('Insufficient channel permissions');
+    const page = await allowed.messages.get({ channelId: threadId, limit: 10 });
+    expect(page.messages).toHaveLength(1);
+  });
+
+  test('tags must belong to the forum; count is bounded', async () => {
+    const { caller } = await initTest();
+
+    const forumA = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'forum-a',
+      categoryId: 1,
+      serverId: 1
+    });
+    const forumB = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'forum-b',
+      categoryId: 1,
+      serverId: 1
+    });
+    const tagB = await caller.threads.createForumTag({
+      channelId: forumB,
+      name: 'b-only'
+    });
+
+    await expect(
+      caller.threads.createForumPost({
+        channelId: forumA,
+        title: 'wrong tag',
+        content: 'x',
+        tagIds: [tagB!.id]
+      })
+    ).rejects.toThrow('do not belong to this forum');
+
+    await expect(
+      caller.threads.createForumPost({
+        channelId: forumA,
+        title: 'too many',
+        content: 'x',
+        tagIds: Array.from({ length: 21 }, (_, i) => i + 1)
+      })
+    ).rejects.toThrow();
+
+    const tagA = await caller.threads.createForumTag({
+      channelId: forumA,
+      name: 'a'
+    });
+    const { threadId } = await caller.threads.createForumPost({
+      channelId: forumA,
+      title: 'ok',
+      content: 'x',
+      tagIds: [tagA!.id, tagA!.id]
+    });
+
+    await expect(
+      caller.threads.updatePostTags({ threadId, tagIds: [tagB!.id] })
+    ).rejects.toThrow('do not belong to this forum');
+
+    await caller.threads.updatePostTags({ threadId, tagIds: [tagA!.id] });
+    const rows = await getTestDb()
+      .select()
+      .from(forumPostTags)
+      .where(eq(forumPostTags.threadId, threadId));
+    expect(rows.map((r) => r.tagId)).toEqual([tagA!.id]);
+  });
+
+  // ── Inline threads via the router ─────────────────────────────────
+
+  test('threads.create needs channel SEND_MESSAGES on the parent and server scope', async () => {
+    const { caller: owner } = await initTest(1);
+    const { caller: member } = await initTest(2);
+    const secret = await insertPrivateChannel('thread-secret', ChannelType.TEXT);
+
+    const messageId = await owner.messages.send({
+      channelId: secret.id,
+      content: 'seed'
+    });
+
+    await expect(
+      member.threads.create({ messageId, name: 'peek' })
+    ).rejects.toThrow('Insufficient channel permissions');
+
+    await expect(
+      member.threads.create({ messageId: 999999, name: 'none' })
+    ).rejects.toThrow('Message not found');
+  });
+
+  test('a thread inherits e2ee from its parent and refuses plaintext', async () => {
+    const { caller } = await initTest(1);
+    const e2eeChannel = await createTestChannel({
+      serverId: 1,
+      name: 'encrypted',
+      e2ee: true
+    });
+
+    const messageId = await caller.messages.send({
+      channelId: e2eeChannel,
+      content: 'ciphertext',
+      e2ee: true
+    });
+
+    const { threadId } = await caller.threads.create({
+      messageId,
+      name: 'encrypted thread'
+    });
+    const thread = await loadChannel(threadId);
+    expect(thread.e2ee).toBe(true);
+    expect(thread.parentChannelId).toBe(e2eeChannel);
+
+    await expect(
+      caller.messages.send({ channelId: threadId, content: 'plaintext' })
+    ).rejects.toThrow('This channel requires E2EE messages');
+    await caller.messages.send({
+      channelId: threadId,
+      content: 'more ciphertext',
+      e2ee: true
+    });
+  });
+
+  test('a thread under a private parent is private to the same viewers', async () => {
+    const { caller: owner } = await initTest(1);
+    const secret = await insertPrivateChannel('private-parent', ChannelType.TEXT);
+    await grantChannelPermissions(secret.id, 2, [
+      ChannelPermission.VIEW_CHANNEL,
+      ChannelPermission.SEND_MESSAGES
+    ]);
+    const { caller: viewer } = await initTest(2);
+    const { caller: outsider } = await initTest(3);
+
+    const messageId = await owner.messages.send({
+      channelId: secret.id,
+      content: 'seed'
+    });
+    const { threadId } = await viewer.threads.create({
+      messageId,
+      name: 'private thread'
+    });
+
+    const thread = await loadChannel(threadId);
+    expect(thread.private).toBe(true);
+
+    // Viewer of the parent can read and post; an outsider cannot see it.
+    await viewer.messages.send({ channelId: threadId, content: 'inside' });
+    const page = await viewer.messages.get({ channelId: threadId, limit: 10 });
+    expect(page.messages).toHaveLength(1);
+    await expect(
+      outsider.messages.get({ channelId: threadId, limit: 10 })
+    ).rejects.toThrow('Insufficient channel permissions');
+    await expect(
+      outsider.threads.followThread({ threadId, follow: true })
+    ).rejects.toThrow('Insufficient channel permissions');
+  });
+
+  test('threads cannot be nested', async () => {
+    const { caller } = await initTest(1);
+    const channel = await createEmptyTextChannel('no-nesting');
+
+    const messageId = await caller.messages.send({
+      channelId: channel.id,
+      content: 'root'
+    });
+    const { threadId } = await caller.threads.create({ messageId, name: 't' });
+    const inner = await caller.messages.send({
+      channelId: threadId,
+      content: 'inside'
+    });
+
+    await expect(
+      caller.threads.create({ messageId: inner, name: 'nested' })
+    ).rejects.toThrow('text or forum channels');
+  });
+
+  test('follow / getFollowStatus / deleteThread via the router', async () => {
+    const { caller: owner } = await initTest(1);
+    const { caller: member } = await initTest(2);
+    const channel = await createEmptyTextChannel('follow-me');
+
+    const messageId = await member.messages.send({
+      channelId: channel.id,
+      content: 'root'
+    });
+    const { threadId } = await member.threads.create({ messageId, name: 't' });
+
+    expect(await owner.threads.getFollowStatus({ threadId })).toEqual({
+      following: false
+    });
+    await owner.threads.followThread({ threadId, follow: true });
+    expect(await owner.threads.getFollowStatus({ threadId })).toEqual({
+      following: true
+    });
+    await owner.threads.followThread({ threadId, follow: false });
+    expect(await owner.threads.getFollowStatus({ threadId })).toEqual({
+      following: false
+    });
+    await expect(
+      owner.threads.followThread({ threadId: 999999, follow: true })
+    ).rejects.toThrow('Thread not found');
+
+    // Creator may delete while nobody else has posted...
+    await owner.messages.send({ channelId: threadId, content: 'joined' });
+    await expect(member.threads.deleteThread({ threadId })).rejects.toThrow(
+      'Ask an admin'
+    );
+    // ...an admin always can.
+    await owner.threads.deleteThread({ threadId });
+    const rows = await getTestDb()
+      .select()
+      .from(threadFollowers)
+      .where(eq(threadFollowers.threadId, threadId));
+    expect(rows).toHaveLength(0);
+    await expect(
+      owner.threads.deleteThread({ threadId })
+    ).rejects.toThrow('Thread not found');
   });
 });

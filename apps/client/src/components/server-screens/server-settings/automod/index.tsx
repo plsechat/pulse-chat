@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import { AutomodRuleType, type TAutomodRule } from '@pulse/shared';
+import { AutomodRuleType } from '@pulse/shared';
+import type { TAutomodRule } from '@pulse/server/types';
 import { Plus, Shield, Trash } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -137,8 +138,8 @@ const AutoMod = memo(() => {
               </label>
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive hover:text-destructive"
+                size="icon-sm"
+                className="text-destructive hover:text-destructive"
                 onClick={() => handleDelete(rule.id)}
                 title="Delete Rule"
               >

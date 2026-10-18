@@ -63,6 +63,31 @@ let prevCpuAt = performance.now();
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
+/**
+ * systeminformation shells out (netstat / ps on macOS, /proc reads on
+ * Linux). A child process that stalls under host load would otherwise
+ * hold the sampler tick — and anything awaiting a sample, such as the
+ * admin metrics route — for as long as the OS takes to answer. Cap every
+ * call: a sample with a missing load or network figure is still a
+ * sample, a tick that never completes is a gap in the graph.
+ */
+const SI_CALL_TIMEOUT_MS = 2_000;
+
+const boundedSiCall = <T>(call: Promise<T>, fallback: T): Promise<T> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), SI_CALL_TIMEOUT_MS);
+    call.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      }
+    );
+  });
+
 const collectMetricsSample = async (elLagMs = 0): Promise<TMetricSample> => {
   const now = performance.now();
   const cpu = process.cpuUsage();
@@ -79,8 +104,8 @@ const collectMetricsSample = async (elLagMs = 0): Promise<TMetricSample> => {
   prevCpuAt = now;
 
   const [load, netStats] = await Promise.all([
-    si.currentLoad().catch(() => null),
-    si.networkStats('*').catch(() => [])
+    boundedSiCall(si.currentLoad(), null),
+    boundedSiCall(si.networkStats('*'), [])
   ]);
   let netRxBps = 0;
   let netTxBps = 0;

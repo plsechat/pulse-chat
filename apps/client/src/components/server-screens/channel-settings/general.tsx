@@ -19,7 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useAdminChannelGeneral } from '@/features/server/admin/hooks';
-import { SLOW_MODE_LABELS, SLOW_MODE_OPTIONS } from '@pulse/shared';
+import { ChannelType, SLOW_MODE_LABELS, SLOW_MODE_OPTIONS } from '@pulse/shared';
 import { memo } from 'react';
 
 type TGeneralProps = {
@@ -67,6 +67,25 @@ const General = memo(({ channelId }: TGeneralProps) => {
             onCheckedChange={(value) => onChange('private', value)}
           />
         </Group>
+
+        {channel.type === ChannelType.TEXT && (
+          <Group
+            label="Announcement channel"
+            description="Only members who can post announcements write here; everyone reads, reacts and opens threads. Other channels — here, in other communities, or on federated instances — can follow it."
+          >
+            <Switch
+              checked={channel.announcement}
+              onCheckedChange={(value) => onChange('announcement', value)}
+              disabled={channel.e2ee}
+              aria-label="Announcement channel"
+            />
+            {channel.e2ee && (
+              <span className="text-xs text-muted-foreground">
+                Encrypted channels cannot be announcement channels.
+              </span>
+            )}
+          </Group>
+        )}
 
         <Group
           label="Slow Mode"

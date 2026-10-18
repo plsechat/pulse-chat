@@ -5,18 +5,18 @@ import type { IRootState } from '../store';
 import { useChannelById, useChannelPermissionsById } from './channels/hooks';
 import {
   channelMentionCountByIdSelector,
-  channelReadStateByIdSelector,
-  hasAnyUnreadSelector
+  channelReadStateByIdSelector
 } from './channels/selectors';
+import type { TVoiceKind } from './voice/keys';
 import { hasAnyVoiceUsersSelector } from './voice/selectors';
 import {
   connectedSelector,
-  connectingSelector,
   disconnectInfoSelector,
   infoSelector,
   isOwnUserOwnerSelector,
   ownUserRolesSelector,
   ownVoiceUserSelector,
+  plannerEnabledSelector,
   pluginsEnabledSelector,
   publicServerSettingsSelector,
   reconnectAttemptSelector,
@@ -30,7 +30,6 @@ import {
 
 export const useIsConnected = () => useSelector(connectedSelector);
 
-export const useIsConnecting = () => useSelector(connectingSelector);
 
 export const useDisconnectInfo = () => useSelector(disconnectInfoSelector);
 
@@ -80,10 +79,16 @@ export const useInfo = () => useSelector(infoSelector);
 
 export const useIsOwnUserOwner = () => useSelector(isOwnUserOwnerSelector);
 
+/** Whether the active server lets members run plugin commands. */
 export const usePluginsEnabled = () => useSelector(pluginsEnabledSelector);
+
+/** Whether the active server has the Planner switched on (General settings). */
+export const usePlannerEnabled = () => useSelector(plannerEnabledSelector);
 
 export const useCan = () => {
   const ownUserRoles = useOwnUserRoles();
+  // The owner of the connected server (servers.ownerId, or the bootstrap
+  // Owner role) holds every permission, exactly as the server decides.
   const isOwner = useIsOwnUserOwner();
 
   // TODO: maybe this can can recieve both Permission and ChannelPermission?
@@ -118,7 +123,15 @@ export const useChannelCan = (channelId: number | undefined) => {
 
   const can = useCallback(
     (permission: ChannelPermission) => {
-      if (isOwner || !channel || !channel?.private) return true;
+      // Overrides apply to public channels too (server evaluates them for
+      // every channel); only the owner and an unknown channel short-circuit.
+      if (isOwner || !channel) return true;
+
+      // No entry in the permission map (a preview snapshot, or a channel
+      // created after the map was built): the server's default applies —
+      // public channels allow, private ones deny.
+      // (The selector hands back an empty default object, not undefined.)
+      if (!ownUserRoles?.permissions) return !channel.private;
 
       // if VIEW is false, no other permission matters
       if (ownUserRoles.permissions[ChannelPermission.VIEW_CHANNEL] === false)
@@ -143,9 +156,12 @@ export const useTypingUsersByChannelId = (channelId: number) =>
     typingUsersByChannelIdSelector(state, channelId)
   );
 
-export const useVoiceUsersByChannelId = (channelId: number) =>
+export const useVoiceUsersByChannelId = (
+  channelId: number,
+  kind: TVoiceKind = 'channel'
+) =>
   useSelector((state: IRootState) =>
-    voiceUsersByChannelIdSelector(state, channelId)
+    voiceUsersByChannelIdSelector(state, channelId, kind)
   );
 
 export const useOwnVoiceUser = () => useSelector(ownVoiceUserSelector);
@@ -160,6 +176,21 @@ export const useMentionCount = (channelId: number) =>
     channelMentionCountByIdSelector(state, channelId)
   );
 
-export const useHasAnyUnread = () => useSelector(hasAnyUnreadSelector);
-
 export const useHasAnyVoiceUsers = () => useSelector(hasAnyVoiceUsersSelector);
+
+/**
+ * Instance domain of the CONNECTED community; undefined for a home
+ * community. Resolved from the connected server's publicId against the
+ * federated-server list, so it flips exactly when setInitialData lands.
+ * useActiveInstanceDomain flips optimistically before the remote data
+ * does, which would point the header logo at the new instance while
+ * the previous community's settings are still on screen.
+ */
+export const useConnectedInstanceDomain = () =>
+  useSelector((state: IRootState) => {
+    const publicId = state.server.serverId;
+    if (!publicId) return undefined;
+    return state.app.federatedServers.find(
+      (entry) => entry.server.publicId === publicId
+    )?.instanceDomain;
+  });

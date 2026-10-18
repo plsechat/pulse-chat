@@ -19,6 +19,7 @@ import {
   onDmMessageDeleteRoute,
   onDmMessageUpdateRoute,
   onDmNewMessageRoute,
+  onDmReadStateUpdateRoute,
   onDmTypingRoute
 } from './events';
 import { getActiveCallsRoute } from './get-active-calls';
@@ -85,6 +86,7 @@ export const dmsRouter = t.router({
   onChannelDelete: onDmChannelDeleteRoute,
   onMemberAdd: onDmMemberAddRoute,
   onMemberRemove: onDmMemberRemoveRoute,
+  onReadStateUpdate: onDmReadStateUpdateRoute,
   distributeSenderKeys: distributeDmSenderKeysRoute,
   getPendingSenderKeys: getPendingDmSenderKeysRoute,
   acknowledgeSenderKeys: acknowledgeDmSenderKeysRoute,

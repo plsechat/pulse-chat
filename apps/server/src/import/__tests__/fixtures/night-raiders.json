@@ -1,0 +1,499 @@
+{
+  "ids": {
+    "guild": "900000000000000001",
+    "bot": "800000000000000001",
+    "catText": "815886080409600001",
+    "catVoice": "815886080409600002",
+    "general": "815886332067840001",
+    "news": "815886583726080001",
+    "secret": "815886835384320001",
+    "lounge": "815887087042560001",
+    "guides": "981497334988800001",
+    "orphan": "815887338700800001",
+    "weird": "815887590359040001",
+    "raider": "816248468275200001",
+    "officer": "816248468275200002",
+    "botRole": "816248468275200003",
+    "emojiPog": "827120104243200001",
+    "emojiDance": "827120104243200002",
+    "alice": "700000000000000001",
+    "bob": "700000000000000002",
+    "carol": "700000000000000003",
+    "dave": "700000000000000004",
+    "m1": "1062340028006400001",
+    "m2": "1062341286297600001",
+    "m3": "1062657117388800001",
+    "m4": "1070267262566400001",
+    "m5": "1080414122803200001",
+    "t1": "1091648146636800001",
+    "m7": "1102519782604800001",
+    "m8": "1091650663219200001",
+    "p1": "1113753806438400001",
+    "t2": "926761667788800001",
+    "m10": "926762926080000001",
+    "event1": "950000000000000001",
+    "event2": "950000000000000002"
+  },
+  "bot": {
+    "id": "800000000000000001",
+    "username": "pulse-import",
+    "global_name": null,
+    "bot": true
+  },
+  "guilds": [
+    {
+      "id": "900000000000000001",
+      "name": "Night Raiders",
+      "icon": "a1b2c3",
+      "approximate_member_count": 4,
+      "approximate_presence_count": 2
+    },
+    {
+      "id": "900000000000000002",
+      "name": "Other Place",
+      "icon": null,
+      "approximate_member_count": 12,
+      "approximate_presence_count": 1
+    }
+  ],
+  "guild": {
+    "id": "900000000000000001",
+    "name": "Night Raiders",
+    "icon": "a1b2c3",
+    "description": "We raid at night.",
+    "owner_id": "700000000000000001",
+    "approximate_member_count": 4,
+    "approximate_presence_count": 2
+  },
+  "channels": [
+    {
+      "id": "815886080409600001",
+      "type": 4,
+      "name": "Text",
+      "position": 0
+    },
+    {
+      "id": "815886080409600002",
+      "type": 4,
+      "name": "Voice",
+      "position": 1
+    },
+    {
+      "id": "815886332067840001",
+      "type": 0,
+      "name": "general",
+      "topic": "Talk about anything",
+      "position": 0,
+      "parent_id": "815886080409600001",
+      "last_message_id": "1091648146636800001",
+      "permission_overwrites": []
+    },
+    {
+      "id": "815886583726080001",
+      "type": 5,
+      "name": "news",
+      "topic": "Announcements",
+      "position": 1,
+      "parent_id": "815886080409600001",
+      "last_message_id": null,
+      "permission_overwrites": []
+    },
+    {
+      "id": "815886835384320001",
+      "type": 0,
+      "name": "officers-only",
+      "position": 2,
+      "parent_id": "815886080409600001",
+      "last_message_id": "1070267262566400001",
+      "permission_overwrites": [
+        {
+          "id": "900000000000000001",
+          "type": 0,
+          "allow": "0",
+          "deny": "1024"
+        }
+      ]
+    },
+    {
+      "id": "981497334988800001",
+      "type": 15,
+      "name": "guides",
+      "topic": "How-to posts",
+      "position": 3,
+      "parent_id": "815886080409600001",
+      "last_message_id": null,
+      "permission_overwrites": []
+    },
+    {
+      "id": "815887087042560001",
+      "type": 2,
+      "name": "Lounge",
+      "position": 0,
+      "parent_id": "815886080409600002",
+      "permission_overwrites": []
+    },
+    {
+      "id": "815887338700800001",
+      "type": 0,
+      "name": "a-very-long-channel-name-that-goes-past-the-limit",
+      "position": 0,
+      "parent_id": null,
+      "last_message_id": "1102519782604800001",
+      "permission_overwrites": []
+    },
+    {
+      "id": "815887590359040001",
+      "type": 99,
+      "name": "mystery",
+      "position": 4,
+      "parent_id": "815886080409600001"
+    }
+  ],
+  "roles": [
+    {
+      "id": "900000000000000001",
+      "name": "@everyone",
+      "color": 0,
+      "position": 0,
+      "permissions": "1117249"
+    },
+    {
+      "id": "816248468275200001",
+      "name": "Raider",
+      "color": 16711680,
+      "position": 1,
+      "permissions": "109568"
+    },
+    {
+      "id": "816248468275200002",
+      "name": "Officer",
+      "color": 255,
+      "position": 2,
+      "permissions": "8"
+    },
+    {
+      "id": "816248468275200003",
+      "name": "Some Bot",
+      "color": 0,
+      "position": 3,
+      "permissions": "0",
+      "managed": true
+    }
+  ],
+  "emojis": [
+    {
+      "id": "827120104243200001",
+      "name": "pog",
+      "animated": false,
+      "available": true
+    },
+    {
+      "id": "827120104243200002",
+      "name": "dance",
+      "animated": true,
+      "available": true
+    },
+    {
+      "id": null,
+      "name": null
+    }
+  ],
+  "botMember": {
+    "user": {
+      "id": "800000000000000001",
+      "username": "pulse-import",
+      "bot": true
+    },
+    "roles": [],
+    "nick": null
+  },
+  "members": [
+    {
+      "user": {
+        "id": "700000000000000001",
+        "username": "alice",
+        "global_name": "Alice",
+        "avatar": "av1"
+      },
+      "nick": null,
+      "roles": [
+        "816248468275200001"
+      ]
+    },
+    {
+      "user": {
+        "id": "700000000000000002",
+        "username": "bob",
+        "global_name": null,
+        "avatar": null
+      },
+      "nick": "Bobby",
+      "roles": []
+    },
+    {
+      "user": {
+        "id": "800000000000000001",
+        "username": "pulse-import",
+        "bot": true
+      },
+      "roles": []
+    },
+    {
+      "user": {
+        "id": "700000000000000004",
+        "username": "dave",
+        "global_name": "Dave",
+        "avatar": null
+      },
+      "nick": null,
+      "roles": [
+        "816248468275200001",
+        "816248468275200002"
+      ]
+    }
+  ],
+  "threads": [
+    {
+      "id": "1091648146636800001",
+      "type": 11,
+      "name": "help thread",
+      "parent_id": "815886332067840001",
+      "owner_id": "700000000000000001",
+      "message_count": 1,
+      "thread_metadata": {
+        "archived": false,
+        "auto_archive_duration": 1440
+      }
+    },
+    {
+      "id": "926761667788800001",
+      "type": 11,
+      "name": "old thread",
+      "parent_id": "815886332067840001",
+      "owner_id": "700000000000000002",
+      "message_count": 1,
+      "thread_metadata": {
+        "archived": true,
+        "archive_timestamp": "2022-01-03T09:00:00+00:00",
+        "auto_archive_duration": 60
+      }
+    },
+    {
+      "id": "1113753806438400001",
+      "type": 11,
+      "name": "How to tank",
+      "parent_id": "981497334988800001",
+      "owner_id": "700000000000000001",
+      "message_count": 1,
+      "thread_metadata": {
+        "archived": false,
+        "auto_archive_duration": 4320
+      }
+    }
+  ],
+  "pins": {
+    "815886332067840001": [
+      "1062341286297600001"
+    ]
+  },
+  "messages": {
+    "815886332067840001": [
+      {
+        "id": "1062340028006400001",
+        "type": 0,
+        "content": "hello <@700000000000000002> <:pog:827120104243200001> look at <#815886583726080001> and <:unknown:1234567890>",
+        "author": {
+          "id": "700000000000000001",
+          "username": "alice",
+          "global_name": "Alice",
+          "avatar": "av1"
+        },
+        "timestamp": "2023-01-10T12:00:00.000000+00:00",
+        "attachments": [
+          {
+            "id": "1",
+            "filename": "map.png",
+            "size": 1234,
+            "url": "https://cdn.discordapp.com/attachments/1/2/map.png",
+            "content_type": "image/png"
+          }
+        ],
+        "mentions": [
+          {
+            "id": "700000000000000002",
+            "username": "bob",
+            "global_name": null
+          }
+        ]
+      },
+      {
+        "id": "1062341286297600001",
+        "type": 19,
+        "content": "hi <@&816248468275200001> and <@&816248468275200003>",
+        "author": {
+          "id": "700000000000000002",
+          "username": "bob",
+          "global_name": null,
+          "avatar": null
+        },
+        "timestamp": "2023-01-10T12:05:00.000000+00:00",
+        "edited_timestamp": "2023-01-10T12:06:00.000000+00:00",
+        "pinned": true,
+        "message_reference": {
+          "message_id": "1062340028006400001",
+          "channel_id": "815886332067840001"
+        }
+      },
+      {
+        "id": "1062657117388800001",
+        "type": 7,
+        "content": "",
+        "author": {
+          "id": "700000000000000003",
+          "username": "carol",
+          "global_name": "Carol"
+        },
+        "timestamp": "2023-01-11T09:00:00.000000+00:00"
+      },
+      {
+        "id": "1070267262566400001",
+        "type": 0,
+        "content": "",
+        "author": {
+          "id": "600000000000000001",
+          "username": "Patch Bot",
+          "bot": true
+        },
+        "webhook_id": "600000000000000001",
+        "timestamp": "2023-02-01T09:00:00.000000+00:00",
+        "embeds": [
+          {
+            "title": "Patch notes",
+            "url": "https://example.com/notes"
+          }
+        ]
+      },
+      {
+        "id": "1080414122803200001",
+        "type": 0,
+        "content": "late <t:1700000000:F> @here",
+        "author": {
+          "id": "700000000000000003",
+          "username": "carol",
+          "global_name": "Carol",
+          "avatar": null
+        },
+        "timestamp": "2023-03-01T09:00:00.000000+00:00",
+        "sticker_items": [
+          {
+            "id": "1",
+            "name": "wave"
+          }
+        ]
+      },
+      {
+        "id": "1091648146636800001",
+        "type": 0,
+        "content": "need help",
+        "author": {
+          "id": "700000000000000001",
+          "username": "alice",
+          "global_name": "Alice",
+          "avatar": "av1"
+        },
+        "timestamp": "2023-04-01T09:00:00.000000+00:00"
+      }
+    ],
+    "815886583726080001": [],
+    "815887338700800001": [
+      {
+        "id": "1102519782604800001",
+        "type": 0,
+        "content": "orphan channel message",
+        "author": {
+          "id": "700000000000000002",
+          "username": "bob",
+          "global_name": null
+        },
+        "timestamp": "2023-05-01T09:00:00.000000+00:00",
+        "attachments": [
+          {
+            "id": "2",
+            "filename": "evil.html",
+            "size": 10,
+            "url": "https://cdn.discordapp.com/attachments/1/3/evil.html"
+          },
+          {
+            "id": "3",
+            "filename": "huge.zip",
+            "size": 50000000000,
+            "url": "https://cdn.discordapp.com/attachments/1/4/huge.zip"
+          }
+        ]
+      }
+    ],
+    "1091648146636800001": [
+      {
+        "id": "1091650663219200001",
+        "type": 0,
+        "content": "in thread",
+        "author": {
+          "id": "700000000000000002",
+          "username": "bob",
+          "global_name": null
+        },
+        "timestamp": "2023-04-01T09:10:00.000000+00:00"
+      }
+    ],
+    "926761667788800001": [
+      {
+        "id": "926762926080000001",
+        "type": 0,
+        "content": "archived words",
+        "author": {
+          "id": "700000000000000002",
+          "username": "bob",
+          "global_name": null
+        },
+        "timestamp": "2022-01-01T09:05:00.000000+00:00"
+      }
+    ],
+    "1113753806438400001": [
+      {
+        "id": "1113753806438400001",
+        "type": 0,
+        "content": "Tank guide body",
+        "author": {
+          "id": "700000000000000001",
+          "username": "alice",
+          "global_name": "Alice",
+          "avatar": "av1"
+        },
+        "timestamp": "2023-06-01T09:00:00.000000+00:00"
+      }
+    ]
+  },
+  "scheduledEvents": [
+    {
+      "id": "950000000000000001",
+      "name": "Raid night",
+      "description": "Bring flasks",
+      "scheduled_start_time": "2099-01-01T20:00:00+00:00",
+      "scheduled_end_time": "2099-01-01T23:00:00+00:00",
+      "status": 1,
+      "creator_id": "700000000000000001",
+      "entity_metadata": {
+        "location": "Voice: Lounge"
+      }
+    },
+    {
+      "id": "950000000000000002",
+      "name": "Old event",
+      "description": null,
+      "scheduled_start_time": "2020-01-01T20:00:00+00:00",
+      "scheduled_end_time": null,
+      "status": 3,
+      "creator_id": "700000000000000002"
+    }
+  ]
+}

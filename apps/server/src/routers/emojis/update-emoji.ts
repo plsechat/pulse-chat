@@ -7,23 +7,16 @@ import { emojiExists, getEmojiById } from '../../db/queries/emojis';
 import { emojis } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const updateEmojiRoute = protectedProcedure
+const updateEmojiRoute = serverProcedure(Permission.MANAGE_EMOJIS)
   .input(
     z.object({
-      emojiId: z.number().min(1),
-      name: z.string().min(1).max(24)
+      emojiId: z.number().int().positive(),
+      name: z.string().min(1).max(32)
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_EMOJIS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const existingEmoji = await getEmojiById(input.emojiId);
 
     invariant(existingEmoji, {

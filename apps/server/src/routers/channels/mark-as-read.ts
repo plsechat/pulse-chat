@@ -1,27 +1,15 @@
 import { ChannelPermission, ChannelType, ServerEvents } from '@pulse/shared';
 import { and, desc, eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { getForumUnreadForUser } from '../../db/queries/channels';
 import { getServerUnreadCount } from '../../db/queries/servers';
 import { channelReadStates, channels, messages } from '../../db/schema';
-import { refuseInPreview } from '../../utils/preview-guard';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const markAsReadRoute = protectedProcedure
-  .input(
-    z.object({
-      channelId: z.number()
-    })
-  )
-  .mutation(async ({ ctx, input }) => {
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-    // Previewers hold VIEW_CHANNEL but must not create read-state rows
-    await refuseInPreview(ctx, input.channelId);
-
+// Previewers hold VIEW_CHANNEL but must not create read-state rows.
+const markAsReadRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
+  preview: 'refuse'
+}).mutation(async ({ ctx, input }) => {
     const { channelId } = input;
 
     // get the newest message in the channel

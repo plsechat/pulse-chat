@@ -1,10 +1,32 @@
-import { describe, expect, test } from 'bun:test';
-import { ChannelType, ServerEvents } from '@pulse/shared';
+import { describe, expect, spyOn, test } from 'bun:test';
+import { ChannelPermission, ChannelType, ServerEvents } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
 import { getTestDb } from '../../__tests__/mock-db';
 import { initTest } from '../../__tests__/helpers';
-import { channels, dmChannelMembers, dmChannels, dmMessages, messages } from '../../db/schema';
+import { countQueries } from '../../__tests__/query-count';
+import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
+import {
+  channelRolePermissions,
+  channelUserPermissions,
+  channels,
+  dmChannelMembers,
+  dmChannels,
+  dmMessages,
+  messages,
+  userOneTimePreKeys,
+  userSignedPreKeys
+} from '../../db/schema';
+import {
+  createTestChannel,
+  createTestRole,
+  createTestServer,
+  createTestServerMember,
+  createTestUser,
+  grantTestUserRole,
+  insertMemberUser,
+  seedLocalFriend
+} from '../../__tests__/fixtures';
 import { pubsub } from '../../utils/pubsub';
 
 describe('e2ee router', () => {
@@ -248,16 +270,15 @@ describe('e2ee router', () => {
     expect(bundle!.signedPreKey.signature).toBe('rotated-signature');
   });
 
-  // --- distributeSenderKey / getPendingSenderKeys ---
+  // --- distributeSenderKeysBatch / getPendingSenderKeys ---
 
   test('should distribute and retrieve sender keys', async () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'encrypted-sender-key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'encrypted-sender-key-data' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({});
@@ -300,10 +321,9 @@ describe('e2ee router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-data' }]
     });
 
     // First fetch returns the key
@@ -327,10 +347,9 @@ describe('e2ee router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-data' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({});
@@ -347,16 +366,14 @@ describe('e2ee router', () => {
     const { caller: caller1 } = await initTest(1);
     const { caller: caller2 } = await initTest(2);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-for-channel-1'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-for-channel-1' }]
     });
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 2,
-      toUserId: 2,
-      distributionMessage: 'key-for-channel-2'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-for-channel-2' }]
     });
 
     const filtered = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -370,10 +387,9 @@ describe('e2ee router', () => {
     const { caller: caller2 } = await initTest(2);
 
     // Distribute to user 1 (not user 2)
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'key-for-user-1'
+      distributions: [{ toUserId: 1, distributionMessage: 'key-for-user-1' }]
     });
 
     // User 2 should not see keys meant for user 1
@@ -392,10 +408,9 @@ describe('e2ee router', () => {
     const { caller: caller2 } = await initTest(2);
 
     // Omit senderKeyId — should default to 1.
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'phase-a-fallback'
+      distributions: [{ toUserId: 2, distributionMessage: 'phase-a-fallback' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({});
@@ -408,19 +423,17 @@ describe('e2ee router', () => {
     const { caller: caller2 } = await initTest(2);
 
     // First chain (initial creation).
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
       senderKeyId: 1,
-      distributionMessage: 'chain-v1'
+      distributions: [{ toUserId: 2, distributionMessage: 'chain-v1' }]
     });
 
     // Rotation — kicked someone, generated a fresh chain.
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
       senderKeyId: 2,
-      distributionMessage: 'chain-v2'
+      distributions: [{ toUserId: 2, distributionMessage: 'chain-v2' }]
     });
 
     const pending = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -479,15 +492,13 @@ describe('e2ee router', () => {
     const { caller: caller3 } = await initTest(3);
 
     // User 1 distributes to user 2 and user 3
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'key-for-user-2'
+      distributions: [{ toUserId: 2, distributionMessage: 'key-for-user-2' }]
     });
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 3,
-      distributionMessage: 'key-for-user-3'
+      distributions: [{ toUserId: 3, distributionMessage: 'key-for-user-3' }]
     });
 
     const pending2 = await caller2.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -505,15 +516,13 @@ describe('e2ee router', () => {
     const { caller: caller3 } = await initTest(3);
 
     // User 1 and User 2 both distribute keys to User 3
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 3,
-      distributionMessage: 'key-from-user-1'
+      distributions: [{ toUserId: 3, distributionMessage: 'key-from-user-1' }]
     });
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 3,
-      distributionMessage: 'key-from-user-2'
+      distributions: [{ toUserId: 3, distributionMessage: 'key-from-user-2' }]
     });
 
     const pending = await caller3.e2ee.getPendingSenderKeys({ channelId: 1 });
@@ -638,17 +647,15 @@ describe('e2ee router', () => {
     await caller1.e2ee.registerKeys(mockKeys);
 
     // Distribute a sender key from user 1 to user 2
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'old-key-data'
+      distributions: [{ toUserId: 2, distributionMessage: 'old-key-data' }]
     });
 
     // Distribute a sender key from user 2 to user 1
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'key-for-user-1'
+      distributions: [{ toUserId: 1, distributionMessage: 'key-for-user-1' }]
     });
 
     // Verify distributions exist
@@ -684,15 +691,13 @@ describe('e2ee router', () => {
     await caller1.e2ee.registerKeys(k1);
 
     // Pre-backup: a sender-key distribution exists in either direction.
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'k_a1-distribution'
+      distributions: [{ toUserId: 2, distributionMessage: 'k_a1-distribution' }]
     });
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'b-distribution-encrypted-to-k_a1'
+      distributions: [{ toUserId: 1, distributionMessage: 'b-distribution-encrypted-to-k_a1' }]
     });
 
     // Step 2: user 1 regenerates → identity flips to K_A2.
@@ -709,10 +714,9 @@ describe('e2ee router', () => {
 
     // Post-regen, peers (via handlePeerIdentityReset) re-distribute their
     // sender keys to user 1's K_A2 prekey-bundle. Simulate that.
-    await caller2.e2ee.distributeSenderKey({
+    await caller2.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 1,
-      distributionMessage: 'b-distribution-encrypted-to-k_a2'
+      distributions: [{ toUserId: 1, distributionMessage: 'b-distribution-encrypted-to-k_a2' }]
     });
     expect((await caller1.e2ee.getPendingSenderKeys({})).length).toBe(1);
 
@@ -739,10 +743,9 @@ describe('e2ee router', () => {
 
     await caller1.e2ee.registerKeys(mockKeys);
 
-    await caller1.e2ee.distributeSenderKey({
+    await caller1.e2ee.distributeSenderKeysBatch({
       channelId: 1,
-      toUserId: 2,
-      distributionMessage: 'valid-key'
+      distributions: [{ toUserId: 2, distributionMessage: 'valid-key' }]
     });
 
     // Re-register with SAME identity key (e.g. OTP replenishment)
@@ -775,12 +778,14 @@ describe('e2ee router', () => {
       identityPublicKey: 'new-identity-key-for-reset'
     });
 
-    // Verify the reset event was published
+    // Verify the reset event was published. The bootstrap server has
+    // no E2EE channel and user 1 no E2EE DM, so the only recipient is
+    // the resetter's own other tabs, with an empty channel list.
     const resetEvents = publishedEvents.filter(
       (e) => e.topic === ServerEvents.E2EE_IDENTITY_RESET
     );
     expect(resetEvents.length).toBe(1);
-    expect(resetEvents[0]!.payload).toEqual({ userId: 1 });
+    expect(resetEvents[0]!.payload).toEqual({ userId: 1, channelIds: [] });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pubsub as any).publishFor = original;
@@ -1041,5 +1046,521 @@ describe('e2ee router', () => {
     // care that e2ee channels appear; non-e2ee filtering is enforced
     // by the WHERE clause and asserted indirectly by length === 1
     // when the test fixture has no other e2ee channels seeded.
+  });
+});
+
+describe('e2ee router — input bounds and recipient scope', () => {
+  const keys = {
+    identityPublicKey: 'identity-key',
+    registrationId: 1,
+    signedPreKey: { keyId: 1, publicKey: 'spk', signature: 'sig' },
+    oneTimePreKeys: [] as { keyId: number; publicKey: string }[]
+  };
+
+  test('distributeSenderKeysBatch rejects a recipient who cannot view the channel', async () => {
+    const { caller } = await initTest(1);
+    // A user with no membership on server 1 — not in the channel's
+    // VIEW_CHANNEL audience.
+    const outsiderId = await createTestUser();
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        distributions: [{ toUserId: outsiderId, distributionMessage: 'skdm' }]
+      })
+    ).rejects.toThrow('Recipient cannot view this channel');
+
+    // Nothing was written, not even for would-be valid rows.
+    expect(await caller.e2ee.getPendingSenderKeys({})).toHaveLength(0);
+  });
+
+  test('distributeSenderKeysBatch still delivers to a member who can view the channel', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+
+    await caller1.e2ee.distributeSenderKeysBatch({
+      channelId: 1,
+      distributions: [{ toUserId: 2, distributionMessage: 'skdm' }]
+    });
+
+    expect(await caller2.e2ee.getPendingSenderKeys({})).toHaveLength(1);
+  });
+
+  test('distribution batches, messages and sender key ids are bounded', async () => {
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        distributions: Array.from({ length: 501 }, () => ({
+          toUserId: 2,
+          distributionMessage: 'skdm'
+        }))
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        distributions: [{ toUserId: 2, distributionMessage: 'x'.repeat(16_385) }]
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      caller.e2ee.distributeSenderKeysBatch({
+        channelId: 1,
+        senderKeyId: 2 ** 31,
+        distributions: [{ toUserId: 2, distributionMessage: 'skdm' }]
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      caller.e2ee.acknowledgeSenderKeys({
+        ids: Array.from({ length: 501 }, (_, i) => i + 1)
+      })
+    ).rejects.toThrow();
+  });
+
+  test('key material is bounded on registerKeys and rotateSignedPreKey', async () => {
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.e2ee.registerKeys({ ...keys, identityPublicKey: 'k'.repeat(257) })
+    ).rejects.toThrow();
+    await expect(
+      caller.e2ee.registerKeys({
+        ...keys,
+        oneTimePreKeys: Array.from({ length: 201 }, (_, i) => ({
+          keyId: i,
+          publicKey: 'otp'
+        }))
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller.e2ee.rotateSignedPreKey({
+        keyId: 2,
+        publicKey: 'p'.repeat(257),
+        signature: 'sig'
+      })
+    ).rejects.toThrow();
+  });
+
+  test('the 501st one-time pre-key is rejected', async () => {
+    const { caller } = await initTest(1);
+    await caller.e2ee.registerKeys(keys);
+
+    const batch = (from: number, size: number) =>
+      Array.from({ length: size }, (_, i) => ({
+        keyId: from + i,
+        publicKey: `otp-${from + i}`
+      }));
+
+    await caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(0, 200) });
+    await caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(200, 200) });
+    await caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(400, 100) });
+    expect(await caller.e2ee.getPreKeyCount()).toBe(500);
+
+    await expect(
+      caller.e2ee.uploadOneTimePreKeys({ oneTimePreKeys: batch(500, 1) })
+    ).rejects.toThrow('At most 500 one-time pre-keys');
+    expect(await caller.e2ee.getPreKeyCount()).toBe(500);
+
+    const rows = await getTestDb()
+      .select()
+      .from(userOneTimePreKeys)
+      .where(eq(userOneTimePreKeys.userId, 1));
+    expect(rows).toHaveLength(500);
+  });
+
+  test('rotateSignedPreKey keeps only the newest two signed pre-keys', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    await caller1.e2ee.registerKeys(keys);
+
+    for (const keyId of [2, 3, 4]) {
+      await caller1.e2ee.rotateSignedPreKey({
+        keyId,
+        publicKey: `spk-${keyId}`,
+        signature: `sig-${keyId}`
+      });
+    }
+
+    const rows = await getTestDb()
+      .select({ keyId: userSignedPreKeys.keyId })
+      .from(userSignedPreKeys)
+      .where(eq(userSignedPreKeys.userId, 1));
+    expect(rows.map((r) => r.keyId).sort()).toEqual([3, 4]);
+
+    // The bundle serves the newest one.
+    const bundle = await caller2.e2ee.getPreKeyBundle({ userId: 1 });
+    expect(bundle!.signedPreKey.keyId).toBe(4);
+  });
+
+  test('key backups are bounded to 1 MiB', async () => {
+    const { caller } = await initTest(1);
+
+    await expect(
+      caller.e2ee.uploadKeyBackup({ encryptedData: 'x'.repeat(1_048_577) })
+    ).rejects.toThrow();
+    await caller.e2ee.uploadKeyBackup({ encryptedData: 'x'.repeat(1024) });
+    expect((await caller.e2ee.getKeyBackup())?.encryptedData).toHaveLength(1024);
+  });
+
+  test('DM sender-key distribution is bounded like the channel twin', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [dmChannel] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, e2ee: true, isGroup: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: dmChannel!.id, userId: 1, createdAt: now },
+      { dmChannelId: dmChannel!.id, userId: 2, createdAt: now }
+    ]);
+
+    await expect(
+      caller1.dms.distributeSenderKeys({
+        dmChannelId: dmChannel!.id,
+        distributions: [{ toUserId: 2, distributionMessage: 'x'.repeat(16_385) }]
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller1.dms.distributeSenderKeys({
+        dmChannelId: dmChannel!.id,
+        distributions: Array.from({ length: 501 }, () => ({
+          toUserId: 2,
+          distributionMessage: 'skdm'
+        }))
+      })
+    ).rejects.toThrow();
+    await expect(
+      caller1.dms.acknowledgeSenderKeys({
+        ids: Array.from({ length: 501 }, (_, i) => i + 1)
+      })
+    ).rejects.toThrow();
+
+    await caller1.dms.distributeSenderKeys({
+      dmChannelId: dmChannel!.id,
+      distributions: [{ toUserId: 2, distributionMessage: 'skdm' }]
+    });
+  });
+});
+
+describe('e2ee router — identity reset fan-out and key-read authorization', () => {
+  const mockKeys = {
+    identityPublicKey: 'fanout-identity-key',
+    registrationId: 4242,
+    signedPreKey: {
+      keyId: 1,
+      publicKey: 'fanout-signed-pre-key',
+      signature: 'fanout-signature'
+    },
+    oneTimePreKeys: [{ keyId: 1, publicKey: 'fanout-otp-1' }]
+  };
+
+  const makePrivate = async (channelId: number) => {
+    await getTestDb()
+      .update(channels)
+      .set({ private: true })
+      .where(eq(channels.id, channelId));
+  };
+
+  const userOverride = async (
+    channelId: number,
+    userId: number,
+    allow: boolean
+  ) => {
+    await getTestDb().insert(channelUserPermissions).values({
+      channelId,
+      userId,
+      permission: ChannelPermission.VIEW_CHANNEL,
+      allow,
+      createdAt: Date.now()
+    });
+  };
+
+  const roleOverride = async (
+    channelId: number,
+    roleId: number,
+    allow: boolean
+  ) => {
+    await getTestDb().insert(channelRolePermissions).values({
+      channelId,
+      roleId,
+      permission: ChannelPermission.VIEW_CHANNEL,
+      allow,
+      createdAt: Date.now()
+    });
+  };
+
+  /** The pre-fix implementation: every E2EE channel on the instance,
+   *  one permission query each. The oracle the single query must match. */
+  const legacyViewableE2eeChannelIds = async (userId: number) => {
+    const all = await getTestDb()
+      .select({ id: channels.id })
+      .from(channels)
+      .where(eq(channels.e2ee, true));
+    const visible: number[] = [];
+    for (const ch of all) {
+      const ids = await getAffectedUserIdsForChannel(ch.id, {
+        permission: ChannelPermission.VIEW_CHANNEL
+      });
+      if (ids.includes(userId)) visible.push(ch.id);
+    }
+    return visible.sort((a, b) => a - b);
+  };
+
+  const sorted = (ids: number[]) => [...ids].sort((a, b) => a - b);
+
+  type Published = { userIds: number[]; topic: string; payload: unknown };
+  const captureResetEvents = () => {
+    const spy = spyOn(pubsub, 'publishFor');
+    return {
+      events: (): Published[] =>
+        spy.mock.calls
+          .map(([userIds, topic, payload]) => ({
+            userIds: Array.isArray(userIds) ? userIds : [userIds as number],
+            topic: topic as string,
+            payload
+          }))
+          .filter((e) => e.topic === ServerEvents.E2EE_IDENTITY_RESET),
+      restore: () => spy.mockRestore()
+    };
+  };
+
+  test('listMyE2eeChannelIds matches the per-channel permission loop on a mixed fixture, in one query', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    const { caller: caller3 } = await initTest(3);
+
+    const roleId = await createTestRole({ serverId: 1, name: 'e2ee-readers' });
+    await grantTestUserRole(2, roleId);
+
+    // Server 1 (owner = user 1; members 1, 2, 3):
+    //  A public e2ee                         → 1, 2, 3
+    //  B private e2ee, role allow (user 2)   → 1 (owner), 2
+    //  C private e2ee, user allow (user 3)   → 1, 3
+    //  D private e2ee, no overrides          → 1
+    //  E public e2ee, user deny (user 2)     → 1, 3
+    //  F public e2ee, role deny (user 2)     → 1, 3
+    //  G private NON-e2ee, user allow (2)    → nobody (not e2ee)
+    const a = await createTestChannel({ serverId: 1, name: 'a', e2ee: true });
+    const b = await createTestChannel({ serverId: 1, name: 'b', e2ee: true });
+    await makePrivate(b);
+    await roleOverride(b, roleId, true);
+    const c = await createTestChannel({ serverId: 1, name: 'c', e2ee: true });
+    await makePrivate(c);
+    await userOverride(c, 3, true);
+    const d = await createTestChannel({ serverId: 1, name: 'd', e2ee: true });
+    await makePrivate(d);
+    const e = await createTestChannel({ serverId: 1, name: 'e', e2ee: true });
+    await userOverride(e, 2, false);
+    const f = await createTestChannel({ serverId: 1, name: 'f', e2ee: true });
+    await roleOverride(f, roleId, false);
+    const g = await createTestChannel({ serverId: 1, name: 'g', e2ee: false });
+    await makePrivate(g);
+    await userOverride(g, 2, true);
+
+    // Server 2: user 3 is its only member; H is public e2ee there.
+    const server2 = await createTestServer({ name: 'second' });
+    await createTestServerMember({ serverId: server2, userId: 3 });
+    const h = await createTestChannel({ serverId: server2, name: 'h', e2ee: true });
+
+    expect(sorted(await caller1.e2ee.listMyE2eeChannelIds())).toEqual(
+      sorted([a, b, c, d, e, f])
+    );
+    expect(sorted(await caller2.e2ee.listMyE2eeChannelIds())).toEqual(
+      sorted([a, b])
+    );
+    expect(sorted(await caller3.e2ee.listMyE2eeChannelIds())).toEqual(
+      sorted([a, c, e, f, h])
+    );
+
+    for (const [userId, caller] of [
+      [1, caller1],
+      [2, caller2],
+      [3, caller3]
+    ] as const) {
+      expect(sorted(await caller.e2ee.listMyE2eeChannelIds())).toEqual(
+        await legacyViewableE2eeChannelIds(userId)
+      );
+    }
+
+    const { queries } = await countQueries(() =>
+      caller2.e2ee.listMyE2eeChannelIds()
+    );
+    expect(queries).toBe(1);
+  });
+
+  test('identity reset is sent only to users sharing an E2EE channel or DM, each with the channels they share', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    await initTest(3);
+    // A plain co-member who shares no E2EE channel with the resetter.
+    const bystander = await insertMemberUser();
+    // A friend outside every server, sharing an E2EE DM.
+    const friendId = await seedLocalFriend('reset-dm-peer');
+    // A DM peer whose DM is NOT encrypted — nothing to re-key.
+    const plainDmPeer = await createTestUser();
+
+    const q1 = await createTestChannel({ serverId: 1, name: 'q1', e2ee: true });
+    await makePrivate(q1);
+    await userOverride(q1, 2, true);
+    const q2 = await createTestChannel({ serverId: 1, name: 'q2', e2ee: true });
+    await makePrivate(q2);
+    await userOverride(q2, 2, true);
+    await userOverride(q2, 3, true);
+
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [encryptedDm] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, e2ee: true, isGroup: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: encryptedDm!.id, userId: 1, createdAt: now },
+      { dmChannelId: encryptedDm!.id, userId: friendId, createdAt: now }
+    ]);
+    const [plainDm] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, e2ee: false, isGroup: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: plainDm!.id, userId: 1, createdAt: now },
+      { dmChannelId: plainDm!.id, userId: plainDmPeer, createdAt: now }
+    ]);
+
+    await caller1.e2ee.registerKeys(mockKeys);
+
+    const capture = captureResetEvents();
+    try {
+      await caller1.e2ee.registerKeys({
+        ...mockKeys,
+        identityPublicKey: 'fanout-identity-key-v2'
+      });
+
+      const byRecipient = new Map<number, number[]>();
+      for (const e of capture.events()) {
+        const payload = e.payload as { userId: number; channelIds: number[] };
+        expect(payload.userId).toBe(1);
+        for (const id of e.userIds) {
+          expect(byRecipient.has(id)).toBe(false); // one event per recipient
+          byRecipient.set(id, sorted(payload.channelIds));
+        }
+      }
+
+      expect(byRecipient.get(2)).toEqual(sorted([q1, q2]));
+      expect(byRecipient.get(3)).toEqual([q2]);
+      expect(byRecipient.get(1)).toEqual(sorted([q1, q2])); // own tabs: full list
+      expect(byRecipient.get(friendId)).toEqual([]);
+      expect(byRecipient.has(bystander.id)).toBe(false);
+      expect(byRecipient.has(plainDmPeer)).toBe(false);
+      expect(byRecipient.size).toBe(4);
+    } finally {
+      capture.restore();
+    }
+
+    // System rows landed in exactly the shared E2EE scopes.
+    const channelRows = await tdb
+      .select({ channelId: messages.channelId })
+      .from(messages)
+      .where(eq(messages.content, 'identity_reset'));
+    expect(sorted(channelRows.map((r) => r.channelId))).toEqual(sorted([q1, q2]));
+    const dmRows = await tdb
+      .select({ dmChannelId: dmMessages.dmChannelId })
+      .from(dmMessages)
+      .where(eq(dmMessages.content, 'identity_reset'));
+    expect(dmRows.map((r) => r.dmChannelId)).toEqual([encryptedDm!.id]);
+  });
+
+  test('prekey bundle and identity key are readable across a DM, a friendship or a shared server — not by strangers', async () => {
+    const { caller: caller1 } = await initTest(1);
+
+    // Friends outside every server, with an encrypted DM between them.
+    const dmFriendId = await seedLocalFriend('dm-friend');
+    const { caller: dmFriend } = await initTest(dmFriendId);
+    await dmFriend.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'dm-friend-identity'
+    });
+    const tdb = getTestDb();
+    const now = Date.now();
+    const [dm] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, e2ee: true, isGroup: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: dm!.id, userId: 1, createdAt: now },
+      { dmChannelId: dm!.id, userId: dmFriendId, createdAt: now }
+    ]);
+
+    const bundle = await caller1.e2ee.getPreKeyBundle({ userId: dmFriendId });
+    expect(bundle?.identityPublicKey).toBe('dm-friend-identity');
+    expect(
+      await caller1.e2ee.getIdentityPublicKey({ userId: dmFriendId })
+    ).toBe('dm-friend-identity');
+    // And the other direction, from a caller who is in no server at all
+    // (openSession answers a user with no servers minimally; it enrols
+    // nobody).
+    await caller1.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'user-1-identity'
+    });
+    expect(
+      (await dmFriend.e2ee.getPreKeyBundle({ userId: 1 }))?.identityPublicKey
+    ).toBe('user-1-identity');
+
+    // Friends with no DM yet: the key fetch precedes the channel.
+    const plainFriendId = await seedLocalFriend('plain-friend');
+    const { caller: plainFriend } = await initTest(plainFriendId);
+    await plainFriend.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'plain-friend-identity'
+    });
+    expect(
+      (await caller1.e2ee.getPreKeyBundle({ userId: plainFriendId }))
+        ?.identityPublicKey
+    ).toBe('plain-friend-identity');
+
+    // Shared DM, not friends, no shared server.
+    const dmOnlyId = await createTestUser({ name: 'dm-only' });
+    const { caller: dmOnly } = await initTest(dmOnlyId);
+    await dmOnly.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'dm-only-identity'
+    });
+    const [dm2] = await tdb
+      .insert(dmChannels)
+      .values({ ownerId: 1, e2ee: false, isGroup: false, createdAt: now })
+      .returning();
+    await tdb.insert(dmChannelMembers).values([
+      { dmChannelId: dm2!.id, userId: 1, createdAt: now },
+      { dmChannelId: dm2!.id, userId: dmOnlyId, createdAt: now }
+    ]);
+    expect(
+      await caller1.e2ee.getIdentityPublicKey({ userId: dmOnlyId })
+    ).toBe('dm-only-identity');
+
+    // Strangers: no server, no DM, no friendship.
+    const strangerId = await createTestUser({ name: 'stranger' });
+    const { caller: stranger } = await initTest(strangerId);
+    await stranger.e2ee.registerKeys({
+      ...mockKeys,
+      identityPublicKey: 'stranger-identity'
+    });
+    await expect(
+      caller1.e2ee.getPreKeyBundle({ userId: strangerId })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      caller1.e2ee.getIdentityPublicKey({ userId: strangerId })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      stranger.e2ee.getPreKeyBundle({ userId: 1 })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    // The refusal consumed nothing: the stranger still holds their OTP.
+    expect(await stranger.e2ee.getPreKeyCount()).toBe(1);
   });
 });

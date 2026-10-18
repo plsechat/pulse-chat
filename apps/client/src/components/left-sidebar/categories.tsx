@@ -9,7 +9,8 @@ import { getTRPCClient } from '@/lib/trpc';
 import {
   DndContext,
   type DragEndEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors
@@ -27,6 +28,7 @@ import { toast } from 'sonner';
 import { CategoryContextMenu } from '../context-menus/category';
 import { Dialog } from '../dialogs/dialogs';
 import { Protect } from '../protect';
+import { AppsSection } from '../raid-planner/apps-section';
 import { IconButton } from '../ui/icon-button';
 import { Channels } from './channels';
 
@@ -67,7 +69,7 @@ const Category = memo(({ categoryId }: TCategoryProps) => {
       }}
       className="mb-4"
     >
-      <div className="mb-1 flex w-full items-center px-2 py-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground/60">
+      <div className="mb-1 flex w-full items-center px-2 py-1 text-xs font-medium text-muted-foreground/80">
         <div className="flex w-full items-center gap-1">
           <IconButton
             variant="ghost"
@@ -112,9 +114,18 @@ const Categories = memo(() => {
   );
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8
+      }
+    }),
+    // Touch: a long press starts the reorder; a plain drag scrolls the
+    // list as the platform expects (PointerSensor alone got cancelled
+    // by the scroll before the distance threshold was met).
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5
       }
     })
   );
@@ -153,6 +164,8 @@ const Categories = memo(() => {
 
   return (
     <div className="flex-1 overflow-y-auto p-2">
+      {/* First-party apps sit above the categories, outside the reorder */}
+      <AppsSection />
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}

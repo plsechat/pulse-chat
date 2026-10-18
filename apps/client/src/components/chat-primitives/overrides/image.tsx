@@ -15,8 +15,7 @@ const ImageOverride = memo(({ src, alt }: TImageOverrideProps) => {
   const onLoad = useCallback(
     (event: React.SyntheticEvent<HTMLImageElement>) => {
       setLoading(false);
-      // @ts-expect-error - green what is your problem green what is your problem me say alone ramp
-      event.target.style.opacity = 1;
+      event.currentTarget.style.opacity = '1';
     },
     []
   );

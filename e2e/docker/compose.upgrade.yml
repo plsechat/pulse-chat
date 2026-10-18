@@ -1,0 +1,95 @@
+# =============================================================================
+# Pulse — upgrade-smoke compose (one instance, PERSISTENT volumes)
+# =============================================================================
+# The e2e stack in compose.yml is deliberately stateless. This file is
+# the opposite: one Pulse + one postgres whose state lives in named
+# volumes, so the same volumes can be booted first by the previous
+# release image and then by the freshly built one — the operator's
+# `docker compose pull && docker compose up -d`.
+#
+#   seed   (old image)  register → channel → message → upload
+#   stop pulse-core, keep the volumes
+#   verify (new image)  login still works, channel/message/file still
+#                       there, /healthz ok, every migration applied once
+#
+# Driven by upgrade-smoke.sh (locally and by e2e-upgrade.yml). It is
+# completely separate from the review stack: its own project name,
+# container names and host port (14997), no media port published, so it
+# can run while compose.yml is up.
+#
+# PULSE_IMAGE is required on EVERY compose call for this file (up, stop,
+# logs, down) — there is no default on purpose, so nothing boots the
+# wrong side by accident.
+#
+# Image layouts differ and the compose has to serve both:
+#   release image (ghcr.io/plsechat/pulse-chat)  compiled binary,
+#       DATA_PATH=/root/.config/pulse, default port 5443
+#   e2e image (pulse-e2e, e2e/docker/Dockerfile) bun runtime,
+#       DATA_PATH=/app/apps/server/data, port from PULSE_PORT (5443 here)
+# The data volume is mounted at BOTH paths; each image only ever looks at
+# its own. config.ini is created by whichever image boots first and
+# reused by the next, like a real upgrade.
+
+name: pulse-e2e-upgrade
+
+services:
+  pulse-core:
+    image: ${PULSE_IMAGE:?set PULSE_IMAGE to the image under test}
+    container_name: pulse-e2e-upgrade-core
+    restart: unless-stopped
+    ports:
+      - "${UPGRADE_HOST_PORT:-14997}:5443"
+    environment:
+      AUTH_BACKEND: local
+      AUTH_SECRET: e2e-upgrade-secret-0123456789abcdef0123456789abcdef
+      DATABASE_URL: postgresql://postgres:postgres@db-core:5432/postgres
+      RUNNING_IN_DOCKER: "true"
+      TRUST_PROXY: "true"
+      PUBLIC_IP: 127.0.0.1
+      REGISTRATION_DISABLED: "false"
+      AUTH_RATE_LIMIT_MAX: "10000"
+      # e2e image only (ignored by the release image): write the release
+      # image's default port into a fresh config.ini so both sides listen
+      # on 5443 regardless of which one booted first.
+      PULSE_PORT: "5443"
+    volumes:
+      - pulse_data:/root/.config/pulse
+      - pulse_data:/app/apps/server/data
+    # Both images ship bun; the release image's own HEALTHCHECK is the
+    # same probe. Declared here so `up --wait` means "answering /healthz"
+    # for the e2e image too (its Dockerfile has no HEALTHCHECK).
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:5443/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 24
+    depends_on:
+      db-core:
+        condition: service_healthy
+
+  db-core:
+    image: postgres:16-alpine
+    container_name: pulse-e2e-upgrade-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pulse_data:
+  pg_data:

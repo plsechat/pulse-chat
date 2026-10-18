@@ -20,7 +20,7 @@ import { db } from '../db';
 import { channels, federationInstances, users } from '../db/schema';
 import { config } from '../config';
 import { logger } from '../logger';
-import { relayToInstance } from './federation';
+import { enqueueRelay } from './federation-outbox';
 
 /**
  * Resolve a sender on the host instance to the (publicId,
@@ -172,7 +172,7 @@ async function relayFederatedChannelSenderKeyNotifications(
       continue;
     }
 
-    relayToInstance(domain, '/federation/channel-sender-key-notify', {
+    enqueueRelay(domain, '/federation/channel-sender-key-notify', {
       hostDomain: config.federation.domain,
       hostChannelPublicId,
       fromPublicId,

@@ -1,37 +1,112 @@
-import type {
-  PluginContext,
-  PluginSettings,
-  TCreateStreamOptions,
-  TExternalStreamHandle,
-  UnloadPluginContext
+import {
+  PLUGIN_SDK_VERSION,
+  type PluginContext,
+  type PluginSettings,
+  type TCreateStreamOptions,
+  type TExternalStreamHandle,
+  type UnloadPluginContext
 } from '@pulse/plugin-sdk';
 import {
   ServerEvents,
   StreamKind,
-  zPluginPackageJson,
+  commandUsage,
   type CommandDefinition,
   type RegisteredCommand,
   type TCommandsMapByPlugin,
   type TInvokerContext,
   type TLogEntry,
+  type TPluginCapability,
   type TPluginInfo,
   type TPluginSettingDefinition,
   type TPluginSettingsResponse
 } from '@pulse/shared';
 import chalk from 'chalk';
+import { randomBytes } from 'crypto';
 import { eq } from 'drizzle-orm';
+import type http from 'http';
 import fs from 'node:fs/promises';
 import path from 'path';
+import semver from 'semver';
+import { z } from 'zod';
 import { db } from '../db';
-import { getSettings } from '../db/queries/server';
+import { getInstanceServerSettings } from '../db/queries/server';
 import { getServerMemberIds } from '../db/queries/servers';
-import { channels, pluginData } from '../db/schema';
+import { channels, pluginData, servers } from '../db/schema';
+import { zPluginPackageJson } from './package-json-schema';
 import { PLUGINS_PATH } from '../helpers/paths';
 import { logger } from '../logger';
 import { VoiceRuntime } from '../runtimes/voice';
 import { fileExists } from '../utils/file-manager';
 import { pubsub } from '../utils/pubsub';
+import { createChannelActions } from './actions/channels';
+import { createEventActions } from './actions/events';
+import { createFileActions } from './actions/files';
+import { createMemberActions } from './actions/members';
+import { createMessageActions } from './actions/messages';
+import { assertCommandDefinition } from './command-definition';
 import { eventBus } from './event-bus';
+import { createPluginFetch } from './fetch';
+import { parseActionInput, PluginActionError } from './errors';
+import {
+  createPluginHttpRouteHandler,
+  pluginHttp,
+  type TParsedPluginUrl
+} from './http';
+import {
+  isSealedSetting,
+  sealPluginSecret,
+  unsealPluginSecret
+} from './secret-settings';
+import {
+  deliverPluginNotify,
+  emitPluginLifecycle,
+  hasPluginNotifySubscribers,
+  onPluginLoaded,
+  onPluginNotify,
+  onPluginUnloaded
+} from './subscriptions';
+
+/**
+ * Versions whose public API this SDK still contains in full. A plugin
+ * whose `pulse.sdk` range admits one of these loads even though the
+ * running version is outside the range: 0.2 added actions, events and
+ * HTTP ingress, 0.3 added secret settings, `server.notify` and hot
+ * reload, and neither removed anything, so a `^0.1` or `^0.2` plugin
+ * runs unchanged. Remove an entry here the release something is
+ * actually taken away.
+ */
+const SDK_BACKWARD_COMPATIBLE_RANGES = ['0.1.x', '0.2.x'];
+
+/**
+ * `ctx.server.notify` bounds. The topic is a short identifier; the
+ * payload is whatever the subscriber expects, measured as the JSON it
+ * serialises to (Bun is single-threaded — a plugin handing the server
+ * a megabyte per call would be a self-inflicted stall).
+ */
+const MAX_NOTIFY_TOPIC_LENGTH = 64;
+const MAX_NOTIFY_PAYLOAD_BYTES = 16 * 1024;
+const notifyTopicSchema = z.string().min(1).max(MAX_NOTIFY_TOPIC_LENGTH);
+
+/**
+ * Copies of a changed entry file live here, inside the plugin's own
+ * directory. The runtime caches a module by its path for the life of
+ * the process (a query string does not make a new module), so a plugin
+ * toggled on after its file changed is imported from a fresh path.
+ */
+const RUNTIME_COPIES_DIR = '.runtime';
+
+/** What the last import of a plugin's entry looked like, for hot reload. */
+type TEntryImport = { entryPath: string; mtime: number; importPath: string };
+
+/**
+ * Keys in plugin_data.settings the plugin never sees and the settings
+ * UI never lists: loader-owned state stored next to the plugin's own
+ * values. Prefixed so a plugin cannot register a colliding key.
+ */
+const RESERVED_SETTINGS_PREFIX = '__';
+const HTTP_SECRET_SETTING_KEY = `${RESERVED_SETTINGS_PREFIX}httpSecret`;
+
+const isReservedSettingKey = (key: string) => key.startsWith(RESERVED_SETTINGS_PREFIX);
 
 type PluginModule = {
   onLoad: (ctx: PluginContext) => void | Promise<void>;
@@ -43,12 +118,38 @@ type PluginStatesMap = Record<string, boolean>;
 class PluginManager {
   private loadedPlugins = new Map<string, PluginModule>();
   private loadErrors = new Map<string, string>();
+  // Plugins whose `pulse.sdk` range the running SDK does not satisfy.
+  // Populated by getPluginInfo; load() refuses to import them.
+  private sdkIncompatible = new Set<string>();
   private logs = new Map<string, TLogEntry[]>();
   private logsListeners = new Map<string, Set<(newLog: TLogEntry) => void>>();
   private commands = new Map<string, RegisteredCommand[]>();
   private pluginStates: PluginStatesMap = {};
   private settingDefinitions = new Map<string, TPluginSettingDefinition[]>();
   private settingValues = new Map<string, Record<string, unknown>>();
+  // Declared in package.json; read by getPluginInfo before load() runs
+  // onLoad, so an action can consult it from the first call.
+  private capabilities = new Map<string, Set<TPluginCapability>>();
+  // Manifest names, read with the capabilities: the plugin's actor
+  // account (plugins/actor.ts) is named after the manifest.
+  private manifestNames = new Map<string, string>();
+  // Manifest logos, read the same way: the command list carries the
+  // logo so the composer can show whose command a row is.
+  private manifestLogos = new Map<string, string | undefined>();
+  // Resolved lazily from plugin_data (minted on first use); the promise
+  // is cached so concurrent first requests share one mint.
+  private httpSecrets = new Map<string, Promise<string | undefined>>();
+  // One token per load: a context handed to an earlier load of the
+  // same plugin (kept by a timer the plugin forgot to clear, say) is
+  // recognised as stale and its `server.notify` calls are dropped.
+  private loadTokens = new Map<string, symbol>();
+  private entryImports = new Map<string, TEntryImport>();
+  private handlePluginHttp = createPluginHttpRouteHandler({
+    isPluginLoaded: (pluginId) => this.isPluginLoaded(pluginId),
+    getPluginSecret: (pluginId) => this.getPluginHttpSecret(pluginId),
+    logPlugin: (pluginId, type, ...message) =>
+      this.logPlugin(pluginId, type, ...message)
+  });
 
   private loadPluginStates = async () => {
     try {
@@ -177,10 +278,17 @@ class PluginManager {
     return result;
   };
 
+  /**
+   * Boot-time load of every plugin directory, gated on the BOOTSTRAP
+   * server row's `enablePlugins` (plugins are instance-level; the
+   * instance owner's server is the instance's row). The `settings`
+   * table has the same column, but nothing writes it, so gating on it
+   * meant plugins could never load on any install.
+   */
   public loadPlugins = async () => {
-    const settings = await getSettings();
+    const { enablePlugins } = await getInstanceServerSettings();
 
-    if (!settings.enablePlugins) return;
+    if (!enablePlugins) return;
 
     await this.loadPluginStates();
 
@@ -290,6 +398,29 @@ class PluginManager {
     }
   };
 
+  private getSdkCompatError = (
+    range: string | undefined
+  ): string | undefined => {
+    if (range === undefined) return undefined;
+
+    if (semver.validRange(range) === null) {
+      return `invalid pulse.sdk range "${range}"`;
+    }
+
+    if (semver.satisfies(PLUGIN_SDK_VERSION, range)) return undefined;
+
+    // Written against an older minor this SDK is a superset of.
+    if (
+      SDK_BACKWARD_COMPATIBLE_RANGES.some((compatible) =>
+        semver.intersects(range, compatible)
+      )
+    ) {
+      return undefined;
+    }
+
+    return `requires @pulse/plugin-sdk ${range}, server provides ${PLUGIN_SDK_VERSION}`;
+  };
+
   private getPluginPath = (pluginId: string) => {
     this.validatePluginId(pluginId);
     return path.join(PLUGINS_PATH, pluginId);
@@ -313,11 +444,19 @@ class PluginManager {
     );
   };
 
+  /**
+   * Runs a command. `subcommand` names the verb of a `/name sub …`
+   * invocation (SDK 0.4.0): it must be one the command declared (hidden
+   * ones included) and reaches the plugin as `invoker.subcommand`. A
+   * command that only acts through sub-commands, run without one, is
+   * answered with its usage instead of being executed.
+   */
   public executeCommand = async <TArgs = unknown>(
     pluginId: string,
     commandName: string,
     invokerCtx: TInvokerContext,
-    args: TArgs
+    args: TArgs,
+    subcommand?: string
   ): Promise<unknown> => {
     const isEnabled = this.isPluginEnabled(pluginId);
 
@@ -339,15 +478,35 @@ class PluginManager {
       );
     }
 
+    const label =
+      subcommand !== undefined ? `${commandName} ${subcommand}` : commandName;
+
+    if (subcommand !== undefined) {
+      const known = foundCommand.subcommands?.some((s) => s.name === subcommand);
+      if (!known) {
+        throw new Error(
+          `Command '${commandName}' of plugin '${pluginId}' has no sub-command '${subcommand}'.`
+        );
+      }
+    } else if (
+      (foundCommand.subcommands?.length ?? 0) > 0 &&
+      (foundCommand.args?.length ?? 0) === 0
+    ) {
+      return commandUsage(foundCommand);
+    }
+
     try {
       this.logPlugin(
         pluginId,
         'debug',
-        `Executing command '${commandName}' with args:`,
-        args
+        `Executing command '${label}' with args:`,
+        this.redactCommandArgs(pluginId, commandName, args, subcommand)
       );
 
-      return await foundCommand.command.executes(invokerCtx, args);
+      const invoker: TInvokerContext =
+        subcommand !== undefined ? { ...invokerCtx, subcommand } : invokerCtx;
+
+      return await foundCommand.command.executes(invoker, args);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -355,36 +514,121 @@ class PluginManager {
       this.logPlugin(
         pluginId,
         'error',
-        `Error executing command '${commandName}': ${errorMessage}`
+        `Error executing command '${label}': ${errorMessage}`
       );
 
       throw error;
     }
   };
 
+  /**
+   * Copy of `args` with every argument the command declared `sensitive`
+   * replaced by a placeholder. Used for the plugin log stream and the
+   * activity log — the real values only ever reach the command itself.
+   */
+  public redactCommandArgs = <TArgs>(
+    pluginId: string,
+    commandName: string,
+    args: TArgs,
+    subcommand?: string
+  ): TArgs => {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      return args;
+    }
+
+    const command = this.commands
+      .get(pluginId)
+      ?.find((c) => c.name === commandName);
+    const definition =
+      subcommand !== undefined
+        ? command?.subcommands?.find((s) => s.name === subcommand)?.args
+        : command?.command.args;
+    const sensitiveNames = new Set(
+      (definition ?? []).filter((a) => a.sensitive).map((a) => a.name)
+    );
+
+    if (sensitiveNames.size === 0) return args;
+
+    const redacted: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(args)) {
+      redacted[key] = sensitiveNames.has(key) ? '[redacted]' : value;
+    }
+
+    return redacted as TArgs;
+  };
+
+  /**
+   * Whether plugin *commands* may be executed from `serverId`. Plugins
+   * load and unload at the instance level (instance owner only); this
+   * per-server flag is the one thing a server owner controls about them.
+   */
+  public commandsEnabledForServer = async (
+    serverId: number | undefined
+  ): Promise<boolean> => {
+    if (serverId === undefined) return false;
+
+    const [server] = await db
+      .select({ enablePlugins: servers.enablePlugins })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+
+    return server?.enablePlugins === true;
+  };
+
+  /**
+   * The commands as every member's composer sees them. Hidden
+   * sub-commands stay out (they are for clients that already know
+   * them); the plugin's manifest logo rides along for the list.
+   */
   public getCommands = (): TCommandsMapByPlugin => {
     const allCommands: TCommandsMapByPlugin = {};
 
     for (const [pluginId, commands] of this.commands.entries()) {
-      allCommands[pluginId] = commands.map(({ name, description, args }) => ({
-        pluginId,
-        name,
-        description,
-        args
-      }));
+      const logo = this.manifestLogos.get(pluginId);
+      allCommands[pluginId] = commands.map(
+        ({ name, description, args, subcommands }) => ({
+          pluginId,
+          name,
+          description,
+          args,
+          ...(subcommands && subcommands.length > 0
+            ? {
+                subcommands: subcommands
+                  .filter((sub) => !sub.hidden)
+                  .map(({ name, description, args }) => ({
+                    name,
+                    description,
+                    args
+                  }))
+              }
+            : {}),
+          ...(logo !== undefined ? { logo } : {})
+        })
+      );
     }
 
     return allCommands;
   };
 
-  public hasCommand = (pluginId: string, commandName: string): boolean => {
+  /** With `subcommand`, whether the command declares that verb (hidden ones count). */
+  public hasCommand = (
+    pluginId: string,
+    commandName: string,
+    subcommand?: string
+  ): boolean => {
     const commands = this.commands.get(pluginId);
 
     if (!commands) {
       return false;
     }
 
-    return commands.some((c) => c.name === commandName);
+    const command = commands.find((c) => c.name === commandName);
+    if (!command) return false;
+    if (subcommand === undefined) return true;
+
+    return command.subcommands?.some((s) => s.name === subcommand) ?? false;
   };
 
   public togglePlugin = async (pluginId: string, enabled: boolean) => {
@@ -403,6 +647,10 @@ class PluginManager {
       await this.load(pluginId);
     }
   };
+
+  /** Whether the plugin's module is currently loaded (onLoad ran). */
+  public isPluginLoaded = (pluginId: string): boolean =>
+    this.loadedPlugins.has(pluginId);
 
   public unload = async (pluginId: string) => {
     const pluginModule = this.loadedPlugins.get(pluginId);
@@ -428,13 +676,117 @@ class PluginManager {
 
     eventBus.unload(pluginId);
     this.unregisterPluginCommands(pluginId);
+    this.unregisterPluginHttpRoutes(pluginId);
     this.settingDefinitions.delete(pluginId);
     this.settingValues.delete(pluginId);
+    // The secret lives in plugin_data; the next load re-reads it there.
+    this.httpSecrets.delete(pluginId);
+    this.loadTokens.delete(pluginId);
     this.loadedPlugins.delete(pluginId);
-    this.loadErrors.delete(pluginId);
 
     logger.info(`Plugin unloaded: ${pluginId}`);
+
+    await this.emitLifecycle('unloaded', pluginId);
   };
+
+  /**
+   * Server-side hooks on the plugin lifecycle and on `ctx.server.notify`
+   * (plugins/subscriptions.ts holds the registry; a feature that must
+   * subscribe while its module evaluates imports that module directly,
+   * see the note there). `onPluginLoaded` fires after `onLoad`
+   * succeeded (boot and toggle alike), `onPluginUnloaded` after an
+   * unload finished; listeners are awaited, a failing one is logged
+   * under the plugin and does not stop the rest. `onNotify` is scoped
+   * to one plugin id and topic. Each returns the unsubscribe.
+   */
+  public onPluginLoaded = onPluginLoaded;
+  public onPluginUnloaded = onPluginUnloaded;
+  public onNotify = onPluginNotify;
+
+  private emitLifecycle = (what: 'loaded' | 'unloaded', pluginId: string) =>
+    emitPluginLifecycle(what, pluginId, (message) => {
+      this.logPlugin(pluginId, 'error', message);
+    });
+
+  private deliverNotify = (pluginId: string, topic: string, payload: unknown) => {
+    if (!hasPluginNotifySubscribers(pluginId, topic)) {
+      this.logPlugin(pluginId, 'debug', `Nothing on the server listens to '${topic}'`);
+      return;
+    }
+
+    deliverPluginNotify(pluginId, topic, payload, (message) => {
+      this.logPlugin(pluginId, 'error', message);
+    });
+  };
+
+  private unregisterPluginHttpRoutes = (pluginId: string) => {
+    const count = pluginHttp.routeCount(pluginId);
+
+    if (count === 0) return;
+
+    pluginHttp.unregisterAll(pluginId);
+    this.logPlugin(pluginId, 'debug', `Unregistered ${count} HTTP route(s)`);
+  };
+
+  /** Whether the plugin's manifest declares `capability`. */
+  public hasCapability = (
+    pluginId: string,
+    capability: TPluginCapability
+  ): boolean => this.capabilities.get(pluginId)?.has(capability) ?? false;
+
+  /**
+   * The secret a caller must present to reach the plugin's HTTP routes.
+   * Minted once (32 random bytes) when the plugin first registers a
+   * route and kept in plugin_data under a reserved key, so it survives
+   * restarts and the instance owner can read it from the settings
+   * route. Undefined for a plugin that never registered a route.
+   */
+  public getPluginHttpSecret = (
+    pluginId: string,
+    { createIfMissing = false }: { createIfMissing?: boolean } = {}
+  ): Promise<string | undefined> => {
+    const cached = this.httpSecrets.get(pluginId);
+
+    if (cached) {
+      return createIfMissing
+        ? cached.then((secret) => secret ?? this.mintHttpSecret(pluginId))
+        : cached;
+    }
+
+    const lookup = this.loadSettingsFromDb(pluginId).then((values) => {
+      const stored = values[HTTP_SECRET_SETTING_KEY];
+
+      if (typeof stored === 'string' && stored.length > 0) return stored;
+
+      return createIfMissing ? this.mintHttpSecret(pluginId) : undefined;
+    });
+
+    this.httpSecrets.set(pluginId, lookup);
+
+    return lookup;
+  };
+
+  private mintHttpSecret = async (pluginId: string): Promise<string> => {
+    const secret = randomBytes(32).toString('hex');
+    const minted = Promise.resolve<string | undefined>(secret);
+
+    this.httpSecrets.set(pluginId, minted);
+
+    await this.saveSettingsToDb(pluginId, this.settingValues.get(pluginId) ?? {}, {
+      [HTTP_SECRET_SETTING_KEY]: secret
+    });
+
+    this.logPlugin(pluginId, 'debug', 'Generated the HTTP endpoint secret');
+
+    return secret;
+  };
+
+  /** The `/plugins/<id>/<path>` mount's entry point (http/index.ts). */
+  public handleHttpRequest = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    parsed: TParsedPluginUrl
+  ) => this.handlePluginHttp(req, res, parsed);
 
   public getPluginInfo = async (pluginId: string): Promise<TPluginInfo> => {
     await this.ensurePluginState(pluginId);
@@ -455,7 +807,21 @@ class PluginManager {
       throw new Error('Plugin entry file not found');
     }
 
+    const sdkError = this.getSdkCompatError(packageJson.pulse.sdk);
+
+    if (sdkError) {
+      this.sdkIncompatible.add(pluginId);
+      this.loadErrors.set(pluginId, sdkError);
+    } else {
+      this.sdkIncompatible.delete(pluginId);
+    }
+
     const loadError = this.loadErrors.get(pluginId);
+    const capabilities = packageJson.pulse.capabilities ?? [];
+
+    this.capabilities.set(pluginId, new Set(capabilities));
+    this.manifestNames.set(pluginId, packageJson.name);
+    this.manifestLogos.set(pluginId, packageJson.pulse.logo);
 
     return {
       id: pluginId,
@@ -468,17 +834,18 @@ class PluginManager {
       author: packageJson.pulse.author,
       homepage: packageJson.pulse.homepage,
       entry: entryFilePath,
+      capabilities,
       loadError
     };
   };
 
+  /**
+   * Loads one plugin. Deliberately NOT gated on the instance
+   * `enablePlugins` flag: `togglePlugin` is the instance owner's explicit
+   * intent to run this plugin now, so it loads even while the boot-time
+   * flag is off (the flag only decides what loads on the next start).
+   */
   public load = async (pluginId: string) => {
-    const { enablePlugins } = await getSettings();
-
-    if (!enablePlugins) {
-      throw new Error('Plugins are disabled.');
-    }
-
     if (!this.isPluginEnabled(pluginId)) {
       this.logPlugin(
         pluginId,
@@ -490,9 +857,21 @@ class PluginManager {
 
     const info = await this.getPluginInfo(pluginId);
 
+    if (this.sdkIncompatible.has(pluginId)) {
+      this.logPlugin(
+        pluginId,
+        'error',
+        `Failed to load plugin ${pluginId}: ${this.loadErrors.get(pluginId)}`
+      );
+      return;
+    }
+
     try {
-      const ctx = this.createContext(pluginId);
-      const mod = await import(info.entry);
+      const loadToken = Symbol(pluginId);
+      this.loadTokens.set(pluginId, loadToken);
+
+      const ctx = this.createContext(pluginId, loadToken);
+      const mod = await import(await this.resolveEntryImport(pluginId, info.entry));
 
       if (typeof mod.onLoad !== 'function') {
         throw new Error(
@@ -510,6 +889,8 @@ class PluginManager {
         'info',
         `Plugin loaded: ${pluginId}@v${info.version} by ${info.author}`
       );
+
+      await this.emitLifecycle('loaded', pluginId);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -524,6 +905,57 @@ class PluginManager {
 
       await this.unload(pluginId);
     }
+  };
+
+  /**
+   * The path to import for a plugin's entry. The runtime caches a module
+   * by path for the life of the process, so once an entry has been
+   * imported, toggling the plugin off and on again would run the code
+   * from the first load no matter what is on disk now. When the entry's
+   * mtime differs from the one last imported, the file is copied to
+   * `<plugin dir>/.runtime/<name>.<mtime>.js` and that copy is imported;
+   * older copies are removed. Only the entry is copied: a relative
+   * import inside it does not resolve from the copy, so a plugin that
+   * wants hot reload ships as one bundled file (the README says so).
+   * The first import in a process, and every import while the file is
+   * unchanged, use the path last imported — the original or the copy.
+   */
+  private resolveEntryImport = async (
+    pluginId: string,
+    entryPath: string
+  ): Promise<string> => {
+    const mtime = Math.floor((await fs.stat(entryPath)).mtimeMs);
+    const previous = this.entryImports.get(pluginId);
+
+    if (!previous || previous.entryPath !== entryPath) {
+      this.entryImports.set(pluginId, { entryPath, mtime, importPath: entryPath });
+      return entryPath;
+    }
+
+    if (previous.mtime === mtime) return previous.importPath;
+
+    const runtimeDir = path.join(this.getPluginPath(pluginId), RUNTIME_COPIES_DIR);
+    const ext = path.extname(entryPath);
+    const base = path.basename(entryPath, ext);
+    const copyName = `${base}.${mtime}${ext}`;
+    const importPath = path.join(runtimeDir, copyName);
+
+    await fs.mkdir(runtimeDir, { recursive: true });
+    await fs.copyFile(entryPath, importPath);
+
+    for (const name of await fs.readdir(runtimeDir)) {
+      if (name === copyName || !name.startsWith(`${base}.`) || !name.endsWith(ext)) continue;
+      await fs.rm(path.join(runtimeDir, name), { force: true });
+    }
+
+    this.entryImports.set(pluginId, { entryPath, mtime, importPath });
+    this.logPlugin(
+      pluginId,
+      'debug',
+      `Entry file changed since the last load; running ${path.relative(this.getPluginPath(pluginId), importPath)}`
+    );
+
+    return importPath;
   };
 
   private loadSettingsFromDb = async (
@@ -541,18 +973,52 @@ class PluginManager {
     return {};
   };
 
+  /** The keys of the plugin's registered `secret` settings. */
+  private secretSettingKeys = (pluginId: string): Set<string> =>
+    new Set(
+      (this.settingDefinitions.get(pluginId) ?? [])
+        .filter((def) => def.type === 'secret')
+        .map((def) => def.key)
+    );
+
+  /**
+   * Persist the plugin's setting values. Reserved (loader-owned) keys
+   * already in the row are carried over so a settings write never drops
+   * the HTTP secret; `reserved` adds or replaces them. `values` is the
+   * in-memory map (plaintext secrets): every secret is sealed on the
+   * way out, an unset one is stored as an empty string.
+   */
   private saveSettingsToDb = async (
     pluginId: string,
-    values: Record<string, unknown>
+    values: Record<string, unknown>,
+    reserved: Record<string, unknown> = {}
   ) => {
     const enabled = this.pluginStates[pluginId] ?? true;
+    const existing = await this.loadSettingsFromDb(pluginId);
+    const kept: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(existing)) {
+      if (isReservedSettingKey(key)) kept[key] = value;
+    }
+
+    const stored: Record<string, unknown> = { ...values };
+
+    for (const key of this.secretSettingKeys(pluginId)) {
+      const plaintext = stored[key];
+      stored[key] =
+        typeof plaintext === 'string' && plaintext.length > 0
+          ? sealPluginSecret(plaintext)
+          : '';
+    }
+
+    const settings = { ...kept, ...reserved, ...stored };
 
     await db
       .insert(pluginData)
-      .values({ pluginId, enabled, settings: values, serverId: 1 })
+      .values({ pluginId, enabled, settings, serverId: 1 })
       .onConflictDoUpdate({
         target: [pluginData.pluginId, pluginData.serverId],
-        set: { settings: values }
+        set: { settings }
       });
   };
 
@@ -567,13 +1033,19 @@ class PluginManager {
     const merged: Record<string, unknown> = {};
 
     for (const def of definitions) {
+      if (def.type === 'secret') {
+        merged[def.key] = this.readStoredSecret(pluginId, def, dbValues[def.key]);
+        continue;
+      }
+
       merged[def.key] =
         dbValues[def.key] !== undefined ? dbValues[def.key] : def.defaultValue;
     }
 
     this.settingValues.set(pluginId, merged);
 
-    // persist merged values back (in case new defaults were added)
+    // persist merged values back (in case new defaults were added; a
+    // secret that was stored in the clear is sealed by this write)
     await this.saveSettingsToDb(pluginId, merged);
 
     this.logPlugin(
@@ -604,6 +1076,15 @@ class PluginManager {
           return;
         }
 
+        if (def.type === 'secret' && typeof value !== 'string') {
+          this.logPlugin(
+            pluginId,
+            'error',
+            `Setting '${key}' is a secret and takes a string.`
+          );
+          return;
+        }
+
         values[key] = value;
 
         // persist async without blocking
@@ -617,6 +1098,64 @@ class PluginManager {
         });
       }
     };
+  };
+
+  /**
+   * The plaintext of a stored `secret` setting for the in-memory map:
+   * a sealed envelope is opened; a plain non-empty string is a value
+   * written before the setting became a secret (it is sealed by the
+   * save that follows registration); anything else is unset. An
+   * envelope this instance cannot open (sealed under another secret,
+   * or damaged) is reported and treated as unset — the owner sets the
+   * value again.
+   */
+  private readStoredSecret = (
+    pluginId: string,
+    def: TPluginSettingDefinition,
+    stored: unknown
+  ): string => {
+    if (isSealedSetting(stored)) {
+      try {
+        return unsealPluginSecret(stored);
+      } catch {
+        this.logPlugin(
+          pluginId,
+          'error',
+          `The stored value of secret setting '${def.key}' cannot be decrypted on this instance; set it again.`
+        );
+        return '';
+      }
+    }
+
+    if (typeof stored === 'string' && stored.length > 0) {
+      this.logPlugin(
+        pluginId,
+        'info',
+        `Setting '${def.key}' is now a secret: its stored value is encrypted from here on.`
+      );
+      return stored;
+    }
+
+    return typeof def.defaultValue === 'string' ? def.defaultValue : '';
+  };
+
+  /** `values` as a client may see them: a secret is `{ set }`, never the text or the envelope. */
+  private maskSecretValues = (
+    definitions: readonly TPluginSettingDefinition[],
+    values: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const masked: Record<string, unknown> = { ...values };
+
+    for (const def of definitions) {
+      if (def.type !== 'secret') continue;
+
+      const value = values[def.key];
+      masked[def.key] = {
+        set: isSealedSetting(value) || (typeof value === 'string' && value.length > 0)
+      };
+    }
+
+    return masked;
   };
 
   public getPluginSettings = async (
@@ -638,7 +1177,13 @@ class PluginManager {
       }
     }
 
-    return { definitions, values };
+    const httpSecret = await this.getPluginHttpSecret(pluginId);
+
+    return {
+      definitions,
+      values: this.maskSecretValues(definitions, values),
+      ...(httpSecret !== undefined ? { httpSecret } : {})
+    };
   };
 
   public updatePluginSetting = async (
@@ -661,6 +1206,32 @@ class PluginManager {
     }
 
     const values = this.settingValues.get(pluginId) || {};
+
+    if (def.type === 'secret') {
+      // A new value replaces the old one, null clears it; neither is
+      // ever logged. Pasted tokens tend to carry a stray newline.
+      if (value !== null && typeof value !== 'string') {
+        throw new Error(`Setting '${key}' is a secret and takes a string or null.`);
+      }
+
+      const plaintext = value === null ? '' : value.trim();
+      values[key] = plaintext;
+      this.settingValues.set(pluginId, values);
+
+      await this.saveSettingsToDb(pluginId, values);
+
+      this.logPlugin(
+        pluginId,
+        'debug',
+        `Secret setting '${key}' ${plaintext.length > 0 ? 'replaced' : 'cleared'}`
+      );
+      return;
+    }
+
+    if (value === null) {
+      throw new Error(`Setting '${key}' cannot be cleared; it is not a secret.`);
+    }
+
     values[key] = value;
     this.settingValues.set(pluginId, values);
 
@@ -669,12 +1240,15 @@ class PluginManager {
     this.logPlugin(pluginId, 'debug', `Setting '${key}' updated to:`, value);
   };
 
-  private createContext = (pluginId: string): PluginContext => {
+  private createContext = (pluginId: string, loadToken: symbol): PluginContext => {
+    const log = (...message: unknown[]) => {
+      this.logPlugin(pluginId, 'info', ...message);
+    };
+    const pluginName = this.manifestNames.get(pluginId) ?? pluginId;
+
     return {
       path: this.getPluginPath(pluginId),
-      log: (...message: unknown[]) => {
-        this.logPlugin(pluginId, 'info', ...message);
-      },
+      log,
       debug: (...message: unknown[]) => {
         this.logPlugin(pluginId, 'debug', ...message);
       },
@@ -686,7 +1260,70 @@ class PluginManager {
           eventBus.register(pluginId, event, handler);
         }
       },
+      fetch: createPluginFetch(pluginId),
+      server: {
+        notify: (rawTopic, payload) => {
+          const topic = parseActionInput(notifyTopicSchema, rawTopic);
+          const serialised = payload === undefined ? '' : JSON.stringify(payload);
+
+          if (serialised === undefined) {
+            throw new PluginActionError('BAD_REQUEST', 'payload must serialise to JSON');
+          }
+
+          if (Buffer.byteLength(serialised) > MAX_NOTIFY_PAYLOAD_BYTES) {
+            throw new PluginActionError(
+              'BAD_REQUEST',
+              `payload may not exceed ${MAX_NOTIFY_PAYLOAD_BYTES} bytes as JSON`
+            );
+          }
+
+          if (this.loadTokens.get(pluginId) !== loadToken) {
+            this.logPlugin(pluginId, 'debug', `Dropped '${topic}' from an unloaded instance of the plugin`);
+            return;
+          }
+
+          this.deliverNotify(pluginId, topic, payload);
+        }
+      },
+      http: {
+        register: (routePath, handler) => {
+          const { path: canonical, replaced } = pluginHttp.register(
+            pluginId,
+            routePath,
+            handler
+          );
+
+          // Mint the secret now so the owner can copy it from the
+          // settings panel before the first request arrives.
+          this.getPluginHttpSecret(pluginId, { createIfMissing: true }).catch(
+            (err) => {
+              this.logPlugin(
+                pluginId,
+                'error',
+                'Failed to prepare the HTTP endpoint secret:',
+                err
+              );
+            }
+          );
+
+          this.logPlugin(
+            pluginId,
+            'debug',
+            `${replaced ? 'Replaced' : 'Registered'} HTTP route /plugins/${pluginId}/${canonical}`
+          );
+        }
+      },
       actions: {
+        messages: createMessageActions({
+          pluginId,
+          pluginName,
+          hasCapability: (capability) => this.hasCapability(pluginId, capability),
+          log
+        }),
+        channels: createChannelActions(pluginId, pluginName),
+        members: createMemberActions(),
+        files: createFileActions(pluginId, pluginName),
+        events: createEventActions(pluginId),
         voice: {
           getRouter: (channelId: number) => {
             const channel = VoiceRuntime.findById(channelId);
@@ -715,7 +1352,8 @@ class PluginManager {
               key: options.key,
               pluginId,
               avatarUrl: options.avatarUrl,
-              producers: options.producers
+              producers: options.producers,
+              media: options.media
             });
 
             const stream = channel.getState().externalStreams[streamId]!;
@@ -742,7 +1380,7 @@ class PluginManager {
 
             if (options.producers.audio) {
               pubsub.publishForChannel(
-                options.channelId,
+                channel.key,
                 ServerEvents.VOICE_NEW_PRODUCER,
                 {
                   channelId: options.channelId,
@@ -754,7 +1392,7 @@ class PluginManager {
 
             if (options.producers.video) {
               pubsub.publishForChannel(
-                options.channelId,
+                channel.key,
                 ServerEvents.VOICE_NEW_PRODUCER,
                 {
                   channelId: options.channelId,
@@ -797,6 +1435,10 @@ class PluginManager {
       },
       commands: {
         register: <TArgs = void>(command: CommandDefinition<TArgs>) => {
+          // Out of bounds throws into the plugin's onLoad, which records
+          // the reason as its load error.
+          assertCommandDefinition(command as CommandDefinition<unknown>);
+
           if (!this.commands.has(pluginId)) {
             this.commands.set(pluginId, []);
           }
@@ -821,6 +1463,7 @@ class PluginManager {
             name: command.name,
             description: command.description,
             args: command.args,
+            subcommands: command.subcommands,
             command
           });
 

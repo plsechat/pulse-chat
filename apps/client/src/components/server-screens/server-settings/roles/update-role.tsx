@@ -10,7 +10,8 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
-import { Permission, OWNER_ROLE_ID, type TJoinedRole } from '@pulse/shared';
+import { Permission, OWNER_ROLE_ID } from '@pulse/shared';
+import type { TJoinedRole } from '@pulse/server/types';
 import { Info, Star, Trash2 } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -76,6 +77,7 @@ const UpdateRole = memo(
         refetch();
       } catch (error) {
         setTrpcErrors(error);
+        toast.error(getTrpcError(error, 'Failed to update role'));
       }
     }, [selectedRole.id, values, refetch, setTrpcErrors]);
 
@@ -113,6 +115,7 @@ const UpdateRole = memo(
                   variant="ghost"
                   disabled={selectedRole.isDefault}
                   onClick={onSetAsDefaultRole}
+                  aria-label="Set as default role"
                 >
                   <Star className="h-4 w-4" />
                 </Button>
@@ -122,6 +125,7 @@ const UpdateRole = memo(
                 variant="ghost"
                 disabled={selectedRole.isPersistent || selectedRole.isDefault}
                 onClick={onDeleteRole}
+                aria-label="Delete role"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>

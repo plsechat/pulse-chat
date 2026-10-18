@@ -5,7 +5,7 @@ import { isTokenContentEmpty } from '@/helpers/strip-to-plain-text';
 import { tiptapHtmlToTokens } from '@/lib/converters/tiptap-to-tokens';
 import { encryptChannelMessage } from '@/lib/e2ee';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TMessage } from '@pulse/shared';
+import type { TMessage } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 

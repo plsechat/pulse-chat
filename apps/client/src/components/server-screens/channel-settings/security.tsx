@@ -48,8 +48,8 @@ const Security = memo(({ channelId }: TSecurityProps) => {
       try {
         const channel = await trpc.channels.get.query({ channelId });
         setE2ee(channel.e2ee);
-      } catch {
-        // ignore
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to load the channel security settings'));
       } finally {
         setLoadingE2ee(false);
       }
@@ -74,7 +74,7 @@ const Security = memo(({ channelId }: TSecurityProps) => {
     const confirmed = await requestConfirmation({
       title: 'Enable End-to-End Encryption',
       message:
-        'This will enable end-to-end encryption for this channel. Once enabled, this cannot be disabled. Server-side search will not work for encrypted messages. Are you sure?',
+        'This will enable end-to-end encryption for this channel. Once enabled, this cannot be disabled. Message text and attachments become unreadable to the server; who posts, when, reactions, pins, replies and attachment sizes stay visible to it. Server-side search will not work for encrypted messages. Are you sure?',
       confirmLabel: 'Enable E2EE'
     });
 
@@ -106,7 +106,7 @@ const Security = memo(({ channelId }: TSecurityProps) => {
         {isOwner && (
           <Group
             label="End-to-End Encryption"
-            description="Encrypt all messages so only channel members can read them. The server cannot access message content."
+            description="Encrypt all messages so only channel members can read them. The server cannot read message text or attachments; it still sees who posts, when, reactions, pins, replies and attachment sizes."
           >
             {loadingE2ee ? (
               <p className="text-sm text-muted-foreground">Loading...</p>

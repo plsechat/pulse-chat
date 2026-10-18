@@ -18,6 +18,9 @@ export const selectedChannelTypeSelector = createSelector(
 export const currentVoiceChannelIdSelector = (state: IRootState) =>
   state.server.currentVoiceChannelId;
 
+export const currentVoiceKindSelector = (state: IRootState) =>
+  state.server.currentVoiceKind;
+
 export const currentVoiceChannelPublicIdSelector = (state: IRootState) =>
   state.server.currentVoiceChannelPublicId;
 
@@ -27,11 +30,6 @@ export const currentVoiceServerIdSelector = (state: IRootState) =>
 export const currentVoiceServerPublicIdSelector = (state: IRootState) =>
   state.server.currentVoiceServerPublicId;
 
-export const channelPermissionsSelector = (state: IRootState) =>
-  state.server.channelPermissions;
-
-export const channelsReadStatesSelector = (state: IRootState) =>
-  state.server.readStatesMap;
 
 export const channelReadStateByIdSelector = (
   state: IRootState,
@@ -42,9 +40,6 @@ export const channelMentionCountByIdSelector = (
   state: IRootState,
   channelId: number
 ) => state.server.mentionStatesMap[channelId] ?? 0;
-
-export const hasAnyUnreadSelector = (state: IRootState) =>
-  Object.values(state.server.readStatesMap).some((count) => (count ?? 0) > 0);
 
 export const lastReadMessageIdSelector = (
   state: IRootState,
@@ -73,9 +68,16 @@ export const selectedChannelSelector = createSelector(
     channels.find((channel) => channel.id === selectedChannelId)
 );
 
+// The selected channel is a SERVER channel; a DM call whose id happens
+// to match it is not "selected" (its id lives in the dm keyspace).
 export const isCurrentVoiceChannelSelectedSelector = createSelector(
-  [selectedChannelIdSelector, currentVoiceChannelIdSelector],
-  (selectedChannelId, currentVoiceChannelId) =>
+  [
+    selectedChannelIdSelector,
+    currentVoiceChannelIdSelector,
+    currentVoiceKindSelector
+  ],
+  (selectedChannelId, currentVoiceChannelId, currentVoiceKind) =>
+    currentVoiceKind === 'channel' &&
     currentVoiceChannelId !== undefined &&
     selectedChannelId === currentVoiceChannelId
 );

@@ -2,58 +2,41 @@ import { computePosition } from '@floating-ui/dom';
 import type { TCommandInfo } from '@pulse/shared';
 import type { Editor } from '@tiptap/core';
 import { ReactRenderer } from '@tiptap/react';
+import type {
+  SuggestionKeyDownProps,
+  SuggestionProps
+} from '@tiptap/suggestion';
 import { CommandList, type CommandListRef } from './command-list';
+import { resolvePalette, type TPaletteItem } from './command-palette';
 
 const COMMANDS_STORAGE_KEY = 'slashCommands';
 
-interface SuggestionProps {
-  editor: Editor;
-  query: string;
-  clientRect?: (() => DOMRect | null) | null;
-  command: (item: TCommandInfo) => void;
+export type TSlashCommandsStorage = {
+  commands: TCommandInfo[];
+};
+
+declare module '@tiptap/core' {
+  interface Storage {
+    [COMMANDS_STORAGE_KEY]: TSlashCommandsStorage;
+  }
 }
 
+type TCommandSuggestionProps = SuggestionProps<TPaletteItem, TPaletteItem>;
+
+const storedCommands = (editor: Editor): TCommandInfo[] =>
+  editor.storage[COMMANDS_STORAGE_KEY]?.commands ?? [];
+
+/**
+ * The `/` suggestion: `query` is everything after the slash up to the
+ * cursor (spaces included), and the palette decides what that means —
+ * see command-palette.ts. Nothing is offered while an argument without
+ * choices is typed, so Enter sends.
+ */
 export const CommandSuggestion = {
   char: '/',
   startOfLine: true,
-  items: ({ editor, query }: { editor: Editor; query: string }) => {
-    const commands: TCommandInfo[] =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (editor.storage as any)[COMMANDS_STORAGE_KEY]?.commands || [];
-
-    if (!query) {
-      return commands.slice(0, 10);
-    }
-
-    const lowerQuery = query.toLowerCase();
-
-    return commands
-      .filter(
-        (c) =>
-          c.name.toLowerCase().includes(lowerQuery) ||
-          c.pluginId.toLowerCase().startsWith(lowerQuery) ||
-          (c.description && c.description.toLowerCase().includes(lowerQuery))
-      )
-      .sort((a, b) => {
-        const aName = a.name.toLowerCase();
-        const bName = b.name.toLowerCase();
-        const aStartsWith = aName.startsWith(lowerQuery);
-        const bStartsWith = bName.startsWith(lowerQuery);
-
-        // exact prefix match comes first
-        if (aStartsWith && !bStartsWith) return -1;
-        if (!aStartsWith && bStartsWith) return 1;
-
-        // if both start with query, shorter name comes first (more exact match)
-        if (aStartsWith && bStartsWith) {
-          return aName.length - bName.length;
-        }
-
-        // otherwise maintain original order
-        return 0;
-      })
-      .slice(0, 10);
-  },
+  items: ({ editor, query }: { editor: Editor; query: string }): TPaletteItem[] =>
+    resolvePalette(storedCommands(editor), query)?.items ?? [],
   allowSpaces: true,
   render: () => {
     let component: ReactRenderer | null = null;
@@ -76,32 +59,28 @@ export const CommandSuggestion = {
       });
     }
 
+    function destroy() {
+      if (component?.element && document.body.contains(component.element)) {
+        document.body.removeChild(component.element);
+      }
+
+      component?.destroy();
+      component = null;
+    }
+
+    const propsFor = (props: TCommandSuggestionProps) => ({
+      palette: resolvePalette(storedCommands(props.editor), props.query),
+      onSelect: (item: TPaletteItem) => {
+        props.command(item);
+        destroy();
+      }
+    });
+
     return {
-      onStart: (props: SuggestionProps) => {
-        const filteredItems = CommandSuggestion.items({
-          editor: props.editor,
-          query: props.query
-        });
-
+      onStart: (props: TCommandSuggestionProps) => {
         component = new ReactRenderer(CommandList, {
-          props: {
-            items: filteredItems,
-            onSelect: (item: TCommandInfo) => {
-              props.command(item);
-
-              if (
-                component?.element &&
-                document.body.contains(component.element)
-              ) {
-                document.body.removeChild(component.element);
-              }
-
-              component?.destroy();
-              component = null;
-            }
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          editor: props.editor as any
+          props: propsFor(props),
+          editor: props.editor
         });
 
         document.body.appendChild(component.element);
@@ -110,35 +89,15 @@ export const CommandSuggestion = {
           reposition(rect);
         }
       },
-      onUpdate(props: SuggestionProps) {
-        const filteredItems = CommandSuggestion.items({
-          editor: props.editor,
-          query: props.query
-        });
-
-        component?.updateProps({
-          items: filteredItems,
-          onSelect: (item: TCommandInfo) => {
-            props.command(item);
-
-            if (
-              component?.element &&
-              document.body.contains(component.element)
-            ) {
-              document.body.removeChild(component.element);
-            }
-
-            component?.destroy();
-            component = null;
-          }
-        });
+      onUpdate(props: TCommandSuggestionProps) {
+        component?.updateProps(propsFor(props));
 
         const rect = props.clientRect?.();
         if (rect) {
           reposition(rect);
         }
       },
-      onKeyDown(props: { event: KeyboardEvent }) {
+      onKeyDown(props: SuggestionKeyDownProps) {
         const commandListRef = component?.ref as CommandListRef | undefined;
         if (commandListRef?.onKeyDown) {
           return commandListRef.onKeyDown(props.event);
@@ -146,12 +105,7 @@ export const CommandSuggestion = {
         return false;
       },
       onExit() {
-        if (component?.element && document.body.contains(component.element)) {
-          document.body.removeChild(component.element);
-        }
-
-        component?.destroy();
-        component = null;
+        destroy();
       }
     };
   }

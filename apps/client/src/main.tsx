@@ -1,3 +1,6 @@
+// Self-hosted body font: served from our own origin so the CSP's
+// font-src 'self' allows it (the Google Fonts link never loaded in prod).
+import '@fontsource-variable/inter';
 import { Toaster } from '@/components/ui/sonner';
 import 'prosemirror-view/style/prosemirror.css';
 import { StrictMode } from 'react';

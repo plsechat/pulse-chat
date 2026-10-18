@@ -8,9 +8,13 @@
     "apps/server": {
       "entry": [
         "src/**/__tests__/**/*.test.ts",
+        "src/__tests__/*.ts",
+        "src/scripts/*.ts",
         "build/**/*.ts"
       ],
-      "project": ["src/**/*.ts"],
+      "project": [
+        "src/**/*.ts"
+      ],
       "ignore": [
         "src/db/migrations/**",
         "data/**",
@@ -19,17 +23,56 @@
     },
     "apps/client": {
       "entry": [
-        "src/main.tsx"
+        "src/**/__tests__/**/*.test.ts",
+        "src/__tests__/*.ts"
       ],
-      "project": ["src/**/*.{ts,tsx}"],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
       "ignore": [
         "dist/**",
-        "public/**"
+        "public/**",
+        "src/components/ui/**"
+      ],
+      "ignoreDependencies": [
+        "happy-dom",
+        "tailwindcss",
+        "tw-animate-css"
       ]
     },
     "packages/shared": {
-      "entry": ["src/**/*.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": [
+        "src/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/plugin-sdk": {
+      "entry": [
+        "src/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/plugins/discord-bridge": {
+      "entry": [
+        "src/index.ts",
+        "src/**/__tests__/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/plugins/watch-together": {
+      "entry": [
+        "src/index.ts",
+        "src/**/__tests__/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
     }
   },
   "ignore": [
@@ -39,5 +82,11 @@
     "**/node_modules/**"
   ],
   "ignoreDependencies": [],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": [
+    "playwright"
+  ],
+  "tags": [
+    "-pendingBatch"
+  ]
 }

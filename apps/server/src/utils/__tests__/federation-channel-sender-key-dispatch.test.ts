@@ -5,13 +5,13 @@
  * `validateFederationUrl` accepts the request URL.
  */
 
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import dns from 'dns/promises';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { config } from '../../config';
 import { db } from '../../db';
 import { channels, federationInstances, users } from '../../db/schema';
-import { initTest } from '../../__tests__/helpers';
+import { mockDns, spyOnFetch } from '../../__tests__/federation-fixtures';
+import { initTest, waitUntil } from '../../__tests__/helpers';
 import { generateFederationKeys } from '../federation';
 import { relayFederatedChannelSenderKeyNotifications } from '../federation-channel-sender-key-dispatch';
 
@@ -20,45 +20,9 @@ config.federation.enabled = true;
 const PEER_DOMAIN_A = 'peera.skdmnotify.example.com';
 const PEER_DOMAIN_B = 'peerb.skdmnotify.example.com';
 
-type FetchCall = {
-  url: string;
-  method: string;
-  body: Record<string, unknown>;
-};
-
-const originalFetch = globalThis.fetch;
-
-function spyOnFetch(): { calls: FetchCall[] } {
-  const calls: FetchCall[] = [];
-  const fakeFetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-    let body: Record<string, unknown> = {};
-    if (init?.body) {
-      try {
-        body = JSON.parse(init.body as string);
-      } catch {
-        body = {};
-      }
-    }
-    calls.push({ url: u, method: init?.method ?? 'GET', body });
-    return new Response(JSON.stringify({ notified: 0 }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  });
-  globalThis.fetch = fakeFetch as unknown as typeof fetch;
-  return { calls };
-}
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   mock.restore();
 });
-
-function mockDns() {
-  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
-  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
-}
 
 async function seedPeerInstance(domain: string): Promise<number> {
   const [instance] = await db
@@ -93,6 +57,17 @@ async function ensureUserHasPublicId(userId: number): Promise<string> {
   return publicId;
 }
 
+/** The relay is fire-and-forget: wait for the expected calls (bounded). */
+const relaysAmong = <T extends { url: string }>(calls: T[]): T[] =>
+  calls.filter((c) => c.url.includes('/federation/channel-sender-key-notify'));
+
+const waitForRelays = async <T extends { url: string }>(calls: T[], n: number): Promise<T[]> => {
+  // Expecting none: give a wrong relay a moment to show up before asserting.
+  if (n === 0) await new Promise((r) => setTimeout(r, 150));
+  await waitUntil(() => relaysAmong(calls).length >= n);
+  return relaysAmong(calls);
+};
+
 describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
   test('one peer instance: dispatches a single signed notification', async () => {
     await initTest(1);
@@ -112,11 +87,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
         { toPublicId: 'remote-recipient-1', toInstanceDomain: PEER_DOMAIN_A }
       ]
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
+    const notifies = await waitForRelays(calls, 1);
     expect(notifies).toHaveLength(1);
     expect(notifies[0]!.url).toContain(PEER_DOMAIN_A);
     expect(notifies[0]!.body.hostChannelPublicId).toBe(channelPid);
@@ -146,11 +117,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
         { toPublicId: 'r3', toInstanceDomain: PEER_DOMAIN_A }
       ]
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
+    const notifies = await waitForRelays(calls, 1);
     expect(notifies).toHaveLength(1);
     expect(notifies[0]!.body.recipientPublicIds).toEqual(['r1', 'r2', 'r3']);
   });
@@ -176,11 +143,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
         { toPublicId: 'r1b', toInstanceDomain: PEER_DOMAIN_B }
       ]
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
+    const notifies = await waitForRelays(calls, 2);
     expect(notifies).toHaveLength(2);
 
     const byDomain = new Map(notifies.map((c) => [new URL(c.url).host, c]));
@@ -206,11 +169,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
         { toPublicId: 'self', toInstanceDomain: config.federation.domain }
       ]
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
+    const notifies = await waitForRelays(calls, 0);
     expect(notifies).toHaveLength(0);
   });
 
@@ -242,11 +201,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
         { toPublicId: 'r1', toInstanceDomain: PEER_DOMAIN_A }
       ]
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
+    const notifies = await waitForRelays(calls, 0);
     expect(notifies).toHaveLength(0);
   });
 
@@ -269,11 +224,7 @@ describe('relayFederatedChannelSenderKeyNotifications (E1d)', () => {
       senderKeyId: 1,
       targets: []
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const notifies = calls.filter((c) =>
-      c.url.includes('/federation/channel-sender-key-notify')
-    );
+    const notifies = await waitForRelays(calls, 0);
     expect(notifies).toHaveLength(0);
   });
 });

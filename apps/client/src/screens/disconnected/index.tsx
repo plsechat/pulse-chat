@@ -43,6 +43,18 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
       };
     }
 
+    if (code === DisconnectCode.SESSION_REVOKED) {
+      // The session is gone from storage already (lib/trpc.ts), so
+      // "reconnect" simply leads back to the login screen.
+      return {
+        icon: <AlertCircle className="h-12 w-12 text-yellow-500" />,
+        iconBg: 'bg-yellow-500/10',
+        title: 'Signed out',
+        message: info.reason || 'Signed out on this device.',
+        canReconnect: true
+      };
+    }
+
     return {
       icon: <WifiOff className="h-12 w-12 text-muted-foreground" />,
       iconBg: 'bg-muted',
@@ -57,7 +69,7 @@ const Disconnected = memo(({ info }: TDisconnectedProps) => {
   }, []);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
+    <div className="flex items-center justify-center min-h-(--vvh) bg-background">
       <div className="text-center space-y-6 max-w-md px-6">
         <div className="flex justify-center">
           <div className={`rounded-full p-5 ${disconnectType.iconBg}`}>

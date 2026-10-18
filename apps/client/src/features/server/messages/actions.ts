@@ -1,11 +1,13 @@
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { store } from '@/features/store';
 import { getTRPCClient } from '@/lib/trpc';
-import {
-  TYPING_MS,
-  type TJoinedMessage,
-  type TJoinedPublicUser
-} from '@pulse/shared';
+import { TYPING_MS } from '@pulse/shared';
+import type {
+  TJoinedMessage,
+  TJoinedPublicUser,
+  TMessageTombstone
+} from '@pulse/server/types';
+import { emitAppEvent } from '@/lib/events';
 import { activeThreadIdSelector, selectedChannelIdSelector } from '../channels/selectors';
 import { serverSliceActions } from '../slice';
 import { playSound } from '../sounds/actions';
@@ -40,8 +42,17 @@ export const addMessages = (
   const state = store.getState();
   const selectedChannelId = selectedChannelIdSelector(state);
   const activeThreadId = activeThreadIdSelector(state);
+  // A window detached from the live tail (jump / paged past the cap)
+  // does not take live messages — see features/message-window.ts.
+  const detached = !!state.server.messageWindowMap[channelId]?.hasNewer;
 
-  store.dispatch(serverSliceActions.addMessages({ channelId, messages, opts }));
+  store.dispatch(
+    serverSliceActions.addMessages({
+      channelId,
+      messages,
+      opts: { ...opts, live: isSubscriptionMessage }
+    })
+  );
 
   messages.forEach((message) => {
     removeTypingUser(channelId, message.userId);
@@ -94,8 +105,10 @@ export const addMessages = (
       );
     }
 
-    if (isViewingChannel && !isFromOwnUser) {
-      // user is viewing this channel - mark messages as read
+    // Viewing the channel marks the message read — unless the window is
+    // detached: the message is not on screen then (it sits beyond the
+    // loaded history) and is only seen after "Jump to Present".
+    if (isViewingChannel && !isFromOwnUser && !detached) {
       const trpc = getTRPCClient();
       if (!trpc) return;
 
@@ -112,21 +125,64 @@ export const updateMessage = (channelId: number, message: TJoinedMessage) => {
   store.dispatch(serverSliceActions.updateMessage({ channelId, message }));
 };
 
-export const deleteMessage = (channelId: number, messageId: number) => {
-  store.dispatch(serverSliceActions.deleteMessage({ channelId, messageId }));
+/**
+ * A deleted message becomes a tombstone in the list. Deletion clears
+ * the pin on the server, so a pinned one tells the pinned surfaces to
+ * refetch (the same signal a plain unpin sends).
+ */
+export const deleteMessage = (
+  channelId: number,
+  messageId: number,
+  tombstone: TMessageTombstone
+) => {
+  const wasPinned = !!store
+    .getState()
+    .server.messagesMap[channelId]?.find((m) => m.id === messageId)?.pinned;
+
+  store.dispatch(
+    serverSliceActions.deleteMessage({ channelId, messageId, tombstone })
+  );
+
+  if (wasPinned) emitAppEvent('pinned-messages-changed', { channelId });
 };
 
 export const bulkDeleteMessages = (
   channelId: number,
-  messageIds: number[]
+  messageIds: number[],
+  tombstone: TMessageTombstone
 ) => {
+  const ids = new Set(messageIds);
+  const anyPinned = !!store
+    .getState()
+    .server.messagesMap[channelId]?.some((m) => ids.has(m.id) && m.pinned);
+
   store.dispatch(
-    serverSliceActions.bulkDeleteMessages({ channelId, messageIds })
+    serverSliceActions.bulkDeleteMessages({ channelId, messageIds, tombstone })
   );
+
+  if (anyPinned) emitAppEvent('pinned-messages-changed', { channelId });
 };
 
 export const purgeChannelMessages = (channelId: number) => {
   store.dispatch(serverSliceActions.purgeChannelMessages({ channelId }));
+};
+
+/** A freshly fetched latest page re-attaches the channel to the tail. */
+export const replaceMessages = (
+  channelId: number,
+  messages: TJoinedMessage[],
+  hasOlder: boolean
+) => {
+  store.dispatch(
+    serverSliceActions.replaceMessages({ channelId, messages, hasOlder })
+  );
+};
+
+export const setMessageWindow = (
+  channelId: number,
+  window: { hasOlder?: boolean; hasNewer?: boolean }
+) => {
+  store.dispatch(serverSliceActions.setMessageWindow({ channelId, ...window }));
 };
 
 export const addTypingUser = (channelId: number, userId: number) => {

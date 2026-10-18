@@ -10,12 +10,17 @@ import {
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
 import { useActiveServerId } from '@/features/app/hooks';
-import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
+import {
+  getTrpcError,
+  parseTrpcErrors,
+  type TTrpcErrors
+} from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { ChannelType } from '@pulse/shared';
 import { Hash, LayoutList, Mic } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
+import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
 
 type TChannelTypeItemProps = {
@@ -59,7 +64,7 @@ const ChannelTypeItem = ({
   </div>
 );
 
-type TCreateChannelDialogProps = TDialogBaseProps & {
+export type TCreateChannelDialogProps = TDialogBaseProps & {
   categoryId: number;
   defaultChannelType?: ChannelType;
 };
@@ -95,6 +100,7 @@ const CreateChannelDialog = memo(
         close();
       } catch (error) {
         setErrors(parseTrpcErrors(error));
+        toast.error(getTrpcError(error, 'Failed to create channel'));
       } finally {
         setLoading(false);
       }

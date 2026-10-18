@@ -6,10 +6,12 @@ import {
 import { appSliceActions } from '@/features/app/slice';
 import { dmsSliceActions } from '@/features/dms/slice';
 import { updateFriend } from '@/features/friends/actions';
-import { resetServerState } from '@/features/server/actions';
+import { reinitServerSubscriptions, resetServerState } from '@/features/server/actions';
 import { store } from '@/features/store';
 import {
   distributeSenderKeysToOnlineMember,
+  getActiveE2eeInstance,
+  invalidateChannelMembers,
   markChainForRotation
 } from '@/lib/e2ee';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
@@ -19,30 +21,37 @@ import { toast } from 'sonner';
 import { addUser, handleUserJoin, removeUser, updateUser } from './actions';
 
 /**
- * Snapshot the inputs needed by lib/e2ee from Redux. Keeping the lookup
- * here (rather than inside lib/e2ee) avoids a Redux dependency in the
- * E2EE module — `lib/` stays orchestrator-callable from anywhere.
+ * The join event arrived on the active server's socket, so the joiner's
+ * id and the channel ids are in the active instance's id space — hand
+ * lib/e2ee that instance explicitly rather than letting it guess from
+ * ambient state.
  */
-function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
-  const state = store.getState();
-  const ownUserId = state.server.ownUserId;
-  if (!ownUserId) return Promise.resolve();
-  const e2eeChannelIds = state.server.channels
-    .filter((c) => c.e2ee)
+async function distributeE2eeKeysToUser(joinedUserId: number): Promise<void> {
+  const e2eeChannelIds = store
+    .getState()
+    .server.channels.filter((c) => c.e2ee)
     .map((c) => c.id);
-  return distributeSenderKeysToOnlineMember(
+  if (e2eeChannelIds.length === 0) return;
+  const instance = await getActiveE2eeInstance();
+  if (!instance) return;
+  await distributeSenderKeysToOnlineMember(
     joinedUserId,
-    ownUserId,
+    instance,
     e2eeChannelIds
   );
 }
+
+const sameRoleIds = (a: number[], b: number[]) =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
 
 const subscribeToUsers = () => {
   const trpc = getTRPCClient();
   if (!trpc) return () => {};
 
   return combineUnsubscribes(
-    subscribe('onUserJoin', trpc.users.onJoin, (payload) => {
+    // A member's client session connected to the server (the
+    // bootstrap). A NEW member arrives on servers.onMemberJoin.
+    subscribe('onUserConnected', trpc.users.onConnected, (payload) => {
       handleUserJoin(payload.serverId, payload.user, payload.serverPublicId);
       updateFriend(payload.user.id, payload.user);
       store.dispatch(
@@ -68,8 +77,29 @@ const subscribeToUsers = () => {
         })
       );
     }),
-    subscribe('onUserUpdate', trpc.users.onUpdate, (user) => {
-      updateUser(user.id, user);
+    subscribe('onUserUpdate', trpc.users.onUpdate, (payload) => {
+      // Game presence is per server: a scoped update carries it as the
+      // named server may show it, so only that server's roster takes
+      // it — a client viewing another server keeps its own copy, and
+      // the home-scoped mirrors (friends, DM members) never carry it.
+      // An unscoped update has no `gamePresence` key at all, and a
+      // missing key leaves the roster's value alone.
+      const { scopeServerPublicId, gamePresence, ...user } = payload;
+      const state = store.getState();
+      const presenceForThisRoster =
+        'gamePresence' in payload &&
+        (scopeServerPublicId === undefined ||
+          scopeServerPublicId === state.server.serverId)
+          ? { gamePresence }
+          : {};
+      // A role grant can make an encrypted channel visible to this
+      // user; the cached roster predates it and would keep them off
+      // the SKDM target list. Presence-only updates leave it alone.
+      const before = state.server.users.find((u) => u.id === user.id);
+      if (before && !sameRoleIds(before.roleIds, user.roleIds)) {
+        invalidateChannelMembers();
+      }
+      updateUser(user.id, { ...user, ...presenceForThisRoster });
       updateFriend(user.id, user);
       // Mirror the FULL profile onto cached DM member projections —
       // for a partner who is neither friend nor co-member this is
@@ -84,7 +114,7 @@ const subscribeToUsers = () => {
         // Server-scoped delete (kick/ban/leave from `serverId`). Only mutate
         // the local roster when we're actually viewing that server, otherwise
         // we'd corrupt the active server's user list (audit H1, same shape as
-        // the USER_JOIN scope fix).
+        // the USER_CONNECTED scope fix).
         //
         // Prefer the globally-unique serverPublicId when present — numeric
         // ids collide across federated instances (state.server.serverId
@@ -152,6 +182,9 @@ const subscribeToUsers = () => {
           store.dispatch(appSliceActions.setActiveServerId(undefined));
           if (state.app.activeInstanceDomain) {
             setActiveInstanceDomain(null);
+            // The server subs were bound to the peer's client; rebind
+            // them to home or they stay dead until the next switch.
+            reinitServerSubscriptions();
           }
         }
       }

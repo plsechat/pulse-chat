@@ -7,8 +7,11 @@ import {
 } from '../utils/env';
 import { getAppDataPath } from './fs';
 
+// TEST_DATA_PATH pairs with TEST_HTTP_PORT/DATABASE_URL so several test
+// suites can run side by side on one checkout without wiping each other's
+// upload/public/interface fixtures (setup.ts removes DATA_PATH afterAll).
 const DATA_PATH = IS_TEST
-  ? path.resolve(process.cwd(), './data-test')
+  ? path.resolve(process.cwd(), process.env.TEST_DATA_PATH ?? './data-test')
   : IS_DEVELOPMENT
     ? path.resolve(process.cwd(), './data')
     : path.join(getAppDataPath(), 'pulse');

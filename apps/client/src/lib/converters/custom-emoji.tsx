@@ -1,4 +1,4 @@
-import { useChatScope } from '@/components/chat-primitives/chat-scope';
+import { useChatScope } from '@/components/chat-primitives/chat-scope-context';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { useSelector } from 'react-redux';

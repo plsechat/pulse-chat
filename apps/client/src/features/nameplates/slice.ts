@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { TJoinedNameplate } from '@pulse/shared';
+import type { TJoinedNameplate } from '@pulse/server/types';
 
 export interface TNameplatesState {
   /**

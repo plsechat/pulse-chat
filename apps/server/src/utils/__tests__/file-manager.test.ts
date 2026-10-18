@@ -1,13 +1,14 @@
 import { StorageOverflowAction } from '@pulse/shared';
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { createHash } from 'crypto';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
-import { afterEach } from 'node:test';
 import path from 'path';
 import { tdb } from '../../__tests__/setup';
-import { files, settings } from '../../db/schema';
+import { files, servers } from '../../db/schema';
 import { PUBLIC_PATH, TMP_PATH, UPLOADS_PATH } from '../../helpers/paths';
-import { fileExists, fileManager } from '../file-manager';
+import { getExceedingOldFiles } from '../../db/queries/files';
+import { fileExists, fileManager, safeExtension } from '../file-manager';
 
 describe('file manager', () => {
   const tempFilesToCleanup: string[] = [];
@@ -158,8 +159,127 @@ describe('file manager', () => {
 
     tempFilesToCleanup.push(tempFile.path);
 
-    expect(tempFile.md5).toBeDefined();
-    expect(tempFile.md5).toHaveLength(32);
+    // The hash is computed over a read stream; it must equal the
+    // whole-buffer digest of the same bytes (beforeEach writes
+    // 'test file content').
+    expect(tempFile.md5).toBe(
+      createHash('md5').update('test file content').digest('hex')
+    );
+  });
+
+  test('streamed MD5 matches the buffer digest for a multi-chunk file', async () => {
+    const content = Buffer.alloc(256 * 1024 + 17, 7);
+    const filePath = path.join(UPLOADS_PATH, `big-${Date.now()}.bin`);
+
+    await fs.writeFile(filePath, content);
+
+    const tempFile = await fileManager.addTemporaryFile({
+      filePath,
+      size: content.length,
+      originalName: 'big.bin',
+      userId: 1
+    });
+
+    tempFilesToCleanup.push(tempFile.path);
+
+    expect(tempFile.md5).toBe(createHash('md5').update(content).digest('hex'));
+  });
+
+  test('safeExtension keeps short alphanumeric extensions and drops everything else', () => {
+    expect(safeExtension('photo.PNG')).toBe('.png');
+    expect(safeExtension('archive.tar.gz')).toBe('.gz');
+    expect(safeExtension('Makefile')).toBe('');
+    expect(safeExtension('a.' + 'x'.repeat(16))).toBe('.' + 'x'.repeat(16));
+    expect(safeExtension('a.' + 'x'.repeat(17))).toBe('');
+    expect(safeExtension('a.' + 'x'.repeat(5000))).toBe('');
+    expect(safeExtension('a.ext ension')).toBe('');
+    expect(safeExtension('a.ex\u0000t')).toBe('');
+    expect(safeExtension('a.日本')).toBe('');
+    expect(safeExtension('trailing.')).toBe('');
+  });
+
+  test('a stored file with an oversized extension gets a short, extension-less name', async () => {
+    const originalName = 'a.' + 'x'.repeat(5000);
+    const stats = await fs.stat(testFilePath);
+
+    const tempFile = await fileManager.addTemporaryFile({
+      filePath: testFilePath,
+      size: stats.size,
+      originalName,
+      userId: 1
+    });
+
+    expect(tempFile.extension).toBe('');
+    expect(path.basename(tempFile.path)).toMatch(/^[0-9a-f-]{36}$/i);
+
+    const savedFile = await fileManager.saveFile(tempFile.id, 1);
+
+    tempFilesToCleanup.push(path.join(PUBLIC_PATH, savedFile.name));
+
+    expect(savedFile.name).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(savedFile.extension).toBe('');
+    expect(savedFile.originalName).toBe(originalName);
+    expect(savedFile.mimeType).toBe('application/octet-stream');
+  });
+
+  test('sweepStaleFiles removes untracked entries in the upload and temp areas but keeps tracked temp files', async () => {
+    const now = Date.now();
+    const strayUpload = path.join(UPLOADS_PATH, `stray-upload-${now}.part`);
+    const strayTemp = path.join(TMP_PATH, `stray-temp-${now}.txt`);
+    const strayDir = path.join(TMP_PATH, `stray-dir-${now}`);
+
+    await fs.writeFile(strayUpload, 'abandoned');
+    await fs.writeFile(strayTemp, 'abandoned');
+    await fs.mkdir(strayDir);
+    await fs.writeFile(path.join(strayDir, 'inner.txt'), 'abandoned');
+
+    const stats = await fs.stat(testFilePath);
+    const tracked = await fileManager.addTemporaryFile({
+      filePath: testFilePath,
+      size: stats.size,
+      originalName: testFileName,
+      userId: 1
+    });
+
+    tempFilesToCleanup.push(tracked.path);
+
+    const removed = await fileManager.sweepStaleFiles();
+
+    expect(removed).toBeGreaterThanOrEqual(3);
+    expect(await fileExists(strayUpload)).toBe(false);
+    expect(await fileExists(strayTemp)).toBe(false);
+    expect(await fileExists(strayDir)).toBe(false);
+    expect(await fileExists(tracked.path)).toBe(true);
+    expect(fileManager.temporaryFileExists(tracked.id)).toBe(true);
+  });
+
+  test('getStorageViolation reports the quota an upload of a given size would break', async () => {
+    await tdb
+      .update(servers)
+      .set({ storageSpaceQuotaByUser: 0, storageQuota: 0 });
+
+    expect(await fileManager.getStorageViolation(1, 1_000_000)).toBeUndefined();
+
+    await tdb.update(servers).set({ storageSpaceQuotaByUser: 10 });
+
+    expect(await fileManager.getStorageViolation(1, 10)).toBeUndefined();
+    expect(await fileManager.getStorageViolation(1, 11)).toBe('user');
+
+    await tdb.update(servers).set({
+      storageSpaceQuotaByUser: 0,
+      storageQuota: 10,
+      storageOverflowAction: StorageOverflowAction.PREVENT_UPLOADS
+    });
+
+    expect(await fileManager.getStorageViolation(1, 11)).toBe('server');
+
+    // Under DELETE_OLD_FILES the overflow is resolved by saveFile, so
+    // intake must not refuse it.
+    await tdb
+      .update(servers)
+      .set({ storageOverflowAction: StorageOverflowAction.DELETE_OLD_FILES });
+
+    expect(await fileManager.getStorageViolation(1, 11)).toBeUndefined();
   });
 
   test('should save temporary file to public directory', async () => {
@@ -310,7 +430,7 @@ describe('file manager', () => {
   });
 
   test('should throw error when user storage limit exceeded', async () => {
-    await tdb.update(settings).set({ storageSpaceQuotaByUser: 10 }).execute();
+    await tdb.update(servers).set({ storageSpaceQuotaByUser: 10 }).execute();
 
     const content = 'content that exceeds limit';
     const filePath = path.join(UPLOADS_PATH, `large-${Date.now()}.txt`);
@@ -330,12 +450,12 @@ describe('file manager', () => {
       'User storage limit exceeded'
     );
 
-    await tdb.update(settings).set({ storageSpaceQuotaByUser: 0 }).execute();
+    await tdb.update(servers).set({ storageSpaceQuotaByUser: 0 }).execute();
   });
 
   test('should throw error when server storage limit exceeded with PREVENT_UPLOADS', async () => {
     await tdb
-      .update(settings)
+      .update(servers)
       .set({
         storageQuota: 10,
         storageOverflowAction: StorageOverflowAction.PREVENT_UPLOADS
@@ -361,7 +481,7 @@ describe('file manager', () => {
     );
 
     await tdb
-      .update(settings)
+      .update(servers)
       .set({
         storageQuota: 0,
         storageOverflowAction: StorageOverflowAction.PREVENT_UPLOADS
@@ -391,7 +511,7 @@ describe('file manager', () => {
 
     const totalLimit = oldSavedFile.size + 5;
 
-    await tdb.update(settings).set({
+    await tdb.update(servers).set({
       storageQuota: totalLimit,
       storageUploadMaxFileSize: totalLimit,
       storageOverflowAction: StorageOverflowAction.DELETE_OLD_FILES
@@ -431,9 +551,94 @@ describe('file manager', () => {
     expect(newDbFile).toBeDefined();
   });
 
+  test('getExceedingOldFiles frees exactly the oldest files needed to fit under the server quota', async () => {
+    // Quota 10, existing 6 + 6, incoming 3: 15 - 10 = 5 bytes must go,
+    // and the oldest 6-byte file alone covers that. The per-file
+    // maximum is NOT the yardstick (it used to be, which would have
+    // wiped the store down to one file's worth).
+    await tdb.update(servers).set({
+      storageQuota: 10,
+      storageUploadMaxFileSize: 1_000_000,
+      storageOverflowAction: StorageOverflowAction.DELETE_OLD_FILES
+    });
+
+    const base = Date.now() - 10_000;
+    const [older, newer] = await tdb
+      .insert(files)
+      .values([
+        {
+          name: `older-${base}.bin`,
+          extension: '.bin',
+          md5: 'a',
+          size: 6,
+          originalName: 'older.bin',
+          userId: 1,
+          mimeType: 'application/octet-stream',
+          createdAt: base
+        },
+        {
+          name: `newer-${base}.bin`,
+          extension: '.bin',
+          md5: 'b',
+          size: 6,
+          originalName: 'newer.bin',
+          userId: 1,
+          mimeType: 'application/octet-stream',
+          createdAt: base + 1000
+        }
+      ])
+      .returning();
+
+    const toDelete = await getExceedingOldFiles(3);
+
+    expect(toDelete.map((f) => f.id)).toEqual([older!.id]);
+    expect(toDelete.map((f) => f.id)).not.toContain(newer!.id);
+
+    // Fits already: nothing to free.
+    await tdb.update(servers).set({ storageQuota: 20 });
+    expect(await getExceedingOldFiles(3)).toEqual([]);
+
+    // Unlimited quota: never frees anything.
+    await tdb.update(servers).set({ storageQuota: 0 });
+    expect(await getExceedingOldFiles(3)).toEqual([]);
+
+    // A file that can never fit, even in an empty store, is refused.
+    await tdb.update(servers).set({ storageQuota: 10 });
+    await expect(getExceedingOldFiles(11)).rejects.toThrow(
+      'File size exceeds total server storage quota'
+    );
+  });
+
+  test('storage limits come from the server row, not the settings table', async () => {
+    // The admin UI writes `servers.*`; the `settings` copy is never
+    // updated, so reading it there applied the seeded defaults forever.
+    const { settings } = await import('../../db/schema');
+
+    await tdb.update(settings).set({ storageSpaceQuotaByUser: 0 });
+    await tdb.update(servers).set({ storageSpaceQuotaByUser: 10 });
+
+    const filePath = path.join(UPLOADS_PATH, `row-${Date.now()}.txt`);
+    await fs.writeFile(filePath, 'eleven bytes');
+    const stats = await fs.stat(filePath);
+
+    const tempFile = await fileManager.addTemporaryFile({
+      filePath,
+      size: stats.size,
+      originalName: 'row.txt',
+      userId: 1
+    });
+
+    tempFilesToCleanup.push(tempFile.path);
+
+    expect(await fileManager.getStorageViolation(1, 11)).toBe('user');
+    await expect(fileManager.saveFile(tempFile.id, 1)).rejects.toThrow(
+      'User storage limit exceeded'
+    );
+  });
+
   test('should allow save when storage limits are disabled', async () => {
     await tdb
-      .update(settings)
+      .update(servers)
       .set({
         storageQuota: 0,
         storageSpaceQuotaByUser: 0

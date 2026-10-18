@@ -1,4 +1,5 @@
-import type { Permission, TRole } from '@pulse/shared';
+import type { Permission } from '@pulse/shared';
+import type { TRole } from '../../types';
 import { eq } from 'drizzle-orm';
 import { db } from '..';
 import { rolePermissions, roles } from '../schema';

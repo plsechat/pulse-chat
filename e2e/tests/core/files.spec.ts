@@ -25,7 +25,12 @@ test('channel attachment is stored under an unguessable UUID name and serves', a
   await channelComposer(page).click();
   await page.keyboard.press('Enter');
 
-  const img = page.locator('img[src*="/public/"]').last();
+  // The attachment just sent: scoped to message rows and excluding custom
+  // emoji images, which also serve from /public/ and, on a lived-in
+  // instance, can be the newest /public/ image on the page.
+  const img = page
+    .locator('[id^="msg-"] img[src*="/public/"]:not(.emoji-image)')
+    .last();
   await expect(img).toBeVisible({ timeout: 15_000 });
 
   const src = await img.getAttribute('src');

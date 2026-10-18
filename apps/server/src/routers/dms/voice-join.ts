@@ -13,7 +13,7 @@ import { removeUserFromVoice } from '../../utils/voice-cleanup';
 const dmVoiceJoinRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
+      dmChannelId: z.number().int().positive(),
       state: z.object({
         micMuted: z.boolean().default(false),
         soundMuted: z.boolean().default(false)
@@ -47,6 +47,10 @@ const dmVoiceJoinRoute = protectedProcedure
     if (userAlreadyInVoice) {
       await removeUserFromVoice(ctx.user.id);
     }
+
+    // Instance-wide cap, checked after the self-heal so a rejoin does not
+    // count its own stale session.
+    VoiceRuntime.assertCapacity();
 
     // Get or create a voice runtime for this DM channel
     let runtime = VoiceRuntime.findById(input.dmChannelId, 'dm');

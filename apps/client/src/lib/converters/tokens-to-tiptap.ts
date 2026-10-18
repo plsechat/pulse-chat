@@ -20,25 +20,33 @@ function escapeHtml(text: string): string {
 }
 
 function convertInline(text: string, ctx: TokenToTiptapContext): string {
-  let result = text;
+  // Escape first: anything that is not a recognised token is literal
+  // text and must reach the editor as text, not markup — a message that
+  // quotes `<b>` or `<script>` would otherwise be parsed as HTML by the
+  // editor (and silently rewritten on save). Token syntax is matched in
+  // its escaped form below, where `<` is `&lt;` and `&` is `&amp;`.
+  let result = escapeHtml(text);
 
   // Custom emoji: <:name:id> → <img>
-  result = result.replace(/<:(\w+):(\d+)>/g, (_match, name: string, id: string) => {
-    const numId = Number(id);
-    const emoji = ctx.emojis.get(numId);
-    const src = emoji?.src ?? '';
-    return `<img class="emoji-image" data-emoji-name="${escapeHtml(name)}" data-emoji-id="${id}" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" />`;
-  });
+  result = result.replace(
+    /&lt;:(\w+):(\d+)&gt;/g,
+    (_match, name: string, id: string) => {
+      const numId = Number(id);
+      const emoji = ctx.emojis.get(numId);
+      const src = emoji?.src ?? '';
+      return `<img class="emoji-image" data-emoji-name="${escapeHtml(name)}" data-emoji-id="${id}" src="${escapeHtml(src)}" alt="${escapeHtml(name)}" />`;
+    }
+  );
 
   // User mention: <@123> → <span>
-  result = result.replace(/<@(\d+)>/g, (_match, id: string) => {
+  result = result.replace(/&lt;@(\d+)&gt;/g, (_match, id: string) => {
     const numId = Number(id);
     const name = ctx.users.get(numId) ?? 'Unknown';
     return `<span data-mention-type="user" data-mention-id="${id}" data-mention-name="${escapeHtml(name)}">@${escapeHtml(name)}</span>`;
   });
 
   // Role mention: <@&123> → <span>
-  result = result.replace(/<@&(\d+)>/g, (_match, id: string) => {
+  result = result.replace(/&lt;@&amp;(\d+)&gt;/g, (_match, id: string) => {
     const numId = Number(id);
     const name = ctx.roles.get(numId) ?? 'Unknown';
     return `<span data-mention-type="role" data-mention-id="${id}" data-mention-name="${escapeHtml(name)}">@${escapeHtml(name)}</span>`;
@@ -48,7 +56,7 @@ function convertInline(text: string, ctx: TokenToTiptapContext): string {
   result = result.replace(/@everyone/g, '<span data-mention-type="all">@all</span>');
 
   // Channel mention: <#123> → <span>
-  result = result.replace(/<#(\d+)>/g, (_match, id: string) => {
+  result = result.replace(/&lt;#(\d+)&gt;/g, (_match, id: string) => {
     const numId = Number(id);
     const name = ctx.channels.get(numId) ?? 'Unknown';
     return `<span data-type="channel-mention" data-channel-id="${id}" data-channel-name="${escapeHtml(name)}">#${escapeHtml(name)}</span>`;

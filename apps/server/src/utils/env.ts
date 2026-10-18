@@ -42,7 +42,7 @@ const isRegistrationMethodEnabled = (method: RegistrationMethod) =>
 
 if (IS_PRODUCTION) {
   if (!PULSE_MEDIASOUP_BIN_NAME) {
-    throw new Error('PULSE_MEDIASOUP_BIN is not defined');
+    throw new Error('PULSE_MEDIASOUP_BIN_NAME is not defined');
   }
 }
 

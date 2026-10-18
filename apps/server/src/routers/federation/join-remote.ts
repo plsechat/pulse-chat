@@ -9,8 +9,8 @@ import { getFederationProtocol } from '../../utils/validate-url';
 const joinRemoteRoute = protectedProcedure
   .input(
     z.object({
-      instanceId: z.number(),
-      remoteServerPublicId: z.string()
+      instanceId: z.number().int().positive(),
+      remoteServerPublicId: z.string().min(1).max(64)
     })
   )
   .mutation(async ({ ctx, input }) => {

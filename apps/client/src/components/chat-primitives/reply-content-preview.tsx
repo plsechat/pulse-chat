@@ -1,5 +1,5 @@
 import { CustomEmoji } from '@/lib/converters/custom-emoji';
-import { tokenize } from '@/lib/converters/token-content-renderer';
+import { tokenize } from '@/lib/converters/token-content';
 import { Fragment, memo, type ReactNode } from 'react';
 
 /**
@@ -21,7 +21,7 @@ import { Fragment, memo, type ReactNode } from 'react';
 const URL_ONLY_RE = /^https?:\/\/\S+$/;
 const PREVIEW_CHAR_BUDGET = 120;
 
-// tokenize() in token-content-renderer.tsx wraps blockquote bodies in
+// tokenize() in token-content.ts wraps blockquote bodies in
 // these NUL-delimited synthetic markers. Built from char codes so the
 // no-control-regex lint rule doesn't trip on a regex literal containing
 // \x00 — split/join on a string literal is fine.

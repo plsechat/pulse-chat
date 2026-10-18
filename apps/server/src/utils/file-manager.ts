@@ -1,16 +1,14 @@
-import {
-  StorageOverflowAction,
-  type TFile,
-  type TTempFile
-} from '@pulse/shared';
+import { StorageOverflowAction, type TTempFile } from '@pulse/shared';
+import type { TFile } from '../types';
 import { randomUUIDv7 } from 'bun';
 import { createHash } from 'crypto';
+import { createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import { db } from '../db';
 import { removeFile } from '../db/mutations/files';
 import { getExceedingOldFiles, getUsedFileQuota } from '../db/queries/files';
-import { getSettings } from '../db/queries/server';
+import { getInstanceServerSettings } from '../db/queries/server';
 import { getStorageUsageByUserId } from '../db/queries/users';
 import { files } from '../db/schema';
 import { PUBLIC_PATH, TMP_PATH, UPLOADS_PATH } from '../helpers/paths';
@@ -37,13 +35,36 @@ export const fileExists = async (filePath: string): Promise<boolean> => {
 
 const TEMP_FILE_TTL = 1000 * 60 * 1; // 1 minute
 
-const md5File = async (path: string): Promise<string> => {
-  const file = await fs.readFile(path);
-  const hash = createHash('md5');
+/**
+ * Hash through a read stream rather than fs.readFile: uploads can be up
+ * to storageUploadMaxFileSize (100 MB by default) and Bun is
+ * single-threaded, so buffering the whole file per upload is a
+ * needless memory spike under concurrent uploads.
+ */
+const md5File = (filePath: string): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const hash = createHash('md5');
+    const stream = createReadStream(filePath);
 
-  hash.update(file);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
 
-  return hash.digest('hex');
+/**
+ * The extension that survives onto disk (upload area, tmp area, public
+ * area) and into files.extension. `path.extname` is otherwise unbounded:
+ * a multi-KB "extension" became the on-disk name (ENAMETOOLONG -> 500)
+ * and anything outside [a-z0-9] has no business in a served filename.
+ * Anything that does not look like a real extension is dropped, which
+ * also means the file is served as application/octet-stream.
+ */
+const SAFE_EXTENSION = /^\.[a-z0-9]{1,16}$/i;
+
+const safeExtension = (originalName: string): string => {
+  const ext = path.extname(originalName);
+
+  return SAFE_EXTENSION.test(ext) ? ext.toLowerCase() : '';
 };
 
 class TemporaryFileManager {
@@ -75,7 +96,7 @@ class TemporaryFileManager {
   }): Promise<TTempFile> => {
     const md5 = await md5File(filePath);
     const fileId = randomUUIDv7();
-    const ext = path.extname(originalName);
+    const ext = safeExtension(originalName);
 
     const tempFilePath = path.join(TMP_PATH, `${fileId}${ext}`);
 
@@ -126,12 +147,81 @@ class TemporaryFileManager {
   };
 
   public getSafeUploadPath = async (name: string): Promise<string> => {
-    const ext = path.extname(name);
+    await this.sweepStaleFilesOnce();
+
+    const ext = safeExtension(name);
     const safePath = path.join(UPLOADS_PATH, `${randomUUIDv7()}${ext}`);
 
     return safePath;
   };
+
+  /**
+   * Temporary files are tracked in memory with a 1-minute TTL timer, so
+   * a restart or crash leaves every in-flight upload (UPLOADS_PATH) and
+   * unclaimed temp file (TMP_PATH) on disk forever. This removes
+   * everything in both areas that this process is not tracking. It runs
+   * once per process, before the first upload touches disk, so at that
+   * point the only untracked entries are leftovers from a previous
+   * process. It is also safe to call eagerly at boot.
+   */
+  public sweepStaleFiles = async (): Promise<number> => {
+    const tracked = new Set(this.temporaryFiles.map((file) => file.path));
+    let removed = 0;
+
+    for (const dir of [UPLOADS_PATH, TMP_PATH]) {
+      let entries: string[];
+
+      try {
+        entries = await fs.readdir(dir);
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry);
+
+        if (tracked.has(entryPath)) continue;
+
+        try {
+          await fs.rm(entryPath, { recursive: true, force: true });
+          removed++;
+        } catch (error) {
+          logger.warn(
+            '[fileManager] could not remove stale %s: %o',
+            entryPath,
+            error
+          );
+        }
+      }
+    }
+
+    if (removed > 0) {
+      logger.info(
+        '[fileManager] removed %d stale upload/temp file(s)',
+        removed
+      );
+    }
+
+    return removed;
+  };
+
+  private sweepPromise: Promise<number> | undefined;
+
+  private sweepStaleFilesOnce = (): Promise<number> => {
+    this.sweepPromise ??= this.sweepStaleFiles().catch((error) => {
+      logger.warn('[fileManager] stale file sweep failed: %o', error);
+      return 0;
+    });
+
+    return this.sweepPromise;
+  };
 }
+
+type TStorageSnapshot = {
+  settings: Awaited<ReturnType<typeof getInstanceServerSettings>>;
+  userStorage: number;
+  serverStorage: number;
+};
 
 class FileManager {
   private tempFileManager = new TemporaryFileManager();
@@ -144,44 +234,79 @@ class FileManager {
 
   public getTemporaryFile = this.tempFileManager.getTemporaryFile;
   public temporaryFileExists = this.tempFileManager.temporaryFileExists;
+  public sweepStaleFiles = this.tempFileManager.sweepStaleFiles;
 
-  private handleStorageLimits = async (tempFile: TTempFile) => {
+  private readStorage = async (userId: number): Promise<TStorageSnapshot> => {
     const [settings, userStorage, serverStorage] = await Promise.all([
-      getSettings(),
-      getStorageUsageByUserId(tempFile.userId),
+      getInstanceServerSettings(),
+      getStorageUsageByUserId(userId),
       getUsedFileQuota()
     ]);
 
-    const newTotalStorage = userStorage.usedStorage + tempFile.size;
+    return { settings, userStorage: userStorage.usedStorage, serverStorage };
+  };
 
+  private evaluateStorage = (
+    { settings, userStorage, serverStorage }: TStorageSnapshot,
+    size: number
+  ): 'user' | 'server' | 'delete-old' | undefined => {
     if (
       settings.storageSpaceQuotaByUser > 0 &&
-      newTotalStorage > settings.storageSpaceQuotaByUser
+      userStorage + size > settings.storageSpaceQuotaByUser
     ) {
+      return 'user';
+    }
+
+    if (
+      settings.storageQuota > 0 &&
+      serverStorage + size > settings.storageQuota
+    ) {
+      return settings.storageOverflowAction ===
+        StorageOverflowAction.DELETE_OLD_FILES
+        ? 'delete-old'
+        : 'server';
+    }
+
+    return undefined;
+  };
+
+  /**
+   * Quota pre-check for the upload intake: the reason a `size`-byte file
+   * for `userId` must be refused BEFORE any bytes hit disk, or undefined
+   * when it may proceed. A server overflow under DELETE_OLD_FILES is not
+   * a refusal — saveFile frees the space for it.
+   */
+  public getStorageViolation = async (
+    userId: number,
+    size: number
+  ): Promise<'user' | 'server' | undefined> => {
+    const verdict = this.evaluateStorage(await this.readStorage(userId), size);
+
+    return verdict === 'user' || verdict === 'server' ? verdict : undefined;
+  };
+
+  private handleStorageLimits = async (tempFile: TTempFile) => {
+    const verdict = this.evaluateStorage(
+      await this.readStorage(tempFile.userId),
+      tempFile.size
+    );
+
+    if (verdict === 'user') {
       throw new Error('User storage limit exceeded');
     }
 
-    const newServerStorage = serverStorage + tempFile.size;
+    if (verdict === 'server') {
+      throw new Error('Server storage limit exceeded.');
+    }
 
-    if (settings.storageQuota > 0 && newServerStorage > settings.storageQuota) {
-      if (
-        settings.storageOverflowAction === StorageOverflowAction.PREVENT_UPLOADS
-      ) {
-        throw new Error('Server storage limit exceeded.');
-      }
+    if (verdict === 'delete-old') {
+      const filesToDelete = await getExceedingOldFiles(tempFile.size);
 
-      if (
-        settings.storageOverflowAction ===
-        StorageOverflowAction.DELETE_OLD_FILES
-      ) {
-        const filesToDelete = await getExceedingOldFiles(tempFile.size);
+      const promises = filesToDelete.map(async (file) => {
+        await removeFile(file.id);
+      });
 
-        const promises = filesToDelete.map(async (file) => {
-          await removeFile(file.id);
-        });
-
-        await Promise.all(promises);
-      }
+      await Promise.all(promises);
     }
   };
 
@@ -196,7 +321,7 @@ class FileManager {
    * index on files.name is the backstop.
    */
   private getUniqueName = (originalName: string): string => {
-    return `${randomUUIDv7()}${path.extname(originalName)}`;
+    return `${randomUUIDv7()}${safeExtension(originalName)}`;
   };
 
   public async saveFile(tempFileId: string, userId: number): Promise<TFile> {
@@ -257,4 +382,4 @@ class FileManager {
 
 const fileManager = new FileManager();
 
-export { fileManager };
+export { fileManager, safeExtension };

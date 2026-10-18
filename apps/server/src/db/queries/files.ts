@@ -1,53 +1,86 @@
-import type { TFile } from '@pulse/shared';
-import { and, asc, eq, sql, sum } from 'drizzle-orm';
+import type { TFile } from '../../types';
+import { and, asc, eq, gt, or, sql, sum } from 'drizzle-orm';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';
 import { channels, files, messageFiles, messages } from '../schema';
-import { getSettings } from './server';
+import { getInstanceServerSettings } from './server';
+
+/**
+ * Oldest files to delete so that `newFileSize` more bytes fit under the
+ * instance storage quota (DELETE_OLD_FILES overflow mode). Walks the
+ * files table oldest-first in bounded batches with a running sum, so a
+ * store of millions of rows never gets loaded into memory to free a few
+ * MB. A quota of 0 means unlimited: nothing is ever freed.
+ */
+const EXCEEDING_FILES_BATCH = 500;
 
 const getExceedingOldFiles = async (newFileSize: number) => {
-  const { storageUploadMaxFileSize } = await getSettings();
+  const { storageQuota, storageUploadMaxFileSize } =
+    await getInstanceServerSettings();
 
   if (newFileSize > storageUploadMaxFileSize) {
+    throw new Error('File size exceeds the maximum allowed file size');
+  }
+
+  if (storageQuota <= 0) {
+    return [];
+  }
+
+  if (newFileSize > storageQuota) {
     throw new Error('File size exceeds total server storage quota');
   }
 
-  const [currentUsage] = await db
-    .select({
-      totalSize: sum(files.size)
-    })
-    .from(files)
-    .limit(1);
-
-  const currentTotalSize = Number(currentUsage?.totalSize ?? 0);
-  const wouldExceedBy =
-    currentTotalSize + newFileSize - storageUploadMaxFileSize;
+  const currentTotalSize = await getUsedFileQuota();
+  const wouldExceedBy = currentTotalSize + newFileSize - storageQuota;
 
   if (wouldExceedBy <= 0) {
     return [];
   }
 
-  const oldFiles = await db
-    .select({
-      id: files.id,
-      name: files.name,
-      size: files.size,
-      userId: files.userId,
-      createdAt: files.createdAt
-    })
-    .from(files)
-    .orderBy(asc(files.createdAt));
-
-  const filesToDelete = [];
+  const filesToDelete: {
+    id: number;
+    name: string;
+    size: number;
+    userId: number;
+    createdAt: number;
+  }[] = [];
   let freedSpace = 0;
+  // Keyset cursor over (created_at, id) — stable under concurrent
+  // inserts, unlike OFFSET pagination.
+  let cursor: { createdAt: number; id: number } | undefined;
 
-  for (const file of oldFiles) {
-    filesToDelete.push(file);
-    freedSpace += file.size;
+  while (freedSpace < wouldExceedBy) {
+    const batch = await db
+      .select({
+        id: files.id,
+        name: files.name,
+        size: files.size,
+        userId: files.userId,
+        createdAt: files.createdAt
+      })
+      .from(files)
+      .where(
+        cursor
+          ? or(
+              gt(files.createdAt, cursor.createdAt),
+              and(eq(files.createdAt, cursor.createdAt), gt(files.id, cursor.id))
+            )
+          : undefined
+      )
+      .orderBy(asc(files.createdAt), asc(files.id))
+      .limit(EXCEEDING_FILES_BATCH);
 
-    if (freedSpace >= wouldExceedBy) {
-      break;
+    if (batch.length === 0) break;
+
+    for (const file of batch) {
+      filesToDelete.push(file);
+      freedSpace += file.size;
+
+      if (freedSpace >= wouldExceedBy) break;
     }
+
+    const last = batch[batch.length - 1]!;
+    cursor = { createdAt: last.createdAt, id: last.id };
   }
 
   return filesToDelete;
@@ -138,6 +171,18 @@ const getOrphanedFileIds = async (): Promise<number[]> => {
     AND NOT EXISTS (
       SELECT 1 FROM nameplates np WHERE np.file_id = f.id
     )
+    AND NOT EXISTS (
+      SELECT 1 FROM webhooks w WHERE w.avatar_file_id = f.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM dm_channels dc WHERE dc.icon_file_id = f.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM server_sounds ss WHERE ss.file_id = f.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM scheduled_post_files spf WHERE spf.file_id = f.id
+    )
   `);
 
   return orphanedFileIds.map(({ id }) => id);
@@ -156,6 +201,10 @@ const isFileOrphaned = async (fileId: number): Promise<boolean> => {
         AND NOT EXISTS (SELECT 1 FROM servers srv WHERE srv.logo_id = ${fileId})
         AND NOT EXISTS (SELECT 1 FROM settings s WHERE s.logo_id = ${fileId})
         AND NOT EXISTS (SELECT 1 FROM nameplates np WHERE np.file_id = ${fileId})
+        AND NOT EXISTS (SELECT 1 FROM webhooks w WHERE w.avatar_file_id = ${fileId})
+        AND NOT EXISTS (SELECT 1 FROM dm_channels dc WHERE dc.icon_file_id = ${fileId})
+        AND NOT EXISTS (SELECT 1 FROM server_sounds ss WHERE ss.file_id = ${fileId})
+        AND NOT EXISTS (SELECT 1 FROM scheduled_post_files spf WHERE spf.file_id = ${fileId})
         THEN true
         ELSE false
       END as "isOrphaned"

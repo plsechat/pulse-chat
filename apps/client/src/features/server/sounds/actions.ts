@@ -1,15 +1,36 @@
 import {
   getMasterVolumeMultiplier,
   getSelectedSoundVariant,
-  isCategoryEnabledForSound
+  isSoundEnabled
 } from '@/hooks/use-sound-notification-settings';
 import { SoundType } from '../types';
 
 const audioCtx = new (window.AudioContext ||
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).webkitAudioContext)();
+  (window as Window & { webkitAudioContext?: typeof AudioContext })
+    .webkitAudioContext)();
 
 const SOUNDS_VOLUME = 5;
+
+let soundOutputSinkId = '';
+
+/**
+ * Route the app's own sounds to an output device ('' = the browser
+ * default). Driven by PersistentAudioStreams from the same resolved sink
+ * as voice playback, so the Output Device setting (and the system-audio
+ * capture bypass) covers cues and the call ring too. AudioContext
+ * routing needs Chromium 110+; elsewhere the default output stays.
+ */
+export const setSoundOutputSinkId = (sinkId: string) => {
+  if (sinkId === soundOutputSinkId) return;
+  soundOutputSinkId = sinkId;
+  const routable = audioCtx as AudioContext & {
+    setSinkId?: (id: string) => Promise<void>;
+  };
+  if (typeof routable.setSinkId !== 'function') return;
+  routable.setSinkId(sinkId).catch(() => {
+    // Device gone or id unknown — the default output keeps playing.
+  });
+};
 
 const now = () => audioCtx.currentTime;
 
@@ -1007,7 +1028,7 @@ const resolveVariant = (type: SoundType): TSoundVariant | undefined => {
 };
 
 export const playSound = (type: SoundType) => {
-  if (!isCategoryEnabledForSound(type)) return;
+  if (!isSoundEnabled(type)) return;
 
   // Events with selectable variants play the user's pick.
   const variant = resolveVariant(type);

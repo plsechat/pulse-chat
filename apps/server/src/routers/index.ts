@@ -5,19 +5,25 @@ import { reportsRouter } from './reports';
 import { channelsRouter } from './channels';
 import { dmsRouter } from './dms';
 import { emojisRouter } from './emojis';
+import { eventsRouter } from './events';
 import { federationRouter } from './federation';
 import { filesRouter } from './files';
+import { followsRouter } from './follows';
 import { friendsRouter } from './friends';
+import { importRouter } from './import';
 import { invitesRouter } from './invites';
 import { messagesRouter } from './messages';
 import { nameplatesRouter } from './nameplates';
 import { notesRouter } from './notes';
 import { notificationsRouter } from './notifications';
 import { othersRouter } from './others';
+import { scheduledRouter } from './scheduled';
 import { searchRouter } from './search';
 import { pluginsRouter } from './plugins';
+import { pollsRouter } from './polls';
 import { rolesRouter } from './roles';
 import { serversRouter } from './servers';
+import { soundsRouter } from './sounds';
 import { threadsRouter } from './threads';
 import { usersRouter } from './users';
 import { voiceRouter } from './voice';
@@ -35,6 +41,7 @@ const appRouter = t.router({
   channels: channelsRouter,
   files: filesRouter,
   emojis: emojisRouter,
+  events: eventsRouter,
   nameplates: nameplatesRouter,
   roles: rolesRouter,
   invites: invitesRouter,
@@ -42,8 +49,10 @@ const appRouter = t.router({
   categories: categoriesRouter,
   plugins: pluginsRouter,
   friends: friendsRouter,
+  import: importRouter,
   dms: dmsRouter,
   servers: serversRouter,
+  sounds: soundsRouter,
   notes: notesRouter,
   notifications: notificationsRouter,
   search: searchRouter,
@@ -52,7 +61,10 @@ const appRouter = t.router({
   automod: automodRouter,
   blocks: blocksRouter,
   federation: federationRouter,
-  e2ee: e2eeRouter
+  e2ee: e2eeRouter,
+  polls: pollsRouter,
+  scheduled: scheduledRouter,
+  follows: followsRouter
 });
 
 type AppRouter = typeof appRouter;

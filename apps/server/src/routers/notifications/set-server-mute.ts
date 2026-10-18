@@ -7,7 +7,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const setServerMuteRoute = protectedProcedure
   .input(
     z.object({
-      serverId: z.number(),
+      serverId: z.number().int().positive(),
       muted: z.boolean()
     })
   )

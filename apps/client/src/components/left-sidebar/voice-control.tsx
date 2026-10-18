@@ -1,4 +1,7 @@
-import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import {
+  useCurrentVoiceChannelId,
+  useCurrentVoiceKind
+} from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
 import { leaveCurrentVoice } from '@/features/server/voice/actions';
 import { useVoice } from '@/features/server/voice/hooks';
@@ -16,12 +19,29 @@ import {
   WifiOff
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
+import { SoundboardPopover } from '../soundboard/soundboard-popover';
+import { WatchTogetherButton } from '../soundboard/watch-together-button';
 import { Button } from '../ui/button';
 import { StatsPopover } from './stats-popover';
 
+const alwaysAllowed = () => true;
+
+/** Phones have no screen capture; the button only produced a failure
+ *  toast there. Capability, not device sniffing. */
+const canShareScreen = () =>
+  typeof navigator !== 'undefined' &&
+  typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+
 const VoiceControl = memo(() => {
   const voiceChannelId = useCurrentVoiceChannelId();
-  const channelCan = useChannelCan(voiceChannelId);
+  const voiceKind = useCurrentVoiceKind();
+  // Channel permissions exist for server channels only; a DM call has
+  // none, and looking its id up among the server's channels found an
+  // unrelated channel with the same number.
+  const channelCan = useChannelCan(
+    voiceKind === 'channel' ? voiceChannelId : undefined
+  );
+  const can = voiceKind === 'dm' ? alwaysAllowed : channelCan;
   const { ownVoiceState, toggleWebcam, toggleScreenShare, connectionStatus } =
     useVoice();
 
@@ -70,18 +90,30 @@ const VoiceControl = memo(() => {
         </div>
       </StatsPopover>
 
-      <div className="flex items-center justify-between px-2 py-2">
-        <Button variant="outline" size="sm" onClick={leaveCurrentVoice}>
-          <PhoneOff className="h-3.5 w-3.5 mr-1.5" />
-          Disconnect
+      {/* Five 32 px controls and four 4 px gaps: 176 px, inside the
+          208 px the deck card offers. The labelled Disconnect of before
+          (122 px on its own) pushed the share button under the card's
+          overflow-hidden edge. Icon-only, like the phone in-call bar. */}
+      <div className="flex items-center gap-1 px-2 py-2">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="bg-secondary text-red-400 hover:bg-red-500/15 hover:text-red-300"
+          onClick={() => void leaveCurrentVoice()}
+          aria-label="Disconnect"
+          title="Disconnect"
+        >
+          <PhoneOff className="h-4 w-4" />
         </Button>
 
-        <div className="flex gap-1">
+        <div className="ml-auto flex items-center gap-1">
+          <SoundboardPopover />
+          <WatchTogetherButton />
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             className={cn(
-              'h-8 w-8 rounded-md transition-all duration-200',
+              'rounded-md transition-all duration-200',
               ownVoiceState.webcamEnabled
                 ? 'bg-green-500/15 hover:bg-green-500/25 text-green-400 hover:text-green-300'
                 : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
@@ -92,7 +124,7 @@ const VoiceControl = memo(() => {
                 ? 'Turn off camera'
                 : 'Turn on camera'
             }
-            disabled={!channelCan(ChannelPermission.WEBCAM)}
+            disabled={!can(ChannelPermission.WEBCAM)}
           >
             {ownVoiceState.webcamEnabled ? (
               <Video className="h-4 w-4" />
@@ -101,29 +133,33 @@ const VoiceControl = memo(() => {
             )}
           </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              'h-8 w-8 rounded-md transition-all duration-200',
-              ownVoiceState.sharingScreen
-                ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
-                : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
-            )}
-            onClick={toggleScreenShare}
-            title={
-              ownVoiceState.sharingScreen
-                ? 'Stop screen share'
-                : 'Start screen share'
-            }
-            disabled={!channelCan(ChannelPermission.SHARE_SCREEN)}
-          >
-            {ownVoiceState.sharingScreen ? (
-              <Monitor className="h-4 w-4" />
-            ) : (
-              <MonitorOff className="h-4 w-4" />
-            )}
-          </Button>
+          {canShareScreen() && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                'rounded-md transition-all duration-200',
+                ownVoiceState.sharingScreen
+                  ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
+                  : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+              )}
+              onClick={toggleScreenShare}
+              title={
+                ownVoiceState.sharingScreen
+                  ? 'Stop screen share'
+                  : 'Start screen share'
+              }
+              disabled={!can(ChannelPermission.SHARE_SCREEN)}
+            >
+              {/* Share is an action, not a device state: a plain monitor
+                  offers to start, the struck one to stop. */}
+              {ownVoiceState.sharingScreen ? (
+                <MonitorOff className="h-4 w-4" />
+              ) : (
+                <Monitor className="h-4 w-4" />
+              )}
+            </Button>
+          )}
         </div>
       </div>
     </div>

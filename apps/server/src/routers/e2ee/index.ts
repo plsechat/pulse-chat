@@ -1,12 +1,13 @@
 import { ChannelPermission, ServerEvents } from '@pulse/shared';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../../config';
 import { db } from '../../db';
 import {
-  channels,
+  dmChannelMembers,
   e2eeSenderKeys,
   federationInstances,
+  friendships,
   serverMembers,
   userIdentityKeys,
   userKeyBackups,
@@ -14,8 +15,10 @@ import {
   userSignedPreKeys,
   users
 } from '../../db/schema';
-import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { getCoMemberIds } from '../../db/queries/servers';
+import {
+  getAffectedUserIdsForChannel,
+  getViewableE2eeChannelIds
+} from '../../db/queries/channels';
 import { logger } from '../../logger';
 import { invariant } from '../../utils/invariant';
 import { refuseInPreview } from '../../utils/preview-guard';
@@ -23,25 +26,41 @@ import { pubsub } from '../../utils/pubsub';
 import { relayFederatedChannelSenderKeyNotifications } from '../../utils/federation-channel-sender-key-dispatch';
 import { relayFederatedIdentityRotation } from '../../utils/federation-dm-group-dispatch';
 import { protectedProcedure, t } from '../../utils/trpc';
+import {
+  MAX_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_E2EE_BATCH,
+  MAX_E2EE_KEY_LENGTH,
+  MAX_KEY_BACKUP_LENGTH,
+  MAX_OTP_BATCH,
+  MAX_OTP_PER_USER,
+  MAX_REGISTRATION_ID,
+  MAX_SENDER_KEY_ID,
+  SIGNED_PREKEYS_KEPT
+} from './bounds';
 import { getFederatedPreKeyBundleRoute } from './get-federated-prekey-bundle';
-import { insertIdentityResetMessages } from './identity-reset-messages';
+import {
+  collectIdentityResetRecipients,
+  insertIdentityResetMessages
+} from './identity-reset-messages';
+
+const keyIdSchema = z.number().int().min(0).max(MAX_SENDER_KEY_ID);
+const keyMaterialSchema = z.string().min(1).max(MAX_E2EE_KEY_LENGTH);
+const oneTimePreKeySchema = z.object({
+  keyId: keyIdSchema,
+  publicKey: keyMaterialSchema
+});
 
 const registerKeysRoute = protectedProcedure
   .input(
     z.object({
-      identityPublicKey: z.string(),
-      registrationId: z.number(),
+      identityPublicKey: keyMaterialSchema,
+      registrationId: z.number().int().min(0).max(MAX_REGISTRATION_ID),
       signedPreKey: z.object({
-        keyId: z.number(),
-        publicKey: z.string(),
-        signature: z.string()
+        keyId: keyIdSchema,
+        publicKey: keyMaterialSchema,
+        signature: keyMaterialSchema
       }),
-      oneTimePreKeys: z.array(
-        z.object({
-          keyId: z.number(),
-          publicKey: z.string()
-        })
-      )
+      oneTimePreKeys: z.array(oneTimePreKeySchema).max(MAX_OTP_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -122,25 +141,55 @@ const registerKeysRoute = protectedProcedure
     // Insert system messages and broadcast identity reset after transaction commits
     if (identityChanged) {
       logger.debug('[E2EE/registerKeys] identityChanged=true');
+
+      // The resetter's E2EE channels, once; the system rows, the
+      // recipient set and the per-recipient channel lists all derive
+      // from it. Failures past this point must not undo a registration
+      // that already committed, so each stage is its own try/catch.
+      let e2eeChannelIds: number[] = [];
       try {
-        await insertIdentityResetMessages(ctx.userId);
+        e2eeChannelIds = await getViewableE2eeChannelIds(ctx.userId);
+      } catch (err) {
+        logger.error('[E2EE] getViewableE2eeChannelIds failed: %o', err);
+      }
+
+      try {
+        await insertIdentityResetMessages(ctx.userId, e2eeChannelIds);
       } catch (err) {
         // Non-fatal: don't block key registration if system messages fail
         logger.error('[E2EE] insertIdentityResetMessages failed: %o', err);
       }
 
+      // Only the users who hold something from the resetter — viewers
+      // of a shared E2EE channel or members of a shared E2EE DM — are
+      // told, each with the channels they share so the client re-keys
+      // exactly those instead of listing and re-keying all of its own.
+      let recipients = new Map<number, number[]>();
+      try {
+        recipients = await collectIdentityResetRecipients(
+          ctx.userId,
+          e2eeChannelIds
+        );
+      } catch (err) {
+        logger.error('[E2EE] collectIdentityResetRecipients failed: %o', err);
+      }
+      for (const [recipientId, channelIds] of recipients) {
+        pubsub.publishFor(recipientId, ServerEvents.E2EE_IDENTITY_RESET, {
+          userId: ctx.userId,
+          channelIds
+        });
+      }
+
       // Include self: the user's OTHER devices/tabs must learn their
-      // account identity was replaced. getCoMemberIds filters the user
-      // out, so a second device never got the signal and kept operating
-      // under the dead identity. handlePeerIdentityReset's own-user
-      // branch (guarded by the local-reset flag on the initiator) picks
-      // it up and reloads → the initE2EE parity guard then warns.
-      const coMemberIds = await getCoMemberIds(ctx.userId);
-      pubsub.publishFor(
-        [...coMemberIds, ctx.userId],
-        ServerEvents.E2EE_IDENTITY_RESET,
-        { userId: ctx.userId }
-      );
+      // account identity was replaced, or a second device keeps
+      // operating under the dead identity. handlePeerIdentityReset's
+      // own-user branch (guarded by the local-reset flag on the
+      // initiator) picks it up and reloads → the initE2EE parity guard
+      // then warns. Self gets the full channel list.
+      pubsub.publishFor(ctx.userId, ServerEvents.E2EE_IDENTITY_RESET, {
+        userId: ctx.userId,
+        channelIds: e2eeChannelIds
+      });
 
       // Phase D / D3 — propagate to federated DM peers. Active-DM-
       // channels-only scope; channel rotation propagation is out of
@@ -156,30 +205,92 @@ const registerKeysRoute = protectedProcedure
     }
   });
 
-const getPreKeyBundleRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
-  .query(async ({ ctx, input }) => {
-    // Verify the caller shares at least one server with the target user
-    const callerServers = db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, ctx.userId));
+/**
+ * May `callerId` read `targetId`'s public key material (prekey bundle,
+ * identity key)? Yes when the two share a server, share a DM channel, or
+ * are friends — one statement anchored on the target's row. The old
+ * rule was "shared server" alone, which left friends who met outside
+ * any server able to open an encrypted DM and never establish the
+ * session behind it (every send failed FORBIDDEN here). DM membership is
+ * the precise authorization for that case; friendship covers the key
+ * fetch that precedes the DM channel's creation.
+ */
+const canReadKeysOf = async (
+  callerId: number,
+  targetId: number
+): Promise<boolean> => {
+  if (callerId === targetId) return true;
 
-    const [shared] = await db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(
-        and(
-          eq(serverMembers.userId, input.userId),
-          sql`${serverMembers.serverId} IN (${callerServers})`
+  const sharedServer = db
+    .select({ one: sql`1` })
+    .from(serverMembers)
+    .where(
+      and(
+        eq(serverMembers.userId, targetId),
+        inArray(
+          serverMembers.serverId,
+          db
+            .select({ serverId: serverMembers.serverId })
+            .from(serverMembers)
+            .where(eq(serverMembers.userId, callerId))
         )
       )
-      .limit(1);
+    );
 
-    invariant(shared, {
-      code: 'FORBIDDEN',
-      message: 'No shared server with target user'
-    });
+  const sharedDm = db
+    .select({ one: sql`1` })
+    .from(dmChannelMembers)
+    .where(
+      and(
+        eq(dmChannelMembers.userId, targetId),
+        inArray(
+          dmChannelMembers.dmChannelId,
+          db
+            .select({ dmChannelId: dmChannelMembers.dmChannelId })
+            .from(dmChannelMembers)
+            .where(eq(dmChannelMembers.userId, callerId))
+        )
+      )
+    );
+
+  const friends = db
+    .select({ one: sql`1` })
+    .from(friendships)
+    .where(
+      or(
+        and(
+          eq(friendships.userId, callerId),
+          eq(friendships.friendId, targetId)
+        ),
+        and(
+          eq(friendships.userId, targetId),
+          eq(friendships.friendId, callerId)
+        )
+      )
+    );
+
+  const [row] = await db
+    .select({
+      ok: sql<boolean>`EXISTS (${sharedServer}) OR EXISTS (${sharedDm}) OR EXISTS (${friends})`
+    })
+    .from(users)
+    .where(eq(users.id, targetId))
+    .limit(1);
+
+  return row?.ok === true;
+};
+
+const assertCanReadKeysOf = async (callerId: number, targetId: number) => {
+  invariant(await canReadKeysOf(callerId, targetId), {
+    code: 'FORBIDDEN',
+    message: 'No shared server, conversation or friendship with target user'
+  });
+};
+
+const getPreKeyBundleRoute = protectedProcedure
+  .input(z.object({ userId: z.number().int().positive() }))
+  .query(async ({ ctx, input }) => {
+    await assertCanReadKeysOf(ctx.userId, input.userId);
 
     // Get identity key
     const [identityKey] = await db
@@ -238,29 +349,9 @@ const getPreKeyBundleRoute = protectedProcedure
   });
 
 const getIdentityPublicKeyRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .query(async ({ ctx, input }) => {
-    // Verify the caller shares at least one server with the target user
-    const callerServers = db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, ctx.userId));
-
-    const [shared] = await db
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(
-        and(
-          eq(serverMembers.userId, input.userId),
-          sql`${serverMembers.serverId} IN (${callerServers})`
-        )
-      )
-      .limit(1);
-
-    invariant(shared, {
-      code: 'FORBIDDEN',
-      message: 'No shared server with target user'
-    });
+    await assertCanReadKeysOf(ctx.userId, input.userId);
 
     const [key] = await db
       .select({ identityPublicKey: userIdentityKeys.identityPublicKey })
@@ -288,16 +379,27 @@ const getOwnIdentityRoute = protectedProcedure.query(async ({ ctx }) => {
 const uploadOneTimePreKeysRoute = protectedProcedure
   .input(
     z.object({
-      oneTimePreKeys: z.array(
-        z.object({
-          keyId: z.number(),
-          publicKey: z.string()
-        })
-      )
+      oneTimePreKeys: z.array(oneTimePreKeySchema).max(MAX_OTP_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
     if (input.oneTimePreKeys.length === 0) return;
+
+    // Per-user pool ceiling — a looping client must not grow this table
+    // without bound. The client replenishes in batches of 100 only when
+    // the pool runs low, so a healthy pool never approaches the cap.
+    const [existing] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(userOneTimePreKeys)
+      .where(eq(userOneTimePreKeys.userId, ctx.userId));
+
+    invariant(
+      (existing?.count ?? 0) + input.oneTimePreKeys.length <= MAX_OTP_PER_USER,
+      {
+        code: 'BAD_REQUEST',
+        message: `At most ${MAX_OTP_PER_USER} one-time pre-keys may be stored`
+      }
+    );
 
     await db.insert(userOneTimePreKeys).values(
       input.oneTimePreKeys.map((key) => ({
@@ -314,27 +416,11 @@ const uploadOneTimePreKeysRoute = protectedProcedure
 // just the active server (the previous behavior, which left peers in
 // other servers stuck on stale keys until manual rotation). The result
 // is a flat number[] of channel ids; the client iterates and calls
-// ensureChannelSenderKey on each.
-const listMyE2eeChannelIdsRoute = protectedProcedure.query(async ({ ctx }) => {
-  // Pull every e2ee channel id and ask the existing visibility query
-  // which ones the caller can view. This re-uses the channel-permission
-  // logic (private + per-user overrides + role permissions) instead of
-  // duplicating it, at the cost of N small queries on identity reset.
-  // Reset happens rarely; the cost is acceptable.
-  const e2eeChannels = await db
-    .select({ id: channels.id })
-    .from(channels)
-    .where(eq(channels.e2ee, true));
-
-  const visible: number[] = [];
-  for (const ch of e2eeChannels) {
-    const userIds = await getAffectedUserIdsForChannel(ch.id, {
-      permission: ChannelPermission.VIEW_CHANNEL
-    });
-    if (userIds.includes(ctx.userId)) visible.push(ch.id);
-  }
-  return visible;
-});
+// ensureChannelSenderKey on each. One statement (see the helper) — this
+// used to be one permission query per E2EE channel on the instance.
+const listMyE2eeChannelIdsRoute = protectedProcedure.query(({ ctx }) =>
+  getViewableE2eeChannelIds(ctx.userId)
+);
 
 const getPreKeyCountRoute = protectedProcedure.query(async ({ ctx }) => {
   const [result] = await db
@@ -348,60 +434,41 @@ const getPreKeyCountRoute = protectedProcedure.query(async ({ ctx }) => {
 const rotateSignedPreKeyRoute = protectedProcedure
   .input(
     z.object({
-      keyId: z.number(),
-      publicKey: z.string(),
-      signature: z.string()
+      keyId: keyIdSchema,
+      publicKey: keyMaterialSchema,
+      signature: keyMaterialSchema
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await db.insert(userSignedPreKeys).values({
-      userId: ctx.userId,
-      keyId: input.keyId,
-      publicKey: input.publicKey,
-      signature: input.signature,
-      createdAt: Date.now()
+    await db.transaction(async (tx) => {
+      await tx.insert(userSignedPreKeys).values({
+        userId: ctx.userId,
+        keyId: input.keyId,
+        publicKey: input.publicKey,
+        signature: input.signature,
+        createdAt: Date.now()
+      });
+
+      // Keep only the newest SIGNED_PREKEYS_KEPT rows: the bundle serves
+      // the latest, and libsignal needs at most the previous one for
+      // handshakes still in flight. Everything older is dead weight.
+      const keep = await tx
+        .select({ id: userSignedPreKeys.id })
+        .from(userSignedPreKeys)
+        .where(eq(userSignedPreKeys.userId, ctx.userId))
+        .orderBy(desc(userSignedPreKeys.createdAt), desc(userSignedPreKeys.id))
+        .limit(SIGNED_PREKEYS_KEPT);
+
+      await tx.delete(userSignedPreKeys).where(
+        and(
+          eq(userSignedPreKeys.userId, ctx.userId),
+          notInArray(
+            userSignedPreKeys.id,
+            keep.map((row) => row.id)
+          )
+        )
+      );
     });
-  });
-
-const distributeSenderKeyRoute = protectedProcedure
-  .input(
-    z.object({
-      channelId: z.number(),
-      // Phase B: bumps on every chain rotation. Defaults to 1 so any
-      // pre-Phase-B clients still in the wild keep working until they
-      // upgrade — and there's no clean way to make this `required`
-      // without breaking the wire-compat split with their bundles.
-      senderKeyId: z.number().int().min(1).default(1),
-      toUserId: z.number(),
-      distributionMessage: z.string()
-    })
-  )
-  .mutation(async ({ ctx, input }) => {
-    // Verify the caller has access to this channel
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-    // Previewers hold VIEW_CHANNEL but must not write sender-key rows
-    await refuseInPreview(ctx, input.channelId);
-
-    await db.insert(e2eeSenderKeys).values({
-      channelId: input.channelId,
-      senderKeyId: input.senderKeyId,
-      fromUserId: ctx.userId,
-      toUserId: input.toUserId,
-      distributionMessage: input.distributionMessage,
-      createdAt: Date.now()
-    });
-
-    pubsub.publishFor(
-      input.toUserId,
-      ServerEvents.E2EE_SENDER_KEY_DISTRIBUTION,
-      {
-        channelId: input.channelId,
-        fromUserId: ctx.userId
-      }
-    );
   });
 
 // Phase E / E1b — distribution targets accept either the legacy
@@ -410,24 +477,29 @@ const distributeSenderKeyRoute = protectedProcedure
 // instances be addressed without an active-server-local id; the
 // receiving instance gets a federation notification (Decision 1,
 // Option A: host-only SKDM storage with notify-on-availability).
+const distributionMessageSchema = z
+  .string()
+  .min(1)
+  .max(MAX_DISTRIBUTION_MESSAGE_LENGTH);
+
 const distributionTargetSchema = z.union([
   z.object({
-    toUserId: z.number(),
-    distributionMessage: z.string()
+    toUserId: z.number().int().positive(),
+    distributionMessage: distributionMessageSchema
   }),
   z.object({
-    toPublicId: z.string().min(1),
-    toInstanceDomain: z.string().optional(),
-    distributionMessage: z.string()
+    toPublicId: z.string().min(1).max(64),
+    toInstanceDomain: z.string().max(253).optional(),
+    distributionMessage: distributionMessageSchema
   })
 ]);
 
 const distributeSenderKeysBatchRoute = protectedProcedure
   .input(
     z.object({
-      channelId: z.number(),
-      senderKeyId: z.number().int().min(1).default(1),
-      distributions: z.array(distributionTargetSchema)
+      channelId: z.number().int().positive(),
+      senderKeyId: z.number().int().min(1).max(MAX_SENDER_KEY_ID).default(1),
+      distributions: z.array(distributionTargetSchema).max(MAX_E2EE_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -440,6 +512,16 @@ const distributeSenderKeysBatchRoute = protectedProcedure
     );
     // Previewers hold VIEW_CHANNEL but must not write sender-key rows
     await refuseInPreview(ctx, input.channelId);
+
+    // Only users who can VIEW the channel are valid recipients — the
+    // same invariant the DM twin enforces with membership. Without it,
+    // one VIEW_CHANNEL holder could insert rows and fire pubsub at any
+    // user id on the instance.
+    const viewerIds = new Set(
+      await getAffectedUserIdsForChannel(input.channelId, {
+        permission: ChannelPermission.VIEW_CHANNEL
+      })
+    );
 
     // Resolve each distribution target to a local user id (real for
     // non-federated, shadow for federated). Collect federated targets
@@ -514,6 +596,11 @@ const distributeSenderKeysBatchRoute = protectedProcedure
         continue;
       }
 
+      invariant(viewerIds.has(resolvedUserId), {
+        code: 'BAD_REQUEST',
+        message: 'Recipient cannot view this channel'
+      });
+
       insertRows.push({
         channelId: input.channelId,
         senderKeyId: input.senderKeyId,
@@ -550,11 +637,9 @@ const distributeSenderKeysBatchRoute = protectedProcedure
     // distributionMessage, where the update is a no-op.
     //
     // DO UPDATE (not DO NOTHING) so a DIFFERING distribution at the same
-    // tuple overwrites rather than being silently dropped: two devices on
-    // one account each build an outbound chain starting at senderKeyId=1,
-    // and DO NOTHING would strand whichever lost the race with the
-    // receiver marking distribution "succeeded". Last-writer-wins is
-    // deterministic; true per-device addressing is the Tier-2 fix.
+    // tuple overwrites rather than being silently dropped — a re-sent
+    // distribution after a client-side chain rebuild must win, not be
+    // stranded behind the stale row. Last-writer-wins is deterministic.
     await db
       .insert(e2eeSenderKeys)
       .values(insertRows)
@@ -600,7 +685,7 @@ const distributeSenderKeysBatchRoute = protectedProcedure
   });
 
 const getPendingSenderKeysRoute = protectedProcedure
-  .input(z.object({ channelId: z.number().optional() }))
+  .input(z.object({ channelId: z.number().int().positive().optional() }))
   .query(async ({ ctx, input }) => {
     const conditions = [eq(e2eeSenderKeys.toUserId, ctx.userId)];
 
@@ -680,7 +765,11 @@ const getPendingSenderKeysRoute = protectedProcedure
   });
 
 const acknowledgeSenderKeysRoute = protectedProcedure
-  .input(z.object({ ids: z.array(z.number()) }))
+  .input(
+    z.object({
+      ids: z.array(z.number().int().positive()).max(MAX_E2EE_BATCH)
+    })
+  )
   .mutation(async ({ ctx, input }) => {
     if (input.ids.length === 0) return;
 
@@ -695,7 +784,11 @@ const acknowledgeSenderKeysRoute = protectedProcedure
   });
 
 const uploadKeyBackupRoute = protectedProcedure
-  .input(z.object({ encryptedData: z.string() }))
+  .input(
+    z.object({
+      encryptedData: z.string().min(1).max(MAX_KEY_BACKUP_LENGTH)
+    })
+  )
   .mutation(async ({ ctx, input }) => {
     const now = Date.now();
     await db
@@ -777,7 +870,6 @@ export const e2eeRouter = t.router({
   getPreKeyCount: getPreKeyCountRoute,
   rotateSignedPreKey: rotateSignedPreKeyRoute,
   listMyE2eeChannelIds: listMyE2eeChannelIdsRoute,
-  distributeSenderKey: distributeSenderKeyRoute,
   distributeSenderKeysBatch: distributeSenderKeysBatchRoute,
   getPendingSenderKeys: getPendingSenderKeysRoute,
   acknowledgeSenderKeys: acknowledgeSenderKeysRoute,

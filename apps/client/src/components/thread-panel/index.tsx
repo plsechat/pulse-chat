@@ -8,9 +8,11 @@ import { useMessagesByChannelId } from '@/features/server/messages/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { Protect } from '@/components/protect';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { useHistoryOverlay } from '@/hooks/use-history-overlay';
+import { useIsMobile } from '@/hooks/use-is-mobile';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
-import { Archive, MessageSquare, Trash2, X } from 'lucide-react';
+import { Archive, ArrowLeft, MessageSquare, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 
@@ -18,6 +20,7 @@ const ThreadPanel = memo(() => {
   const thread = useActiveThread();
   const ownUserId = useOwnUserId();
   const can = useCan();
+  const isMobile = useIsMobile();
   // The thread's messages live under the thread-channel id. The thread
   // creator is whoever sent the first message in the thread (true for
   // both forum threads, where the creator authored the post itself,
@@ -44,6 +47,9 @@ const ThreadPanel = memo(() => {
   const onClose = useCallback(() => {
     setActiveThreadId(undefined);
   }, []);
+
+  // Full-screen on phones: the platform back gesture closes it.
+  useHistoryOverlay(isMobile && !!thread, onClose);
 
   const onArchive = useCallback(async () => {
     if (!thread) return;
@@ -90,9 +96,26 @@ const ThreadPanel = memo(() => {
   if (!thread) return null;
 
   return (
-    <div className="flex flex-col h-full w-80 border-l border-border bg-background">
+    // A w-80 sibling of the chat left ~54px of chat at phone width; below
+    // `md` the panel covers the whole viewport and its close button reads
+    // as "back". From `md` up it is the docked side panel it always was.
+    <div
+      className="flex flex-col h-full bg-background fixed inset-0 z-30 w-full md:static md:inset-auto md:z-auto md:w-80 md:border-l md:border-border"
+      data-testid="thread-panel"
+    >
       {/* Header */}
       <div className="flex items-center gap-2 h-12 px-3 border-b border-border flex-shrink-0">
+        {isMobile && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="h-8 w-8 p-0 -ml-1"
+            title="Back"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+        )}
         <MessageSquare className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium truncate flex-1">
           {thread.name}
@@ -132,14 +155,17 @@ const ThreadPanel = memo(() => {
             <Trash2 className="w-4 h-4" />
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          className="h-7 px-2"
-        >
-          <X className="w-4 h-4" />
-        </Button>
+        {!isMobile && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="h-7 px-2"
+            title="Close thread"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        )}
       </div>
 
       {/* Thread content - reuses TextChannel */}

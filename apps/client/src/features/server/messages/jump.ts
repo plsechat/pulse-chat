@@ -38,12 +38,28 @@ const HIGHLIGHT_DURATION_MS = 2500;
 // jump; releasing the latch only after the scroll ladder settles (past
 // the last retry below) stops them from racing the target to the bottom
 // in the window where the detached-window state hasn't propagated yet.
-const JUMP_SETTLE_MS = 400;
+const JUMP_SETTLE_MS = 1400;
+
+// Late re-centring checks: the window's rows keep changing height for a
+// while after the fetch (wrapped lines in a narrow pane, link previews,
+// images), which pushes an already-centred target out of view.
+const RECENTER_AT_MS = [500, 800, 1200];
+
+/** Whether the row is fully inside its scroll container's viewport. */
+const inView = (row: HTMLElement): boolean => {
+  const container = row.closest<HTMLElement>('[data-testid="message-scroll"]');
+  if (!container) return true;
+  const r = row.getBoundingClientRect();
+  const c = container.getBoundingClientRect();
+  return r.top >= c.top && r.bottom <= c.bottom;
+};
 
 /**
  * Scroll the (now rendered) target into view and flash it. Retried
  * across a few frames because the row renders asynchronously after the
- * fetch — same retry ladder the initial-scroll restore uses.
+ * fetch — same retry ladder the initial-scroll restore uses — and then
+ * re-centred, without animation, whenever a later layout shift has
+ * moved it off screen.
  */
 export const finishJump = (channelId: number, messageId: number): void => {
   setHighlightedMessageId(messageId);
@@ -57,6 +73,14 @@ export const finishJump = (channelId: number, messageId: number): void => {
   requestAnimationFrame(scroll);
   setTimeout(scroll, 60);
   setTimeout(scroll, 250);
+
+  const recenter = () => {
+    const row = document.getElementById(`msg-${messageId}`);
+    if (row && !inView(row)) {
+      row.scrollIntoView({ behavior: 'auto', block: 'center' });
+    }
+  };
+  for (const at of RECENTER_AT_MS) setTimeout(recenter, at);
 
   // Hold the latch until the scroll settles so no competing auto-scroll
   // fires in between; only then hand scroll control back to the user.

@@ -6,8 +6,8 @@ import type {
   TJoinedDmMessage,
   TJoinedDmMessageReaction,
   TReactionUser
-} from '@pulse/shared';
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+} from '../../types';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { dmFileSalt, generateFileToken } from '../../helpers/files-crypto';
@@ -18,6 +18,7 @@ import {
   dmMessageReactions,
   dmMessages,
   dmReadStates,
+  federationInstances,
   files,
   users
 } from '../schema';
@@ -49,6 +50,7 @@ const getReactionsForDmMessageIds = async (
       fileId: dmMessageReactions.fileId,
       file: files,
       reactorName: users.name,
+      reactorPublicId: users.publicId,
       reactorAvatar
     })
     .from(dmMessageReactions)
@@ -65,7 +67,8 @@ const getReactionsForDmMessageIds = async (
         ? {
             id: r.userId,
             name: r.reactorName,
-            avatar: toReactionAvatar(r.reactorAvatar)
+            avatar: toReactionAvatar(r.reactorAvatar),
+            publicId: r.reactorPublicId ?? ''
           }
         : null;
 
@@ -134,6 +137,20 @@ const getDmChannelsForUser = async (
     .from(dmChannels)
     .where(inArray(dmChannels.id, channelIds));
 
+  // Query 2b: group icons — the client renders /public/<name>, so the
+  // id alone (dmChannels.iconFileId) is not enough to show the icon.
+  const iconFileIds = channelRows
+    .map((c) => c.iconFileId)
+    .filter((id): id is number => id !== null);
+  const iconRows =
+    iconFileIds.length > 0
+      ? await db
+          .select({ id: files.id, name: files.name })
+          .from(files)
+          .where(inArray(files.id, iconFileIds))
+      : [];
+  const iconMap = new Map(iconRows.map((f) => [f.id, f]));
+
   // Query 3: Batch-fetch all members for all channels
   const allMemberRows = await db
     .select({
@@ -178,10 +195,12 @@ const getDmChannelsForUser = async (
   );
 
   if (withReadState.length > 0) {
+    // Tombstones ("Message deleted") are not unread.
     const conditions = withReadState.map((chId) =>
       and(
         eq(dmMessages.dmChannelId, chId),
-        sql`${dmMessages.id} > ${readStateMap.get(chId)!.lastReadMessageId}`
+        sql`${dmMessages.id} > ${readStateMap.get(chId)!.lastReadMessageId}`,
+        isNull(dmMessages.deletedAt)
       )
     );
     const counts = await db
@@ -215,6 +234,10 @@ const getDmChannelsForUser = async (
 
     return {
       ...channel,
+      icon:
+        channel.iconFileId !== null
+          ? (iconMap.get(channel.iconFileId) ?? null)
+          : null,
       members,
       lastMessage: lastMsgMap.get(channel.id) ?? null,
       unreadCount: unreadCountMap.get(channel.id) ?? 0
@@ -231,42 +254,116 @@ const getDmChannelsForUser = async (
   return result;
 };
 
-const findDmChannelBetween = async (
-  userId1: number,
-  userId2: number
-): Promise<number | null> => {
-  // Query 1: Get non-group DM channels for userId1
-  const candidates = await db
-    .select({ dmChannelId: dmChannelMembers.dmChannelId })
-    .from(dmChannelMembers)
-    .innerJoin(dmChannels, eq(dmChannels.id, dmChannelMembers.dmChannelId))
-    .where(
-      and(
-        eq(dmChannelMembers.userId, userId1),
-        eq(dmChannels.isGroup, false)
-      )
-    );
+type TDmPairMember = {
+  publicId: string;
+  isFederated: boolean;
+  federatedPublicId: string | null;
+  instanceDomain: string | null;
+};
 
-  if (candidates.length === 0) return null;
+/**
+ * Stable identity of a DM participant for the pair key. A shadow is named
+ * by its home instance and the publicId that home issued, which is how
+ * both ends of a federated DM know it; a local user by our own publicId.
+ * A legacy shadow that lacks either (minted before publicIds were
+ * mandatory) falls back to its local publicId — unique on this instance,
+ * which is all the key needs to be.
+ */
+const dmIdentityOf = (u: TDmPairMember): string =>
+  u.isFederated && u.federatedPublicId && u.instanceDomain
+    ? `federated:${u.instanceDomain}:${u.federatedPublicId}`
+    : `local:${u.publicId}`;
 
-  const candidateIds = candidates.map((r) => r.dmChannelId);
-
-  // Query 2: Find channels with exactly 2 members that include userId2
-  const matches = await db
+/**
+ * Canonical key of the 1:1 DM between two users: both identities sorted
+ * by code unit (the migration backfill sorts with COLLATE "C" so the
+ * two agree) and joined with '|'. The unique index on dm_channels.pair_key
+ * is what stops two first messages crossing between instances from
+ * minting two channels for one pair.
+ */
+const pairKeyFor = async (
+  userIdA: number,
+  userIdB: number
+): Promise<string> => {
+  if (userIdA === userIdB) {
+    throw new Error('A DM pair needs two distinct users');
+  }
+  const rows = await db
     .select({
-      dmChannelId: dmChannelMembers.dmChannelId
+      publicId: users.publicId,
+      isFederated: users.isFederated,
+      federatedPublicId: users.federatedPublicId,
+      instanceDomain: federationInstances.domain
     })
-    .from(dmChannelMembers)
-    .where(inArray(dmChannelMembers.dmChannelId, candidateIds))
-    .groupBy(dmChannelMembers.dmChannelId)
+    .from(users)
+    .leftJoin(
+      federationInstances,
+      eq(users.federatedInstanceId, federationInstances.id)
+    )
+    .where(inArray(users.id, [userIdA, userIdB]));
+  if (rows.length !== 2) {
+    throw new Error('A DM pair needs two existing users');
+  }
+  return rows
+    .map(dmIdentityOf)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .join('|');
+};
+
+/**
+ * The 1:1 channel between two users, by pair key. A channel that predates
+ * the key (NULL pair_key — a mirror minted by an older relay path, or a
+ * database whose backfill was skipped) is found by its membership and
+ * stamped on the way out, so the next lookup is the indexed one and a
+ * concurrent creation cannot mint a second channel beside it.
+ */
+const findDmChannelBetween = async (
+  userIdA: number,
+  userIdB: number,
+  pairKey?: string
+): Promise<number | null> => {
+  const key = pairKey ?? (await pairKeyFor(userIdA, userIdB));
+
+  const [byKey] = await db
+    .select({ id: dmChannels.id })
+    .from(dmChannels)
+    .where(eq(dmChannels.pairKey, key))
+    .limit(1);
+  if (byKey) return byKey.id;
+
+  const [unstamped] = await db
+    .select({ id: dmChannels.id })
+    .from(dmChannels)
+    .innerJoin(dmChannelMembers, eq(dmChannelMembers.dmChannelId, dmChannels.id))
+    .where(and(eq(dmChannels.isGroup, false), isNull(dmChannels.pairKey)))
+    .groupBy(dmChannels.id)
     .having(
       and(
         sql`count(*) = 2`,
-        sql`bool_or(${dmChannelMembers.userId} = ${userId2})`
+        sql`bool_or(${dmChannelMembers.userId} = ${userIdA})`,
+        sql`bool_or(${dmChannelMembers.userId} = ${userIdB})`
       )
-    );
+    )
+    .orderBy(dmChannels.id)
+    .limit(1);
+  if (!unstamped) return null;
 
-  return matches[0]?.dmChannelId ?? null;
+  try {
+    await db
+      .update(dmChannels)
+      .set({ pairKey: key })
+      .where(and(eq(dmChannels.id, unstamped.id), isNull(dmChannels.pairKey)));
+    return unstamped.id;
+  } catch {
+    // The key was taken between the two lookups — a creation for this
+    // pair won the race. That row is now the canonical one.
+    const [raced] = await db
+      .select({ id: dmChannels.id })
+      .from(dmChannels)
+      .where(eq(dmChannels.pairKey, key))
+      .limit(1);
+    return raced?.id ?? unstamped.id;
+  }
 };
 
 const getDmMessage = async (
@@ -296,10 +393,17 @@ const getDmMessage = async (
       .select({
         id: dmMessages.id,
         content: dmMessages.content,
-        userId: dmMessages.userId
+        userId: dmMessages.userId,
+        e2ee: dmMessages.e2ee
       })
       .from(dmMessages)
-      .where(eq(dmMessages.id, msg.replyToId))
+      // Same conversation only — never preview another DM's text.
+      .where(
+        and(
+          eq(dmMessages.id, msg.replyToId),
+          eq(dmMessages.dmChannelId, msg.dmChannelId)
+        )
+      )
       .limit(1);
 
     if (replyRow) {
@@ -366,5 +470,6 @@ export {
   getDmChannelsForUser,
   getDmMessage,
   getDmReaction,
-  getReactionsForDmMessageIds
+  getReactionsForDmMessageIds,
+  pairKeyFor
 };

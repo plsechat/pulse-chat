@@ -5,8 +5,13 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import {
+  describeNotificationPermission,
+  getNotificationPermission
+} from '@/features/notifications/desktop-notification';
 import {
   playSoundForPreview,
   SOUND_VARIANTS
@@ -14,11 +19,12 @@ import {
 import { SoundType } from '@/features/server/types';
 import {
   SOUND_CATEGORIES,
+  SOUND_CATEGORY_SETTING_KEY,
   useSoundNotificationSettings,
   type SoundCategory
 } from '@/hooks/use-sound-notification-settings';
 import { AlertTriangle, Play } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   SettingRow,
   SettingRowStack,
@@ -35,7 +41,7 @@ const VARIANT_EVENTS: { type: SoundType; label: string; hint: string }[] = [
   {
     type: SoundType.MESSAGE_SENT,
     label: 'Message sent',
-    hint: 'Plays when your message goes out'
+    hint: 'Plays when your message goes out. Off unless you switch it on.'
   },
   {
     type: SoundType.OWN_USER_JOINED_VOICE_CHANNEL,
@@ -54,17 +60,12 @@ const VARIANT_EVENTS: { type: SoundType; label: string; hint: string }[] = [
   }
 ];
 
-const categorySettingKeys = {
-  messages: 'messageSoundsEnabled',
-  voice: 'voiceSoundsEnabled',
-  actions: 'actionSoundsEnabled'
-} as const;
-
 const categorySetters = {
   messages: 'setMessageSoundsEnabled',
   voice: 'setVoiceSoundsEnabled',
-  actions: 'setActionSoundsEnabled'
-} as const;
+  actions: 'setActionSoundsEnabled',
+  calls: 'setCallSoundsEnabled'
+} as const satisfies Record<SoundCategory, string>;
 
 const SoundsNotifications = memo(() => {
   const {
@@ -73,6 +74,8 @@ const SoundsNotifications = memo(() => {
     setMessageSoundsEnabled,
     setVoiceSoundsEnabled,
     setActionSoundsEnabled,
+    setCallSoundsEnabled,
+    setMessageSentSoundEnabled,
     setDesktopNotificationsEnabled,
     setSoundVariant
   } = useSoundNotificationSettings();
@@ -88,13 +91,31 @@ const SoundsNotifications = memo(() => {
   );
 
   const [notificationPermission, setNotificationPermission] = useState(
-    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+    getNotificationPermission
   );
+  // The browser can change its answer while this panel is open (the
+  // load-time toast, the site-permission popover); re-read on focus.
+  useEffect(() => {
+    const refresh = () => setNotificationPermission(getNotificationPermission());
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
+  const permissionView = describeNotificationPermission(notificationPermission);
+
+  // "Allow" for a browser that inherited enabled=true from another
+  // device and was never prompted: the switch is already on, so the
+  // toggle path can never ask.
+  const handleRequestPermission = useCallback(async () => {
+    const result = await Notification.requestPermission();
+    setNotificationPermission(result);
+    if (result === 'granted') setDesktopNotificationsEnabled(true);
+  }, [setDesktopNotificationsEnabled]);
 
   const setters = {
     setMessageSoundsEnabled,
     setVoiceSoundsEnabled,
-    setActionSoundsEnabled
+    setActionSoundsEnabled,
+    setCallSoundsEnabled
   };
 
   const handleDesktopNotificationToggle = useCallback(
@@ -175,7 +196,7 @@ const SoundsNotifications = memo(() => {
             <SettingRow key={type} label={label} description={hint}>
               <button
                 onClick={() => playSoundForPreview(type, selected)}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 title="Preview sound"
               >
                 <Play className="h-4 w-4" />
@@ -195,6 +216,15 @@ const SoundsNotifications = memo(() => {
                   ))}
                 </SelectContent>
               </Select>
+              {type === SoundType.MESSAGE_SENT && (
+                // The one opt-in event: the picker chooses the sound,
+                // this decides whether it plays at all.
+                <Switch
+                  checked={settings.messageSentSoundEnabled === true}
+                  onCheckedChange={setMessageSentSoundEnabled}
+                  aria-label="Play a sound when your message is sent"
+                />
+              )}
             </SettingRow>
           );
         })}
@@ -206,7 +236,7 @@ const SoundsNotifications = memo(() => {
       >
         {(Object.keys(SOUND_CATEGORIES) as SoundCategory[]).map((key) => {
           const cat = SOUND_CATEGORIES[key];
-          const settingKey = categorySettingKeys[key];
+          const settingKey = SOUND_CATEGORY_SETTING_KEY[key];
           const setterKey = categorySetters[key];
           const enabled = settings[settingKey];
 
@@ -214,7 +244,7 @@ const SoundsNotifications = memo(() => {
             <SettingRow key={key} label={cat.label} description={cat.description}>
               <button
                 onClick={() => playSoundForPreview(cat.preview)}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 title="Preview sound"
               >
                 <Play className="h-4 w-4" />
@@ -234,16 +264,17 @@ const SoundsNotifications = memo(() => {
       >
         <SettingRow
           label="Enable desktop notifications"
-          description={
-            notificationPermission === 'denied'
-              ? 'Notifications are blocked by your browser.'
-              : 'Alerts for new messages when the tab is not focused.'
-          }
+          description={permissionView.hint}
         >
+          {permissionView.canRequest && settings.desktopNotificationsEnabled && (
+            <Button size="sm" variant="outline" onClick={handleRequestPermission}>
+              Allow
+            </Button>
+          )}
           <Switch
             checked={settings.desktopNotificationsEnabled}
             onCheckedChange={handleDesktopNotificationToggle}
-            disabled={notificationPermission === 'denied'}
+            disabled={permissionView.switchDisabled}
           />
         </SettingRow>
       </SettingsSection>

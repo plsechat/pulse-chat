@@ -40,6 +40,17 @@ describe('invites router', () => {
     expect(Array.isArray(invites)).toBe(true);
   });
 
+  test('expiresAt 0 means "never expires" (what the client sends)', async () => {
+    const { caller } = await initTest();
+    const before = (await caller.invites.getAll({ serverId: 1 })).length;
+
+    await caller.invites.add({ serverId: 1, expiresAt: 0, maxUses: 0 });
+
+    const invites = await caller.invites.getAll({ serverId: 1 });
+    expect(invites.length).toBe(before + 1);
+    expect(invites[invites.length - 1]!.expiresAt).toBeNull();
+  });
+
   test('should create new invite with default values', async () => {
     const { caller } = await initTest();
 

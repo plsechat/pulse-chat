@@ -23,7 +23,7 @@ type TLogEntry = {
   message: string;
 };
 
-type TPluginLogsDialogProps = TDialogBaseProps & {
+export type TPluginLogsDialogProps = TDialogBaseProps & {
   pluginId: string;
 };
 
@@ -67,10 +67,13 @@ const LogEntry = memo(({ log }: { log: TLogEntry }) => {
   );
 });
 
+type TPluginLogSubscription = ReturnType<
+  NonNullable<ReturnType<typeof getTRPCClient>>['plugins']['onLog']['subscribe']
+>;
+
 const useSubscribeToPluginLogs = (pluginId: string) => {
   const [logs, setLogs] = useState<TLogEntry[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const subRef = useRef<any>(null);
+  const subRef = useRef<TPluginLogSubscription | null>(null);
   const loadedFirstLogs = useRef(false);
 
   const setupSubscription = useCallback(async () => {
@@ -169,7 +172,7 @@ const PluginLogsDialog = memo(
 
     return (
       <Dialog open={isOpen} onOpenChange={close}>
-        <DialogContent className="flex flex-col min-w-[64vw] h-[80vh]">
+        <DialogContent className="flex flex-col min-w-[calc(64vw/var(--app-zoom))] h-[calc(var(--vvh)*0.8)]">
           <DialogHeader>
             <DialogTitle>{pluginId}</DialogTitle>
           </DialogHeader>

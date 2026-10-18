@@ -51,6 +51,16 @@ const Connect = memo(() => {
     password: ''
   });
 
+  // useForm memoises these, so listing them as deps is exact — the
+  // callbacks below only re-create when the form values change.
+  const {
+    values: loginValues,
+    setErrors: setLoginErrors,
+    onChange: onLoginChange
+  } = loginForm;
+  const { values: registerValues, setErrors: setRegisterErrors } =
+    registerForm;
+
   const inviteCode = useMemo(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const invite = urlParams.get('invite');
@@ -59,7 +69,7 @@ const Connect = memo(() => {
 
   const onRememberCredentialsChange = useCallback(
     (checked: boolean) => {
-      loginForm.onChange('rememberCredentials', checked);
+      onLoginChange('rememberCredentials', checked);
 
       if (checked) {
         setLocalStorageItem(LocalStorageKey.REMEMBER_CREDENTIALS, 'true');
@@ -67,9 +77,7 @@ const Connect = memo(() => {
         removeLocalStorageItem(LocalStorageKey.REMEMBER_CREDENTIALS);
       }
     },
-    // loginForm.onChange is a stable sub-property
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loginForm.onChange]
+    [onLoginChange]
   );
 
   const onLoginClick = useCallback(async () => {
@@ -81,14 +89,14 @@ const Connect = memo(() => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: loginForm.values.email,
-          password: loginForm.values.password
+          email: loginValues.email,
+          password: loginValues.password
         })
       });
 
       if (!response.ok) {
         const data = await response.json();
-        loginForm.setErrors(data.errors || {});
+        setLoginErrors(data.errors || {});
         return;
       }
 
@@ -99,8 +107,8 @@ const Connect = memo(() => {
 
       await setSession(data.accessToken, data.refreshToken);
 
-      if (loginForm.values.rememberCredentials) {
-        setLocalStorageItem(LocalStorageKey.EMAIL, loginForm.values.email);
+      if (loginValues.rememberCredentials) {
+        setLocalStorageItem(LocalStorageKey.EMAIL, loginValues.email);
       }
 
       await connect();
@@ -128,8 +136,7 @@ const Connect = memo(() => {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loginForm.values, loginForm.setErrors, inviteCode]);
+  }, [loginValues, setLoginErrors, inviteCode]);
 
   const onRegisterClick = useCallback(async () => {
     setLoading(true);
@@ -140,16 +147,16 @@ const Connect = memo(() => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: registerForm.values.email,
-          password: registerForm.values.password,
-          displayName: registerForm.values.displayName,
+          email: registerValues.email,
+          password: registerValues.password,
+          displayName: registerValues.displayName,
           invite: inviteCode
         })
       });
 
       if (!response.ok) {
         const data = await response.json();
-        registerForm.setErrors(data.errors || {});
+        setRegisterErrors(data.errors || {});
         return;
       }
 
@@ -185,8 +192,7 @@ const Connect = memo(() => {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registerForm.values, registerForm.setErrors, inviteCode]);
+  }, [registerValues, setRegisterErrors, inviteCode]);
 
   const onProviderClick = useCallback(
     async (provider: TAuthProvider) => {
@@ -329,7 +335,7 @@ const Connect = memo(() => {
         }
       `}</style>
 
-      <div className="flex min-h-screen w-full bg-background">
+      <div className="flex min-h-(--vvh) w-full bg-background">
         {/* Insecure connection banner */}
         {!window.isSecureContext && (
           <div className="fixed top-0 left-0 right-0 z-50 p-3">
@@ -516,7 +522,7 @@ const Connect = memo(() => {
                       <Input
                         {...registerForm.r('password')}
                         type="password"
-                        placeholder="At least 4 characters"
+                        placeholder="At least 8 characters"
                         onEnter={onRegisterClick}
                         className="h-10"
                       />

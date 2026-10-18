@@ -1,18 +1,10 @@
-import {
-  cleanupFederatedServerEntry,
-  saveFederatedServers,
-  setActiveView
-} from '@/features/app/actions';
-import { appSliceActions } from '@/features/app/slice';
 import { store } from '@/features/store';
-import { connectionManager } from '@/lib/connection-manager';
 import {
   combineUnsubscribes,
   subscribe,
   type Unsubscribe
 } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient, getTRPCClient } from '@/lib/trpc';
-import { toast } from 'sonner';
 import {
   addMessages,
   addTypingUser,
@@ -23,6 +15,20 @@ import {
 } from './actions';
 import { decryptChannelMessageForDisplay } from './decrypt';
 import { emitAppEvent } from '@/lib/events';
+import { toast } from 'sonner';
+import { failedCommandReply } from './command-reply';
+
+/**
+ * The encrypted channels the reset peer shares with us (empty for a
+ * DM-only peer). A server predating the field broadcasts without it;
+ * the handler then falls back to re-keying every encrypted channel it
+ * is a member of.
+ */
+function readResetChannelIds(payload: {
+  channelIds?: number[];
+}): number[] | undefined {
+  return Array.isArray(payload.channelIds) ? payload.channelIds : undefined;
+}
 
 
 const subscribeToMessages = () => {
@@ -43,20 +49,34 @@ const subscribeToMessages = () => {
     subscribe('onMessageUpdate', trpc.messages.onUpdate, async (message) => {
       const decrypted = await decryptChannelMessageForDisplay(message);
       updateMessage(decrypted.channelId, decrypted);
+      // Your own command came back refused: say why, not only on the card.
+      if (message.userId === store.getState().server.ownUserId) {
+        const reply = failedCommandReply(message.content);
+        if (reply) toast.error(reply);
+      }
     }),
+    // A server predating tombstones sends no deletedAt/deletedBy; the
+    // row is then marked as deleted now, by nobody.
     subscribe(
       'onMessageDelete',
       trpc.messages.onDelete,
-      ({ messageId, channelId }) => deleteMessage(channelId, messageId)
+      ({ messageId, channelId, deletedAt, deletedBy }) =>
+        deleteMessage(channelId, messageId, {
+          deletedAt: deletedAt ?? Date.now(),
+          deletedBy: deletedBy ?? null
+        })
     ),
     subscribe(
       'onMessageBulkDelete',
       trpc.messages.onBulkDelete,
-      ({ messageIds, channelId, purged }) => {
+      ({ messageIds, channelId, purged, deletedAt, deletedBy }) => {
         if (purged) {
           purgeChannelMessages(channelId);
         } else {
-          bulkDeleteMessages(channelId, messageIds);
+          bulkDeleteMessages(channelId, messageIds, {
+            deletedAt: deletedAt ?? Date.now(),
+            deletedBy: deletedBy ?? null
+          });
         }
       }
     ),
@@ -88,21 +108,6 @@ const subscribeToMessages = () => {
         }
       }
     ),
-    subscribe(
-      'onIdentityReset',
-      trpc.e2ee.onIdentityReset,
-      async ({ userId, newIdentityPublicKey }) => {
-        try {
-          const { handlePeerIdentityReset } = await import('@/lib/e2ee');
-          await handlePeerIdentityReset(userId, newIdentityPublicKey);
-        } catch (err) {
-          console.error(
-            `[E2EE] Failed to handle identity reset for user ${userId}:`,
-            err
-          );
-        }
-      }
-    ),
     subscribe('onInviteCreate', trpc.invites.onInviteCreate, () =>
       emitAppEvent('invites-changed')
     ),
@@ -120,99 +125,47 @@ const subscribeToMessages = () => {
     ),
     subscribe('onThreadDelete', trpc.threads.onThreadDelete, () =>
       emitAppEvent('threads-changed')
+    ),
+    subscribe('onPollUpdate', trpc.polls.onUpdate, (update) =>
+      emitAppEvent('poll-updated', update)
+    ),
+    subscribe('onScheduledPostUpdate', trpc.scheduled.onUpdate, ({ channelId }) =>
+      emitAppEvent('scheduled-posts-changed', { channelId })
+    ),
+    subscribe('onChannelFollowsUpdate', trpc.follows.onUpdate, ({ channelId }) =>
+      emitAppEvent('channel-follows-changed', { channelId })
     )
   ];
 
-  // Federation instance updates are home-scoped — only mount when we
-  // have a home tRPC client. The conditional push keeps the unsub set
-  // a single list, no early-return required.
+  // Identity resets are handled on the instance they arrive from: the
+  // ids in the payload are that instance's, and so are the store the
+  // peer's pin and session live in and the channels to re-key. Home
+  // ids come over the home socket (subscribeToHome, alive for the whole
+  // home connection); host-local ids come over the active federated
+  // socket, subscribed here.
   const homeTrpc = getHomeTRPCClient();
-  if (homeTrpc) {
+  const activeDomain = store.getState().app.activeInstanceDomain;
+  if (activeDomain && trpc !== homeTrpc) {
     subs.push(
       subscribe(
-        'onFederationInstanceUpdate',
-        homeTrpc.federation.onInstanceUpdate,
-        (event) => {
-          if (
-            (event.status !== 'removed' && event.status !== 'blocked') ||
-            !event.domain
-          ) {
-            return;
-          }
-          const state = store.getState();
-          const entries = state.app.federatedServers.filter(
-            (s) => s.instanceDomain === event.domain
-          );
-          if (entries.length === 0) return;
-
-          for (const entry of entries) {
-            store.dispatch(
-              appSliceActions.removeFederatedServer({
-                instanceDomain: entry.instanceDomain,
-                serverId: entry.server.id
-              })
+        'onFederatedIdentityReset',
+        trpc.e2ee.onIdentityReset,
+        async (payload) => {
+          try {
+            const { getFederatedE2eeInstance, handlePeerIdentityReset } =
+              await import('@/lib/e2ee');
+            const instance = await getFederatedE2eeInstance(activeDomain);
+            if (!instance) return;
+            await handlePeerIdentityReset(payload.userId, instance, {
+              newIdentityPublicKey: payload.newIdentityPublicKey,
+              channelIds: readResetChannelIds(payload)
+            });
+          } catch (err) {
+            console.error(
+              `[E2EE] Failed to handle identity reset for user ${payload.userId} on ${activeDomain}:`,
+              err
             );
           }
-
-          saveFederatedServers();
-          connectionManager.disconnectRemote(event.domain);
-
-          // If user was viewing a removed federated server, reset to home
-          if (state.app.activeInstanceDomain === event.domain) {
-            store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-            setActiveView('home');
-          }
-        }
-      )
-    );
-
-    // A federated peer kicked or banned us from one of its servers —
-    // the peer told our home instance, which delivers this user-scoped
-    // event. Drop the rail entry and surface the reason.
-    subs.push(
-      subscribe(
-        'onFederatedServerRemoved',
-        homeTrpc.federation.onServerRemoved,
-        (event) => {
-          const state = store.getState();
-          const entry = state.app.federatedServers.find(
-            (e) =>
-              e.instanceDomain === event.instanceDomain &&
-              e.server.publicId === event.serverPublicId
-          );
-
-          const displayName =
-            event.serverName ?? entry?.server.name ?? event.instanceDomain;
-          const reasonSuffix = event.reason ? `: ${event.reason}` : '';
-          toast.error(
-            event.action === 'ban'
-              ? `You have been banned from ${displayName}${reasonSuffix}`
-              : `You have been kicked from ${displayName}${reasonSuffix}`
-          );
-
-          if (!entry) return;
-
-          // If we're currently viewing that server, go home FIRST — the
-          // teardown below fires the disconnect status handler, which
-          // would otherwise also toast "Lost connection" for the
-          // still-active instance.
-          if (
-            state.app.activeInstanceDomain === event.instanceDomain &&
-            state.server.serverId === event.serverPublicId
-          ) {
-            store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-            setActiveView('home');
-          }
-
-          // Full local cleanup — including instance-connection teardown
-          // when this was the last server on that instance. A ban means
-          // every reconnect would be refused; without the teardown the
-          // connection manager retries forever and the status badge
-          // flickers connecting/disconnected.
-          cleanupFederatedServerEntry(
-            entry.instanceDomain,
-            entry.server.id
-          );
         }
       )
     );

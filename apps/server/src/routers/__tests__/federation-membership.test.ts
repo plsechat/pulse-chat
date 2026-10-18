@@ -300,7 +300,6 @@ describe('ensureShadowUser remote verification (F5)', () => {
     await expect(
       caller.federation.ensureShadowUser({
         instanceDomain: 'unreachable-test-peer.example.com',
-        remoteUserId: 99,
         username: 'attacker-controlled-name',
         remotePublicId: 'pub-99'
       })
@@ -313,7 +312,6 @@ describe('ensureShadowUser remote verification (F5)', () => {
     await expect(
       caller.federation.ensureShadowUser({
         instanceDomain: 'never-registered.example.com',
-        remoteUserId: 99,
         username: 'x',
         remotePublicId: 'pub-99'
       })

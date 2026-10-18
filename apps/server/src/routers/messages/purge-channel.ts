@@ -5,20 +5,27 @@ import { db } from '../../db';
 import { removeFile } from '../../db/mutations/files';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { channels, messageFiles, messages } from '../../db/schema';
+import { relayAnnouncementDeletion } from '../../utils/announcement-follow';
 import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
 
-const purgeChannelRoute = protectedProcedure
+/**
+ * Purge is the one deletion that leaves NO tombstones: it is the admin's
+ * "clear this channel", confirmed by typing the channel's name, and a
+ * channel of a thousand "Message deleted" placeholders is not a cleared
+ * channel. Every row goes, tombstones included; the copies this
+ * channel's posts left in follower channels become tombstones there
+ * (relayAnnouncementDeletion), as a single delete would leave them.
+ */
+const purgeChannelRoute = serverProcedure(Permission.MANAGE_MESSAGES)
   .input(
     z.object({
-      channelId: z.number(),
-      confirmChannelName: z.string()
+      channelId: z.number().int().positive(),
+      confirmChannelName: z.string().max(100)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_MESSAGES);
-
     // Scope the channel lookup to the caller's active server. Without this,
     // MANAGE_MESSAGES in server A could purge any channel in server B.
     const [channel] = await db
@@ -27,7 +34,7 @@ const purgeChannelRoute = protectedProcedure
       .where(
         and(
           eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId!)
+          eq(channels.serverId, ctx.activeServerId)
         )
       )
       .limit(1);
@@ -53,7 +60,17 @@ const purgeChannelRoute = protectedProcedure
       await removeFile(row.fileId);
     }
 
-    await db.delete(messages).where(eq(messages.channelId, input.channelId));
+    // Copies of these in follower channels go too: their ids are only
+    // known from the rows being deleted.
+    const purged = await db
+      .delete(messages)
+      .where(eq(messages.channelId, input.channelId))
+      .returning({ id: messages.id });
+    void relayAnnouncementDeletion(
+      input.channelId,
+      purged.map((m) => m.id),
+      { deletedAt: Date.now(), deletedBy: ctx.user.id }
+    );
 
     const affectedUserIds = await getAffectedUserIdsForChannel(
       input.channelId,

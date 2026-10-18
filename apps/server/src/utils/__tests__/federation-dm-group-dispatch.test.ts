@@ -20,7 +20,7 @@
  * federation-rate-limit notes for the same class of issue).
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import {
@@ -31,11 +31,19 @@ import {
   users
 } from '../../db/schema';
 import { config } from '../../config';
+import { expectDispatcherLogsDbError } from '../../__tests__/federation-fixtures';
 import {
+  announceFederatedGroupAddMember,
+  announceFederatedGroupCreate,
+  announceFederatedGroupRemoveMember,
   assignFederationGroupIdIfNeeded,
   buildFederatedMemberList,
   enumerateRotationPeers
 } from '../federation-dm-group-dispatch';
+
+afterEach(() => {
+  mock.restore();
+});
 
 const PEER_DOMAIN_A = 'peer-a.example';
 const PEER_DOMAIN_B = 'peer-b.example';
@@ -370,5 +378,28 @@ describe('enumerateRotationPeers (D3)', () => {
 
     const peers = await enumerateRotationPeers(localUserId);
     expect(peers).toEqual([PEER_DOMAIN_A]);
+  });
+});
+
+describe('announce* dispatchers resilience', () => {
+  test('announceFederatedGroupCreate logs a DB failure before any relay, never throws', async () => {
+    await expectDispatcherLogsDbError(
+      () => announceFederatedGroupCreate(1, 1),
+      'announceFederatedGroupCreate'
+    );
+  });
+
+  test('announceFederatedGroupAddMember logs a DB failure before any relay, never throws', async () => {
+    await expectDispatcherLogsDbError(
+      () => announceFederatedGroupAddMember(1, 1),
+      'announceFederatedGroupAddMember'
+    );
+  });
+
+  test('announceFederatedGroupRemoveMember logs a DB failure before any relay, never throws', async () => {
+    await expectDispatcherLogsDbError(
+      () => announceFederatedGroupRemoveMember(1, 1, 'removed-pid'),
+      'announceFederatedGroupRemoveMember'
+    );
   });
 });

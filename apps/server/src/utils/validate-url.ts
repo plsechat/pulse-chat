@@ -1,5 +1,20 @@
 import dns from 'dns/promises';
-import { isAllowedPrivateIpv4 } from './federation-allowlist';
+import net from 'node:net';
+import { isAllowedPrivateIp } from './federation-allowlist';
+
+/**
+ * The host part of a federation domain string (`peer.example:4991`,
+ * `192.168.1.5:3000`, `[fd00::1]:3000`), lower-cased and without the
+ * IPv6 brackets. A plain split on ':' would cut a v6 literal in half,
+ * so the URL parser does the work.
+ */
+function hostOfDomain(domain: string): string {
+  try {
+    return new URL(`http://${domain}`).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  } catch {
+    return (domain.split(':')[0] ?? '').toLowerCase();
+  }
+}
 
 /**
  * Decide whether to talk to a federation peer over HTTP or HTTPS.
@@ -7,7 +22,7 @@ import { isAllowedPrivateIpv4 } from './federation-allowlist';
  * Production deployments federate over HTTPS — that's the default.
  * Three carve-outs return HTTP:
  *   1. localhost (existing behavior; smoke tests bind to it)
- *   2. IPv4 literal in `FEDERATION_ALLOW_PRIVATE_CIDRS`
+ *   2. IP literal (v4 or v6) in `FEDERATION_ALLOW_PRIVATE_CIDRS`
  *   3. Bare hostname (no dot) and the operator has set
  *      `FEDERATION_ALLOW_PRIVATE_CIDRS` — docker DNS / LAN names like
  *      "pulse-b" or "homeserver" land here.
@@ -18,17 +33,17 @@ import { isAllowedPrivateIpv4 } from './federation-allowlist';
  * peers; we don't DNS-resolve every protocol pick.
  */
 function getFederationProtocol(domain: string): 'http' | 'https' {
-  const host = (domain.split(':')[0] ?? '').toLowerCase();
+  const host = hostOfDomain(domain);
 
   if (host === 'localhost' || host.endsWith('.localhost')) {
     return 'http';
   }
 
-  if (isPrivateIp(host) && isAllowedPrivateIpv4(host)) {
+  if (isPrivateIp(host) && isAllowedPrivateIp(host)) {
     return 'http';
   }
 
-  if (!host.includes('.')) {
+  if (!host.includes('.') && !host.includes(':')) {
     const cidrs = process.env.FEDERATION_ALLOW_PRIVATE_CIDRS?.trim();
     if (cidrs) {
       return 'http';
@@ -97,16 +112,38 @@ function isPrivateIp(ip: string): boolean {
 export { getFederationProtocol, isPrivateIp };
 
 /**
- * Validate that a URL is safe to fetch. Rejects:
+ * A validated URL plus the address it was validated against. Callers
+ * that open the connection themselves (federationFetch) connect to
+ * `pinnedIp` and present `url.hostname` as Host/SNI, so the address
+ * that was checked is the address that is dialled — a resolver that
+ * answers public now and private a second later gains nothing.
+ */
+type ResolvedFederationUrl = {
+  url: URL;
+  pinnedIp: string;
+  pinnedFamily: 4 | 6;
+};
+
+/**
+ * Validate that a URL is safe to fetch and pick the address to dial.
+ * Rejects:
  *   - non-HTTP(S) schemes
  *   - private/internal IP literals (v4 + v6, incl. IPv4-mapped IPv6)
- *   - hostnames whose A *or* AAAA records resolve to any private/internal IP
+ *     unless the operator allowlisted them
+ *   - hostnames whose A *or* AAAA records resolve to any private/internal
+ *     IP (same allowlist)
  *   - hostnames that resolve to nothing (fail closed)
  *
- * NOTE: this does not protect against DNS rebinding at fetch time. Callers
- * must also pin the resolved IP between validation and fetch().
+ * An IP literal never hits DNS: the runtime resolver answers ENOTFOUND
+ * for a numeric host, which used to fail every allowlisted LAN peer
+ * with "Could not resolve hostname".
+ *
+ * The pinned address is the first allowed answer, v4 preferred (dual-
+ * stack hosts behind v4-only NAT are far more common than the reverse).
  */
-export async function validateFederationUrl(urlString: string): Promise<URL> {
+export async function resolveFederationUrl(
+  urlString: string
+): Promise<ResolvedFederationUrl> {
   const url = new URL(urlString);
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -117,14 +154,12 @@ export async function validateFederationUrl(urlString: string): Promise<URL> {
   // strip them so the IP-pattern checks see the bare address.
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
 
-  if (isPrivateIp(hostname)) {
-    // IPv4 literals can be operator-allowlisted via
-    // FEDERATION_ALLOW_PRIVATE_CIDRS. IPv6 private literals stay blocked.
-    if (!hostname.includes(':') && isAllowedPrivateIpv4(hostname)) {
-      // fall through — allowlisted
-    } else {
+  const literalFamily = net.isIP(hostname);
+  if (literalFamily === 4 || literalFamily === 6) {
+    if (isPrivateIp(hostname) && !isAllowedPrivateIp(hostname)) {
       throw new Error('Private/internal URLs are not allowed');
     }
+    return { url, pinnedIp: hostname, pinnedFamily: literalFamily };
   }
 
   // Resolve A and AAAA in parallel.
@@ -134,12 +169,18 @@ export async function validateFederationUrl(urlString: string): Promise<URL> {
   ]);
 
   let resolved = false;
+  let pinnedIp: string | null = null;
+  let pinnedFamily: 4 | 6 = 4;
 
   if (v4.status === 'fulfilled') {
     resolved = true;
     for (const addr of v4.value) {
-      if (isPrivateIpv4(addr) && !isAllowedPrivateIpv4(addr)) {
+      if (isPrivateIpv4(addr) && !isAllowedPrivateIp(addr)) {
         throw new Error('URL resolves to a private/internal IPv4 address');
+      }
+      if (pinnedIp === null) {
+        pinnedIp = addr;
+        pinnedFamily = 4;
       }
     }
   }
@@ -147,16 +188,35 @@ export async function validateFederationUrl(urlString: string): Promise<URL> {
   if (v6.status === 'fulfilled') {
     resolved = true;
     for (const addr of v6.value) {
-      if (isPrivateIpv6(addr)) {
+      if (isPrivateIpv6(addr) && !isAllowedPrivateIp(addr)) {
         throw new Error('URL resolves to a private/internal IPv6 address');
+      }
+      if (pinnedIp === null) {
+        pinnedIp = addr;
+        pinnedFamily = 6;
       }
     }
   }
 
-  // Fail closed: an unresolvable hostname is rejected, not silently allowed.
-  if (!resolved) {
+  // Fail closed: an unresolvable hostname is rejected, not silently
+  // allowed. A resolver that succeeds with an empty answer set is the
+  // same case.
+  if (!resolved || pinnedIp === null) {
     throw new Error('Could not resolve hostname');
   }
 
+  return { url, pinnedIp, pinnedFamily };
+}
+
+/**
+ * `resolveFederationUrl` for callers that only need the yes/no and the
+ * parsed URL (link-preview pre-check, the /federation/request reverse
+ * lookup). Anything that opens the connection itself must use the
+ * resolved form and dial the pinned address.
+ */
+export async function validateFederationUrl(urlString: string): Promise<URL> {
+  const { url } = await resolveFederationUrl(urlString);
   return url;
 }
+
+export type { ResolvedFederationUrl };

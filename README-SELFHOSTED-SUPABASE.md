@@ -19,7 +19,7 @@ This guide walks you through deploying Pulse with a fully self-hosted Supabase s
 8. [Build and Start](#build-and-start)
 9. [Set Up HTTPS](#set-up-https)
 10. [Firewall Configuration](#firewall-configuration)
-11. [Claim Server Ownership](#claim-server-ownership)
+11. [Server Ownership](#server-ownership)
 12. [Verify Installation](#verify-installation)
 13. [Updating Pulse](#updating-pulse)
 14. [OAuth Setup (Optional)](#oauth-setup-optional)
@@ -165,7 +165,7 @@ SITE_URL=https://your-domain.com
 | `SUPABASE_ANON_KEY` | Yes | — | Supabase public/anonymous API key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | — | Supabase admin service role key |
 | `AUTH_SECRET` | For OIDC | — | ≥32 random chars; signs the Pulse session token minted after OIDC login. Required only if you enable OIDC below. |
-| `SITE_URL` | Yes | — | Public URL (e.g., `https://pulse.example.com`) |
+| `SITE_URL` | Yes | — | Public URL (e.g., `https://pulse.example.com`). The compose file also passes it to Pulse as `SUPABASE_PUBLIC_URL`, the browser-facing Supabase URL (the container-internal `SUPABASE_URL` would not resolve from a browser). |
 | `PULSE_PORT` | No | `5443` | Host port for Pulse |
 | `JWT_EXPIRY` | No | `3600` | Token expiry in seconds |
 | `PUBLIC_IP` | No | auto | Public IP for WebRTC |
@@ -217,7 +217,7 @@ NAME         IMAGE                            STATUS
 pulse-db     supabase/postgres:15.6.1.143     Up (healthy)
 pulse-auth   supabase/gotrue:v2.170.0         Up
 pulse-kong   kong:3.4                         Up
-pulse        pulse-pulse                      Up
+pulse        ghcr.io/plsechat/pulse-chat:latest   Up
 ```
 
 ### Check logs
@@ -254,6 +254,7 @@ Configure `/etc/caddy/Caddyfile`:
 
 ```
 your-domain.com {
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
     handle /auth/v1/* {
         reverse_proxy localhost:8000
     }
@@ -262,6 +263,8 @@ your-domain.com {
     }
 }
 ```
+
+Pulse sends `Strict-Transport-Security` itself once it knows the request came in over HTTPS (`TRUST_PROXY=true` with the proxy's `X-Forwarded-Proto`, or `PUBLIC_URL=https://…`). The `header` line above adds the same policy on the `/auth/v1/*` path, which never reaches Pulse. Only enable HSTS once the domain is served over HTTPS for good — browsers remember it for a year.
 
 ```bash
 sudo systemctl restart caddy
@@ -281,6 +284,10 @@ Create `/etc/nginx/sites-available/pulse`:
 ```nginx
 server {
     server_name your-domain.com;
+
+    # Pulse emits HSTS itself for its own routes (it sees X-Forwarded-Proto
+    # via TRUST_PROXY); this covers /auth/v1/ too. HTTPS-only domains only.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     location /auth/v1/ {
         proxy_pass http://127.0.0.1:8000;
@@ -321,8 +328,8 @@ sudo certbot --nginx -d your-domain.com
 sudo ufw allow 22/tcp    # SSH
 sudo ufw allow 80/tcp    # HTTP
 sudo ufw allow 443/tcp   # HTTPS
-sudo ufw allow 40000:40020/udp  # WebRTC voice/video
-sudo ufw allow 40000:40020/tcp  # WebRTC TCP fallback
+sudo ufw allow 40000/udp  # WebRTC voice/video
+sudo ufw allow 40000/tcp  # WebRTC TCP fallback
 sudo ufw enable
 ```
 
@@ -332,27 +339,22 @@ sudo ufw enable
 | 80 | TCP | HTTP (redirects to HTTPS) |
 | 443 | TCP | HTTPS (web + WebSocket) |
 | 5443 | TCP | Pulse (only if no reverse proxy) |
-| 40000-40020 | UDP + TCP | WebRTC media (voice/video/screen share) |
+| 40000 | UDP + TCP | WebRTC media (voice/video/screen share) |
+
+All voice media, every channel and DM call, send and receive, runs over the one port `40000` in both UDP and TCP (`MEDIASOUP_PORT` changes it); there is no per-port participant ceiling, so `MEDIASOUP_MAX_PARTICIPANTS` is the way to bound voice load. Pulse runs no STUN/TURN relay; clients need a direct path to the public IP on that port, and only clients that can reach it over neither UDP nor TCP need a relay (`WEBRTC_TURN_URLS`, see the [main README](README.md#environment)). An older deployment that mapped `40000-40020` keeps working; set `MEDIASOUP_MODE=range` only if your network relies on one port per transport.
 
 > **Note:** Docker manipulates iptables directly and can bypass ufw rules. Ports mapped in `docker-compose-supabase.yml` may be publicly accessible even if ufw doesn't allow them. The compose file binds Kong (port 8000) to `127.0.0.1` so it is only accessible from the reverse proxy — do not change this to `0.0.0.0`.
 
 ---
 
-## Claim Server Ownership
+## Server Ownership
 
 1. Open `https://your-domain.com` in your browser
 2. Register a new account
-3. Find the ownership token in the server logs:
 
-```bash
-docker logs pulse 2>&1 | grep -i token
-```
+The **first account registered becomes the instance operator** — owner of the bootstrap server with every permission — so register your own account before opening the instance to others. Later registrations are regular users. There is no ownership token; nothing prints to the logs apart from a one-line `[register] First user registered — granted ownership` notice.
 
-4. In the Pulse web interface, open browser DevTools (F12)
-5. Go to the Console tab and run: `useToken('your_token_here')`
-6. Your account is now the server owner
-
-> The ownership token is printed once on first start. Save it somewhere secure.
+To hand the instance to another account later, use **Server Settings → Users → Transfer Ownership**.
 
 ---
 
@@ -360,7 +362,7 @@ docker logs pulse 2>&1 | grep -i token
 
 - [ ] `https://your-domain.com` loads the login page
 - [ ] You can register and log in
-- [ ] You claimed ownership with the token
+- [ ] Your (first-registered) account shows Server Settings, i.e. it holds ownership
 - [ ] Text channels work (send/receive messages)
 - [ ] File uploads work
 - [ ] Voice channels work (join, speak, hear others)
@@ -474,9 +476,11 @@ docker compose -f docker-compose-supabase.yml restart pulse
 
 ### Connect Two Instances
 
-On Instance A: Go to **Server Settings > Federation** > **Generate Keys** > **Add Instance** (enter Instance B's domain).
+On Instance A: Go to **Server Settings > Instance > Federation** > **Generate Keys** > **Add Instance** (enter Instance B's domain).
 
-On Instance B: **Server Settings > Federation** > **Generate Keys** > Accept Instance A's request.
+On Instance B: **Server Settings > Instance > Federation** > **Generate Keys** > Accept Instance A's request.
+
+Only the instance owner (the first registered account) sees the Instance section. Peers also exchange their public directory listings (Instance > Registration decides whether yours is exposed) and announcement-channel follows; see [docs/federation.md](docs/federation.md).
 
 ---
 
@@ -512,9 +516,9 @@ The DB container will re-sync the password automatically.
 
 ### WebRTC voice/video not working
 
-1. Check UDP ports are open: `sudo ufw status | grep 40000`
+1. Check the media port is open: `sudo ufw status | grep 40000`
 2. Check Docker port mapping: `docker port pulse`
-3. If behind NAT, forward ports 40000-40020/UDP from your router
+3. If behind NAT, forward port 40000 (UDP and TCP) from your router
 4. Check public IP detection: `docker logs pulse 2>&1 | grep -i "public ip"`
 
 ### Database issues

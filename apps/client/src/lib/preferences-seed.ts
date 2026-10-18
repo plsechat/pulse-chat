@@ -10,8 +10,9 @@ import {
 import { syncPreference } from './preferences-sync';
 
 /**
- * Read all 5 localStorage keys and push them to the server as the initial
- * preferences. Called only on first login (when server has no preferences).
+ * Read the localStorage-held preferences and push them to the server as
+ * the initial set. Called only on first login (when server has no
+ * preferences).
  */
 export const seedPreferencesFromLocalStorage = () => {
   const appearance = getLocalStorageItemAsJSON<
@@ -37,13 +38,20 @@ export const seedPreferencesFromLocalStorage = () => {
   const rightSidebarOpen =
     getLocalStorageItem(LocalStorageKey.RIGHT_SIDEBAR_STATE) === 'true';
 
+  const presence =
+    getLocalStorageItemAsJSON<TUserPreferences['presence']>(
+      LocalStorageKey.PRESENCE_SETTINGS,
+      DEFAULT_USER_PREFERENCES.presence
+    ) ?? DEFAULT_USER_PREFERENCES.presence;
+
   const full: TUserPreferences = {
     appearance: appearance ?? DEFAULT_USER_PREFERENCES.appearance,
     soundNotification:
       soundNotification ?? DEFAULT_USER_PREFERENCES.soundNotification,
     theme,
     serverChannelMap,
-    rightSidebarOpen
+    rightSidebarOpen,
+    presence
   };
 
   syncPreference(full);

@@ -36,21 +36,33 @@
 import {
   AVATAR_DECORATION_SLUGS,
   NAMEPLATE_PRESET_SLUGS,
-  UserStatus,
-  nameStyleSchema
+  UserStatus
 } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
 import { syncShadowUserProfile } from '../db/mutations/federation';
+import {
+  GAME_PRESENCE_MAX_NAME_LENGTH,
+  GAME_PRESENCE_TTL_MS,
+  MAX_HIDDEN_SERVERS,
+  mirrorShadowPresencePreference
+} from '../db/queries/game-presence';
 import { users } from '../db/schema';
-import { publishUser } from '../db/publishers';
+import { publishGamePresence, publishUser } from '../db/publishers';
 import { logger } from '../logger';
+import { nameStyleSchema } from '../utils/name-style-schema';
 import { signedJsonResponse } from '../utils/federation';
 import { setRuntimeUserStatus } from '../utils/wss';
 import {
   authorizeFederationRequest,
-  jsonResponse
+  jsonResponse,
+  MAX_PEER_BIO_LENGTH,
+  MAX_PEER_NAME_LENGTH,
+  MAX_PEER_PUBLIC_ID_LENGTH,
+  PEER_BANNER_COLOR_RE,
+  peerString,
+  peerStringArray
 } from './federation-helpers';
 
 // Mirror of the UserStatus enum surface validated against incoming
@@ -65,6 +77,29 @@ const VALID_STATUSES: ReadonlySet<string> = new Set([
   UserStatus.OFFLINE
 ]);
 
+/**
+ * A peer's game presence: `undefined` when not sent, `null` when sent
+ * as cleared or malformed, else the two public fields with the name
+ * bounded and the start clamped into the window the cron would keep
+ * (a future start would count backwards; one older than the TTL would
+ * be cleared at the next tick anyway).
+ */
+const peerGamePresence = (
+  v: unknown
+): { name: string; startedAt: number } | null | undefined => {
+  if (v === undefined) return undefined;
+  if (v === null || typeof v !== 'object') return null;
+  const { name, startedAt } = v as { name?: unknown; startedAt?: unknown };
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (trimmed.length === 0) return null;
+  const now = Date.now();
+  const started =
+    typeof startedAt === 'number' && Number.isFinite(startedAt)
+      ? Math.min(now, Math.max(now - GAME_PRESENCE_TTL_MS, startedAt))
+      : now;
+  return { name: trimmed.slice(0, GAME_PRESENCE_MAX_NAME_LENGTH), startedAt: started };
+};
+
 const federationUserInfoUpdateHandler = async (
   req: http.IncomingMessage,
   res: http.ServerResponse
@@ -74,9 +109,21 @@ const federationUserInfoUpdateHandler = async (
   const { instance, signedBody, fromDomain } = auth;
 
   const subjectPublicId = signedBody.subjectPublicId as string | undefined;
-  const nameChange = signedBody.name as string | undefined;
-  const bioChange = signedBody.bio as string | null | undefined;
-  const bannerColorChange = signedBody.bannerColor as string | null | undefined;
+  // Display strings are truncated to the local caps; a non-string is
+  // treated as "not sent". bannerColor must be a hex color or it
+  // applies as cleared (same rule as nameplate / nameStyle below).
+  const nameChange = peerString(signedBody.name, MAX_PEER_NAME_LENGTH) || undefined;
+  const bioChange =
+    signedBody.bio === null
+      ? null
+      : peerString(signedBody.bio, MAX_PEER_BIO_LENGTH);
+  const bannerColorChange =
+    signedBody.bannerColor === undefined
+      ? undefined
+      : typeof signedBody.bannerColor === 'string' &&
+          PEER_BANNER_COLOR_RE.test(signedBody.bannerColor)
+        ? signedBody.bannerColor
+        : null;
   const customStatusChange = signedBody.customStatus as
     | string
     | null
@@ -95,6 +142,17 @@ const federationUserInfoUpdateHandler = async (
   const nameStyleChange = signedBody.nameStyle as unknown;
   const statusChange = signedBody.status as string | undefined;
   const triggerProfileSync = signedBody.triggerProfileSync === true;
+  // Game presence (utils/federation-game-presence-dispatch.ts on the
+  // sending side): the game as the home shares it, or null, plus the
+  // publicIds of OUR servers the user hides it from. A malformed
+  // presence applies as cleared, like every other jsonb field here.
+  const gamePresenceChange = peerGamePresence(signedBody.gamePresence);
+  const gamePresenceHiddenServers =
+    peerStringArray(
+      signedBody.gamePresenceHiddenServers,
+      MAX_PEER_PUBLIC_ID_LENGTH,
+      MAX_HIDDEN_SERVERS
+    ) ?? [];
 
   if (!subjectPublicId || typeof subjectPublicId !== 'string') {
     return jsonResponse(res, 400, { error: 'Missing subjectPublicId' });
@@ -113,6 +171,7 @@ const federationUserInfoUpdateHandler = async (
     avatarDecorationChange !== undefined ||
     nameStyleChange !== undefined ||
     statusChange !== undefined ||
+    gamePresenceChange !== undefined ||
     triggerProfileSync;
   if (!hasAnyChange) {
     return jsonResponse(res, 400, { error: 'No changes specified' });
@@ -199,6 +258,13 @@ const federationUserInfoUpdateHandler = async (
     persistedSet.nameStyle = parsed.success ? parsed.data : null;
   }
 
+  if (gamePresenceChange !== undefined) {
+    persistedSet.gamePresence = gamePresenceChange;
+    // The home's per-server decision, mirrored as our server ids so the
+    // roster rule reads the shadow like a local user.
+    await mirrorShadowPresencePreference(shadow.id, gamePresenceHiddenServers);
+  }
+
   if (Object.keys(persistedSet).length > 0) {
     persistedSet.updatedAt = Date.now();
     await db.update(users).set(persistedSet).where(eq(users.id, shadow.id));
@@ -218,6 +284,12 @@ const federationUserInfoUpdateHandler = async (
     statusOverride:
       statusChange !== undefined ? (statusChange as UserStatus) : undefined
   });
+
+  // Per-server, like a local report: each roster the shadow is on gets
+  // the presence as the home allows it there.
+  if (gamePresenceChange !== undefined) {
+    await publishGamePresence(shadow.id);
+  }
 
   // Avatar / banner can't be sent inline through this dispatch
   // (the file content has to be downloaded). Instead we trigger

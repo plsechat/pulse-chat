@@ -1,4 +1,7 @@
-import type { TDeviceSettings } from '@/types';
+import type { TCategorySettingsProps } from './category-settings';
+import type { TChannelSettingsProps } from './channel-settings';
+import type { TServerSettingsProps } from './server-settings';
+import type { TUserSettingsProps } from './user-settings';
 
 export enum ServerScreen {
   SERVER_SETTINGS = 'SERVER_SETTINGS',
@@ -10,7 +13,12 @@ export enum ServerScreen {
 export type TServerScreenBaseProps = {
   close: () => void;
   isOpen: boolean;
-  // hack to pass context data to the screens inside portals
-  devices: TDeviceSettings;
-  saveDevices: (devices: TDeviceSettings) => void;
+};
+
+/** Props each screen expects — keeps the screens map honest per entry. */
+export type TServerScreenPropsMap = {
+  [ServerScreen.SERVER_SETTINGS]: TServerSettingsProps;
+  [ServerScreen.CHANNEL_SETTINGS]: TChannelSettingsProps;
+  [ServerScreen.USER_SETTINGS]: TUserSettingsProps;
+  [ServerScreen.CATEGORY_SETTINGS]: TCategorySettingsProps;
 };

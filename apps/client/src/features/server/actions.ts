@@ -3,8 +3,10 @@ import {
   fetchServerUnreadCounts,
   getSavedActiveServerId,
   getSavedActiveView,
+  setActiveInstanceDomain,
   setActiveServerId,
-  setActiveView
+  setActiveView,
+  switchToFederatedServer
 } from '@/features/app/actions';
 import { appSliceActions } from '@/features/app/slice';
 import { fetchActiveDmCalls, fetchDmChannels } from '@/features/dms/actions';
@@ -19,18 +21,38 @@ import { getHostFromServer } from '@/helpers/get-file-url';
 import { applyServerPreferences } from '@/lib/preferences-apply';
 import { seedPreferencesFromLocalStorage } from '@/lib/preferences-seed';
 import { cleanup, connectToTRPC, getHomeTRPCClient } from '@/lib/trpc';
-import { type TPublicServerSettings, type TServerInfo } from '@pulse/shared';
+import type { TPublicServerSettings, TServerInfo } from '@pulse/server/types';
 import { store } from '../store';
 import { setPluginCommands } from './plugins/actions';
 import { infoSelector } from './selectors';
 import { serverSliceActions } from './slice';
-import { initSubscriptions, subscribeToVoice } from './subscriptions';
+import {
+  initSubscriptions,
+  subscribeToHome,
+  subscribeToVoice
+} from './subscriptions';
 import { type TDisconnectInfo } from './types';
 import { emitAppEvent } from '@/lib/events';
+import { stopGamePresenceBridge } from '@/lib/game-presence';
 
 let unsubscribeFromServer: (() => void) | null = null;
+let unsubscribeFromHome: (() => void) | null = null;
 let unsubscribeFromVoice: (() => void) | null = null;
 let currentHandshakeHash: string | null = null;
+
+/**
+ * Generation counter for server joins. Every join (home or federated)
+ * takes a token before its request goes out and applies the response
+ * only if no later join has started since — rapid A→B clicks otherwise
+ * landed on whichever response arrived last, with the other server
+ * highlighted.
+ */
+let joinGeneration = 0;
+
+export const beginServerJoin = () => ++joinGeneration;
+
+export const isCurrentServerJoin = (token: number) =>
+  token === joinGeneration;
 
 export const setConnected = (status: boolean) => {
   store.dispatch(serverSliceActions.setConnected(status));
@@ -44,9 +66,6 @@ export const setDisconnectInfo = (info: TDisconnectInfo | undefined) => {
   store.dispatch(serverSliceActions.setDisconnectInfo(info));
 };
 
-export const setConnecting = (status: boolean) => {
-  store.dispatch(serverSliceActions.setConnecting(status));
-};
 
 export const setReconnecting = (status: boolean) => {
   store.dispatch(serverSliceActions.setReconnecting(status));
@@ -56,9 +75,6 @@ export const setReconnectAttempt = (attempt: number) => {
   store.dispatch(serverSliceActions.setReconnectAttempt(attempt));
 };
 
-export const setServerId = (id: string) => {
-  store.dispatch(serverSliceActions.setServerId(id));
-};
 
 export const setPublicServerSettings = (
   settings: TPublicServerSettings | undefined
@@ -78,16 +94,42 @@ export const connect = async () => {
     throw new Error('Failed to fetch server info');
   }
 
+  // What the user was looking at before the socket dropped. A reconnect
+  // rejoins the HOME server first (that is what the home socket serves);
+  // a federated server in focus is re-entered afterwards so the slice,
+  // the routing domain and the subscriptions describe the same instance
+  // again. Left as it was, the slice held home data while every ambient
+  // call still went to the remote with home numeric ids.
+  const { activeInstanceDomain, activeServerId } = state.app;
+
   const host = getHostFromServer();
-  const trpc = await connectToTRPC(host);
+  const trpc = connectToTRPC(host);
 
   const { handshakeHash } = await trpc.others.handshake.query();
 
   currentHandshakeHash = handshakeHash;
 
+  if (activeInstanceDomain) {
+    setActiveInstanceDomain(null);
+  }
+
   // Restore last active server from localStorage
   const savedServerId = getSavedActiveServerId();
-  await joinServer(handshakeHash, savedServerId);
+  await openSession(handshakeHash, savedServerId);
+
+  // Home-scoped subscriptions live for the whole home connection: one
+  // set per socket, never per server switch (a re-subscribe round trip
+  // on every switch dropped DM messages, calls and friend events that
+  // arrived in the gap). They must follow the first join: the server
+  // only treats the socket as authenticated once openSession has run,
+  // and a subscription opened before that is refused as UNAUTHORIZED
+  // and never retried.
+  unsubscribeFromHome?.();
+  unsubscribeFromHome = subscribeToHome();
+
+  if (activeInstanceDomain && activeServerId !== undefined) {
+    await switchToFederatedServer(activeInstanceDomain, activeServerId);
+  }
 };
 
 /**
@@ -99,6 +141,11 @@ export const fetchDeferredServerData = (
   expectedServerId: string
 ) => {
   if (!trpc) return;
+  // A preview is a read-only snapshot with no active server on the
+  // socket: these member-only routes would all 400 ("No active server").
+  // The real join (joinPreviewedServer → openSession) clears previewMode
+  // before it gets here, so nothing is skipped for an actual member.
+  if (store.getState().server.previewMode) return;
   const isStale = () => store.getState().server.serverId !== expectedServerId;
 
   trpc.others.getServerMembers.query().then((users) => {
@@ -121,18 +168,29 @@ export const fetchDeferredServerData = (
   fetchNameplates(trpc, expectedServerId);
 };
 
-export const joinServer = async (
+/**
+ * The WebSocket session bootstrap (`others.openSession`): authenticates
+ * the socket against the handshake and loads `serverId` (a server we are
+ * already a member of). Becoming a member is `joinServerByInvite` and
+ * friends in app/actions.
+ */
+export const openSession = async (
   handshakeHash: string,
   serverId?: number
 ) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
-  const data = await trpc.others.joinServer.query({
+  const join = beginServerJoin();
+  const data = await trpc.others.openSession.query({
     handshakeHash,
     serverId
   });
 
-  logDebug('joinServer', data);
+  // A later join (home or federated) started while this one was in
+  // flight: its response is the one the user asked for, drop this one.
+  if (!isCurrentServerJoin(join)) return;
+
+  logDebug('openSession', data);
 
   // Unsubscribe from previous server if switching
   unsubscribeFromServer?.();
@@ -162,6 +220,10 @@ export const joinServer = async (
   } else {
     seedPreferencesFromLocalStorage();
   }
+
+  // First connect or a reconnect: socket-bound state (game presence) is
+  // re-reported by whoever holds it.
+  emitAppEvent('home-session-opened');
 
   // Track the active server's DB id
   if (data.serverDbId) {
@@ -206,14 +268,18 @@ export const reinitServerSubscriptions = () => {
 export const getHandshakeHash = () => currentHandshakeHash;
 
 export const disconnectFromServer = () => {
+  // What this device said it was playing goes with the session: the
+  // bridge stops and reports nothing (the server also clears it with
+  // the last socket, so a report that no longer gets through is fine).
+  stopGamePresenceBridge();
+  // cleanup(true) also wipes every E2EE store (home and per-instance),
+  // so the next user on this browser inherits no keys.
   cleanup(true);
   unsubscribeFromServer?.();
+  unsubscribeFromServer = null;
+  unsubscribeFromHome?.();
+  unsubscribeFromHome = null;
   unsubscribeFromVoice?.();
   unsubscribeFromVoice = null;
   currentHandshakeHash = null;
-
-  // Clear E2EE keys from IndexedDB so the next user doesn't inherit them
-  import('@/lib/e2ee').then(({ signalStore }) =>
-    signalStore.clearAll().catch(() => {})
-  );
 };

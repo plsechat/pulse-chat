@@ -1,10 +1,16 @@
 import { ServerEvents, type TTempFile } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createMockContext } from '../../__tests__/context';
+import {
+  createTestChannel,
+  createTestServer,
+  createTestServerMember
+} from '../../__tests__/fixtures';
 import { getMockedToken, initTest, uploadFile } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { getPublicUserById } from '../../db/queries/users';
+import { channels } from '../../db/schema';
 import { appRouter } from '../../routers';
 import { pubsub } from '../../utils/pubsub';
 
@@ -452,6 +458,44 @@ describe('users router', () => {
     expect(info.user.banReason).toBeNull();
   });
 
+  test('a ban re-keys the private channels of every server the user belongs to', async () => {
+    const tdb = getTestDb();
+    const otherServer = await createTestServer({ ownerId: 1 });
+    await createTestServerMember({ serverId: otherServer, userId: 2 });
+    const otherPrivate = await createTestChannel({ serverId: otherServer });
+    const bystanderServer = await createTestServer({ ownerId: 1 });
+    const bystanderPrivate = await createTestChannel({ serverId: bystanderServer });
+    const publicChannel = await createTestChannel({ serverId: 1, name: 'public' });
+
+    await tdb
+      .update(channels)
+      .set({ private: true })
+      .where(sql`${channels.id} in (1, ${otherPrivate}, ${bystanderPrivate})`);
+
+    const saltOf = async (channelId: number) =>
+      (
+        await tdb
+          .select({ fileAccessToken: channels.fileAccessToken })
+          .from(channels)
+          .where(eq(channels.id, channelId))
+      )[0]!.fileAccessToken;
+    const before = {
+      home: await saltOf(1),
+      other: await saltOf(otherPrivate),
+      bystander: await saltOf(bystanderPrivate),
+      publicChannel: await saltOf(publicChannel)
+    };
+
+    const { caller } = await initTest();
+    await caller.users.ban({ userId: 2, reason: 'spam' });
+
+    expect(await saltOf(1)).not.toBe(before.home);
+    expect(await saltOf(otherPrivate)).not.toBe(before.other);
+    // Servers they never joined, and public channels, are left alone.
+    expect(await saltOf(bystanderPrivate)).toBe(before.bystander);
+    expect(await saltOf(publicChannel)).toBe(before.publicChannel);
+  });
+
   test('should throw when trying to ban yourself', async () => {
     const { caller } = await initTest();
 
@@ -646,7 +690,7 @@ describe('users router', () => {
     expect(row?.pronouns).toBe('they/them');
   });
 
-  test('joinServer publishes USER_JOIN carrying the server publicId', async () => {
+  test('openSession publishes USER_CONNECTED carrying the server publicId', async () => {
     const publishedEvents: { topic: string; payload: unknown }[] = [];
     const original = pubsub.publishFor.bind(pubsub);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -672,7 +716,7 @@ describe('users router', () => {
     )) as unknown as { public_id: string }[];
 
     const joins = publishedEvents.filter(
-      (e) => e.topic === ServerEvents.USER_JOIN
+      (e) => e.topic === ServerEvents.USER_CONNECTED
     );
     expect(joins.length).toBe(1);
     expect(joins[0]!.payload).toMatchObject({
@@ -873,7 +917,8 @@ describe('users router', () => {
     test('addRole and removeRole work on federated targets', async () => {
       const { caller } = await initTest();
       const tdb = getTestDb();
-      const shadowId = await insertFederatedShadow();
+      // Roles are only granted to members of the active server.
+      const shadowId = await insertFederatedShadow({ member: true });
 
       await caller.users.addRole({ userId: shadowId, roleId: 2 });
 

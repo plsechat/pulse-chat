@@ -1,6 +1,6 @@
 import { getFileUrl } from '@/helpers/get-file-url';
 import { cn } from '@/lib/utils';
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { Upload } from 'lucide-react';
 import { memo } from 'react';
 import { Button, buttonVariants } from '../ui/button';
@@ -31,7 +31,7 @@ const ImagePicker = memo(
                 src={getFileUrl(image)}
                 alt="Image"
                 className={cn(
-                  'w-80 h-24 object-cover rounded-md transition-opacity group-hover:opacity-70',
+                  'w-full max-w-80 h-24 object-cover rounded-md transition-opacity group-hover:opacity-70',
                   className
                 )}
               />
@@ -39,12 +39,12 @@ const ImagePicker = memo(
               <div
                 className={cn(
                   buttonVariants({ variant: 'outline' }),
-                  'w-80 h-24 cursor-pointer transition-opacity group-hover:opacity-70',
+                  'w-full max-w-80 h-24 cursor-pointer transition-opacity group-hover:opacity-70',
                   className
                 )}
               />
             )}
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover-or-touch:opacity-100 transition-opacity rounded-md">
               <div className="bg-black/50 rounded-full p-3">
                 <Upload className="h-6 w-6 text-white" />
               </div>

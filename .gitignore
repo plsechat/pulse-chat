@@ -1,16 +1,23 @@
-/node_modules
-/.github/copilot-instructions.md
-/cenas.txt
-/cenas.md
-/DockerCenas
-/experiments
+# Dependencies (every workspace, including e2e/)
+node_modules/
+
+# Environment
 .env
-apps/desktop/dist/
-apps/desktop/out/
-apps/desktop/node_modules
-apps/server/node_modules
-apps/client/node_modules
-.DS_Store
+
+# Build caches
 *.tsbuildinfo
+
+# OS cruft
+.DS_Store
 Thumbs.db
-docker-compose.yml
+
+# Local tooling state
+*.log
+ruvector.db
+.ruvector/
+
+# Local-only harnesses, reports and scratch artifacts
+test-deploy/
+test-results/
+e2e/probe-shots/
+api.html

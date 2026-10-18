@@ -1,9 +1,18 @@
 import type { TIpInfo } from '@pulse/shared';
+import net from 'net';
 import { ipCache } from './ip-cache';
 import { outboundFetch } from './outbound-fetch';
 import { isPrivateIp } from './validate-url';
 
-const getIpInfo = async (ip: string) => {
+/**
+ * Geo/ASN lookup for a login record. Returns undefined (and caches
+ * nothing) when the address is not an IP literal or ipinfo does not
+ * answer 2xx — its free-tier `{"status":429,"error":…}` body must never
+ * be cached for an hour and spread into the `logins` row.
+ */
+const getIpInfo = async (ip: string): Promise<TIpInfo | undefined> => {
+  if (!net.isIP(ip)) return undefined;
+
   const cachedData = ipCache.get(ip);
 
   if (cachedData) {
@@ -22,7 +31,16 @@ const getIpInfo = async (ip: string) => {
     : `https://ipinfo.io/${ip}/json`;
 
   const response = await outboundFetch(url);
+
+  if (response.status < 200 || response.status >= 300) {
+    return undefined;
+  }
+
   const data = await response.json<TIpInfo>();
+
+  if (!data || typeof data !== 'object') {
+    return undefined;
+  }
 
   ipCache.set(ip, data);
 

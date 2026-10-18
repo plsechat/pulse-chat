@@ -1,7 +1,5 @@
 export * from "./types";
-export * from "./tables";
 export * from "./statics/index";
-export * from "./trpc";
 export * from "./helpers/index";
 export * from "./events";
 export * from "./extensions";
@@ -10,3 +8,5 @@ export * from "./voice";
 export * from "./plugins";
 export * from "./preferences";
 export * from "./name-style";
+export * from "./embeds";
+export * from "./emoji-shortcodes";

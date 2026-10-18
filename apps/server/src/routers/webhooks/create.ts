@@ -3,21 +3,48 @@ import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
-import { channels, webhooks } from '../../db/schema';
+import { channels, files, webhooks } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const createWebhookRoute = protectedProcedure
+/**
+ * A webhook avatar must be an image file the caller uploaded themselves
+ * (plaintext — E2EE uploads carry placeholder metadata and can't be
+ * served as an avatar). Rejects with NOT_FOUND for anyone else's file
+ * so the id space isn't probeable, and BAD_REQUEST for a non-image.
+ * The MIME type is the one file-manager sniffed from the bytes at
+ * upload, not a client claim.
+ */
+const assertWebhookAvatarFile = async (fileId: number, userId: number) => {
+  const [file] = await db
+    .select({
+      mimeType: files.mimeType,
+      encrypted: files.encrypted
+    })
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+    .limit(1);
+
+  invariant(file, {
+    code: 'NOT_FOUND',
+    message: 'Avatar file not found'
+  });
+
+  invariant(!file.encrypted && file.mimeType.startsWith('image/'), {
+    code: 'BAD_REQUEST',
+    message: 'Webhook avatar must be an image'
+  });
+};
+
+const createWebhookRoute = serverProcedure(Permission.MANAGE_WEBHOOKS)
   .input(
     z.object({
       name: z.string().min(1).max(80),
-      channelId: z.number(),
-      avatarFileId: z.number().optional()
+      channelId: z.number().int().positive(),
+      avatarFileId: z.number().int().positive().optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_WEBHOOKS);
-
     // Verify the channel belongs to the caller's active server
     const [channel] = await db
       .select({ id: channels.id, type: channels.type })
@@ -25,7 +52,7 @@ const createWebhookRoute = protectedProcedure
       .where(
         and(
           eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId!)
+          eq(channels.serverId, ctx.activeServerId)
         )
       )
       .limit(1);
@@ -42,6 +69,10 @@ const createWebhookRoute = protectedProcedure
       message: 'Webhooks cannot target voice channels'
     });
 
+    if (input.avatarFileId !== undefined) {
+      await assertWebhookAvatarFile(input.avatarFileId, ctx.userId);
+    }
+
     const [webhook] = await db
       .insert(webhooks)
       .values({
@@ -50,7 +81,7 @@ const createWebhookRoute = protectedProcedure
         token: randomUUID(),
         avatarFileId: input.avatarFileId ?? null,
         createdBy: ctx.userId,
-        serverId: ctx.activeServerId!,
+        serverId: ctx.activeServerId,
         createdAt: Date.now()
       })
       .returning();
@@ -58,4 +89,4 @@ const createWebhookRoute = protectedProcedure
     return webhook;
   });
 
-export { createWebhookRoute };
+export { assertWebhookAvatarFile, createWebhookRoute };

@@ -58,12 +58,13 @@ const CreateGroupDmDialog = memo(
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-popover border border-border rounded-lg shadow-xl w-full max-w-sm mx-4">
+        <div className="bg-popover border border-border rounded-lg shadow-xl w-full max-w-sm mx-4 max-h-[calc(var(--vvh)-2rem)] overflow-y-auto">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
             <h2 className="text-sm font-semibold">Create Group DM</h2>
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close"
               className="text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />

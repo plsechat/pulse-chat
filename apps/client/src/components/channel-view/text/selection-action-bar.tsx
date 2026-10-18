@@ -54,7 +54,13 @@ const SelectionActionBar = memo(() => {
       <Button variant="ghost" size="sm" onClick={clearSelection}>
         Clear
       </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={exitSelectionMode}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
+        onClick={exitSelectionMode}
+        aria-label="Exit selection mode"
+      >
         <X className="h-4 w-4" />
       </Button>
     </div>

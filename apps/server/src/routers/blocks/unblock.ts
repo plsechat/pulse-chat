@@ -5,7 +5,7 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const unblockRoute = protectedProcedure
-  .input(z.object({ userId: z.number() }))
+  .input(z.object({ userId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     await removeBlock(ctx.userId, input.userId);
     pubsub.publishFor(ctx.userId, ServerEvents.USER_BLOCK_CHANGED, {

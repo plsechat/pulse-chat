@@ -53,4 +53,53 @@ if [ "$MISSING" -eq 1 ]; then
 fi
 
 echo "[entrypoint] AUTH_BACKEND=$AUTH_BACKEND_RESOLVED"
+
+# Drop privileges. The image starts this script as root so a bind-mounted
+# data directory (created root-owned by the daemon on first boot, or left
+# over from a pre-non-root image) can be handed to the `pulse` user before
+# the server opens it. The chown walks the tree only when the top-level
+# directory is not already owned by `pulse`, so steady-state restarts cost
+# one stat.
+# DATA_PATH derives from $HOME (~/.config/pulse); pin it so the path is the
+# same whichever uid the container was started with.
+export HOME=/root
+PULSE_DATA_DIR=/root/.config/pulse
+
+# Official plugins bundled in the image (/opt/pulse/plugins/<id>) are
+# refreshed into the data directory's plugins/ folder on every boot, so
+# an image upgrade carries the plugin along. Only the shipped files are
+# replaced; anything else in the plugin's folder (its state file) stays,
+# and whether the plugin runs is a database flag the instance owner
+# controls — a freshly copied plugin is off until switched on.
+sync_official_plugins() {
+  [ -d /opt/pulse/plugins ] || return 0
+  for src in /opt/pulse/plugins/*/; do
+    [ -d "$src" ] || continue
+    name="$(basename "$src")"
+    dest="$PULSE_DATA_DIR/plugins/$name"
+    mkdir -p "$dest"
+    cp -R "$src". "$dest/"
+    echo "[entrypoint] official plugin $name -> $dest"
+  done
+}
+
+if [ "$(id -u)" -eq 0 ]; then
+  mkdir -p "$PULSE_DATA_DIR"
+  sync_official_plugins
+  if [ -d "$PULSE_DATA_DIR/plugins" ]; then
+    chown -R pulse:pulse "$PULSE_DATA_DIR/plugins"
+  fi
+  if [ "$(stat -c %U "$PULSE_DATA_DIR")" != "pulse" ]; then
+    echo "[entrypoint] chown $PULSE_DATA_DIR -> pulse"
+    chown -R pulse:pulse "$PULSE_DATA_DIR"
+  fi
+  # coreutils chroot (no-op root, --userspec) is the drop mechanism on
+  # purpose: setpriv/runuser/su hand the bun runtime an empty process.env
+  # after the uid switch (verified against oven/bun 1.3.9), while this
+  # path preserves it. Ports below 1024 are not bindable after the drop;
+  # the default 5443 and a reverse proxy are the documented layout.
+  exec chroot --userspec=pulse:pulse --groups=pulse / /pulse
+fi
+
+sync_official_plugins
 exec /pulse

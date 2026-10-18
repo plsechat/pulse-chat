@@ -1,12 +1,18 @@
+import { UploadHeaders } from '@pulse/shared';
 import chalk from 'chalk';
 import http from 'http';
 import z from 'zod';
 import { config } from '../config';
-import { getWsInfo } from '../helpers/get-ws-info';
+import {
+  getClientIp,
+  getWsInfo,
+  resolvePublicOrigin
+} from '../helpers/get-ws-info';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
 import { newRequestId, withLogContext } from '../utils/log-context';
-import { isAllowedOrigin } from './cors';
+import { getFederationProtocol } from '../utils/validate-url';
+import { getActiveFederationDomains, isAllowedOrigin } from './cors';
 import {
   federationAcceptHandler,
   federationDmRelayHandler,
@@ -15,12 +21,15 @@ import {
   federationFriendRequestHandler,
   federationGetPreKeyBundleHandler,
   federationInfoHandler,
+  federationKeyRotationHandler,
   federationReportUserHandler,
   federationRequestHandler,
   federationServersHandler,
+  federationUnpeerHandler,
   federationUserInfoHandler
 } from './federation';
 import { federationChannelSenderKeyNotifyHandler } from './federation-channel-sender-key';
+import { federationDirectoryHandler } from './federation-directory';
 import { federationDmChannelStateUpdateHandler } from './federation-dm-channel-state';
 import {
   federationDmGroupAddMemberHandler,
@@ -29,30 +38,154 @@ import {
   federationDmSenderKeyHandler,
   federationIdentityRotationHandler
 } from './federation-dm-group';
+import {
+  federationAnnouncementFollowHandler,
+  federationAnnouncementHandler
+} from './federation-announcement';
 import { federationMemberRemovedHandler } from './federation-member-removed';
 import { federationSharesServerHandler } from './federation-shares-server';
 import { federationUserInfoUpdateHandler } from './federation-user-info-update';
+import { eventsIcsRouteHandler } from './events-ics';
 import { healthRouteHandler } from './healthz';
 import { JsonBodyTooLargeError } from './helpers';
 import { infoRouteHandler } from './info';
 import { interfaceRouteHandler } from './interface';
 import { loginRouteHandler } from './login';
+import { logoutRouteHandler } from './logout';
 import { provisionRouteHandler } from './provision-user';
 import { refreshRouteHandler } from './refresh';
 import { oidcCallbackRouteHandler, oidcStartRouteHandler } from './oidc';
 import { publicRouteHandler } from './public';
+import { checkRateLimit } from './rate-limit';
 import {
   authRateLimit,
-  checkRateLimit,
   federationRateLimit,
-  uploadRateLimit
-} from './rate-limit';
+  federationReadRateLimit,
+  pluginHttpIdRateLimit,
+  pluginHttpRateLimit,
+  publicRateLimit,
+  uploadRateLimit,
+  webhookIdRateLimit,
+  webhookRateLimit
+} from './rate-limit-core';
+import { parsePluginHttpUrl } from '../plugins/http';
+import { pluginManager } from '../plugins';
 import { registerRouteHandler } from './register';
 import { uploadFileRouteHandler } from './upload';
 import { HttpValidationError } from './utils';
 import { webhookRouteHandler } from './webhook';
 
 // this http server implementation is temporary and will be moved to bun server later when things are more stable
+
+// Every header the browser client sets on a cross-origin call (federated
+// uploads carry the full UploadHeaders set, incl. x-file-encrypted) plus
+// the bearer/federation/correlation headers. Built from the shared enum
+// so a new upload header cannot silently fail the preflight again.
+const CORS_ALLOW_HEADERS = Array.from(
+  new Set([
+    'content-type',
+    'authorization',
+    'x-federation-token',
+    'x-pulse-request-id',
+    ...Object.values(UploadHeaders)
+  ])
+).join(', ');
+
+// 'unsafe-eval' is not needed: the only eval in the built client is
+// protobufjs' try/catch-guarded `eval("require")` probe, which fails
+// closed. Fonts are self-hosted, so font-src stays 'self'.
+//
+// script-src beyond 'self': the YouTube IFrame Player API that the
+// watch-together card drives — the `iframe_api` bootstrap, the player
+// library it inserts (under `/s/player/`), and the host the library
+// used to ship from. Path-scoped where the path is stable, so nothing
+// else on that origin becomes a script source. The player's iframe
+// itself (youtube-nocookie.com, youtube.com) is already allowed by
+// frame-src for message embeds, and the watch card's thumbnail
+// (i.ytimg.com) by the `https:` that link previews need in img-src.
+const CSP_IMG_SRC = "'self' data: https: blob:";
+const CSP_MEDIA_SRC = "'self' https: blob:";
+const CSP_CONNECT_SRC = "'self' https: wss: ws: blob:";
+
+const buildContentSecurityPolicy = (peerSources: readonly string[]) => {
+  const peers = peerSources.length > 0 ? ` ${peerSources.join(' ')}` : '';
+  return `default-src 'self'; script-src 'self' https://www.youtube.com/iframe_api https://www.youtube.com/s/player/ https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src ${CSP_IMG_SRC}${peers}; media-src ${CSP_MEDIA_SRC}${peers}; connect-src ${CSP_CONNECT_SRC}${peers}; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`;
+};
+
+const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy([]);
+
+/**
+ * CSP source expression for a federation peer this instance talks to
+ * over plain http (LAN / allowlisted-private / bare-hostname peers, see
+ * getFederationProtocol). A browser on a plain-http home instance
+ * otherwise cannot load the peer's logos, avatars and attachments: the
+ * `https:` scheme sources above do not cover `http://peer:4991/public/`.
+ * An https home stays mixed-content blocked whatever the CSP says, so
+ * this only ever helps the plain-http case it is meant for.
+ *
+ * The domain comes from the operator-added federation_instances row;
+ * it is still re-parsed here so a value that is not a clean host[:port]
+ * can never splice a directive. CSP host-sources have no IPv6-literal
+ * form, so a v6 peer falls back to the bare `http:` scheme source.
+ */
+const httpPeerCspSource = (domain: string): string | null => {
+  let url: URL;
+  try {
+    url = new URL(`http://${domain}`);
+  } catch {
+    return null;
+  }
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash ||
+    url.host.toLowerCase() !== domain.toLowerCase()
+  ) {
+    return null;
+  }
+  if (url.hostname.startsWith('[')) return 'http:';
+  return `http://${url.host}`;
+};
+
+// Rebuilt only when the CORS layer hands over a new peer Set (TTL
+// refresh or invalidateCorsCache after a peer change); every request in
+// between reuses the string.
+let cspCache: { domains: Set<string>; value: string } | null = null;
+
+const getContentSecurityPolicy = async (): Promise<string> => {
+  const domains = await getActiveFederationDomains();
+  if (cspCache?.domains === domains) return cspCache.value;
+
+  const sources = new Set<string>();
+  for (const domain of domains) {
+    if (getFederationProtocol(domain) !== 'http') continue;
+    const source = httpPeerCspSource(domain);
+    if (source) sources.add(source);
+  }
+  const value =
+    sources.size > 0
+      ? buildContentSecurityPolicy([...sources].sort())
+      : CONTENT_SECURITY_POLICY;
+  cspCache = { domains, value };
+  return value;
+};
+
+const PERMISSIONS_POLICY =
+  'camera=(self), microphone=(self), display-capture=(self), geolocation=()';
+
+// One year, subdomains included. Only sent when the request is known to
+// have arrived over TLS (PUBLIC_URL / trusted x-forwarded-proto / a TLS
+// socket) — on a plain-http deployment it would pin browsers to an
+// origin that does not exist.
+const STRICT_TRANSPORT_SECURITY = 'max-age=31536000; includeSubDomains';
+
+// Webhook ids are int4 primary keys; anything wider is a 404, not a
+// Postgres out-of-range 500. The token capture stops at `?`/`#` so a
+// query string is never swallowed into the token.
+const WEBHOOK_PATH = /^\/webhooks\/(\d{1,10})\/([^/?#]+)(?:[?#].*)?$/;
+const MAX_WEBHOOK_ID = 2_147_483_647;
 
 const createHttpServer = async (port: number = config.server.port) => {
   return new Promise<http.Server>((resolve) => {
@@ -80,26 +213,33 @@ const createHttpServer = async (port: number = config.server.port) => {
       req: http.IncomingMessage,
       res: http.ServerResponse
     ) {
+      const publicOrigin = resolvePublicOrigin(req);
+
+      // The allow-origin value depends on the Origin header, so caches
+      // must key on it. Credentials are never allowed: auth is a bearer
+      // token / x-token header, and the only cookie (OIDC state) is
+      // scoped to its own path.
+      res.setHeader('Vary', 'Origin');
       const origin = req.headers.origin;
       if (origin) {
-        const allowed = await isAllowedOrigin(origin, req.headers.host);
+        const allowed = await isAllowedOrigin(origin, publicOrigin.host);
         if (allowed) {
           res.setHeader('Access-Control-Allow-Origin', origin);
-          res.setHeader('Access-Control-Allow-Credentials', 'true');
         }
       }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, x-token, x-file-name, x-file-type, x-federation-token, content-length'
-      );
+      res.setHeader('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        await getContentSecurityPolicy()
       );
+      res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
+      if (publicOrigin.proto === 'https') {
+        res.setHeader('Strict-Transport-Security', STRICT_TRANSPORT_SECURITY);
+      }
 
       const info = getWsInfo(undefined, req);
 
@@ -132,6 +272,7 @@ const createHttpServer = async (port: number = config.server.port) => {
 
         // Federation HTTP API
         if (req.method === 'GET' && req.url === '/federation/info') {
+          if (!checkRateLimit(req, res, federationReadRateLimit)) return;
           return await federationInfoHandler(req, res);
         }
 
@@ -145,11 +286,19 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await federationAcceptHandler(req, res);
         }
 
-        if (
-          req.method === 'GET' &&
-          req.url?.startsWith('/federation/servers')
-        ) {
+        // Signed like every other peer route; the per-IP brake stays as
+        // the pre-auth flood guard (the per-peer budget applies after
+        // the signature verifies).
+        if (req.method === 'POST' && req.url === '/federation/servers') {
+          if (!checkRateLimit(req, res, federationReadRateLimit)) return;
           return await federationServersHandler(req, res);
+        }
+
+        // Directory listing for a peer's Directory tab — same read
+        // bucket and signing discipline as /federation/servers.
+        if (req.method === 'POST' && req.url === '/federation/directory') {
+          if (!checkRateLimit(req, res, federationReadRateLimit)) return;
+          return await federationDirectoryHandler(req, res);
         }
 
         if (req.method === 'POST' && req.url === '/federation/user-info') {
@@ -251,6 +400,19 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await federationMemberRemovedHandler(req, res);
         }
 
+        if (req.method === 'POST' && req.url === '/federation/announcement') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationAnnouncementHandler(req, res);
+        }
+
+        if (
+          req.method === 'POST' &&
+          req.url === '/federation/announcement-follow'
+        ) {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationAnnouncementFollowHandler(req, res);
+        }
+
         if (
           req.method === 'POST' &&
           req.url === '/federation/channel-sender-key-notify'
@@ -262,6 +424,16 @@ const createHttpServer = async (port: number = config.server.port) => {
         if (req.method === 'POST' && req.url === '/federation/report-user') {
           if (!checkRateLimit(req, res, federationRateLimit)) return;
           return await federationReportUserHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/unpeer') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationUnpeerHandler(req, res);
+        }
+
+        if (req.method === 'POST' && req.url === '/federation/key-rotation') {
+          if (!checkRateLimit(req, res, federationRateLimit)) return;
+          return await federationKeyRotationHandler(req, res);
         }
 
         if (req.method === 'POST' && req.url === '/login') {
@@ -284,6 +456,11 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await refreshRouteHandler(req, res);
         }
 
+        if (req.method === 'POST' && req.url === '/auth/logout') {
+          if (!checkRateLimit(req, res, authRateLimit)) return;
+          return await logoutRouteHandler(req, res);
+        }
+
         if (req.method === 'GET' && req.url?.startsWith('/auth/oidc/start')) {
           if (!checkRateLimit(req, res, authRateLimit)) return;
           return await oidcStartRouteHandler(req, res);
@@ -294,22 +471,115 @@ const createHttpServer = async (port: number = config.server.port) => {
           return await oidcCallbackRouteHandler(req, res);
         }
 
-        if (
-          req.method === 'POST' &&
-          req.url?.match(/^\/webhooks\/(\d+)\/(.+)$/)
-        ) {
-          const match = req.url.match(/^\/webhooks\/(\d+)\/(.+)$/);
-          if (match) {
-            return await webhookRouteHandler(
+        if (req.method === 'POST' && req.url?.startsWith('/webhooks/')) {
+          const match = req.url.match(WEBHOOK_PATH);
+          const webhookId = match ? Number.parseInt(match[1]!, 10) : NaN;
+
+          if (!match || webhookId > MAX_WEBHOOK_ID) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Webhook not found' }));
+            return;
+          }
+
+          // Two budgets: per source address for this webhook (token
+          // guessing / floods from one host) and per webhook id across
+          // every source (what one integration may inject). Neither key
+          // includes the token, so a wrong guess shares the bucket.
+          const ip = getClientIp(req);
+          if (
+            !checkRateLimit(
               req,
               res,
-              parseInt(match[1]!),
-              match[2]!
-            );
+              webhookRateLimit,
+              `${ip}:/webhooks/${webhookId}`
+            )
+          ) {
+            return;
           }
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              webhookIdRateLimit,
+              `webhook-id:${webhookId}`
+            )
+          ) {
+            return;
+          }
+
+          return await webhookRouteHandler(req, res, webhookId, match[2]!);
+        }
+
+        // Calendar feed: credential-in-URL (see events-ics.ts), so it
+        // shares the public-file brake per source address.
+        if (req.method === 'GET' && req.url?.startsWith('/events/')) {
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              publicRateLimit,
+              `${getClientIp(req)}:/events`
+            )
+          ) {
+            return;
+          }
+          return await eventsIcsRouteHandler(req, res);
+        }
+
+        // Plugin HTTP ingress (`ctx.http.register`). Same two budgets as
+        // webhooks: per source address for this plugin, and per plugin
+        // across every source. The secret check is inside the handler.
+        if (
+          (req.method === 'POST' || req.method === 'GET') &&
+          req.url?.startsWith('/plugins/')
+        ) {
+          const parsed = parsePluginHttpUrl(req.url);
+
+          if (!parsed) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Not found' }));
+            return;
+          }
+
+          const ip = getClientIp(req);
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              pluginHttpRateLimit,
+              `${ip}:/plugins/${parsed.pluginId}`
+            )
+          ) {
+            return;
+          }
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              pluginHttpIdRateLimit,
+              `plugin-id:${parsed.pluginId}`
+            )
+          ) {
+            return;
+          }
+
+          return await pluginManager.handleHttpRequest(req, res, parsed);
         }
 
         if (req.method === 'GET' && req.url?.startsWith('/public')) {
+          // One bucket per source for the whole prefix: the file name
+          // varies per request, so an `ip:pathname` key would never
+          // accumulate.
+          if (
+            !checkRateLimit(
+              req,
+              res,
+              publicRateLimit,
+              `${getClientIp(req)}:/public`
+            )
+          ) {
+            return;
+          }
           return await publicRouteHandler(req, res);
         }
 

@@ -1,4 +1,4 @@
-import { Permission } from '@pulse/shared';
+import { ChannelPermission, normalizeReaction, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -9,24 +9,23 @@ import {
   getReaction
 } from '../../db/queries/messages';
 import { messageReactions } from '../../db/schema';
+import { eventBus } from '../../plugins/event-bus';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const toggleMessageReactionRoute = protectedProcedure
+/** A unicode emoji or a `:custom_name:` token — never free text. */
+const MAX_EMOJI_LENGTH = 64;
+
+const toggleMessageReactionRoute = serverProcedure(
+  Permission.REACT_TO_MESSAGES
+)
   .input(
     z.object({
-      messageId: z.number(),
-      emoji: z.string()
+      messageId: z.number().int().positive(),
+      emoji: z.string().min(1).max(MAX_EMOJI_LENGTH)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.REACT_TO_MESSAGES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const message = await getMessageInActiveServer(
       input.messageId,
       ctx.activeServerId
@@ -36,19 +35,34 @@ const toggleMessageReactionRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Message not found'
     });
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
 
-    const reaction = await getReaction(
-      input.messageId,
-      input.emoji,
-      ctx.user.id
+    // Server scope alone still lets a member react inside a private
+    // channel they cannot view (and learn the message exists).
+    await ctx.needsChannelPermission(
+      message.channelId,
+      ChannelPermission.VIEW_CHANNEL
     );
 
+    // One stored spelling per reaction: `👍`, `:+1:` and `+1` are the
+    // same row, and a custom emoji is looked up by its bare name.
+    const emoji = normalizeReaction(input.emoji);
+    invariant(emoji.length > 0, {
+      code: 'BAD_REQUEST',
+      message: 'Invalid reaction'
+    });
+
+    const reaction = await getReaction(input.messageId, emoji, ctx.user.id);
+
     if (!reaction) {
-      const emojiFileId = await getEmojiFileIdByEmojiName(input.emoji);
+      const emojiFileId = await getEmojiFileIdByEmojiName(emoji);
 
       await db.insert(messageReactions).values({
         messageId: input.messageId,
-        emoji: input.emoji,
+        emoji,
         userId: ctx.user.id,
         fileId: emojiFileId,
         createdAt: Date.now()
@@ -59,13 +73,21 @@ const toggleMessageReactionRoute = protectedProcedure
         .where(
           and(
             eq(messageReactions.messageId, input.messageId),
-            eq(messageReactions.emoji, input.emoji),
+            eq(messageReactions.emoji, emoji),
             eq(messageReactions.userId, ctx.user.id)
           )
         );
     }
 
     publishMessage(input.messageId, message.channelId, 'update');
+
+    eventBus.emit('message:reaction', {
+      messageId: input.messageId,
+      channelId: message.channelId,
+      userId: ctx.user.id,
+      emoji,
+      added: !reaction
+    });
   });
 
 export { toggleMessageReactionRoute };

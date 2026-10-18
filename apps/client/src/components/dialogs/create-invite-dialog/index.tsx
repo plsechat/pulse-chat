@@ -11,6 +11,7 @@ import {
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
 import { useActiveServerId } from '@/features/app/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
 import { getRandomString } from '@pulse/shared';
@@ -18,7 +19,7 @@ import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
 
-type TCreateInviteDialogProps = TDialogBaseProps & {
+export type TCreateInviteDialogProps = TDialogBaseProps & {
   refetch?: () => void;
 };
 
@@ -47,6 +48,7 @@ const CreateInviteDialog = memo(
         close();
       } catch (error) {
         setTrpcErrors(error);
+        toast.error(getTrpcError(error, 'Failed to create invite'));
       }
     }, [close, refetch, setTrpcErrors, values, activeServerId]);
 

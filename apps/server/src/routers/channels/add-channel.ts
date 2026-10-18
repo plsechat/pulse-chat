@@ -8,20 +8,18 @@ import { categories, channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
+import { notifyBridgeChannelCreated } from '../servers/bridge-hooks';
 
-const addChannelRoute = protectedProcedure
+const addChannelRoute = serverProcedureFor(Permission.MANAGE_CHANNELS)
   .input(
     z.object({
       type: z.enum(ChannelType),
-      name: z.string().min(1).max(16),
-      categoryId: z.number(),
-      serverId: z.number()
+      name: z.string().min(1).max(24),
+      categoryId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS, input.serverId);
-
     // Verify the category belongs to the specified server
     const [category] = await db
       .select({ id: categories.id })
@@ -70,9 +68,13 @@ const addChannelRoute = protectedProcedure
       return newChannel!;
     });
 
-    const runtime = new VoiceRuntime(channel.id);
+    // A mediasoup router only for channels that can carry voice — boot
+    // (runtimes/index.ts) and voice.join create them the same way.
+    if (channel.type === ChannelType.VOICE) {
+      const runtime = new VoiceRuntime(channel.id);
 
-    await runtime.init();
+      await runtime.init();
+    }
 
     publishChannel(channel.id, 'create');
     enqueueActivityLog({
@@ -84,6 +86,11 @@ const addChannelRoute = protectedProcedure
         type: channel.type as ChannelType
       }
     });
+
+    // A server bridged as a whole picks the new channel up: the pairing
+    // itself runs detached (webhook creation is paced); only the
+    // "is this server linked" lookup is awaited here.
+    await notifyBridgeChannelCreated(channel.serverId);
 
     return channel.id;
   });

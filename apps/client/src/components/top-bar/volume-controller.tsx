@@ -59,6 +59,8 @@ const AudioStreamControl = memo(
             size="sm"
             onClick={() => toggleMute(volumeKey)}
             className="h-6 w-6 p-0"
+            aria-label={isMuted ? `Unmute ${name}` : `Mute ${name}`}
+            aria-pressed={isMuted}
           >
             {isMuted ? (
               <VolumeX className="h-4 w-4 text-muted-foreground" />
@@ -124,17 +126,21 @@ const VolumeController = memo(({ channelId }: VolumeControllerProps) => {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 transition-all duration-200 ease-in-out"
-        >
-          <Tooltip content="Volume Controls" asChild={false}>
+      {/* Tooltip OUTSIDE the trigger: `asChild={false}` inside the Button
+          rendered a second <button> nested in the first (invalid HTML,
+          audit A8-13). Both Radix triggers slot onto the one Button. */}
+      <Tooltip content="Volume Controls">
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 transition-all duration-200 ease-in-out"
+            aria-label="Volume controls"
+          >
             <Volume2 className="w-4 h-4" />
-          </Tooltip>
-        </Button>
-      </PopoverTrigger>
+          </Button>
+        </PopoverTrigger>
+      </Tooltip>
       <PopoverContent align="end" className="w-80">
         <div className="space-y-2">
           <div className="flex items-center justify-between mb-3">

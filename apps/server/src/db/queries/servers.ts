@@ -1,9 +1,11 @@
-import { OWNER_ROLE_ID, type TJoinedServer, type TServerSummary } from '@pulse/shared';
-import { and, asc, count, eq, inArray, max, or, sql } from 'drizzle-orm';
+import { OWNER_ROLE_ID } from '@pulse/shared';
+import type { TJoinedServer, TServerSummary } from '../../types';
+import { and, asc, eq, inArray, max, or, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   channelReadStates,
   channels,
+  channelUserPermissions,
   dmChannelMembers,
   files,
   friendships,
@@ -16,107 +18,68 @@ import {
   users
 } from '../schema';
 
+/**
+ * Members of a server, as a correlated scalar so list queries carry the
+ * count in the same statement instead of one COUNT per row.
+ */
+const memberCountOf = sql<number>`
+  (SELECT count(*) FROM ${serverMembers}
+    WHERE ${serverMembers.serverId} = ${servers.id})
+`.as('member_count');
+
 const getServerById = async (
   serverId: number
 ): Promise<TJoinedServer | undefined> => {
-  const [server] = await db
-    .select()
+  const [row] = await db
+    .select({ server: servers, logo: files })
     .from(servers)
+    .leftJoin(files, eq(servers.logoId, files.id))
     .where(eq(servers.id, serverId))
     .limit(1);
 
-  if (!server) return undefined;
-
-  const logo = server.logoId
-    ? (
-        await db
-          .select()
-          .from(files)
-          .where(eq(files.id, server.logoId))
-          .limit(1)
-      )[0]
-    : undefined;
+  if (!row) return undefined;
 
   return {
-    ...server,
-    logo: logo ?? null
-  };
-};
-
-const getServerByPublicId = async (
-  publicId: string
-): Promise<TJoinedServer | undefined> => {
-  const [server] = await db
-    .select()
-    .from(servers)
-    .where(eq(servers.publicId, publicId))
-    .limit(1);
-
-  if (!server) return undefined;
-
-  const logo = server.logoId
-    ? (
-        await db
-          .select()
-          .from(files)
-          .where(eq(files.id, server.logoId))
-          .limit(1)
-      )[0]
-    : undefined;
-
-  return {
-    ...server,
-    logo: logo ?? null
+    ...row.server,
+    logo: row.logo
   };
 };
 
 const getServersByUserId = async (
   userId: number
 ): Promise<TServerSummary[]> => {
+  // Logo and member count ride along in the one statement (this used to
+  // be 1 + 2n queries for n servers).
   const rows = await db
     .select({
       id: servers.id,
       name: servers.name,
       publicId: servers.publicId,
-      logoId: servers.logoId,
-      ownerId: servers.ownerId
+      ownerId: servers.ownerId,
+      description: servers.description,
+      logo: files,
+      memberCount: memberCountOf
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
+    .leftJoin(files, eq(servers.logoId, files.id))
     .where(eq(serverMembers.userId, userId))
     .orderBy(asc(serverMembers.position));
 
-  const results: TServerSummary[] = [];
-
-  for (const row of rows) {
-    const logo = row.logoId
-      ? (
-          await db
-            .select()
-            .from(files)
-            .where(eq(files.id, row.logoId))
-            .limit(1)
-        )[0]
-      : undefined;
-
-    const result = await db
-      .select({ count: count() })
-      .from(serverMembers)
-      .where(eq(serverMembers.serverId, row.id));
-
-    const memberCount = result[0]?.count ?? 0;
-
-    results.push({
+  return rows.map(
+    (row): TServerSummary => ({
       id: row.id,
       name: row.name,
       publicId: row.publicId,
-      logo: logo ?? null,
-      memberCount,
-      ownerId: row.ownerId
-    });
-  }
-
-  return results;
+      logo: row.logo,
+      memberCount: Number(row.memberCount),
+      ownerId: row.ownerId,
+      // Carried so the client's live summary (rail, deck tabs, Discover
+      // card) starts from the same description SERVER_SETTINGS_UPDATE
+      // later keeps current.
+      description: row.description
+    })
+  );
 };
 
 const getServerMemberIds = async (serverId: number): Promise<number[]> => {
@@ -170,97 +133,102 @@ const addServerMember = async (
     .onConflictDoNothing();
 };
 
+/**
+ * Take a user out of a server completely: the membership row, every role
+ * they hold IN THAT SERVER and their per-channel overrides there, in one
+ * transaction. Leave, kick and ban all go through here. Leaving only the
+ * membership row behind let a kicked moderator rejoin by invite with
+ * every role intact (the join path only adds the default role), and let
+ * a leaver keep acting through roles that still existed.
+ */
 const removeServerMember = async (serverId: number, userId: number) => {
-  await db
-    .delete(serverMembers)
-    .where(
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(serverMembers)
+      .where(
+        and(
+          eq(serverMembers.serverId, serverId),
+          eq(serverMembers.userId, userId)
+        )
+      );
+
+    await tx.delete(userRoles).where(
       and(
-        eq(serverMembers.serverId, serverId),
-        eq(serverMembers.userId, userId)
+        eq(userRoles.userId, userId),
+        inArray(
+          userRoles.roleId,
+          tx.select({ id: roles.id }).from(roles).where(eq(roles.serverId, serverId))
+        )
       )
     );
+
+    await tx.delete(channelUserPermissions).where(
+      and(
+        eq(channelUserPermissions.userId, userId),
+        inArray(
+          channelUserPermissions.channelId,
+          tx
+            .select({ id: channels.id })
+            .from(channels)
+            .where(eq(channels.serverId, serverId))
+        )
+      )
+    );
+  });
 };
 
 const getFirstServer = async (): Promise<TJoinedServer | undefined> => {
-  const [server] = await db.select().from(servers).orderBy(servers.id).limit(1);
+  const [row] = await db
+    .select({ server: servers, logo: files })
+    .from(servers)
+    .leftJoin(files, eq(servers.logoId, files.id))
+    .orderBy(servers.id)
+    .limit(1);
 
-  if (!server) return undefined;
-
-  const logo = server.logoId
-    ? (
-        await db
-          .select()
-          .from(files)
-          .where(eq(files.id, server.logoId))
-          .limit(1)
-      )[0]
-    : undefined;
+  if (!row) return undefined;
 
   return {
-    ...server,
-    logo: logo ?? null
+    ...row.server,
+    logo: row.logo
   };
 };
 
 const getDiscoverableServers = async (
   userId: number
 ): Promise<(TServerSummary & { joined: boolean })[]> => {
-  // Get server IDs the user has already joined
-  const joinedRows = await db
-    .select({ serverId: serverMembers.serverId })
-    .from(serverMembers)
-    .where(eq(serverMembers.userId, userId));
-
-  const joinedIds = new Set(joinedRows.map((r) => r.serverId));
-
-  // Query all discoverable servers
+  // Every discoverable server with its logo, member count and the
+  // caller's membership flag in ONE statement (was 2 + 2n queries).
   const rows = await db
     .select({
       id: servers.id,
       name: servers.name,
       publicId: servers.publicId,
-      logoId: servers.logoId,
       ownerId: servers.ownerId,
       description: servers.description,
-      password: servers.password
+      password: servers.password,
+      logo: files,
+      memberCount: memberCountOf,
+      joined: sql<boolean>`
+        EXISTS (SELECT 1 FROM ${serverMembers}
+          WHERE ${serverMembers.serverId} = ${servers.id}
+            AND ${serverMembers.userId} = ${userId})
+      `.as('joined')
     })
     .from(servers)
+    .leftJoin(files, eq(servers.logoId, files.id))
     .where(eq(servers.discoverable, true));
 
-  const results: (TServerSummary & { joined: boolean })[] = [];
-
-  for (const row of rows) {
-    const logo = row.logoId
-      ? (
-          await db
-            .select()
-            .from(files)
-            .where(eq(files.id, row.logoId))
-            .limit(1)
-        )[0]
-      : undefined;
-
-    const result = await db
-      .select({ count: count() })
-      .from(serverMembers)
-      .where(eq(serverMembers.serverId, row.id));
-
-    const memberCount = result[0]?.count ?? 0;
-
-    results.push({
-      id: row.id,
-      name: row.name,
-      publicId: row.publicId,
-      logo: logo ?? null,
-      memberCount,
-      ownerId: row.ownerId,
-      description: row.description,
-      hasPassword: !!row.password,
-      joined: joinedIds.has(row.id)
-    });
-  }
-
-  return results;
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    publicId: row.publicId,
+    logo: row.logo,
+    memberCount: Number(row.memberCount),
+    ownerId: row.ownerId,
+    description: row.description,
+    hasPassword: !!row.password,
+    joined: row.joined === true
+  }));
 };
 
 const getServerUnreadCounts = async (
@@ -272,6 +240,7 @@ const getServerUnreadCounts = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
@@ -280,6 +249,7 @@ const getServerUnreadCounts = async (
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -332,6 +302,7 @@ const getServerUnreadCount = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
           THEN 1
@@ -340,6 +311,7 @@ const getServerUnreadCount = async (
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND (${channelReadStates.lastReadMessageId} IS NULL
               OR ${messages.id} > ${channelReadStates.lastReadMessageId})
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -544,7 +516,6 @@ export {
   getFirstServer,
   getPresenceInterestedIds,
   getServerById,
-  getServerByPublicId,
   getServerMemberIds,
   getServerUnreadCount,
   getServerUnreadCounts,

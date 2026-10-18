@@ -14,8 +14,8 @@ import { pubsub } from './pubsub';
  * and destroy-if-empty to free mediasoup resources.
  *
  * Shared by every involuntary removal path — WS close, self-healing
- * rejoin, moderator disconnect, and the orphan sweep — so no path can
- * forget one of the publishes.
+ * rejoin, moderator disconnect, channel/server/DM teardown, and the
+ * orphan sweep — so no path can forget one of the publishes.
  *
  * Returns false when the user is not in any voice runtime (idempotent).
  */
@@ -33,6 +33,7 @@ const removeUserFromVoice = async (userId: number): Promise<boolean> => {
 
     pubsub.publishFor(memberIds, ServerEvents.USER_LEAVE_VOICE, {
       channelId: runtime.id,
+      kind: runtime.kind,
       userId,
       startedAt: runtime.getState().startedAt
     });
@@ -59,6 +60,7 @@ const removeUserFromVoice = async (userId: number): Promise<boolean> => {
       const memberIds = await getServerMemberIds(ch.serverId);
       pubsub.publishFor(memberIds, ServerEvents.USER_LEAVE_VOICE, {
         channelId: runtime.id,
+        kind: runtime.kind,
         userId,
         startedAt: runtime.getState().startedAt
       });
@@ -73,4 +75,26 @@ const removeUserFromVoice = async (userId: number): Promise<boolean> => {
   return true;
 };
 
-export { removeUserFromVoice };
+/**
+ * Tear down a whole room the way its occupants would experience a
+ * forced leave: every user is removed through removeUserFromVoice (so
+ * peers get USER_LEAVE_VOICE and a DM call ends with DM_CALL_ENDED),
+ * then the runtime is destroyed. A bare `runtime.destroy()` closed the
+ * mediasoup objects but told nobody — clients stayed "connected" to a
+ * room that no longer existed until they reloaded.
+ *
+ * Callers that are about to delete the channel/server row must call
+ * this BEFORE the delete: the leave fan-out resolves its audience
+ * through the channel's row.
+ */
+const evictRuntime = async (runtime: VoiceRuntime): Promise<void> => {
+  for (const user of [...runtime.getState().users]) {
+    await removeUserFromVoice(user.userId);
+  }
+
+  // The last removal already destroyed it; an empty room needs the
+  // explicit teardown (destroy is idempotent).
+  await runtime.destroy();
+};
+
+export { evictRuntime, removeUserFromVoice };

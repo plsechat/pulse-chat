@@ -1,28 +1,55 @@
-import type { TUser } from '@pulse/shared';
+import { ServerEvents } from '@pulse/shared';
+import type { TUser } from '../../types';
 import { randomUUIDv7 } from 'bun';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import path from 'path';
 import { db } from '..';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
 import { config } from '../../config';
-import { signChallenge } from '../../utils/federation';
+import { queryInstance, signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
 import { fetchBoundedImage } from '../../utils/fetch-bounded-image';
 import { getFederationProtocol, validateFederationUrl } from '../../utils/validate-url';
+import { pubsub } from '../../utils/pubsub';
 import { publishUser } from '../publishers';
-import { files, users } from '../schema';
+import { dmChannelMembers, dmChannels, federationInstances, files, users } from '../schema';
 
-async function findOrCreateShadowUser(
+/**
+ * A shadow's display name is a users.name like any other: cap it here
+ * so every entry point (DM relay, friend request, group DM, descriptor
+ * resolution) is covered, whatever the caller validated.
+ */
+const MAX_SHADOW_NAME_LENGTH = 32;
+const MAX_SHADOW_BIO_LENGTH = 500;
+const SHADOW_BANNER_COLOR_RE = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+
+const boundShadowName = (name: string): string =>
+  name.slice(0, MAX_SHADOW_NAME_LENGTH);
+
+/**
+ * A shadow user is identified by its home instance and the publicId that
+ * home issued — nothing else. The peer's numeric user id is stored in
+ * `federatedUsername` for display/debugging only and is never looked up:
+ * peers renumber, two peers' id-spaces overlap, and the inbound handlers
+ * substitute 0 when a peer omits it, so a lookup by that value could hand
+ * one remote user another user's shadow (name, DMs, roles included).
+ *
+ * `remoteUserId` is the informational numeric id; `0`/undefined means
+ * "unknown" and leaves the stored value alone.
+ */
+async function findOrCreateShadowUserByPublicId(
   instanceId: number,
-  remoteUserId: number,
-  username: string,
-  _avatar?: string | null,
-  remotePublicId?: string
+  remotePublicId: string,
+  rawName: string,
+  remoteUserId?: number
 ): Promise<TUser> {
-  // Primary lookup: by federatedPublicId (immutable UUID — most reliable)
-  if (remotePublicId) {
-    const [byPublicId] = await db
+  const name = boundShadowName(rawName);
+  const informationalUsername =
+    remoteUserId !== undefined && remoteUserId > 0 ? String(remoteUserId) : null;
+
+  const findExisting = async (): Promise<TUser | undefined> => {
+    const [row] = await db
       .select()
       .from(users)
       .where(
@@ -32,160 +59,52 @@ async function findOrCreateShadowUser(
         )
       )
       .limit(1);
+    return row;
+  };
 
-    if (byPublicId) {
-      // Sync display name and legacy federatedUsername if changed
-      const updates: Record<string, unknown> = {};
-      if (byPublicId.name !== username) {
-        updates.name = username;
-      }
-      if (byPublicId.federatedUsername !== String(remoteUserId) && remoteUserId !== 0) {
-        updates.federatedUsername = String(remoteUserId);
-      }
-      if (Object.keys(updates).length > 0) {
-        updates.updatedAt = Date.now();
-        await db.update(users).set(updates).where(eq(users.id, byPublicId.id));
-      }
-      logger.debug(
-        '[shadowUser] hit variant=byPublicId instanceId=%d remotePublicId=%s userId=%d',
-        instanceId,
-        remotePublicId.replace(/[\r\n]/g, ''),
-        byPublicId.id
-      );
-      return byPublicId;
-    }
-  }
-
-  // Fallback lookup: by legacy federatedUsername (numeric remote ID)
-  const [existing] = await db
-    .select()
-    .from(users)
-    .where(
-      and(
-        eq(users.federatedInstanceId, instanceId),
-        eq(users.federatedUsername, String(remoteUserId))
-      )
-    )
-    .limit(1);
+  const existing = await findExisting();
 
   if (existing) {
-    // Update name if changed, and backfill federatedPublicId
-    const updates: Record<string, unknown> = {};
-    if (existing.name !== username) {
-      updates.name = username;
+    const updates: Partial<typeof users.$inferInsert> = {};
+    // An empty name means "caller doesn't know it" (descriptor
+    // resolution without a name) — never blank an existing shadow.
+    if (name !== '' && existing.name !== name) {
+      updates.name = name;
     }
-    if (remotePublicId && !existing.federatedPublicId) {
-      updates.federatedPublicId = remotePublicId;
+    if (
+      informationalUsername !== null &&
+      existing.federatedUsername !== informationalUsername
+    ) {
+      updates.federatedUsername = informationalUsername;
     }
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = Date.now();
       await db.update(users).set(updates).where(eq(users.id, existing.id));
     }
     logger.debug(
-      '[shadowUser] hit variant=byUsername instanceId=%d remoteUserId=%s userId=%d',
-      instanceId,
-      remoteUserId,
-      existing.id
-    );
-    return existing;
-  }
-
-  // Create shadow user with synthetic supabaseId (use onConflictDoNothing to handle races)
-  const [shadowUser] = await db
-    .insert(users)
-    .values({
-      supabaseId: `federated:${instanceId}:${remoteUserId}`,
-      name: username,
-      isFederated: true,
-      federatedInstanceId: instanceId,
-      federatedUsername: String(remoteUserId),
-      publicId: randomUUIDv7(),
-      federatedPublicId: remotePublicId || null,
-      createdAt: Date.now(),
-      lastLoginAt: Date.now()
-    })
-    .onConflictDoNothing()
-    .returning();
-
-  if (shadowUser) {
-    logger.debug(
-      '[shadowUser] created variant=byUsername instanceId=%d remoteUserId=%s userId=%d',
-      instanceId,
-      remoteUserId,
-      shadowUser.id
-    );
-    return shadowUser;
-  }
-
-  // Conflict: another request already created this user — re-query
-  const [raced] = await db
-    .select()
-    .from(users)
-    .where(
-      and(
-        eq(users.federatedInstanceId, instanceId),
-        eq(users.federatedUsername, String(remoteUserId))
-      )
-    )
-    .limit(1);
-
-  return raced!;
-}
-
-/**
- * Phase D / D2 — find-or-create a shadow user identified ONLY by
- * (federatedInstanceId, federatedPublicId). Unlike `findOrCreateShadowUser`,
- * does NOT fall back to looking up by `federatedUsername`. Used by the
- * group-DM federation handlers which don't receive per-member remote
- * user ids over the wire — only publicIds.
- *
- * The fallback path in `findOrCreateShadowUser` causes false positives
- * when multiple shadows on the same instance are inserted with the
- * same sentinel `federatedUsername='0'`: the second lookup matches
- * the first row and returns it as if it were the new member.
- */
-async function findOrCreateShadowUserByPublicId(
-  instanceId: number,
-  remotePublicId: string,
-  name: string
-): Promise<TUser> {
-  const [existing] = await db
-    .select()
-    .from(users)
-    .where(
-      and(
-        eq(users.federatedInstanceId, instanceId),
-        eq(users.federatedPublicId, remotePublicId)
-      )
-    )
-    .limit(1);
-
-  if (existing) {
-    if (existing.name !== name) {
-      await db
-        .update(users)
-        .set({ name, updatedAt: Date.now() })
-        .where(eq(users.id, existing.id));
-    }
-    logger.debug(
-      '[shadowUser] hit variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
+      '[shadowUser] hit instanceId=%d remotePublicId=%s userId=%d',
       instanceId,
       remotePublicId.replace(/[\r\n]/g, ''),
       existing.id
     );
-    return existing;
+    return { ...existing, ...updates };
   }
 
+  // No conflict target: the (instance, publicId) identity index is what
+  // we expect to collide on, but an operator database that still holds
+  // pre-fix duplicate shadows boots without it (see migration 0036), and
+  // the row's own publicId/supabaseId uniques must stay covered too.
   const [created] = await db
     .insert(users)
     .values({
       supabaseId: `federated-${randomUUIDv7()}`,
-      name,
+      // A nameless mint (descriptor resolution without a name) gets a
+      // readable placeholder instead of an empty display name.
+      name: name || remotePublicId.slice(0, MAX_SHADOW_NAME_LENGTH),
       isFederated: true,
       federatedInstanceId: instanceId,
       federatedPublicId: remotePublicId,
-      // federatedUsername left NULL — we don't know the remote user id
-      // from the group-DM federation messages.
+      federatedUsername: informationalUsername,
       publicId: randomUUIDv7(),
       createdAt: Date.now(),
       lastLoginAt: Date.now()
@@ -195,7 +114,7 @@ async function findOrCreateShadowUserByPublicId(
 
   if (created) {
     logger.debug(
-      '[shadowUser] created variant=byPublicId-only instanceId=%d remotePublicId=%s userId=%d',
+      '[shadowUser] created instanceId=%d remotePublicId=%s userId=%d',
       instanceId,
       remotePublicId.replace(/[\r\n]/g, ''),
       created.id
@@ -203,37 +122,107 @@ async function findOrCreateShadowUserByPublicId(
     return created;
   }
 
-  // Race: another concurrent caller inserted the same shadow first.
-  const [raced] = await db
-    .select()
-    .from(users)
+  // Race: a concurrent caller inserted the same shadow first — the
+  // identity index swallowed ours, so the re-select returns theirs.
+  const raced = await findExisting();
+  if (!raced) {
+    throw new Error(
+      `Shadow user insert for instance ${instanceId} conflicted but no row exists for the publicId`
+    );
+  }
+  return raced;
+}
+
+/**
+ * Call-site-compatible wrapper for the token/handler paths that still carry
+ * the peer's numeric id alongside the publicId. The publicId is mandatory:
+ * `verifyFederationToken` rejects tokens without one and every inbound
+ * handler requires `fromPublicId`, so a missing value here is a caller
+ * bug, not an older peer — refuse rather than mint an unidentifiable row.
+ */
+async function findOrCreateShadowUser(
+  instanceId: number,
+  remoteUserId: number,
+  rawUsername: string,
+  _avatar?: string | null,
+  remotePublicId?: string
+): Promise<TUser> {
+  if (!remotePublicId) {
+    logger.warn(
+      '[shadowUser] refused: no remotePublicId for instanceId=%d remoteUserId=%d',
+      instanceId,
+      remoteUserId
+    );
+    throw new Error('Shadow users require the remote publicId');
+  }
+  return findOrCreateShadowUserByPublicId(
+    instanceId,
+    remotePublicId,
+    rawUsername,
+    remoteUserId
+  );
+}
+
+/**
+ * Ask a user's home instance to vouch for `publicId` and tell us the name
+ * it goes by. The reply is signed by that instance for our audience, so a
+ * peer announcing a group DM with members homed on a third instance
+ * cannot invent those members — the third instance attests, or the caller
+ * skips the member. Null when the instance is not an active peer of ours,
+ * is unreachable, does not know the user, or its signature fails.
+ */
+async function verifyRemoteUserAttestation(
+  instanceDomain: string,
+  publicId: string
+): Promise<{ name: string } | null> {
+  // Only an active peer with a pinned key can attest anything — and the
+  // domain comes from another peer's announcement, so refuse here rather
+  // than let that peer make us sign requests to arbitrary hosts.
+  const [peer] = await db
+    .select({ publicKey: federationInstances.publicKey })
+    .from(federationInstances)
     .where(
       and(
-        eq(users.federatedInstanceId, instanceId),
-        eq(users.federatedPublicId, remotePublicId)
+        eq(federationInstances.domain, instanceDomain),
+        eq(federationInstances.status, 'active')
       )
     )
     .limit(1);
+  if (!peer?.publicKey) return null;
 
-  return raced!;
+  const info = await queryInstance<{ name?: unknown }>(
+    instanceDomain,
+    '/federation/user-info',
+    { publicId }
+  );
+  if (!info || typeof info.name !== 'string' || info.name.length === 0) {
+    return null;
+  }
+  return { name: boundShadowName(info.name) };
 }
 
-async function deleteShadowUsersByInstance(instanceId: number): Promise<void> {
-  await db
-    .delete(users)
-    .where(
-      and(
-        eq(users.isFederated, true),
-        eq(users.federatedInstanceId, instanceId)
-      )
-    );
-}
-
-async function getShadowUsersByInstance(
+/**
+ * Remove every shadow user minted for a peer (instance removed /
+ * blocked / federation switched off) together with the DM channels
+ * that only existed because of them. Deleting the users cascades
+ * `dm_channel_members`, friendships, roles and key rows, but
+ * `dm_channels` rows do not reference users: without this sweep a 1:1
+ * with a shadow stayed in the local user's sidebar with no counterpart,
+ * and a group mirror whose members were all remote lingered empty.
+ *
+ * Rules: a non-group channel with fewer than two members left goes; a
+ * group mirror (`federation_group_id` set) goes only when no member is
+ * left — a mixed group with local members left keeps its history, its
+ * remaining members just see the shadows drop out. Local-only groups
+ * never had a shadow member and are never touched. Affected local
+ * users get the same events the leave/remove routes publish, so their
+ * client state updates without a refresh.
+ */
+async function deleteShadowUsersByInstance(
   instanceId: number
-): Promise<TUser[]> {
-  return db
-    .select()
+): Promise<{ deletedUsers: number; deletedChannels: number }> {
+  const shadows = await db
+    .select({ id: users.id })
     .from(users)
     .where(
       and(
@@ -241,7 +230,97 @@ async function getShadowUsersByInstance(
         eq(users.federatedInstanceId, instanceId)
       )
     );
+  const shadowIds = shadows.map((s) => s.id);
+  if (shadowIds.length === 0) return { deletedUsers: 0, deletedChannels: 0 };
+
+  // Channels the shadows sit in, with every member — captured BEFORE
+  // the delete so the survivors can be told which member left.
+  const touched = await db
+    .select({
+      channelId: dmChannelMembers.dmChannelId,
+      userId: dmChannelMembers.userId,
+      isGroup: dmChannels.isGroup,
+      federationGroupId: dmChannels.federationGroupId
+    })
+    .from(dmChannelMembers)
+    .innerJoin(dmChannels, eq(dmChannels.id, dmChannelMembers.dmChannelId))
+    .where(
+      inArray(
+        dmChannelMembers.dmChannelId,
+        db
+          .select({ id: dmChannelMembers.dmChannelId })
+          .from(dmChannelMembers)
+          .where(inArray(dmChannelMembers.userId, shadowIds))
+      )
+    );
+
+  const shadowSet = new Set(shadowIds);
+  const channels = new Map<
+    number,
+    { isGroup: boolean; mirror: boolean; remaining: number[]; removed: number[] }
+  >();
+  for (const row of touched) {
+    let entry = channels.get(row.channelId);
+    if (!entry) {
+      entry = {
+        isGroup: row.isGroup,
+        mirror: row.federationGroupId !== null,
+        remaining: [],
+        removed: []
+      };
+      channels.set(row.channelId, entry);
+    }
+    (shadowSet.has(row.userId) ? entry.removed : entry.remaining).push(
+      row.userId
+    );
+  }
+
+  const deleted = await db
+    .delete(users)
+    .where(inArray(users.id, shadowIds))
+    .returning({ id: users.id });
+
+  const toDelete: number[] = [];
+  for (const [channelId, entry] of channels) {
+    const orphaned = entry.isGroup
+      ? entry.mirror && entry.remaining.length === 0
+      : entry.remaining.length < 2;
+    if (orphaned) {
+      toDelete.push(channelId);
+      continue;
+    }
+    // Survivors of a mixed group: the shadows left, same event the
+    // leave route publishes.
+    for (const userId of entry.remaining) {
+      for (const removedId of entry.removed) {
+        pubsub.publishFor(userId, ServerEvents.DM_MEMBER_REMOVE, {
+          dmChannelId: channelId,
+          userId: removedId
+        });
+      }
+    }
+  }
+
+  if (toDelete.length > 0) {
+    await db.delete(dmChannels).where(inArray(dmChannels.id, toDelete));
+    for (const channelId of toDelete) {
+      for (const userId of channels.get(channelId)!.remaining) {
+        pubsub.publishFor(userId, ServerEvents.DM_CHANNEL_DELETE, {
+          dmChannelId: channelId
+        });
+      }
+    }
+  }
+
+  logger.debug(
+    '[deleteShadowUsersByInstance] instanceId=%d users=%d channels=%d',
+    instanceId,
+    deleted.length,
+    toDelete.length
+  );
+  return { deletedUsers: deleted.length, deletedChannels: toDelete.length };
 }
+
 
 // Caps for federated media proxies (Phase 4 / F3). Federated peers
 // can serve arbitrarily large bytes; we don't blindly accept what
@@ -495,12 +574,22 @@ async function syncShadowUserProfile(
       }
     }
 
-    // Sync bio, bannerColor, and custom status
-    if (profile.bio !== shadow.bio) {
-      updates.bio = profile.bio;
+    // Sync bio, bannerColor, and custom status — bounded like the
+    // push path (user-info-update); the pulled profile is peer data too.
+    const bio =
+      typeof profile.bio === 'string'
+        ? profile.bio.slice(0, MAX_SHADOW_BIO_LENGTH)
+        : null;
+    if (bio !== shadow.bio) {
+      updates.bio = bio;
     }
-    if (profile.bannerColor !== shadow.bannerColor) {
-      updates.bannerColor = profile.bannerColor;
+    const bannerColor =
+      typeof profile.bannerColor === 'string' &&
+      SHADOW_BANNER_COLOR_RE.test(profile.bannerColor)
+        ? profile.bannerColor
+        : null;
+    if (bannerColor !== shadow.bannerColor) {
+      updates.bannerColor = bannerColor;
     }
     // Optional — older peers don't send it; bound like the push path.
     if (
@@ -542,7 +631,7 @@ export {
   deleteShadowUsersByInstance,
   findOrCreateShadowUser,
   findOrCreateShadowUserByPublicId,
-  getShadowUsersByInstance,
   syncShadowUserAvatar,
-  syncShadowUserProfile
+  syncShadowUserProfile,
+  verifyRemoteUserAttestation
 };

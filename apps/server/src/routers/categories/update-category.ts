@@ -6,23 +6,16 @@ import { publishCategory } from '../../db/publishers';
 import { categories } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const updateCategoryRoute = protectedProcedure
+const updateCategoryRoute = serverProcedure(Permission.MANAGE_CATEGORIES)
   .input(
     z.object({
-      categoryId: z.number().min(1),
-      name: z.string().min(1).max(24)
+      categoryId: z.number().int().positive(),
+      name: z.string().min(1).max(32)
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_CATEGORIES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [existingCategory] = await db
       .select()
       .from(categories)

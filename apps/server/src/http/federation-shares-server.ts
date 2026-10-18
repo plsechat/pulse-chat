@@ -22,7 +22,11 @@ import { sharesServerWith } from '../db/queries/servers';
 import { users } from '../db/schema';
 import { logger } from '../logger';
 import { signedJsonResponse } from '../utils/federation';
-import { authorizeFederationRequest, jsonResponse } from './federation-helpers';
+import {
+  authorizeFederationRequest,
+  isPeerPublicId,
+  jsonResponse
+} from './federation-helpers';
 
 const federationSharesServerHandler = async (
   req: http.IncomingMessage,
@@ -35,10 +39,10 @@ const federationSharesServerHandler = async (
   const fromPublicId = signedBody.fromPublicId as string | undefined;
   const targetPublicId = signedBody.targetPublicId as string | undefined;
 
-  if (!fromPublicId || typeof fromPublicId !== 'string') {
+  if (!isPeerPublicId(fromPublicId)) {
     return jsonResponse(res, 400, { error: 'Missing fromPublicId' });
   }
-  if (!targetPublicId || typeof targetPublicId !== 'string') {
+  if (!isPeerPublicId(targetPublicId)) {
     return jsonResponse(res, 400, { error: 'Missing targetPublicId' });
   }
 

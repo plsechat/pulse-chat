@@ -1,8 +1,10 @@
 import { fetchDmChannels } from '@/features/dms/actions';
-import { ownUserIdSelector } from '@/features/server/users/selectors';
+import { homeOwnUserIdSelector } from '@/features/server/users/selectors';
+import type { IRootState } from '@/features/store';
 import { store } from '@/features/store';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient } from '@/lib/trpc';
+import type { TJoinedFriendRequest } from '@pulse/server/types';
 import {
   addFriend,
   addRequest,
@@ -10,6 +12,26 @@ import {
   removeFriend,
   removeRequest
 } from './actions';
+
+/**
+ * Friend rows are HOME-instance data. `state.server.ownUserId` is the
+ * ambient id and holds the remote shadow id while a federated server is
+ * active, so comparing against it there picked the wrong side of the
+ * request (yourself, when the ids collide). Always resolve "which side
+ * is me" against the home id.
+ */
+const resolveAcceptedFriend = (
+  request: TJoinedFriendRequest,
+  state: IRootState
+) =>
+  request.senderId === homeOwnUserIdSelector(state)
+    ? request.receiver
+    : request.sender;
+
+const resolveRemovedFriendId = (
+  data: { userId: number; friendId: number },
+  state: IRootState
+) => (data.userId === homeOwnUserIdSelector(state) ? data.friendId : data.userId);
 
 const subscribeToFriends = () => {
   const trpc = getHomeTRPCClient();
@@ -20,10 +42,7 @@ const subscribeToFriends = () => {
       addRequest(request)
     ),
     subscribe('onFriendRequestAccepted', trpc.friends.onRequestAccepted, (request) => {
-      const ownUserId = ownUserIdSelector(store.getState());
-      const friend =
-        request.senderId === ownUserId ? request.receiver : request.sender;
-      addFriend(friend);
+      addFriend(resolveAcceptedFriend(request, store.getState()));
       removeRequest(request.id);
       // Refresh DM channels so the new conversation appears
       fetchDmChannels();
@@ -32,10 +51,7 @@ const subscribeToFriends = () => {
       removeRequest(request.id)
     ),
     subscribe('onFriendRemoved', trpc.friends.onRemoved, (data) => {
-      const ownUserId = ownUserIdSelector(store.getState());
-      const friendToRemove =
-        data.userId === ownUserId ? data.friendId : data.userId;
-      removeFriend(friendToRemove);
+      removeFriend(resolveRemovedFriendId(data, store.getState()));
     }),
     // The block events stream is mounted alongside friends because the
     // two state machines are coupled (block → drop friendship + reject
@@ -50,4 +66,6 @@ const subscribeToFriends = () => {
   );
 };
 
-export { subscribeToFriends };
+const __testing = { resolveAcceptedFriend, resolveRemovedFriendId };
+
+export { __testing, subscribeToFriends };

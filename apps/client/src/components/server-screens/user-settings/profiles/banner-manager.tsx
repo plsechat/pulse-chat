@@ -6,7 +6,7 @@ import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { Upload } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -57,24 +57,24 @@ const BannerManager = memo(({ user }: TBannerManagerProps) => {
     <Group label="Banner">
       <div className="space-y-2">
         <div
-          className="relative group cursor-pointer w-80 h-24"
+          className="relative group cursor-pointer w-full max-w-80 h-24"
           onClick={onBannerClick}
         >
           {user.banner ? (
             <img
               src={getFileUrl(user.banner)}
               alt="User Banner"
-              className="w-80 h-24 object-cover rounded-md transition-opacity group-hover:opacity-70"
+              className="w-full max-w-80 h-24 object-cover rounded-md transition-opacity group-hover:opacity-70"
             />
           ) : (
             <div
               className={cn(
                 buttonVariants({ variant: 'outline' }),
-                'w-80 h-24 cursor-pointer transition-opacity group-hover:opacity-70'
+                'w-full max-w-80 h-24 cursor-pointer transition-opacity group-hover:opacity-70'
               )}
             />
           )}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover-or-touch:opacity-100 transition-opacity rounded-md">
             <div className="bg-black/50 rounded-full p-3">
               <Upload className="h-6 w-6 text-white" />
             </div>

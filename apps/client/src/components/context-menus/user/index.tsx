@@ -1,3 +1,4 @@
+import { isChannelVoiceKey } from '@/features/server/voice/keys';
 import {
   ContextMenu,
   ContextMenuCheckboxItem,
@@ -72,8 +73,12 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
   const currentVolume = getVolume(volumeKey);
   const isMuted = currentVolume === 0;
 
+  // Server voice channels only: a DM call the user is on also lives in
+  // voiceMap (under a dm: key) and must not expose server moderation
+  // items — voice.moderateMember would be aimed at a DM runtime.
   const voiceState = useMemo(() => {
-    for (const ch of Object.values(voiceMap)) {
+    for (const [key, ch] of Object.entries(voiceMap)) {
+      if (!isChannelVoiceKey(key)) continue;
       const state = ch?.users[userId];
       if (state) return state;
     }
@@ -103,7 +108,6 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
     if (!trpc) return null;
     const result = await trpc.federation.ensureShadowUser.mutate({
       instanceDomain: activeInstanceDomain,
-      remoteUserId: userId,
       username: user.name,
       remotePublicId: user.publicId
     });
@@ -154,15 +158,21 @@ const UserContextMenu = memo(({ children, userId }: TUserContextMenuProps) => {
 
     if (text) {
       try {
-        const trpc = getTRPCClient();
+        // Personal notes are the user's own, kept at HOME — written to
+        // the instance in focus they landed in a federated peer's
+        // database under that peer's user ids. A roster user of a
+        // federated server is addressed by its home-side shadow id.
+        const localId = await resolveLocalUserId();
+        if (localId === null) return;
+        const trpc = getHomeTRPCClient();
         if (!trpc) return;
-        await trpc.notes.add.mutate({ targetUserId: userId, content: text });
+        await trpc.notes.add.mutate({ targetUserId: localId, content: text });
         toast.success('Note saved');
       } catch (err) {
         toast.error(getTrpcError(err, 'Failed to save note'));
       }
     }
-  }, [userId, user]);
+  }, [resolveLocalUserId, user]);
 
   const handleDisconnectFromVoice = useCallback(async () => {
     try {

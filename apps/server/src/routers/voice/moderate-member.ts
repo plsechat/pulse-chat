@@ -8,17 +8,19 @@ import { logger } from '../../logger';
 import { VoiceRuntime } from '../../runtimes/voice';
 import { invariant } from '../../utils/invariant';
 import { serverProcedure } from '../../utils/procedures';
+import { assertModerationTarget } from '../../utils/server-moderation';
 
 /**
  * Moderator server-mute / server-deafen of a member in a voice channel of
- * the active server. Gated on MANAGE_USERS (same as kick/ban/disconnect).
- * DM calls are excluded. serverMuted additionally pauses the target's
- * audio producer at the SFU so the mute is enforced, not advisory.
+ * the active server. Gated on MANAGE_USERS (same as kick/ban/disconnect);
+ * the server owner is never a target. DM calls are excluded. Both flags
+ * are enforced at the SFU (producer pause / consumer pause) and kept for
+ * the runtime's lifetime, so leaving and rejoining does not lift them.
  */
 const moderateMemberRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
-      userId: z.number(),
+      userId: z.number().int().positive(),
       serverMuted: z.boolean().optional(),
       serverDeafened: z.boolean().optional()
     })
@@ -50,22 +52,28 @@ const moderateMemberRoute = serverProcedure(Permission.MANAGE_USERS)
       message: 'User is not in a voice channel'
     });
 
+    await assertModerationTarget(ch.serverId, input.userId);
+
     const patch: { serverMuted?: boolean; serverDeafened?: boolean } = {};
     if (input.serverMuted !== undefined) patch.serverMuted = input.serverMuted;
     if (input.serverDeafened !== undefined) {
       patch.serverDeafened = input.serverDeafened;
     }
 
-    runtime.updateUserState(input.userId, patch);
+    runtime.setModerationOverride(input.userId, patch);
 
     if (input.serverMuted !== undefined) {
       await runtime.setAudioPaused(input.userId, input.serverMuted);
+    }
+    if (input.serverDeafened !== undefined) {
+      await runtime.setConsumersPaused(input.userId, input.serverDeafened);
     }
 
     const newState = runtime.getUserState(input.userId);
     const memberIds = await getServerMemberIds(ch.serverId);
     ctx.pubsub.publishFor(memberIds, ServerEvents.USER_VOICE_STATE_UPDATE, {
       channelId: runtime.id,
+      kind: runtime.kind,
       userId: input.userId,
       state: newState
     });

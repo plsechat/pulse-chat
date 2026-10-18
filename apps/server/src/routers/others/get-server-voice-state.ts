@@ -2,15 +2,9 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { channels } from '../../db/schema';
 import { VoiceRuntime } from '../../runtimes/voice';
-import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getServerVoiceStateRoute = protectedProcedure.query(async ({ ctx }) => {
-  invariant(ctx.activeServerId, {
-    code: 'BAD_REQUEST',
-    message: 'No active server'
-  });
-
+const getServerVoiceStateRoute = serverProcedure().query(async ({ ctx }) => {
   const serverChannels = await db
     .select({ id: channels.id })
     .from(channels)

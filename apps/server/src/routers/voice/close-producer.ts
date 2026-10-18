@@ -32,10 +32,10 @@ const closeProducerRoute = protectedProcedure
     runtime.removeProducer(ctx.user.id, input.kind);
 
     ctx.pubsub.publishForChannel(
-      ctx.currentVoiceChannelId,
+      runtime.key,
       ServerEvents.VOICE_PRODUCER_CLOSED,
       {
-        channelId: ctx.currentVoiceChannelId,
+        channelId: runtime.id,
         remoteId: ctx.user.id,
         kind: input.kind
       }

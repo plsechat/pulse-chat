@@ -11,7 +11,7 @@ import { mock } from 'bun:test';
  * - logger    — imports config, creates log files at module scope
  * - env       — isRegistrationDisabled() via globalThis.__registrationDisabled;
  *               isRegistrationMethodEnabled() via __disabledRegistrationMethods
- * - supabase  — throws immediately if SUPABASE_URL env vars are missing
+ * - auth      — the auth backend (would read env + reach Supabase at import)
  */
 
 // ── Suppress console output during tests ──
@@ -26,21 +26,43 @@ global.console.debug = noop;
 mock.module('../config', () => ({
   config: {
     server: {
-      port: 9999,
+      port: Number(process.env.TEST_HTTP_PORT ?? 9999),
       debug: false,
-      autoupdate: false,
       debugLogMaxSizeMb: 200,
       debugLogMaxFiles: 10,
+      retentionDays: 90,
       debugLogIncludeBody: true,
       redactExtra: [] as string[]
     },
-    http: { maxFiles: 40, maxFileSize: 100 },
     mediasoup: {
-      worker: { rtcMinPort: 40000, rtcMaxPort: 40020 },
+      // TEST_MEDIASOUP_PORT lets suites run side by side on one machine
+      // (the WebRtcServer binds this UDP+TCP port for the whole process);
+      // the range only matters for tests that flip mode to 'range'.
+      worker: {
+        mode: 'single-port' as 'single-port' | 'range',
+        // Off the production default on purpose: a dev server or the e2e
+        // stack on this machine owns 40000, and every suite would fail at
+        // setup trying to bind it.
+        port: Number(process.env.TEST_MEDIASOUP_PORT ?? 40100),
+        rtcMinPort: 40000,
+        rtcMaxPort: 40020
+      },
+      maxParticipants: 0,
       audio: { maxBitrate: 510000, stereo: true, fec: true, dtx: true },
       video: { initialAvailableOutgoingBitrate: 6000000 }
     },
-    federation: { enabled: false, domain: 'test.local' }
+    webrtc: {
+      turn: { urls: [] as string[], username: '', credential: '' },
+      iceTransportPolicy: 'all' as 'all' | 'relay'
+    },
+    federation: {
+      enabled: false,
+      domain: 'test.local',
+      allowUserFederatableServers: false,
+      // Default on, as in config.ts: the directory receiver answers
+      // peers unless a test turns it off.
+      exposeDirectory: true
+    }
   },
   SERVER_PUBLIC_IP: '127.0.0.1',
   SERVER_PRIVATE_IP: '127.0.0.1'
@@ -73,11 +95,11 @@ mock.module('../logger', () => ({
 }));
 
 // ── Mock rate limiter (disable rate limiting during tests) ──
+// `http/rate-limit` exports only `checkRateLimit` (the configs live in
+// rate-limit-core.ts, which is real in tests). Keep this surface in sync:
+// bun fails module linking for any named import the mock lacks.
 mock.module('../http/rate-limit', () => ({
-  checkRateLimit: () => true,
-  authRateLimit: { windowMs: 900000, maxRequests: Infinity },
-  federationRateLimit: { windowMs: 60000, maxRequests: Infinity },
-  uploadRateLimit: { windowMs: 60000, maxRequests: Infinity }
+  checkRateLimit: () => true
 }));
 
 // ── Mock env (allows tests to toggle REGISTRATION_DISABLED dynamically) ──
@@ -279,9 +301,5 @@ const mockAuthBackend = {
 };
 
 mock.module('../utils/auth', () => ({
-  authBackend: mockAuthBackend
-}));
-
-mock.module('../utils/supabase', () => ({
   authBackend: mockAuthBackend
 }));

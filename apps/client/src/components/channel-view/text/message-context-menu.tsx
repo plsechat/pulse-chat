@@ -1,3 +1,4 @@
+import { useLinkContextMenu } from '@/components/chat-primitives/link-context-menu';
 import { EmojiPickerPanel } from '@/components/emoji-picker';
 import { ReportDialog } from '@/components/report-dialog';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
@@ -26,6 +27,7 @@ import {
   Copy,
   Flag,
   Forward,
+  Link,
   MessageSquare,
   Pencil,
   Pin,
@@ -51,6 +53,12 @@ type TMessageContextMenuProps = {
   editable: boolean;
   pinned: boolean;
   hasThread: boolean;
+  /**
+   * A deleted message (tombstone): nothing to reply to, copy, pin,
+   * react to or delete — the menu keeps only "Copy Message Link",
+   * since the row still has its anchor.
+   */
+  tombstone?: boolean;
 };
 
 const MessageContextMenu = memo(
@@ -65,7 +73,8 @@ const MessageContextMenu = memo(
     canDelete,
     editable,
     pinned,
-    hasThread
+    hasThread,
+    tombstone = false
   }: TMessageContextMenuProps) => {
     const can = useCan();
     const previewMode = usePreviewMode();
@@ -73,6 +82,7 @@ const MessageContextMenu = memo(
     const [creatingThread, setCreatingThread] = useState(false);
     const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
     const [reportOpen, setReportOpen] = useState(false);
+    const { linkHref, copyLink, triggerProps } = useLinkContextMenu();
 
     const onDeleteClick = useCallback(async () => {
       const choice = await requestConfirmation({
@@ -188,7 +198,7 @@ const MessageContextMenu = memo(
       // independent, state-controlled Popover.
       <Popover open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
         <ContextMenu>
-          <ContextMenuTrigger asChild>
+          <ContextMenuTrigger asChild {...triggerProps}>
             <PopoverAnchor asChild>{children}</PopoverAnchor>
           </ContextMenuTrigger>
           <ContextMenuContent
@@ -200,6 +210,13 @@ const MessageContextMenu = memo(
               if (reactionPickerOpen) e.preventDefault();
             }}
           >
+          {tombstone ? (
+            <ContextMenuItem onClick={onCopyMessageLink}>
+              <ClipboardCopy className="h-4 w-4" />
+              Copy Message Link
+            </ContextMenuItem>
+          ) : (
+          <>
           {/* Read-only preview keeps only the copy items below — the
               permission-gated ones are already hidden (no roles) */}
           {!previewMode && (
@@ -250,6 +267,13 @@ const MessageContextMenu = memo(
             Copy Text
           </ContextMenuItem>
 
+          {linkHref && (
+            <ContextMenuItem onClick={copyLink}>
+              <Link className="h-4 w-4" />
+              Copy Link
+            </ContextMenuItem>
+          )}
+
           <ContextMenuItem onClick={onCopyMessageLink}>
             <ClipboardCopy className="h-4 w-4" />
             Copy Message Link
@@ -280,6 +304,8 @@ const MessageContextMenu = memo(
                 Delete Message
               </ContextMenuItem>
             </>
+          )}
+          </>
           )}
 
           </ContextMenuContent>

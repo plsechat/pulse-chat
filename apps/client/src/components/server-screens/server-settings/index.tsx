@@ -15,19 +15,27 @@ import {
   useActiveServerId,
   useJoinedServers
 } from '@/features/app/hooks';
-import { useCan, useIsInstanceOwner } from '@/features/server/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
-import { Permission } from '@pulse/shared';
 import {
+  useCan,
+  useIsInstanceOwner,
+  usePlannerEnabled
+} from '@/features/server/hooks';
+import { useOwnUserId } from '@/features/server/users/hooks';
+import {
+  AudioLines,
   Activity,
   Bot,
+  CalendarDays,
   ChevronLeft,
   DoorOpen,
+  Download,
   Flag,
   Globe,
   HardDrive,
   IdCard,
+  Link2,
   MonitorPlay,
+  Puzzle,
   ScrollText,
   Server,
   Settings2,
@@ -40,14 +48,19 @@ import {
   Users as UsersIcon,
   Webhook
 } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { TServerScreenBaseProps } from '../screens';
 import { AutoMod } from './automod';
+import { Bridge } from './bridge';
+import { useServerBridgeAvailable } from './bridge/hooks';
 import { Emojis } from './emojis';
+import { Sounds } from './sounds';
+import { Events } from './events';
 import { Federation } from './federation';
 import { InstanceActivity } from './instance-activity';
 import { InstanceHealth } from './instance-health';
 import { InstanceLogs } from './instance-logs';
+import { InstancePlugins } from './plugins';
 import { InstanceRegistration } from './instance-registration';
 import { InstanceReports } from './instance-reports';
 import { InstanceScreenSharing } from './instance-screen-sharing';
@@ -56,22 +69,19 @@ import { InstanceServers } from './instance-servers';
 import { InstanceUsers } from './instance-users';
 import { ServerReports } from './reports';
 import { General } from './general';
+import { Import } from './import';
 import { Invites } from './invites';
 import { Nameplates } from './nameplates';
+import {
+  SECTION_PERMISSIONS,
+  type TOwnerSection,
+  type TPermissionedSection
+} from './permissions';
 import { Roles } from './roles';
 import { Users } from './users';
 import { Webhooks } from './webhooks';
 
-type Section =
-  | 'reports'
-  | 'general'
-  | 'roles'
-  | 'users'
-  | 'invites'
-  | 'emojis'
-  | 'nameplates'
-  | 'webhooks'
-  | 'automod'
+type InstanceSection =
   | 'federation'
   | 'instance-users'
   | 'instance-servers'
@@ -81,7 +91,14 @@ type Section =
   | 'instance-health'
   | 'instance-activity'
   | 'instance-storage'
+  | 'instance-plugins'
   | 'instance-logs';
+
+export type TServerSettingsSection =
+  | TPermissionedSection
+  | TOwnerSection
+  | InstanceSection;
+type Section = TServerSettingsSection;
 
 type NavItem = {
   id: Section;
@@ -98,8 +115,12 @@ const SECTION_TITLES: Record<Section, string> = {
   invites: 'Invites',
   emojis: 'Emojis',
   nameplates: 'Nameplates',
+  sounds: 'Sounds',
   webhooks: 'Webhooks',
   automod: 'Auto-Mod',
+  events: 'Events',
+  bridge: 'Bridge',
+  import: 'Import',
   federation: 'Federation',
   'instance-users': 'All Accounts',
   'instance-servers': 'All Servers',
@@ -109,6 +130,7 @@ const SECTION_TITLES: Record<Section, string> = {
   'instance-health': 'Health',
   'instance-activity': 'Activity Log',
   'instance-storage': 'Storage',
+  'instance-plugins': 'Plugins',
   'instance-logs': 'Logs',
   reports: 'Reports'
 };
@@ -120,8 +142,13 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   invites: 'Create and revoke invite links.',
   emojis: 'Custom emoji everyone here can use.',
   nameplates: 'Upload nameplate art members can equip.',
+  sounds: 'Short clips members play into voice rooms from the soundboard.',
   webhooks: 'Post messages from external services.',
   automod: 'Automatic moderation rules.',
+  events: 'Roster templates for the Planner.',
+  bridge: 'Mirror this whole community with a server on another chat service.',
+  import:
+    'Bring a community over from another chat service: channels, roles, emoji, members and history.',
   federation: 'Peer this instance with others.',
   'instance-users':
     'Every account on this instance — ban, unban, or delete any of them.',
@@ -136,6 +163,8 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
     'Versions, uptime, live connections, and what this instance holds.',
   'instance-activity': 'Every audited action on this instance.',
   'instance-storage': 'Disk usage, orphaned files, and heaviest uploaders.',
+  'instance-plugins':
+    'Plugins installed on this instance — enable, configure, and read their logs.',
   'instance-logs': 'The last 1000 server log lines, straight from memory.',
   reports: "Member reports about this server's messages."
 };
@@ -147,8 +176,12 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   invites: Invites,
   emojis: Emojis,
   nameplates: Nameplates,
+  sounds: Sounds,
   webhooks: Webhooks,
   automod: AutoMod,
+  events: Events,
+  bridge: Bridge,
+  import: Import,
   federation: Federation,
   'instance-users': InstanceUsers,
   'instance-servers': InstanceServers,
@@ -158,13 +191,17 @@ const SECTION_COMPONENTS: Record<Section, React.ComponentType> = {
   'instance-health': InstanceHealth,
   'instance-activity': InstanceActivity,
   'instance-storage': InstanceStorage,
+  'instance-plugins': InstancePlugins,
   'instance-logs': InstanceLogs,
   reports: ServerReports
 };
 
-type TServerSettingsProps = TServerScreenBaseProps;
+export type TServerSettingsProps = TServerScreenBaseProps & {
+  /** Deep link: open on this section when the user may see it. */
+  initialSection?: TServerSettingsSection;
+};
 
-const ServerSettings = memo(({ close }: TServerSettingsProps) => {
+const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) => {
   const can = useCan();
   const isInstanceOwner = useIsInstanceOwner();
   const ownUserId = useOwnUserId();
@@ -172,6 +209,9 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
   const activeInstanceDomain = useActiveInstanceDomain();
   const joinedServers = useJoinedServers();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // The Bridge section exists only while the bridge plugin is loaded on
+  // the instance; asked once per server, and only with the permission.
+  const bridgeAvailable = useServerBridgeAvailable(can(SECTION_PERMISSIONS['bridge']));
 
   const activeServer = useMemo(
     () => joinedServers.find((s) => s.id === activeServerId),
@@ -179,6 +219,9 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
   );
 
   const isOwner = ownUserId != null && activeServer?.ownerId === ownUserId;
+  // The Events section manages roster templates; with the Planner
+  // switched off (General) there is nothing to manage.
+  const plannerEnabled = usePlannerEnabled();
 
   const navSections = useMemo(() => {
     const categories: { heading: string; items: NavItem[] }[] = [
@@ -189,31 +232,37 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             id: 'general',
             label: 'General',
             icon: <Settings2 className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_SETTINGS)
+            allowed: can(SECTION_PERMISSIONS['general'])
           },
           {
             id: 'roles',
             label: 'Roles',
             icon: <Shield className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_ROLES)
+            allowed: can(SECTION_PERMISSIONS['roles'])
           },
           {
             id: 'users',
             label: 'Users',
             icon: <UsersIcon className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_USERS)
+            allowed: can(SECTION_PERMISSIONS['users'])
           },
           {
             id: 'invites',
             label: 'Invites',
             icon: <Ticket className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_INVITES)
+            allowed: can(SECTION_PERMISSIONS['invites'])
           },
           {
             id: 'reports',
             label: 'Reports',
             icon: <Flag className="h-4 w-4" />,
-            allowed: can(Permission.VIEW_REPORTS)
+            allowed: can(SECTION_PERMISSIONS['reports'])
+          },
+          {
+            id: 'events',
+            label: 'Events',
+            icon: <CalendarDays className="h-4 w-4" />,
+            allowed: plannerEnabled && can(SECTION_PERMISSIONS['events'])
           }
         ]
       },
@@ -224,13 +273,19 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             id: 'emojis',
             label: 'Emojis',
             icon: <Smile className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_EMOJIS)
+            allowed: can(SECTION_PERMISSIONS['emojis'])
           },
           {
             id: 'nameplates',
             label: 'Nameplates',
             icon: <IdCard className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_EMOJIS)
+            allowed: can(SECTION_PERMISSIONS['nameplates'])
+          },
+          {
+            id: 'sounds',
+            label: 'Sounds',
+            icon: <AudioLines className="h-4 w-4" />,
+            allowed: can(SECTION_PERMISSIONS['sounds'])
           }
         ]
       },
@@ -241,13 +296,27 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             id: 'webhooks',
             label: 'Webhooks',
             icon: <Webhook className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_WEBHOOKS)
+            allowed: can(SECTION_PERMISSIONS['webhooks'])
           },
           {
             id: 'automod',
             label: 'Auto-Mod',
             icon: <Bot className="h-4 w-4" />,
-            allowed: can(Permission.MANAGE_AUTOMOD)
+            allowed: can(SECTION_PERMISSIONS['automod'])
+          },
+          {
+            id: 'bridge',
+            label: 'Bridge',
+            icon: <Link2 className="h-4 w-4" />,
+            allowed: can(SECTION_PERMISSIONS['bridge']) && bridgeAvailable
+          },
+          {
+            // Owner only: an import rewrites the server's name and icon
+            // and mints members, which no role permission should reach.
+            id: 'import',
+            label: 'Import',
+            icon: <Download className="h-4 w-4" />,
+            allowed: isOwner
           }
         ]
       },
@@ -313,6 +382,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
             allowed: !activeInstanceDomain && isInstanceOwner
           },
           {
+            id: 'instance-plugins',
+            label: 'Plugins',
+            icon: <Puzzle className="h-4 w-4" />,
+            allowed: !activeInstanceDomain && isInstanceOwner
+          },
+          {
             id: 'instance-logs',
             label: 'Logs',
             icon: <Terminal className="h-4 w-4" />,
@@ -328,10 +403,26 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
         items: cat.items.filter((item) => item.allowed)
       }))
       .filter((cat) => cat.items.length > 0);
-  }, [can, activeInstanceDomain, isInstanceOwner]);
+  }, [can, activeInstanceDomain, isInstanceOwner, isOwner, bridgeAvailable, plannerEnabled]);
 
   const firstAllowed = navSections[0]?.items[0]?.id ?? 'general';
-  const [activeSection, setActiveSection] = useState<Section>(firstAllowed);
+  const isAllowed = useCallback(
+    (section: Section) =>
+      navSections.some((cat) => cat.items.some((item) => item.id === section)),
+    [navSections]
+  );
+  const [activeSection, setActiveSection] = useState<Section>(() =>
+    initialSection && isAllowed(initialSection) ? initialSection : firstAllowed
+  );
+  const isSectionAllowed = isAllowed(activeSection);
+
+  // Roles arrive after the first render on reconnect / server switch,
+  // and a server switch with the screen open changes the whole nav: an
+  // active section that is no longer listed would leave its title over
+  // an empty body, so fall back to the first section the user may see.
+  useEffect(() => {
+    if (!isSectionAllowed) setActiveSection(firstAllowed);
+  }, [isSectionAllowed, firstAllowed]);
 
   const handleDelete = useCallback(() => {
     if (activeServerId) {
@@ -340,15 +431,12 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
   }, [activeServerId]);
 
   const ActiveComponent = SECTION_COMPONENTS[activeSection];
-  const isSectionAllowed = navSections.some((cat) =>
-    cat.items.some((item) => item.id === activeSection)
-  );
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
       {/* Mobile top nav */}
       <div className="flex h-14 items-center gap-4 border-b border-border px-4 md:hidden">
-        <Button variant="ghost" size="icon" onClick={close}>
+        <Button variant="ghost" size="icon" onClick={close} aria-label="Back">
           <ChevronLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-lg font-semibold">Server Settings</h1>
@@ -385,7 +473,7 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
         {/* Desktop sidebar */}
         <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card md:flex">
           <div className="flex items-center gap-1 px-2 pt-4 pb-2">
-            <Button variant="ghost" size="icon" onClick={close}>
+            <Button variant="ghost" size="icon" onClick={close} aria-label="Back">
               <ChevronLeft className="h-5 w-5" />
             </Button>
             <h1 className="min-w-0 truncate text-lg font-semibold">
@@ -429,7 +517,7 @@ const ServerSettings = memo(({ close }: TServerSettingsProps) => {
         </aside>
 
         {/* Content panel */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           <div className="mx-auto max-w-4xl">
             <div className="mb-6">
               <h2 className="text-xl font-semibold">

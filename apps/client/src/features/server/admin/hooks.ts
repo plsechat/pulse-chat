@@ -1,41 +1,38 @@
-import { requestConfirmation } from '@/features/dialogs/actions';
 import type { IRootState } from '@/features/store';
-import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
-import { useForm } from '@/hooks/use-form';
+import {
+  getTrpcError,
+  parseTrpcErrors,
+  type TTrpcErrors
+} from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import {
-  Permission,
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MAX_QUOTA_PER_USER,
   STORAGE_OVERFLOW_ACTION,
-  STORAGE_QUOTA,
-  StorageOverflowAction,
-  type TCategory,
-  type TChannel,
-  type TChannelRolePermission,
-  type TChannelUserPermission,
-  type TDiskMetrics,
-  type TFile,
-  type TJoinedEmoji,
-  type TJoinedInvite,
-  type TJoinedRole,
-  type TJoinedUser,
-  type TLogin,
-  type TMessage,
-  type TPluginInfo,
-  type TRole,
-  type TStorageSettings
+  StorageOverflowAction
 } from '@pulse/shared';
-import { filesize } from 'filesize';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  TCategory,
+  TChannel,
+  TChannelRolePermission,
+  TChannelUserPermission,
+  TFile,
+  TJoinedEmoji,
+  TJoinedInvite,
+  TJoinedRole,
+  TJoinedUser,
+  TLogin,
+  TMessage
+} from '@pulse/server/types';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
-import { useCan } from '../hooks';
 import { onAppEvent } from '@/lib/events';
 
 /**
  * Calls `refetch` whenever the watched Redux selector value changes,
- * skipping the initial mount.
+ * skipping the initial mount. `refetch` is read through a ref so a new
+ * callback identity never triggers a fetch on its own — only `value` does.
  */
 function useSubscriptionRefetch<T>(
   selector: (state: IRootState) => T,
@@ -43,82 +40,244 @@ function useSubscriptionRefetch<T>(
 ) {
   const value = useSelector(selector);
   const mounted = useRef(false);
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
 
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
-    refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    refetchRef.current();
   }, [value]);
 }
 
-// TODO: review this whole file for optimizations and improvements
+export type TAdminQuery<T> = {
+  data: T | null;
+  loading: boolean;
+  /** Message of the last failed fetch; cleared by the next `refetch`. */
+  error: string | null;
+  refetch: () => Promise<void>;
+};
+
+/**
+ * One fetch state machine for the read-mostly instance panels: `fn` runs
+ * on mount and on every `refetch`, the panel renders a loading card
+ * while the first fetch is in flight and an error row (with Retry) when
+ * it rejects — instead of staying blank forever. A response that lands
+ * after the component unmounted or after a newer fetch started is
+ * dropped, so a slow first request can never overwrite a Retry.
+ *
+ * `fn` must be referentially stable (wrap it in useCallback): a new
+ * identity re-fetches.
+ */
+export const useAdminQuery = <T>(
+  fn: () => Promise<T>,
+  fallbackError = 'Could not load this section'
+): TAdminQuery<T> => {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const seq = useRef(0);
+
+  const refetch = useCallback(async () => {
+    const id = ++seq.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fn();
+      if (id !== seq.current) return;
+      setData(result);
+    } catch (err) {
+      if (id !== seq.current) return;
+      setError(getTrpcError(err, fallbackError));
+    }
+    if (id === seq.current) setLoading(false);
+  }, [fn, fallbackError]);
+
+  // A changed `fn` re-fetches; the sequence guard above drops whatever
+  // the previous call still returns.
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { data, loading, error, refetch };
+};
+
+type TGeneralSettings = {
+  name: string;
+  description: string;
+  password: string;
+  allowNewUsers: boolean;
+  enablePlugins: boolean;
+  /** The Planner switch (servers.enableEvents). */
+  enableEvents: boolean;
+  discoverable: boolean;
+  federatable: boolean;
+  // Public directory card. Tags are edited as chips and stored bare
+  // (shown with a # everywhere).
+  directoryListed: boolean;
+  directoryDescription: string;
+  directoryTags: string[];
+  directoryGame: string;
+  storageUploadEnabled: boolean;
+  storageUploadMaxFileSize: number;
+  storageSpaceQuotaByUser: number;
+  storageOverflowAction: StorageOverflowAction;
+};
+
+const EMPTY_GENERAL: TGeneralSettings = {
+  name: '',
+  description: '',
+  password: '',
+  allowNewUsers: false,
+  enablePlugins: false,
+  enableEvents: true,
+  discoverable: false,
+  federatable: false,
+  directoryListed: false,
+  directoryDescription: '',
+  directoryTags: [],
+  directoryGame: '',
+  storageUploadEnabled: true,
+  storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+  storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
+  storageOverflowAction: STORAGE_OVERFLOW_ACTION
+};
+
+type TGeneralSettingsWire = Awaited<
+  ReturnType<
+    NonNullable<ReturnType<typeof getTRPCClient>>['others']['getSettings']['query']
+  >
+>;
+
+const generalFromServer = (result: TGeneralSettingsWire): TGeneralSettings => ({
+  name: result.name,
+  description: result.description ?? '',
+  password: result.password ?? '',
+  allowNewUsers: result.allowNewUsers ?? false,
+  enablePlugins: result.enablePlugins ?? false,
+  enableEvents: result.enableEvents ?? true,
+  discoverable: result.discoverable ?? false,
+  federatable: result.federatable ?? false,
+  directoryListed: result.directoryListed ?? false,
+  directoryDescription: result.directoryDescription ?? '',
+  directoryTags: result.directoryTags ?? [],
+  directoryGame: result.directoryGame ?? '',
+  storageUploadEnabled: result.storageUploadEnabled ?? true,
+  storageUploadMaxFileSize:
+    result.storageUploadMaxFileSize ?? STORAGE_MAX_FILE_SIZE,
+  storageSpaceQuotaByUser:
+    result.storageSpaceQuotaByUser ?? STORAGE_MAX_QUOTA_PER_USER,
+  storageOverflowAction:
+    (result.storageOverflowAction as StorageOverflowAction | null) ??
+    STORAGE_OVERFLOW_ACTION
+});
+
+type TGeneralPatch = Partial<Omit<TGeneralSettings, 'password'>> & {
+  password?: string | null;
+};
+
+const sameValue = (a: unknown, b: unknown) =>
+  Array.isArray(a) && Array.isArray(b)
+    ? a.length === b.length && a.every((item, i) => item === b[i])
+    : a === b;
+
+/**
+ * Only what differs from the last loaded copy goes on the wire. The
+ * route checks "may this caller change X" per field (federatable is
+ * owner-only, a listing needs an open join path), so resending an
+ * untouched value could refuse an edit to an unrelated field. Clearing
+ * the password sends null: the route reads an omitted key as "keep".
+ */
+const diffGeneral = (
+  saved: TGeneralSettings | null,
+  current: TGeneralSettings
+): TGeneralPatch => {
+  const patch: TGeneralPatch = {};
+  for (const key of Object.keys(current) as (keyof TGeneralSettings)[]) {
+    if (saved && sameValue(saved[key], current[key])) continue;
+    if (key === 'password') {
+      patch.password = current.password === '' ? null : current.password;
+    } else {
+      (patch as Record<string, unknown>)[key] = current[key];
+    }
+  }
+  // A fresh form with no password never sends "clear it".
+  if (!saved && patch.password === null) delete patch.password;
+  return patch;
+};
 
 export const useAdminGeneral = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [settings, setSettings] = useState({
-    name: '',
-    description: '',
-    password: '',
-    allowNewUsers: false,
-    enablePlugins: false,
-    discoverable: false,
-    federatable: false
-  });
+  const [settings, setSettings] = useState<TGeneralSettings>(EMPTY_GENERAL);
+  // The copy the server last handed us; Save sends only what differs.
+  const [saved, setSaved] = useState<TGeneralSettings | null>(null);
   const [logo, setLogo] = useState<TFile | null>(null);
 
   const fetchSettings = useCallback(async () => {
     if (!serverId) return;
+    const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      toast.error('Not connected: the server settings could not be loaded');
+      return;
+    }
     setLoading(true);
 
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    const result = await trpc.others.getSettings.query({ serverId });
-
-    setSettings({
-      name: result.name,
-      description: result.description ?? '',
-      password: result.password ?? '',
-      allowNewUsers: result.allowNewUsers ?? false,
-      enablePlugins: result.enablePlugins ?? false,
-      discoverable: result.discoverable ?? false,
-      federatable: result.federatable ?? false
-    });
-    setLoading(false);
-    setLogo(result.logo);
+    try {
+      const result = await trpc.others.getSettings.query({ serverId });
+      const next = generalFromServer(result);
+      setSettings(next);
+      setSaved(next);
+      setLogo(result.logo);
+      setErrors({});
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      toast.error(getTrpcError(error, 'Failed to load the server settings'));
+    } finally {
+      setLoading(false);
+    }
   }, [serverId]);
 
   const submit = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
-    if (!trpc) return;
+    if (!trpc) {
+      toast.error('Not connected: the settings were not saved');
+      return;
+    }
 
+    const patch = diffGeneral(saved, settings);
+    if (Object.keys(patch).length === 0) {
+      toast.info('Nothing to save');
+      return;
+    }
+
+    setSaving(true);
     try {
-      await trpc.others.updateSettings.mutate({
-        serverId,
-        name: settings.name,
-        description: settings.description,
-        password: settings.password || undefined,
-        allowNewUsers: settings.allowNewUsers,
-        enablePlugins: settings.enablePlugins,
-        discoverable: settings.discoverable,
-        federatable: settings.federatable
-      });
+      await trpc.others.updateSettings.mutate({ serverId, ...patch });
+      setSaved(settings);
+      setErrors({});
       toast.success('Settings updated');
     } catch (error) {
       console.error('Error updating settings:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to save the settings'));
+    } finally {
+      setSaving(false);
     }
-  }, [settings, serverId]);
+  }, [settings, saved, serverId]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onChange = useCallback((field: keyof typeof settings, value: any) => {
-    setSettings((s) => ({ ...s, [field]: value }));
-    setErrors((e) => ({ ...e, [field]: undefined }));
-  }, []);
+  const onChange = useCallback(
+    <K extends keyof TGeneralSettings>(field: K, value: TGeneralSettings[K]) => {
+      setSettings((s) => ({ ...s, [field]: value }));
+      setErrors((e) => ({ ...e, [field]: undefined, _general: undefined }));
+    },
+    []
+  );
 
   useEffect(() => {
     fetchSettings();
@@ -130,6 +289,7 @@ export const useAdminGeneral = (serverId: number | undefined) => {
     settings,
     refetch: fetchSettings,
     loading,
+    saving,
     submit,
     errors,
     onChange,
@@ -137,80 +297,22 @@ export const useAdminGeneral = (serverId: number | undefined) => {
   };
 };
 
-export const useAdminUpdates = () => {
-  const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [hasUpdate, setHasUpdate] = useState(false);
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
-  const [canUpdate, setCanUpdate] = useState(false);
+/**
+ * Plugin row as the `plugins.get` route actually returns it (`logo` /
+ * `homepage` are optional on the wire, matching the package.json
+ * schema they come from).
+ */
+export type TAdminPlugin = Awaited<
+  ReturnType<
+    NonNullable<ReturnType<typeof getTRPCClient>>['plugins']['get']['query']
+  >
+>['plugins'][number];
 
-  const fetchUpdate = useCallback(async () => {
-    setLoading(true);
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      const { hasUpdate, latestVersion, canUpdate, currentVersion } =
-        await trpc.others.getUpdate.query();
-
-      setHasUpdate(hasUpdate);
-      setLatestVersion(latestVersion);
-      setCurrentVersion(currentVersion);
-      setCanUpdate(canUpdate);
-    } catch (error) {
-      console.error('Error fetching update:', error);
-      setErrors(parseTrpcErrors(error));
-    }
-
-    setLoading(false);
-  }, []);
-
-  const update = useCallback(async () => {
-    const answer = await requestConfirmation({
-      title: 'Are you sure you want to update the server?',
-      message:
-        'This will download and install the latest version of the server. The server will be restarted during the process, which may cause temporary downtime.',
-      confirmLabel: 'Update',
-      cancelLabel: 'Cancel'
-    });
-
-    if (!answer) return;
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      await trpc.others.updateServer.mutate();
-
-      toast.success('Server update initiated');
-    } catch (error) {
-      console.error('Error updating server:', error);
-      setErrors(parseTrpcErrors(error));
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUpdate();
-  }, [fetchUpdate]);
-
-  return {
-    refetch: fetchUpdate,
-    loading,
-    hasUpdate,
-    latestVersion,
-    currentVersion,
-    canUpdate,
-    errors,
-    update
-  };
-};
-
+/** Instance-wide plugin list (`plugins.get` is instance-owner only). */
 export const useAdminPlugins = () => {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [plugins, setPlugins] = useState<TPluginInfo[]>([]);
+  const [plugins, setPlugins] = useState<TAdminPlugin[]>([]);
 
   const fetchPlugins = useCallback(async () => {
     setLoading(true);
@@ -221,12 +323,11 @@ export const useAdminPlugins = () => {
     try {
       const { plugins } = await trpc.plugins.get.query();
 
-      // TODO: check this
-      // @ts-expect-error - ver esta merda wtf
       setPlugins(plugins);
     } catch (error) {
       console.error('Error fetching plugins:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to load plugins'));
     }
 
     setLoading(false);
@@ -242,32 +343,6 @@ export const useAdminPlugins = () => {
     loading,
     errors
   };
-};
-
-export const useHasUpdates = () => {
-  const can = useCan();
-  const [hasUpdates, setHasUpdates] = useState(false);
-
-  const fetchHasUpdates = useCallback(async () => {
-    if (!can(Permission.MANAGE_UPDATES)) return;
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      const { hasUpdate } = await trpc.others.getUpdate.query();
-
-      setHasUpdates(hasUpdate);
-    } catch (error) {
-      console.error('Error fetching update status:', error);
-    }
-  }, [can]);
-
-  useEffect(() => {
-    fetchHasUpdates();
-  }, [fetchHasUpdates]);
-
-  return hasUpdates;
 };
 
 export const useAdminChannelGeneral = (channelId: number) => {
@@ -296,13 +371,15 @@ export const useAdminChannelGeneral = (channelId: number) => {
         name: channel?.name ?? '',
         topic: channel?.topic ?? null,
         private: channel?.private ?? false,
-        slowMode: channel?.slowMode ?? 0
+        slowMode: channel?.slowMode ?? 0,
+        announcement: channel?.announcement ?? false
       });
 
       toast.success('Channel updated');
     } catch (error) {
       console.error('Error updating channel:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to update the channel'));
     }
   }, [channel, channelId]);
 
@@ -361,6 +438,7 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
     } catch (error) {
       console.error('Error updating category:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to update the category'));
     }
   }, [category, categoryId]);
 
@@ -391,7 +469,6 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
 
 export const useAdminEmojis = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState<TTrpcErrors>({});
   const [emojis, setEmojis] = useState<TJoinedEmoji[]>([]);
 
   const fetchEmojis = useCallback(async () => {
@@ -406,16 +483,6 @@ export const useAdminEmojis = (serverId: number | undefined) => {
     setLoading(false);
   }, [serverId]);
 
-  const onChange = useCallback(
-    (field: keyof TJoinedEmoji, value: string | null) => {
-      if (!emojis) return;
-
-      setEmojis((c) => (c ? { ...c, [field]: value } : c));
-      setErrors((e) => ({ ...e, [field]: undefined }));
-    },
-    [emojis]
-  );
-
   useEffect(() => {
     fetchEmojis();
   }, [fetchEmojis]);
@@ -425,15 +492,12 @@ export const useAdminEmojis = (serverId: number | undefined) => {
   return {
     emojis,
     refetch: fetchEmojis,
-    loading,
-    errors,
-    onChange
+    loading
   };
 };
 
 export const useAdminRoles = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
-  const [errors, setErrors] = useState<TTrpcErrors>({});
   const [roles, setRoles] = useState<TJoinedRole[]>([]);
 
   const fetchRoles = useCallback(async () => {
@@ -448,16 +512,6 @@ export const useAdminRoles = (serverId: number | undefined) => {
     setLoading(false);
   }, [serverId]);
 
-  const onChange = useCallback(
-    (field: keyof TRole, value: string | null) => {
-      if (!roles) return;
-
-      setRoles((c) => (c ? { ...c, [field]: value } : c));
-      setErrors((e) => ({ ...e, [field]: undefined }));
-    },
-    [roles]
-  );
-
   useEffect(() => {
     fetchRoles();
   }, [fetchRoles]);
@@ -467,99 +521,7 @@ export const useAdminRoles = (serverId: number | undefined) => {
   return {
     roles,
     refetch: fetchRoles,
-    loading,
-    errors,
-    onChange
-  };
-};
-
-export const useAdminStorage = (serverId: number | undefined) => {
-  const [loading, setLoading] = useState(true);
-  const { values, setValues, setTrpcErrors, r, onChange } =
-    useForm<TStorageSettings>({
-      storageOverflowAction: STORAGE_OVERFLOW_ACTION,
-      storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
-      storageUploadEnabled: true,
-      storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
-      storageQuota: STORAGE_QUOTA
-    });
-  const [diskMetrics, setDiskMetrics] = useState<TDiskMetrics | undefined>(
-    undefined
-  );
-
-  const fetchStorageSettings = useCallback(async () => {
-    if (!serverId) return;
-    setLoading(true);
-
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    const { storageSettings, diskMetrics } =
-      await trpc.others.getStorageSettings.query({ serverId });
-
-    setValues(storageSettings);
-    setDiskMetrics(diskMetrics);
-    setLoading(false);
-  }, [setValues, serverId]);
-
-  const submit = useCallback(async () => {
-    if (!serverId) return;
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-
-    try {
-      await trpc.others.updateSettings.mutate({
-        serverId,
-        storageUploadEnabled: values.storageUploadEnabled,
-        storageUploadMaxFileSize: values.storageUploadMaxFileSize,
-        storageSpaceQuotaByUser: values.storageSpaceQuotaByUser,
-        storageOverflowAction:
-          values.storageOverflowAction as StorageOverflowAction
-      });
-      toast.success('Storage settings updated');
-    } catch (error) {
-      console.error('Error updating storage settings:', error);
-      setTrpcErrors(error);
-    }
-  }, [values, setTrpcErrors, serverId]);
-
-  const labels = useMemo(() => {
-    return {
-      storageUploadMaxFileSize: filesize(
-        Number(values.storageUploadMaxFileSize ?? 0),
-        {
-          output: 'object',
-          standard: 'jedec'
-        }
-      ),
-      storageSpaceQuotaByUser: filesize(
-        Number(values.storageSpaceQuotaByUser ?? 0),
-        {
-          output: 'object',
-          standard: 'jedec'
-        }
-      ),
-      storageQuota: filesize(Number(values.storageQuota ?? 0), {
-        output: 'object',
-        standard: 'jedec'
-      })
-    };
-  }, [values]);
-
-  useEffect(() => {
-    fetchStorageSettings();
-  }, [fetchStorageSettings]);
-
-  useSubscriptionRefetch((s) => s.server.publicSettings, fetchStorageSettings);
-
-  return {
-    values,
-    labels,
-    refetch: fetchStorageSettings,
-    loading,
-    submit,
-    r,
-    onChange,
-    diskMetrics
+    loading
   };
 };
 
@@ -606,7 +568,7 @@ export const useAdminChannelPermissions = (channelId: number) => {
     const trpc = getTRPCClient();
     if (!trpc) return;
     const { rolePermissions, userPermissions } =
-      await trpc.channels.getPermissions.mutate({ channelId });
+      await trpc.channels.getPermissions.query({ channelId });
 
     setRolePermissions(rolePermissions);
     setUserPermissions(userPermissions);

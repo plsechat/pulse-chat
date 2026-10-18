@@ -1,20 +1,13 @@
 import { Permission } from '@pulse/shared';
-import { z } from 'zod';
 import { getInvites } from '../../db/queries/invites';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const getInvitesRoute = protectedProcedure
-  .input(
-    z.object({
-      serverId: z.number()
-    })
-  )
-  .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_INVITES, input.serverId);
-
+const getInvitesRoute = serverProcedureFor(Permission.MANAGE_INVITES).query(
+  async ({ input }) => {
     const invites = await getInvites(input.serverId);
 
     return invites;
-  });
+  }
+);
 
 export { getInvitesRoute };

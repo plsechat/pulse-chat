@@ -1,4 +1,4 @@
-import type { TRole } from '@pulse/shared';
+import type { TRole } from '@pulse/server/types';
 import { X } from 'lucide-react';
 import { memo } from 'react';
 import { Badge } from '../ui/badge';

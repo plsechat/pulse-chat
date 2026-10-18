@@ -1,5 +1,9 @@
+import { requireHomeTRPCClient } from '@/lib/not-connected-error';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedFriendRequest, TJoinedPublicUser } from '@pulse/shared';
+import type {
+  TJoinedFriendRequest,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 import { store } from '../store';
 import { friendsSliceActions } from './slice';
 
@@ -26,23 +30,17 @@ export const addRequest = (request: TJoinedFriendRequest) =>
 export const removeRequest = (requestId: number) =>
   store.dispatch(friendsSliceActions.removeRequest(requestId));
 
-export const setFriendsLoading = (loading: boolean) =>
-  store.dispatch(friendsSliceActions.setLoading(loading));
-
 export const resetFriendsState = () =>
   store.dispatch(friendsSliceActions.resetState());
 
 export const fetchFriends = async () => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
-  setFriendsLoading(true);
   try {
     const friends = await trpc.friends.getAll.query();
     setFriends(friends);
   } catch (err) {
     console.error('Failed to fetch friends:', err);
-  } finally {
-    setFriendsLoading(false);
   }
 };
 
@@ -58,37 +56,27 @@ export const fetchFriendRequests = async () => {
 };
 
 export const sendFriendRequest = async (userId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.friends.sendRequest.mutate({ userId });
 };
 
 export const acceptFriendRequest = async (requestId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.friends.acceptRequest.mutate({ requestId });
 };
 
 export const rejectFriendRequest = async (requestId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.friends.rejectRequest.mutate({ requestId });
 };
 
 export const removeFriendAction = async (userId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.friends.remove.mutate({ userId });
 };
 
 export const setBlockedUsers = (users: TJoinedPublicUser[]) =>
   store.dispatch(friendsSliceActions.setBlocked(users));
-
-export const addBlockedUser = (user: TJoinedPublicUser) =>
-  store.dispatch(friendsSliceActions.addBlocked(user));
-
-export const removeBlockedUser = (userId: number) =>
-  store.dispatch(friendsSliceActions.removeBlocked(userId));
 
 export const fetchBlockedUsers = async () => {
   const trpc = getHomeTRPCClient();
@@ -102,8 +90,7 @@ export const fetchBlockedUsers = async () => {
 };
 
 export const blockUser = async (userId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.blocks.block.mutate({ userId });
   // The server fires USER_BLOCK_CHANGED to the blocker; the subscription
   // handler refetches the canonical list. Returning here lets the caller
@@ -111,7 +98,6 @@ export const blockUser = async (userId: number) => {
 };
 
 export const unblockUser = async (userId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.blocks.unblock.mutate({ userId });
 };

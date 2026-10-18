@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { appSliceReducer } from './app/slice';
 import { dialogSliceReducer } from './dialogs/slice';
 import { dmsSliceReducer } from './dms/slice';
+import { eventsSliceReducer } from './events/slice';
 import { friendsSliceReducer } from './friends/slice';
 import { nameplatesSliceReducer } from './nameplates/slice';
 import { serverScreenSliceReducer } from './server-screens/slice';
@@ -15,7 +16,8 @@ export const store = configureStore({
     serverScreen: serverScreenSliceReducer,
     friends: friendsSliceReducer,
     dms: dmsSliceReducer,
-    nameplates: nameplatesSliceReducer
+    nameplates: nameplatesSliceReducer,
+    events: eventsSliceReducer
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

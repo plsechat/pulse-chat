@@ -3,20 +3,15 @@ import { and, asc, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
-import { getServerMemberIds } from '../../db/queries/servers';
 import { channels, messages } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
+import { getThreadViewerIds } from './_shared';
 
-const deleteThreadRoute = protectedProcedure
-  .input(z.object({ threadId: z.number() }))
+const deleteThreadRoute = serverProcedure()
+  .input(z.object({ threadId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [thread] = await db
       .select({
         id: channels.id,
@@ -97,13 +92,16 @@ const deleteThreadRoute = protectedProcedure
       }
     }
 
+    // Resolve the audience BEFORE the delete — the override rows that
+    // define a private thread's viewers cascade away with the channel.
+    const viewerIds = await getThreadViewerIds(thread.id);
+
     // Delete the thread channel (cascades to messages, forumPostTags, threadFollowers)
     await db.delete(channels).where(eq(channels.id, input.threadId));
 
     publishChannel(input.threadId, 'delete', thread.serverId);
 
-    const memberIds = await getServerMemberIds(thread.serverId);
-    pubsub.publishFor(memberIds, ServerEvents.THREAD_DELETE, input.threadId);
+    pubsub.publishFor(viewerIds, ServerEvents.THREAD_DELETE, input.threadId);
   });
 
 export { deleteThreadRoute };

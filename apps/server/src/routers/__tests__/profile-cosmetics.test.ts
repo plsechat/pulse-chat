@@ -9,84 +9,22 @@
 
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
-import { exportJWK, generateKeyPair, type JWK } from 'jose';
 import { config } from '../../config';
 import { db } from '../../db';
-import { federationInstances, users } from '../../db/schema';
-import { initTest } from '../../__tests__/helpers';
-import { testsBaseUrl } from '../../__tests__/setup';
+import { users } from '../../db/schema';
 import {
-  _resetSeenJtis,
-  _signChallengeAs,
-  generateFederationKeys
-} from '../../utils/federation';
+  postSignedAsPeer,
+  seedPeer
+} from '../../__tests__/federation-fixtures';
+import { initTest } from '../../__tests__/helpers';
+
+
 
 // The mock-modules default has federation disabled; the user-info-update
 // handler short-circuits before its logic in that state. The receiver
 // tests below need the real handler path, so flip the flag at module
 // load (isolated to this Bun process by the per-file test matrix).
 config.federation.enabled = true;
-
-const PEER_DOMAIN = 'peer.example';
-const TEST_LOCAL_DOMAIN = 'test.local'; // matches setup.ts mock
-
-/** Seed an active peer instance whose signatures we can forge. */
-async function seedPeer(): Promise<{
-  peerInstanceId: number;
-  peerPrivateJwk: JWK;
-}> {
-  _resetSeenJtis();
-  const { publicKey, privateKey } = await generateKeyPair('EdDSA', {
-    extractable: true
-  });
-  const peerPublicJwk = await exportJWK(publicKey);
-  const peerPrivateJwk = await exportJWK(privateKey);
-
-  const [instance] = await db
-    .insert(federationInstances)
-    .values({
-      domain: PEER_DOMAIN,
-      name: 'Peer',
-      status: 'active',
-      direction: 'outgoing',
-      publicKey: JSON.stringify(peerPublicJwk),
-      createdAt: Date.now()
-    })
-    .returning();
-
-  // signedJsonResponse signs responses with the local instance's key;
-  // the global beforeEach TRUNCATE wipes it, so re-generate per test.
-  await generateFederationKeys();
-
-  return { peerInstanceId: instance!.id, peerPrivateJwk };
-}
-
-async function postSignedAsPeer(
-  path: string,
-  payload: Record<string, unknown>,
-  peerPrivateJwk: JWK
-): Promise<{ status: number; body: Record<string, unknown> | null }> {
-  const bodyToSign = { ...payload, fromDomain: PEER_DOMAIN };
-  const signature = await _signChallengeAs(
-    bodyToSign,
-    PEER_DOMAIN,
-    TEST_LOCAL_DOMAIN,
-    peerPrivateJwk
-  );
-
-  const res = await fetch(`${testsBaseUrl}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...bodyToSign, signature })
-  });
-  let body: Record<string, unknown> | null;
-  try {
-    body = (await res.json()) as Record<string, unknown>;
-  } catch {
-    body = null;
-  }
-  return { status: res.status, body };
-}
 
 /** Insert a shadow user for the peer, optionally with cosmetics pre-set. */
 async function insertShadowUser(

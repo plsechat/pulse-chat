@@ -2,34 +2,32 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { publishUser } from '../../db/publishers';
 import { roles, userRoles } from '../../db/schema';
+import { emitMemberRolesChanged } from '../../plugins/emit-roles-changed';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 import { enqueueActivityLog } from '../../queues/activity-log';
+import { assertCanManageRole, getRoleCeiling } from '../roles/_hierarchy';
+import { invalidatePermissionCacheForUser } from '../../utils/permission-cache-registry';
 
-const removeRoleRoute = protectedProcedure
+const removeRoleRoute = serverProcedure(Permission.MANAGE_USERS)
   .input(
     z.object({
-      userId: z.number(),
-      roleId: z.number()
+      userId: z.number().int().positive(),
+      roleId: z.number().int().positive()
     })
   )
   .mutation(async ({ ctx, input }) => {
-    await ctx.needsPermission(Permission.MANAGE_USERS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Verify the role belongs to the caller's active server
     const [role] = await db
       .select({
         id: roles.id,
         name: roles.name,
         isPersistent: roles.isPersistent,
-        isDefault: roles.isDefault
+        isDefault: roles.isDefault,
+        position: roles.position
       })
       .from(roles)
       .where(
@@ -52,6 +50,11 @@ const removeRoleRoute = protectedProcedure
       code: 'FORBIDDEN',
       message: 'The Owner role can only change via ownership transfer'
     });
+
+    // Role hierarchy: a caller may only strip roles strictly below their
+    // own highest role.
+    const ceiling = await getRoleCeiling(ctx.userId, ctx.activeServerId);
+    assertCanManageRole(ceiling, role);
 
     const existing = await db
       .select()
@@ -79,7 +82,12 @@ const removeRoleRoute = protectedProcedure
       );
 
     ctx.invalidatePermissionCache();
+    invalidatePermissionCacheForUser(input.userId);
+    // The role may have been what let them see a private channel:
+    // re-key every private channel's attachment URLs in this server.
+    await rotateFileAccessTokens({ serverId: ctx.activeServerId });
     publishUser(input.userId, 'update');
+    await emitMemberRolesChanged(input.userId, ctx.activeServerId);
 
     enqueueActivityLog({
       type: ActivityLogType.USER_ROLE_REMOVED,

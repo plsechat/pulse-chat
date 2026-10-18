@@ -2,7 +2,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { useChannels } from '@/features/server/channels/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
-import type { TJoinedMessage } from '@pulse/shared';
+import type { TJoinedMessage } from '@pulse/server/types';
 import { longDateTime } from '@/helpers/time-format';
 import { format } from 'date-fns';
 import { ArrowRight, Hash } from 'lucide-react';

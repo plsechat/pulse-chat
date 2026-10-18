@@ -7,7 +7,8 @@ import {
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
 import { cn } from '@/lib/utils';
-import { UserStatus, type TJoinedPublicUser } from '@pulse/shared';
+import { UserStatus } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { format } from 'date-fns';
 import { Globe } from 'lucide-react';
 import { memo, useMemo } from 'react';

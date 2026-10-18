@@ -1,11 +1,12 @@
-import { and, eq, sql } from 'drizzle-orm';
 import http from 'http';
 import z from 'zod';
-import { db } from '../db';
-import { isInviteValid } from '../db/queries/invites';
+import {
+  consumeInvite,
+  isInviteValid,
+  releaseInvite
+} from '../db/queries/invites';
 import { getSettings } from '../db/queries/server';
 import { getUserBySupabaseId } from '../db/queries/users';
-import { invites } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { isRegistrationDisabled } from '../utils/env';
@@ -16,10 +17,13 @@ import { getJsonBody } from './helpers';
 import { registerUser } from './register-user';
 import { HttpValidationError } from './utils';
 
+// Login deliberately keeps the historical minimum: accounts created under
+// the old 4-character policy must still be able to sign in (and change
+// their password — that path enforces the current minimum).
 const zBody = z.object({
-  email: z.string().min(1, 'Email is required'),
+  email: z.string().trim().toLowerCase().min(1, 'Email is required').max(254),
   password: z.string().min(4, 'Password is required').max(128),
-  invite: z.string().optional()
+  invite: z.string().max(64).optional()
 });
 
 const loginRouteHandler = async (
@@ -84,39 +88,37 @@ const loginRouteHandler = async (
 
     // Check if new user registration is allowed
     const serverSettings = await getSettings();
+    let consumedInvite: string | undefined;
+
     if (!serverSettings.allowNewUsers) {
       if (!data.invite) {
         throw new HttpValidationError('email', 'Invalid invite code');
       }
 
-      // Atomic check-and-increment: validates invite exists, not expired, and under max uses
-      const result = await db
-        .update(invites)
-        .set({ uses: sql`${invites.uses} + 1` })
-        .where(
-          and(
-            eq(invites.code, data.invite),
-            sql`(${invites.expiresAt} IS NULL OR ${invites.expiresAt} = 0 OR ${invites.expiresAt} > ${Date.now()})`,
-            sql`(${invites.maxUses} IS NULL OR ${invites.maxUses} = 0 OR ${invites.uses} < ${invites.maxUses})`
-          )
-        )
-        .returning({ code: invites.code });
-
-      if (result.length === 0) {
+      // Atomic check-and-increment (see consumeInvite).
+      if (!(await consumeInvite(data.invite))) {
         const inviteError = await isInviteValid(data.invite);
         throw new HttpValidationError('email', inviteError || 'Invalid invite code');
       }
+      consumedInvite = data.invite;
     }
 
     // Supabase user exists but no app user — create one
     // Use email prefix as display name since login doesn't have a name field
     const fallbackName = data.email.split('@')[0] || 'User';
-    existingUser = await registerUser(
-      signInData.user.id,
-      data.invite,
-      connectionInfo?.ip,
-      fallbackName
-    );
+
+    try {
+      existingUser = await registerUser(
+        signInData.user.id,
+        data.invite,
+        connectionInfo?.ip,
+        fallbackName
+      );
+    } catch (err) {
+      // The account was never created — hand the invite use back.
+      await releaseInvite(consumedInvite);
+      throw err;
+    }
   }
 
   if (existingUser.banned) {

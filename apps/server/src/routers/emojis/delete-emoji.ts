@@ -7,22 +7,15 @@ import { publishEmoji } from '../../db/publishers';
 import { emojis } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const deleteEmojiRoute = protectedProcedure
+const deleteEmojiRoute = serverProcedure(Permission.MANAGE_EMOJIS)
   .input(
     z.object({
-      emojiId: z.number()
+      emojiId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_EMOJIS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [removedEmoji] = await db
       .delete(emojis)
       .where(and(eq(emojis.id, input.emojiId), eq(emojis.serverId, ctx.activeServerId)))

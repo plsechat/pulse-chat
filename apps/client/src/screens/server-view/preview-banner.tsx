@@ -67,9 +67,9 @@ const PreviewBanner = memo(() => {
         {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Join Server'}
       </Button>
       <Button
-        size="icon"
+        size="icon-sm"
         variant="ghost"
-        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground"
         onClick={leaveServerPreview}
         title="Leave preview"
       >

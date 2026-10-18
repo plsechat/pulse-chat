@@ -3,7 +3,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getNameStyleCss } from '@/helpers/name-style';
 import { cn } from '@/lib/utils';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { memo } from 'react';
 
 type TProfilePreviewCardProps = {

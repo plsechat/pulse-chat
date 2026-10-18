@@ -1,21 +1,22 @@
-import { getFileKeys } from '@/lib/e2ee/file-key-store';
+import {
+  getDecryptedFileUrl,
+  getFileKeys,
+  rememberDecryptedFileUrl
+} from '@/lib/e2ee/file-key-store';
 import { decryptFile } from '@/lib/e2ee/file-crypto';
 import { getFileUrl } from '@/helpers/get-file-url';
-import type { TFile } from '@pulse/shared';
-import { useEffect, useRef, useState } from 'react';
-
-// Module-level cache to avoid re-fetching/re-decrypting the same file
-const blobUrlCache = new Map<string, string>();
-
-function getCacheKey(messageId: number, fileId: number): string {
-  return `${messageId}:${fileId}`;
-}
+import type { TFile } from '@pulse/server/types';
+import { useEffect, useState } from 'react';
 
 /**
  * Hook that returns a usable URL for a file attachment.
  * For encrypted files (E2EE messages with file keys), it fetches the
  * encrypted blob, decrypts it client-side, and returns a blob URL.
  * For non-encrypted files, returns the direct server URL.
+ *
+ * Decrypted URLs live in the bounded cache in file-key-store.ts, which
+ * revokes them on eviction and on logout — an unbounded module map
+ * here kept every decrypted Blob of the session alive.
  */
 export function useDecryptedFileUrl(
   file: TFile,
@@ -30,14 +31,12 @@ export function useDecryptedFileUrl(
 
   const [url, setUrl] = useState<string>(() => {
     if (!keyInfo) return directUrl;
-    const cached = blobUrlCache.get(getCacheKey(messageId, file.id));
-    return cached ?? '';
+    return getDecryptedFileUrl(messageId, file.id) ?? '';
   });
   const [loading, setLoading] = useState<boolean>(() => {
     if (!keyInfo) return false;
-    return !blobUrlCache.has(getCacheKey(messageId, file.id));
+    return getDecryptedFileUrl(messageId, file.id) === undefined;
   });
-  const revokableRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!keyInfo) {
@@ -46,8 +45,7 @@ export function useDecryptedFileUrl(
       return;
     }
 
-    const cacheKey = getCacheKey(messageId, file.id);
-    const cached = blobUrlCache.get(cacheKey);
+    const cached = getDecryptedFileUrl(messageId, file.id);
     if (cached) {
       setUrl(cached);
       setLoading(false);
@@ -69,14 +67,14 @@ export function useDecryptedFileUrl(
           keyInfo.mimeType
         );
         const blobUrl = URL.createObjectURL(decryptedBlob);
-        blobUrlCache.set(cacheKey, blobUrl);
+        // Cached even when this mount was cancelled mid-flight: the
+        // decrypt work is done and the next mount of the same
+        // attachment should not repeat it.
+        rememberDecryptedFileUrl(messageId, file.id, blobUrl);
 
         if (!cancelled) {
-          revokableRef.current = blobUrl;
           setUrl(blobUrl);
           setLoading(false);
-        } else {
-          // If cancelled, still keep in cache for future use
         }
       } catch (err) {
         console.error('[E2EE] Failed to decrypt file:', err);

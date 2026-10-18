@@ -150,4 +150,17 @@ export enum DisconnectCode {
   /** The account was self-deleted — the client signs out and must not
    *  reconnect (the auth identity no longer exists). */
   ACCOUNT_DELETED = 40003,
+  /** The session family behind this connection was revoked (logout from
+   *  another tab, a password change on another device, or refresh-token
+   *  reuse). The client clears its stored session and shows the login
+   *  screen instead of reconnecting. */
+  SESSION_REVOKED = 40004,
+  /** The federation token this socket presented has expired. Unlike
+   *  FEDERATION_REJECTED (bad signature, unknown or inactive issuer) this
+   *  is repairable client-side: re-mint the token at the home instance and
+   *  reconnect. Standard-range code so the WebSocket layer forwards it. */
+  FEDERATION_TOKEN_EXPIRED = 4005,
 }
+export * from "./directory";
+export * from "./soundboard";
+export * from "./files";

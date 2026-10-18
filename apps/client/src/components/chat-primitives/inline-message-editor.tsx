@@ -1,6 +1,6 @@
 import { TiptapInput, type TMentionableUser } from '@/components/tiptap-input';
 import { AutoFocus } from '@/components/ui/auto-focus';
-import { isLegacyHtml } from '@/lib/converters/token-content-renderer';
+import { isLegacyHtml } from '@/lib/converters/token-content';
 import { tokensToTiptapHtml } from '@/lib/converters/tokens-to-tiptap';
 import { useTokenToTiptapContext } from '@/lib/converters/use-token-context';
 import { memo, useMemo, useState, type ReactNode } from 'react';

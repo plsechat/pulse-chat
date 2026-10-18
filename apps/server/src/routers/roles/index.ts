@@ -7,6 +7,7 @@ import {
   onRoleUpdateRoute
 } from './events';
 import { getRolesRouter } from './get-roles';
+import { reorderRolesRoute } from './reorder-roles';
 import { setDefaultRoleRoute } from './set-default-role';
 import { updateRoleRoute } from './update-role';
 
@@ -15,6 +16,7 @@ export const rolesRouter = t.router({
   update: updateRoleRoute,
   delete: deleteRoleRoute,
   setDefault: setDefaultRoleRoute,
+  reorder: reorderRolesRoute,
   getAll: getRolesRouter,
   onCreate: onRoleCreateRoute,
   onDelete: onRoleDeleteRoute,

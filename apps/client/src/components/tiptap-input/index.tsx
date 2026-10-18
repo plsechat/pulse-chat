@@ -4,34 +4,41 @@ import { useChannels } from '@/features/server/channels/hooks';
 import { useCustomEmojis } from '@/features/server/emojis/hooks';
 import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
+import { isCoarsePointer } from '@/hooks/use-is-mobile';
+import { onAppEvent } from '@/lib/events';
+import { cn } from '@/lib/utils';
 import type { TCommandInfo } from '@pulse/shared';
+import type { AnyExtension, Editor } from '@tiptap/core';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
 import Placeholder from '@tiptap/extension-placeholder';
+import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { Smile } from 'lucide-react';
-import { onAppEvent } from '@/lib/events';
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { CommandHint } from './command-hint';
+import { FormatBar } from './format-bar';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
-import {
-  MarkdownUnderline,
-  StarOnlyBold
-} from './plugins/markdown-extensions';
 import {
   CHANNEL_MENTION_STORAGE_KEY,
   ChannelMentionSuggestion
 } from './plugins/channel-mention-suggestion';
 import {
+  commandQueryFromText,
+  resolveUsageHint,
+  type TUsageHint
+} from './plugins/command-palette';
+import {
   COMMANDS_STORAGE_KEY,
   CommandSuggestion
 } from './plugins/command-suggestion';
+import { CustomEmojiNode } from './plugins/custom-emoji-extension';
+import { MarkdownUnderline, StarOnlyBold } from './plugins/markdown-extensions';
 import { MentionExtension } from './plugins/mention-extension';
 import {
   MENTION_STORAGE_KEY,
   MentionSuggestion
 } from './plugins/mention-suggestion';
-import { CustomEmojiNode } from './plugins/custom-emoji-extension';
 import { SlashCommands } from './plugins/slash-commands-extension';
 import { EmojiSuggestion } from './suggestions';
 import type { TEmojiItem } from './types';
@@ -60,10 +67,22 @@ type TTiptapInputProps = {
    * draft multi-line messages without each Enter sending early.
    */
   multilineMode?: boolean;
+  /** Show the formatting bar under the editor (channel and DM composers). */
+  toolbar?: boolean;
+  /**
+   * Controls rendered inside the editor row, before the editor and after
+   * the emoji button. The composers pass their attach / GIF / send
+   * buttons here so every button is a sibling in ONE row centred on the
+   * text; centred against the whole column (editor + format bar) they
+   * sat ~14 px above the emoji button.
+   */
+  leading?: ReactNode;
+  trailing?: ReactNode;
 };
 
 const TiptapInput = memo(
   ({
+    toolbar = false,
     value,
     placeholder,
     onChange,
@@ -73,7 +92,9 @@ const TiptapInput = memo(
     disabled,
     commands,
     dmMembers,
-    multilineMode
+    multilineMode,
+    leading,
+    trailing
   }: TTiptapInputProps) => {
     const customEmojis = useCustomEmojis();
     const users = useUsers();
@@ -91,15 +112,36 @@ const TiptapInput = memo(
       multilineModeRef.current = multilineMode;
     }, [multilineMode]);
 
+    // The usage line for the command being typed (`/watch seek <seconds>`),
+    // keyed by the query it was computed for; Escape puts that query
+    // aside until the text changes. Both are mirrored through refs for
+    // the key handler, which is bound once.
+    const [usage, setUsage] = useState<{ query: string; hint: TUsageHint } | null>(null);
+    const [dismissedQuery, setDismissedQuery] = useState<string | null>(null);
+    const usageRef = useRef(usage);
+    const dismissedRef = useRef(dismissedQuery);
+    useEffect(() => {
+      usageRef.current = usage;
+      dismissedRef.current = dismissedQuery;
+    }, [usage, dismissedQuery]);
+
     const mentionUsers = useMemo(
       () =>
         dmMembers ??
-        users.map((u) => ({ id: u.id, name: u.name, avatar: u.avatar, _identity: u._identity })),
+        users.map((u) => ({
+          id: u.id,
+          name: u.name,
+          avatar: u.avatar,
+          _identity: u._identity
+        })),
       [dmMembers, users]
     );
 
     const mentionRoles = useMemo(
-      () => (isDm ? [] : roles.map((r) => ({ id: r.id, name: r.name, color: r.color }))),
+      () =>
+        isDm
+          ? []
+          : roles.map((r) => ({ id: r.id, name: r.name, color: r.color })),
       [isDm, roles]
     );
 
@@ -114,17 +156,24 @@ const TiptapInput = memo(
       );
 
       return channels
-        .filter((c) => c.type === 'TEXT' || (c.type === 'THREAD' && forumIds.has(c.parentChannelId!)))
+        .filter(
+          (c) =>
+            c.type === 'TEXT' ||
+            (c.type === 'THREAD' && forumIds.has(c.parentChannelId!))
+        )
         .map((c) => ({
           id: c.id,
           name: c.name,
           type: c.type,
-          parentName: c.type === 'THREAD' ? forumNameMap.get(c.parentChannelId!) : undefined
+          parentName:
+            c.type === 'THREAD'
+              ? forumNameMap.get(c.parentChannelId!)
+              : undefined
         }));
     }, [isDm, channels]);
 
     const extensions = useMemo(() => {
-      const exts = [
+      const exts: AnyExtension[] = [
         StarterKit.configure({
           // Use our customized Bold (`**` only) and Underline (`__`) so the
           // markdown shortcuts in the formatting hint bar match what the
@@ -158,8 +207,7 @@ const TiptapInput = memo(
           isDm,
           ownUserId: ownUserId ?? 0,
           suggestion: MentionSuggestion
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }) as any
+        })
       ];
 
       if (!isDm) {
@@ -167,8 +215,7 @@ const TiptapInput = memo(
           ChannelMentionExtension.configure({
             channels: mentionChannels,
             suggestion: ChannelMentionSuggestion
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          }) as any
+          })
         );
       }
 
@@ -177,13 +224,36 @@ const TiptapInput = memo(
           SlashCommands.configure({
             commands,
             suggestion: CommandSuggestion
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          }) as any
+          })
         );
       }
 
       return exts;
-    }, [customEmojis, commands, mentionUsers, mentionRoles, mentionChannels, isDm, ownUserId, placeholder]);
+    }, [
+      customEmojis,
+      commands,
+      mentionUsers,
+      mentionRoles,
+      mentionChannels,
+      isDm,
+      ownUserId,
+      placeholder
+    ]);
+
+    // What `/…` before the cursor means, for the hint above the editor.
+    const trackCommandUsage = (editor: Editor) => {
+      const commandList = editor.storage[COMMANDS_STORAGE_KEY]?.commands;
+      if (!commandList || commandList.length === 0) {
+        if (usageRef.current) setUsage(null);
+        return;
+      }
+      const { from } = editor.state.selection;
+      const query = commandQueryFromText(editor.state.doc.textBetween(0, from, '\n'));
+      const hint = query !== null ? resolveUsageHint(commandList, query) : null;
+      const next = hint && query !== null ? { query, hint } : null;
+      if (next?.query === usageRef.current?.query && (next === null) === (usageRef.current === null)) return;
+      setUsage(next);
+    };
 
     const editor = useEditor({
       extensions,
@@ -197,6 +267,11 @@ const TiptapInput = memo(
         if (!editor.isEmpty) {
           onTyping?.();
         }
+
+        trackCommandUsage(editor);
+      },
+      onSelectionUpdate: ({ editor }) => {
+        trackCommandUsage(editor);
       },
       editorProps: {
         handlePaste: (_view, event) => {
@@ -207,7 +282,8 @@ const TiptapInput = memo(
 
           // Detect code: clipboard came from a code block, or text contains HTML/XML tags
           const html = event.clipboardData?.getData('text/html') ?? '';
-          const fromCodeBlock = /<pre[\s>]/i.test(html) || /<code[\s>]/i.test(html);
+          const fromCodeBlock =
+            /<pre[\s>]/i.test(html) || /<code[\s>]/i.test(html);
           const hasMarkup = /<\/?[a-z][\w-]*(?:\s[^>]*)?\/?>/i.test(text);
 
           if (fromCodeBlock || hasMarkup) {
@@ -228,7 +304,9 @@ const TiptapInput = memo(
           return true;
         },
         handleKeyDown: (view, event) => {
-          const suggestionElement = document.querySelector('[data-tiptap-suggestion]');
+          const suggestionElement = document.querySelector(
+            '[data-tiptap-suggestion]'
+          );
           const hasSuggestions =
             suggestionElement && document.body.contains(suggestionElement);
 
@@ -273,7 +351,16 @@ const TiptapInput = memo(
           }
 
           if (event.key === 'Enter') {
-            const isMultiline = !!multilineModeRef.current;
+            // Touch-first devices: Enter inserts a newline and the Send
+            // button sends — a soft keyboard has no Shift+Enter, so
+            // Enter-sends made multi-line messages impossible. Only the
+            // composers that offer a multiline mode (and therefore have
+            // a Send button) opt in; the inline editor and the profile
+            // card composer pass no `multilineMode` and keep Enter =
+            // submit, since they have no other way to submit.
+            const isMultiline =
+              !!multilineModeRef.current ||
+              (multilineModeRef.current !== undefined && isCoarsePointer());
 
             // Multiline mode: Shift+Enter sends, plain Enter inserts a
             // newline (which is the inverse of the default). Suggestions
@@ -337,6 +424,18 @@ const TiptapInput = memo(
           }
 
           if (event.key === 'Escape') {
+            // A command palette or usage hint closes first; the
+            // suggestion plugin owns its list (returning false hands
+            // the key to it), the hint is ours.
+            const usageShown =
+              usageRef.current !== null &&
+              dismissedRef.current !== usageRef.current.query;
+            if (usageShown) setDismissedQuery(usageRef.current!.query);
+            if (hasSuggestions) return false;
+            if (usageShown) {
+              event.preventDefault();
+              return true;
+            }
             event.preventDefault();
             onCancel?.();
             return true;
@@ -355,10 +454,14 @@ const TiptapInput = memo(
         editor?.chain().focus().insertContent(emoji.emoji).run();
       } else if (emoji.id && emoji.fallbackImage) {
         // Custom server emoji — insert as customEmoji node (bypasses stale options lookup)
-        editor?.chain().focus().insertContent({
-          type: 'customEmoji',
-          attrs: { id: emoji.id, name: emoji.name, src: emoji.fallbackImage }
-        }).run();
+        editor
+          ?.chain()
+          .focus()
+          .insertContent({
+            type: 'customEmoji',
+            attrs: { id: emoji.id, name: emoji.name, src: emoji.fallbackImage }
+          })
+          .run();
       } else if (emoji.shortcodes.length > 0) {
         // Fallback — use setEmoji for any non-custom emoji with shortcodes
         editor?.chain().focus().setEmoji(emoji.shortcodes[0]).run();
@@ -376,10 +479,9 @@ const TiptapInput = memo(
     // keep commands storage in sync with plugin commands from the store
     useEffect(() => {
       if (editor && commands) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = editor.storage as any;
-        if (storage[COMMANDS_STORAGE_KEY]) {
-          storage[COMMANDS_STORAGE_KEY].commands = commands;
+        const storage = editor.storage[COMMANDS_STORAGE_KEY];
+        if (storage) {
+          storage.commands = commands;
         }
       }
     }, [editor, commands]);
@@ -387,13 +489,12 @@ const TiptapInput = memo(
     // keep mention storage in sync with users and roles from the store
     useEffect(() => {
       if (editor) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = editor.storage as any;
-        if (storage[MENTION_STORAGE_KEY]) {
-          storage[MENTION_STORAGE_KEY].users = mentionUsers;
-          storage[MENTION_STORAGE_KEY].roles = mentionRoles;
-          storage[MENTION_STORAGE_KEY].isDm = isDm;
-          storage[MENTION_STORAGE_KEY].ownUserId = ownUserId ?? 0;
+        const storage = editor.storage[MENTION_STORAGE_KEY];
+        if (storage) {
+          storage.users = mentionUsers;
+          storage.roles = mentionRoles;
+          storage.isDm = isDm;
+          storage.ownUserId = ownUserId ?? 0;
         }
       }
     }, [editor, mentionUsers, mentionRoles, isDm, ownUserId]);
@@ -401,10 +502,9 @@ const TiptapInput = memo(
     // keep channel mention storage in sync with channels from the store
     useEffect(() => {
       if (editor && !isDm) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = editor.storage as any;
-        if (storage[CHANNEL_MENTION_STORAGE_KEY]) {
-          storage[CHANNEL_MENTION_STORAGE_KEY].channels = mentionChannels;
+        const storage = editor.storage[CHANNEL_MENTION_STORAGE_KEY];
+        if (storage) {
+          storage.channels = mentionChannels;
         }
       }
     }, [editor, mentionChannels, isDm]);
@@ -428,7 +528,13 @@ const TiptapInput = memo(
 
     // Listen for external mention-user events (e.g. from UserContextMenu)
     useEffect(() => {
-      const handler = ({ userId, username }: { userId: number; username: string }) => {
+      const handler = ({
+        userId,
+        username
+      }: {
+        userId: number;
+        username: string;
+      }) => {
         editor
           ?.chain()
           .focus()
@@ -448,34 +554,65 @@ const TiptapInput = memo(
       return onAppEvent('mention-user', handler);
     }, [editor]);
 
-    return (
+    // One row for the editor and every button around it. Single line:
+    // all centred on the text. Multiline (the drag-resized composer):
+    // the editor stretches and scrolls on its own, the buttons sit on
+    // its bottom edge, right above the format bar.
+    const row = (
       <div
-        className={`flex flex-1 gap-2 ${
-          multilineMode ? 'items-start h-full overflow-y-auto' : 'items-center'
-        } ${disabled ? '' : 'cursor-text'}`}
+        className={cn(
+          'flex min-w-0 flex-1 gap-2',
+          multilineMode ? 'min-h-0 items-end' : 'items-center',
+          !disabled && 'cursor-text'
+        )}
         onClick={(e) => {
           if (disabled) return;
           if ((e.target as HTMLElement).closest('button')) return;
           editor?.chain().focus().run();
         }}
       >
+        {leading}
         <EditorContent
           editor={editor}
-          className={`w-full tiptap ${
-            disabled ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
+          className={cn(
+            'tiptap min-w-0 flex-1',
+            multilineMode && 'min-h-0 self-stretch overflow-y-auto',
+            disabled && 'opacity-50 cursor-not-allowed'
+          )}
         />
 
         <EmojiPicker onEmojiSelect={handleEmojiSelect}>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-primary"
             disabled={disabled}
+            aria-label="Add emoji"
           >
             <Smile className="h-5 w-5" />
           </Button>
         </EmojiPicker>
+        {trailing}
+      </div>
+    );
+
+    const hint =
+      usage && dismissedQuery !== usage.query ? (
+        <CommandHint hint={usage.hint} />
+      ) : null;
+
+    if (!toolbar && !hint) return row;
+
+    return (
+      <div
+        className={cn(
+          'flex min-w-0 flex-1 flex-col',
+          multilineMode && 'min-h-0 self-stretch'
+        )}
+      >
+        {hint}
+        {row}
+        {toolbar && <FormatBar editor={editor} disabled={disabled} />}
       </div>
     );
   }

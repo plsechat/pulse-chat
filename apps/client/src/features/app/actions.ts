@@ -12,15 +12,33 @@ import {
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
 import { connectionManager } from '@/lib/connection-manager';
-import { initE2EE, initE2EEForInstance } from '@/lib/e2ee';
+import {
+  fetchAndProcessFederatedSenderKeys,
+  initE2EE,
+  initE2EEForInstance
+} from '@/lib/e2ee';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { clearSession, getAccessToken, initSupabase, refreshLocalSession, setOidcSession } from '@/lib/supabase';
-import type { TServerInfo, TServerSummary } from '@pulse/shared';
+import type { TServerInfo, TServerSummary } from '@pulse/server/types';
 import { toast } from 'sonner';
-import { connect, fetchDeferredServerData, joinServer, reinitServerSubscriptions, setInfo } from '../server/actions';
+import {
+  beginServerJoin,
+  connect,
+  fetchDeferredServerData,
+  isCurrentServerJoin,
+  openSession,
+  reinitServerSubscriptions,
+  setInfo
+} from '../server/actions';
 import { startServerPreview } from '../server/preview/actions';
 import { serverSliceActions } from '../server/slice';
 import { store } from '../store';
+import {
+  clearFederatedFocus,
+  readFederatedFocus,
+  resolveFederatedFocus,
+  saveFederatedFocus
+} from './federated-focus';
 import { appSliceActions } from './slice';
 import type { TActiveView, TFederatedServerEntry } from './slice';
 
@@ -69,33 +87,67 @@ export const fetchServerUnreadCounts = async () => {
   }
 };
 
+/**
+ * Whether the server slice currently holds `serverId`'s data. Decided by
+ * the snapshot itself (its publicId) rather than by `activeServerId`:
+ * that id is kept across a context leave so the return path knows where
+ * to go, and a home server can share its numeric id with the federated
+ * server that was in focus before — either way the slice must be
+ * reloaded.
+ */
+const isHomeServerLoaded = (serverId: number) => {
+  const { app, server } = store.getState();
+  if (app.activeInstanceDomain || server.serverId === undefined) return false;
+  const entry = app.joinedServers.find((s) => s.id === serverId);
+  return entry !== undefined && entry.publicId === server.serverId;
+};
+
 export const switchServer = async (
   serverId: number,
   handshakeHash: string
 ) => {
   // Already viewing this server — nothing to do
   const { app } = store.getState();
-  if (
-    app.activeView === 'server' &&
-    app.activeServerId === serverId &&
-    !app.activeInstanceDomain
-  ) {
+  const loaded = isHomeServerLoaded(serverId);
+  if (app.activeView === 'server' && loaded) {
     return;
   }
 
   // Clear federation context so tRPC routes go to home instance
-  store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  setActiveInstanceDomain(null);
+  clearFederatedFocus();
   store.dispatch(appSliceActions.setActiveServerId(serverId));
   setActiveView('server');
 
   // If the server data is already loaded (e.g. returning from Home view),
   // skip re-joining — subscriptions and state are already active
-  if (app.activeServerId === serverId && !app.activeInstanceDomain) {
+  if (loaded) {
     return;
   }
 
   // Re-join with the new serverId to load its data
-  await joinServer(handshakeHash, serverId);
+  await openSession(handshakeHash, serverId);
+};
+
+/**
+ * Leave the server in focus for the home view (DMs, friends). A
+ * federated server's context is dropped with it: routing goes back to
+ * the home instance, the remote snapshot leaves the slice (it fed the
+ * tab title and every ambient id while nothing on screen used it) and
+ * the server-scoped subscriptions rebind to the home client. The user's
+ * voice session survives, and `activeServerId` is kept so the rail
+ * knows which server to re-join on the way back. A home server's
+ * snapshot stays: returning to it is instant and nothing routes wrongly.
+ */
+export const leaveServerContext = () => {
+  const { app } = store.getState();
+  setActiveView('home');
+  if (!app.activeInstanceDomain) return;
+
+  setActiveInstanceDomain(null);
+  clearFederatedFocus();
+  store.dispatch(serverSliceActions.resetStateKeepVoice());
+  reinitServerSubscriptions();
 };
 
 export const createServer = async (
@@ -120,7 +172,7 @@ export const joinServerByInvite = async (
   try {
     const trpc = getHomeTRPCClient();
     if (!trpc) return undefined;
-    const server = await trpc.servers.join.mutate({ inviteCode });
+    const server = await trpc.servers.joinByInvite.mutate({ inviteCode });
     store.dispatch(appSliceActions.addJoinedServer(server));
     return server;
   } catch (error) {
@@ -165,7 +217,7 @@ const handleInviteFromUrl = async () => {
 
   try {
     // Land in a read-only preview instead of instant-joining — the
-    // preview banner's Join button consumes the invite (servers.join).
+    // preview banner's Join button consumes the invite (servers.joinByInvite).
     await startServerPreview({ inviteCode });
   } catch (error) {
     console.error('Failed to preview server from invite URL:', error);
@@ -232,7 +284,7 @@ export const loadApp = async () => {
 
   // Initialize Supabase client from server-provided config (supports multi-domain deployment)
   if (info.supabaseUrl && info.supabaseAnonKey) {
-    initSupabase(info.supabaseUrl, info.supabaseAnonKey);
+    await initSupabase(info.supabaseUrl, info.supabaseAnonKey);
   }
 
   // Proactively rotate a local-backend session so a week-old access
@@ -280,6 +332,10 @@ export const loadApp = async () => {
 
       // Load persisted federated servers and validate against home instance
       await loadFederatedServers();
+
+      // Back into the federated server that was on screen before the
+      // reload (the home join above restored the HOME server only).
+      await restoreFederatedFocus();
 
       // Check for invite code in URL and auto-join that server
       await handleInviteFromUrl();
@@ -345,7 +401,8 @@ export const resetApp = () => {
   store.dispatch(appSliceActions.setServerUnreadCounts({}));
   store.dispatch(appSliceActions.setServerMentionCounts({}));
   store.dispatch(appSliceActions.setFederatedServers([]));
-  store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  setActiveInstanceDomain(null);
+  clearFederatedFocus();
   // Clean up federated unread subscriptions
   for (const [, sub] of federatedUnreadSubs) {
     sub.unsubscribe();
@@ -371,7 +428,12 @@ export const joinFederatedServer = async (
     // guessing the protocol from the domain string.
     registerRemoteInstanceUrl(instanceDomain, remoteUrl);
     // Connect to remote instance
-    connectionManager.connectRemote(instanceDomain, remoteUrl, federationToken);
+    connectionManager.connectRemote(
+      instanceDomain,
+      remoteUrl,
+      federationToken,
+      tokenExpiresAt
+    );
     console.log('[joinFederatedServer] connected, getting remote tRPC client...');
 
     const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
@@ -446,18 +508,23 @@ export const cleanupFederatedServerEntry = (
   );
   saveFederatedServers();
 
+  // A focus on the removed server must not be re-entered on reload.
+  const focus = readFederatedFocus();
+  if (
+    focus &&
+    focus.instanceDomain === instanceDomain &&
+    focus.serverId === serverId
+  ) {
+    clearFederatedFocus();
+  }
+
   // Check if any servers remain on this instance
   const remaining = store
     .getState()
     .app.federatedServers.filter((s) => s.instanceDomain === instanceDomain);
 
   if (remaining.length === 0) {
-    // Clean up unread subscription for this instance
-    const sub = federatedUnreadSubs.get(instanceDomain);
-    if (sub) {
-      sub.unsubscribe();
-      federatedUnreadSubs.delete(instanceDomain);
-    }
+    teardownFederatedUnreadSubscription(instanceDomain);
     store.dispatch(appSliceActions.clearFederatedCountsForInstance(instanceDomain));
     connectionManager.disconnectRemote(instanceDomain);
     store.dispatch(
@@ -477,7 +544,13 @@ export const leaveFederatedServer = async (
       await remoteTrpc.servers.leave.mutate({ serverId });
     }
   } catch (error) {
+    // Local cleanup still proceeds — the rail must not keep a server
+    // the user asked to leave — but the remote membership may linger,
+    // so say so instead of pretending the leave was clean.
     console.error('Failed to leave remote server:', error);
+    toast.warning(
+      'Could not notify the remote server; it may still list you as a member'
+    );
   }
 
   // Remove membership from home server (fire-and-forget)
@@ -492,8 +565,7 @@ export const leaveFederatedServer = async (
 
   cleanupFederatedServerEntry(instanceDomain, serverId);
 
-  setActiveView('home');
-  store.dispatch(appSliceActions.setActiveInstanceDomain(null));
+  leaveServerContext();
 };
 
 export const switchToFederatedServer = async (
@@ -502,20 +574,23 @@ export const switchToFederatedServer = async (
 ) => {
   const state = store.getState();
 
-  // Already viewing this federated server — nothing to do
-  if (
-    state.app.activeView === 'server' &&
-    state.app.activeServerId === serverId &&
-    state.app.activeInstanceDomain === instanceDomain
-  ) {
-    return;
-  }
-
   const entry = state.app.federatedServers.find(
     (s) => s.instanceDomain === instanceDomain && s.server.id === serverId
   );
 
   if (!entry) return;
+
+  // Already viewing this federated server — nothing to do. The slice
+  // must actually hold it (publicId match): after a context leave or a
+  // reconnect the ids can agree while the snapshot is gone or home's.
+  if (
+    state.app.activeView === 'server' &&
+    state.app.activeServerId === serverId &&
+    state.app.activeInstanceDomain === instanceDomain &&
+    state.server.serverId === entry.server.publicId
+  ) {
+    return;
+  }
 
   // Save previous state for rollback on failure
   const prevServerId = state.app.activeServerId;
@@ -529,71 +604,86 @@ export const switchToFederatedServer = async (
     connStatus === 'disconnected' ||
     !connectionManager.getConnection(instanceDomain)
   ) {
+    // A new socket means a new tRPC client: a subscription held on the
+    // old one is dead, so drop it and let the 'connected' status event
+    // re-create it on the new client.
+    teardownFederatedUnreadSubscription(instanceDomain);
     connectionManager.reconnectRemote(
       instanceDomain,
       entry.remoteUrl,
-      entry.federationToken
+      entry.federationToken,
+      entry.tokenExpiresAt
     );
   } else if (!connectionManager.isConnected(instanceDomain)) {
     connectionManager.connectRemote(
       instanceDomain,
       entry.remoteUrl,
-      entry.federationToken
+      entry.federationToken,
+      entry.tokenExpiresAt
     );
   }
 
   // Refresh token if close to expiry (within 1 hour)
   if (entry.tokenExpiresAt - Date.now() < 60 * 60 * 1000) {
-    try {
-      const trpc = getHomeTRPCClient();
-      if (!trpc) return;
-      const { token, expiresAt } =
-        await trpc.federation.requestToken.mutate({
-          targetDomain: instanceDomain
-        });
-
-      store.dispatch(
-        appSliceActions.updateFederatedToken({
-          instanceDomain,
-          token,
-          expiresAt
-        })
-      );
-
-      connectionManager.updateToken(instanceDomain, token);
-      saveFederatedServers();
-    } catch (error) {
-      console.error('Failed to refresh federation token:', error);
-    }
+    await refreshFederationToken(instanceDomain);
   }
 
-  // Set active state optimistically
+  // Set active state optimistically. The focus is persisted by its
+  // (instance, id) pair — never through setActiveServerId, whose storage
+  // key is a HOME id that the next reload's openSession would load.
   store.dispatch(appSliceActions.setActiveServerId(serverId));
-  store.dispatch(appSliceActions.setActiveInstanceDomain(instanceDomain));
+  setActiveInstanceDomain(instanceDomain);
+  saveFederatedFocus({ instanceDomain, serverId });
   setActiveView('server');
 
   // Load channel/category/user data from the remote instance
+  const join = beginServerJoin();
   try {
     const remoteTrpc = connectionManager.getRemoteTRPCClient(instanceDomain);
     if (!remoteTrpc) {
       throw new Error('No remote tRPC client available');
     }
 
-    const data = await remoteTrpc.others.joinServer.query({
+    const data = await remoteTrpc.others.openSession.query({
       handshakeHash: '',
       serverId
     });
 
+    // Superseded by a later join (home or federated) — its response is
+    // the one the user asked for; this one must not overwrite it.
+    if (!isCurrentServerJoin(join)) return;
+
     store.dispatch(serverSliceActions.setInitialData(data));
     // Cache our user id within this federated instance so flows like
     // Phase B redistribute can target each instance's chains under
-    // the right author id without re-fetching joinServer.
+    // the right author id without re-fetching openSession.
     store.dispatch(
       appSliceActions.setFederatedOwnUserId({
         instanceDomain,
         ownUserId: data.ownUserId
       })
     );
+    // The entry's logo only ever lived in localStorage (getJoined
+    // carries none), so a fresh browser showed a letter on the tab until
+    // something else refetched it. The open-session payload carries the
+    // community's current name, description and logo — take them as the
+    // truth for the tab, the Home cards and the header.
+    if (data.publicSettings) {
+      const { name, description, logo } = data.publicSettings;
+      store.dispatch(
+        appSliceActions.updateFederatedServerInfo({
+          instanceDomain,
+          serverId,
+          server: {
+            ...entry.server,
+            name,
+            description,
+            // An older peer sends no logo field at all; keep what we had.
+            logo: logo === undefined ? entry.server.logo : logo
+          }
+        })
+      );
+    }
     saveFederatedServers();
 
     // Fetch deferred data (members, emojis, voice state) from the remote instance
@@ -607,8 +697,9 @@ export const switchToFederatedServer = async (
       console.error('[E2EE] Federation E2EE init failed:', err)
     );
 
-    // Self-heal: fetch full server info if logo is missing
-    if (!entry.server.logo) {
+    // Self-heal for peers whose open-session predates the logo field:
+    // fetch the full server summary when the logo is still unknown.
+    if (!entry.server.logo && data.publicSettings?.logo === undefined) {
       remoteTrpc.servers.getAll.query().then((servers) => {
         const match = servers.find((s) => s.id === serverId);
         if (match) {
@@ -625,25 +716,49 @@ export const switchToFederatedServer = async (
     }
   } catch (error) {
     console.error('Failed to load federated server data:', error);
+    // A later join owns the UI now; rolling back would undo it.
+    if (!isCurrentServerJoin(join)) return;
     toast.error('Failed to connect to federated server');
 
     // Rollback to previous state
     store.dispatch(appSliceActions.setActiveServerId(prevServerId));
-    store.dispatch(
-      appSliceActions.setActiveInstanceDomain(prevInstanceDomain)
-    );
+    setActiveInstanceDomain(prevInstanceDomain);
+    if (prevInstanceDomain && prevServerId !== undefined) {
+      saveFederatedFocus({
+        instanceDomain: prevInstanceDomain,
+        serverId: prevServerId
+      });
+    } else {
+      clearFederatedFocus();
+    }
     setActiveView(prevView);
   }
 };
 
 export const setActiveInstanceDomain = (domain: string | null) => {
   store.dispatch(appSliceActions.setActiveInstanceDomain(domain));
+};
 
-  if (domain) {
-    setLocalStorageItem(LocalStorageKey.ACTIVE_INSTANCE, domain);
-  } else {
-    removeLocalStorageItem(LocalStorageKey.ACTIVE_INSTANCE);
+/**
+ * Re-enter the federated server persisted by switchToFederatedServer.
+ * Runs once per app load after loadFederatedServers, so the entry (and
+ * its connection) exists; a focus that no longer matches a membership
+ * is dropped. Only when a server view was on screen: a reload from Home
+ * stays on Home, as it does for a home server.
+ */
+const restoreFederatedFocus = async () => {
+  const focus = readFederatedFocus();
+  if (!focus) return;
+  const entry = resolveFederatedFocus(
+    focus,
+    store.getState().app.federatedServers
+  );
+  if (!entry) {
+    clearFederatedFocus();
+    return;
   }
+  if (getSavedActiveView() !== 'server') return;
+  await switchToFederatedServer(entry.instanceDomain, entry.server.id);
 };
 
 export const saveFederatedServers = () => {
@@ -689,6 +804,54 @@ export const removeServerEntryByPublicId = (serverPublicId: string) => {
 // Track federated unread count subscriptions so we can clean up
 const federatedUnreadSubs = new Map<string, { unsubscribe: () => void }>();
 
+/**
+ * Drop the unread subscription for an instance. Every path that loses
+ * the connection (permanent close, max reconnects, explicit disconnect,
+ * a socket replaced by reconnectRemote) goes through here — a stale
+ * handle left in the map made setupFederatedUnreadSubscriptions skip
+ * the instance forever, so the badge froze after the first drop.
+ */
+const teardownFederatedUnreadSubscription = (instanceDomain: string) => {
+  const sub = federatedUnreadSubs.get(instanceDomain);
+  if (!sub) return;
+  sub.unsubscribe();
+  federatedUnreadSubs.delete(instanceDomain);
+};
+
+/**
+ * Mint a fresh federation token at the home instance and store it on
+ * the entry, in localStorage and on the live connection. Used on a
+ * near-expiry switch, by the connection manager when a peer bounces an
+ * expired token, and proactively before a reconnect. Null when the home
+ * client is gone or refused.
+ */
+const refreshFederationToken = async (
+  instanceDomain: string
+): Promise<{ token: string; expiresAt: number } | null> => {
+  try {
+    const trpc = getHomeTRPCClient();
+    if (!trpc) return null;
+    const { token, expiresAt } = await trpc.federation.requestToken.mutate({
+      targetDomain: instanceDomain
+    });
+
+    store.dispatch(
+      appSliceActions.updateFederatedToken({
+        instanceDomain,
+        token,
+        expiresAt
+      })
+    );
+
+    connectionManager.updateToken(instanceDomain, token, expiresAt);
+    saveFederatedServers();
+    return { token, expiresAt };
+  } catch (error) {
+    console.error('Failed to refresh federation token:', error);
+    return null;
+  }
+};
+
 const setupFederatedUnreadSubscriptions = (instanceDomain: string) => {
   // Avoid duplicate subscriptions for the same instance
   if (federatedUnreadSubs.has(instanceDomain)) return;
@@ -732,6 +895,10 @@ const setupFederatedUnreadSubscriptions = (instanceDomain: string) => {
 };
 
 export const loadFederatedServers = async () => {
+  // The manager re-mints through the home client when a peer bounces an
+  // expired token or one is about to expire (idempotent — last wins).
+  connectionManager.setTokenRefreshHandler(refreshFederationToken);
+
   // Register connection status handler (idempotent — last handler wins)
   connectionManager.setStatusChangeHandler((domain, status) => {
     store.dispatch(
@@ -741,13 +908,26 @@ export const loadFederatedServers = async () => {
       })
     );
 
+    // The unread subscription follows the socket: (re)created on every
+    // open, dropped on every loss, so a connection that comes back
+    // after a token re-mint or a peer restart gets its badge back.
+    if (status === 'connected') {
+      setupFederatedUnreadSubscriptions(domain);
+      // Sender keys that landed on this host while we were away were
+      // announced over the home socket at the time; nothing re-sends
+      // that wake-up, so every (re)connect pulls what is still waiting.
+      fetchAndProcessFederatedSenderKeys(domain).catch((err) =>
+        console.warn(`[E2EE] federated SKDM pull failed for ${domain}:`, err)
+      );
+    }
+
     // When a federated connection is permanently lost, fall back to home
     if (status === 'disconnected') {
+      teardownFederatedUnreadSubscription(domain);
       const s = store.getState();
       if (s.app.activeInstanceDomain === domain) {
         toast.error('Lost connection to federated server');
-        store.dispatch(appSliceActions.setActiveInstanceDomain(null));
-        setActiveView('home');
+        leaveServerContext();
       }
     }
   });
@@ -771,6 +951,18 @@ export const loadFederatedServers = async () => {
     const savedLogoMap = new Map(
       (saved ?? []).map((e) => [`${e.instanceDomain}:${e.server.id}`, e.server.logo])
     );
+
+    // Peer health from the home instance: a peer our home cannot relay
+    // to (older version, unreachable) gets a warning badge on its rail
+    // entry. Best-effort — the list is cosmetic here.
+    const peerWarnings = new Map<string, string>();
+    try {
+      for (const inst of await trpc.federation.listActiveInstances.query()) {
+        if (inst.lastError) peerWarnings.set(inst.domain, inst.lastError);
+      }
+    } catch (err) {
+      console.error('[federation] listActiveInstances failed:', err);
+    }
 
     const entries: TFederatedServerEntry[] = [];
     for (const m of memberships) {
@@ -802,7 +994,8 @@ export const loadFederatedServers = async () => {
             logo: savedLogoMap.get(`${m.instanceDomain}:${m.remoteServerId}`) ?? null
           },
           federationToken: token,
-          tokenExpiresAt: expiresAt
+          tokenExpiresAt: expiresAt,
+          peerWarning: peerWarnings.get(m.instanceDomain)
         });
       } catch (err) {
         console.error(
@@ -824,7 +1017,8 @@ export const loadFederatedServers = async () => {
       connectionManager.connectRemote(
         entry.instanceDomain,
         entry.remoteUrl,
-        entry.federationToken
+        entry.federationToken,
+        entry.tokenExpiresAt
       );
       setupFederatedUnreadSubscriptions(entry.instanceDomain);
     }

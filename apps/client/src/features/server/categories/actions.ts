@@ -1,14 +1,7 @@
 import { store } from '@/features/store';
-import type { TCategory } from '@pulse/shared';
+import type { TCategory } from '@pulse/server/types';
 import { serverSliceActions } from '../slice';
 
-// export const setCategories = (categories: TCategory[]) => {
-//   store.dispatch(serverSliceActions.setCategories(categories));
-// };
-
-export const setCategories = (categories: TCategory[]) => {
-  store.dispatch(serverSliceActions.setCategories(categories));
-};
 
 export const addCategory = (category: TCategory) => {
   store.dispatch(serverSliceActions.addCategory(category));

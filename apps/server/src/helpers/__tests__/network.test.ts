@@ -54,7 +54,7 @@ describe('getPublicIp', () => {
             const err = new Error('The operation was aborted due to timeout');
             err.name = 'TimeoutError';
             return Promise.reject(err);
-        }) as any);
+        }) as unknown as typeof fetch);
 
         const start = Date.now();
         const result = await getPublicIp();
@@ -78,7 +78,7 @@ describe('getPublicIp', () => {
             const err = new Error('timeout');
             err.name = 'TimeoutError';
             return Promise.reject(err);
-        }) as any);
+        }) as unknown as typeof fetch);
 
         const result = await getPublicIp();
 

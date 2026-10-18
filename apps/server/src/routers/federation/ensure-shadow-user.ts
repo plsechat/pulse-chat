@@ -2,7 +2,10 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../../config';
 import { db } from '../../db';
-import { findOrCreateShadowUser, syncShadowUserProfile } from '../../db/mutations/federation';
+import {
+  findOrCreateShadowUserByPublicId,
+  syncShadowUserProfile
+} from '../../db/mutations/federation';
 import { federationInstances } from '../../db/schema';
 import { signChallenge } from '../../utils/federation';
 import { federationFetch } from '../../utils/federation-fetch';
@@ -13,10 +16,9 @@ import { getFederationProtocol } from '../../utils/validate-url';
 const ensureShadowUserRoute = protectedProcedure
   .input(
     z.object({
-      instanceDomain: z.string(),
-      remoteUserId: z.number(),
-      username: z.string(),
-      remotePublicId: z.string()
+      instanceDomain: z.string().min(1).max(253),
+      username: z.string().max(32),
+      remotePublicId: z.string().min(1).max(64)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -95,12 +97,14 @@ const ensureShadowUserRoute = protectedProcedure
       );
     }
 
-    const shadowUser = await findOrCreateShadowUser(
+    // The shadow is keyed by (instance, publicId) alone. The caller used
+    // to pass the remote's numeric user id as well; a client-supplied
+    // number must never become part of a shadow's identity, so the route
+    // no longer takes one.
+    const shadowUser = await findOrCreateShadowUserByPublicId(
       instance.id,
-      input.remoteUserId,
-      verifiedName,
-      undefined,
-      input.remotePublicId
+      input.remotePublicId,
+      verifiedName
     );
 
     // Sync profile (avatar, banner, bio) from remote instance (fire-and-forget)

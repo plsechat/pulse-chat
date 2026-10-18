@@ -13,6 +13,7 @@ import { memo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { UserPopover } from '../user-popover';
 import { UserStatusBadge } from '../user-status';
+import { avatarFallbackClass } from './fallback';
 
 type TUserAvatarProps = {
   userId: number;
@@ -74,17 +75,6 @@ const AvatarDecoration = memo(
   }
 );
 
-const avatarGradients = [
-  'from-violet-600 to-indigo-600',
-  'from-rose-500 to-orange-500',
-  'from-emerald-500 to-teal-500',
-  'from-blue-500 to-cyan-500',
-  'from-fuchsia-500 to-pink-500',
-  'from-amber-500 to-yellow-500',
-  'from-sky-500 to-blue-600',
-  'from-red-500 to-rose-600'
-];
-
 const UserAvatar = memo(
   ({
     userId,
@@ -116,7 +106,7 @@ const UserAvatar = memo(
       <div className="relative w-fit h-fit" onClick={onClick}>
         <Avatar className={cn('h-8 w-8 ring-1 ring-border/50 shadow-sm', className)}>
           <AvatarImage src={getFileUrl(user.avatar, fileInstanceDomain)} key={user.avatarId} />
-          <AvatarFallback className={cn('text-xs text-white bg-gradient-to-br', avatarGradients[userId % avatarGradients.length])}>
+          <AvatarFallback className={cn('text-xs', avatarFallbackClass(user))}>
             {getInitialsFromName(user.name)}
           </AvatarFallback>
         </Avatar>

@@ -8,10 +8,10 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * "General Voice", "General Voice 2".
  */
 
-/** The main channel composer (tiptap). Placeholder: `Message #<name>`. */
+/** The main channel composer (tiptap). Placeholder: `Write to #<name>`. */
 export function channelComposer(page: Page): Locator {
   return page.locator(
-    '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
+    '[contenteditable="true"]:has(p[data-placeholder^="Write to #"])'
   );
 }
 
@@ -108,10 +108,92 @@ export async function waitForAppReady(page: Page): Promise<void> {
  * the app" without requiring server membership.
  */
 export async function waitForAuthedShell(page: Page): Promise<void> {
+  // The tab layout (the default) shows a Home tab; the traditional
+  // layout a Home rail button.
   await expect(
-    page.getByRole('button', { name: 'Home' }).first()
+    page
+      .getByRole('tab', { name: 'Home' })
+      .or(page.getByRole('button', { name: 'Home' }))
+      .first()
   ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByPlaceholder('you@example.com')).toHaveCount(0);
+}
+
+/**
+ * The tab layout is on (wide viewport, the default preference). Waits for
+ * either shell marker first: a page that has just loaded has neither for
+ * a moment, and deciding on an empty page would send the helpers to the
+ * wrong layout.
+ */
+export async function isDeckLayout(page: Page): Promise<boolean> {
+  const tab = page.getByRole('tab', { name: 'Home' });
+  const rail = page.locator('button[title="Home"]');
+  try {
+    await expect(tab.or(rail).first()).toBeAttached({ timeout: 15_000 });
+  } catch {
+    // Neither shell (phone viewport): the callers' classic branch applies.
+  }
+  return (await tab.count()) > 0;
+}
+
+/**
+ * Open a user-tray panel (Friends, Messages, Inbox) in the tab layout;
+ * a no-op click is avoided when it is already open (the button toggles).
+ */
+export async function openTrayPanel(
+  page: Page,
+  label: 'Friends' | 'Messages' | 'Inbox'
+): Promise<void> {
+  const button = page.getByRole('button', { name: new RegExp(`^${label}(,|$)`) }).first();
+  if ((await button.getAttribute('aria-pressed')) !== 'true') {
+    await button.click();
+  }
+  await expect(page.getByRole('complementary', { name: label })).toBeVisible();
+}
+
+/** Discover: the rail's compass in the traditional layout, the "Open a community" menu in the tab layout. */
+export async function openDiscover(page: Page): Promise<void> {
+  if (await isDeckLayout(page)) {
+    await page.getByRole('button', { name: 'Open a community' }).click();
+    await page.getByRole('menuitem', { name: 'Discover communities' }).click();
+    return;
+  }
+  await page
+    .locator('button[title="Discover Servers"]')
+    .filter({ visible: true })
+    .first()
+    .click();
+}
+
+/** The DM list: the Messages side panel in the tab layout, the Home view in the traditional one. */
+export async function openDmList(page: Page): Promise<void> {
+  if (await isDeckLayout(page)) {
+    await openTrayPanel(page, 'Messages');
+    // The panel remembers the last conversation; the list is one step back.
+    const back = page.getByRole('button', { name: 'Back to conversations' });
+    if ((await back.count()) > 0) await back.click();
+    return;
+  }
+  await goHome(page);
+}
+
+/** A DM list row by the peer's (or group's) name, in whichever layout holds the list. */
+export async function dmListRow(page: Page, name: string): Promise<Locator> {
+  await openDmList(page);
+  const scope = (await isDeckLayout(page))
+    ? page.getByRole('complementary', { name: 'Messages' })
+    : page;
+  return scope.getByText(name).first();
+}
+
+/** The Friends view: the Friends tray panel in the tab layout (opened, never toggled shut), Home → Friends in the traditional one. */
+export async function openFriends(page: Page): Promise<void> {
+  await goHome(page);
+  if (await isDeckLayout(page)) {
+    await openTrayPanel(page, 'Friends');
+    return;
+  }
+  await page.getByRole('button', { name: 'Friends' }).first().click();
 }
 
 /**
@@ -148,6 +230,10 @@ export async function gotoApp(page: Page, url = '/'): Promise<void> {
  * actionability hit-test even though real clicks land fine.
  */
 export async function goHome(page: Page): Promise<void> {
+  if (await isDeckLayout(page)) {
+    await page.getByRole('tab', { name: 'Home' }).click();
+    return;
+  }
   await page
     .locator('button[title="Home"]')
     .filter({ visible: true })
@@ -174,7 +260,14 @@ export async function openDmViaAuthor(
     `[contenteditable="true"]:has(p[data-placeholder="Message @${displayName}"])`
   );
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.getByText(displayName, { exact: true }).first().click();
+    // Prefer the member list when it is open: on phones it is an overlay
+    // whose backdrop covers the chat, so the chat author behind it would
+    // swallow the click. Both entries open the same profile popover.
+    const inMembers = page.locator('aside').getByText(displayName, { exact: true });
+    const target = (await inMembers.count())
+      ? inMembers.first()
+      : page.getByText(displayName, { exact: true }).first();
+    await target.click();
     try {
       await expect(composer).toBeVisible({ timeout: 5_000 });
       return composer;
@@ -188,8 +281,13 @@ export async function openDmViaAuthor(
 
 /** DM sidebar rows / DM open: click the entry named after the peer. */
 export async function openDmWith(page: Page, name: string): Promise<void> {
-  await goHome(page);
-  await page.getByText(name).first().click();
+  if (await isDeckLayout(page)) {
+    // DMs live in the Messages side panel: its list, then the conversation.
+    await (await dmListRow(page, name)).click();
+  } else {
+    await goHome(page);
+    await page.getByText(name).first().click();
+  }
   await expect(dmComposer(page)).toBeVisible({ timeout: 15_000 });
 }
 
@@ -218,7 +316,8 @@ export async function openUserSettings(
   page: Page,
   section: string
 ): Promise<void> {
-  // Two gears exist (desktop + hidden responsive variant).
+  // Two gears exist (desktop + hidden responsive variant); the bottom-left
+  // user control carries it in both layouts.
   await page
     .locator('button[title="User settings"]')
     .filter({ visible: true })
@@ -258,4 +357,171 @@ export async function authedGoto(
   );
   await page.goto(baseURL);
   await waitForAppReady(page);
+}
+
+/**
+ * Open Server Settings (server-name dropdown in the left sidebar) at the
+ * given section. Settings navigation is buttons, not tabs.
+ */
+export async function openServerSettings(
+  page: Page,
+  section: string
+): Promise<void> {
+  await page
+    .locator('aside')
+    .getByRole('button')
+    .filter({ hasText: 'Pulse Server' })
+    .first()
+    .click();
+  await page.getByRole('menuitem', { name: 'Server Settings' }).click();
+  await page.getByRole('button', { name: section, exact: true }).click();
+}
+
+/**
+ * The visible composer regardless of placeholder state. tiptap drops the
+ * data-placeholder attribute once the field has content, so the
+ * placeholder-scoped locators above stop resolving mid-typing; this one
+ * keeps resolving for keyboard-driven input (code blocks, mentions).
+ */
+export function visibleComposer(page: Page): Locator {
+  return page
+    .locator('[contenteditable="true"]')
+    .filter({ visible: true })
+    .first();
+}
+
+/**
+ * Sidebar voice-roster entries for `name` (every voice channel's rows): a
+ * cursor-pointer row carrying the member's name and a mic icon
+ * (components/left-sidebar/voice-user.tsx). The member list on the right
+ * shows names without a mic icon, so the icon filter keeps the two apart.
+ */
+export function voiceRosterEntry(page: Page, name: string): Locator {
+  return page
+    .locator('div.cursor-pointer:has(svg.lucide-mic, svg.lucide-mic-off)')
+    .filter({ hasText: name });
+}
+
+/** The desktop member list (right sidebar); `w-60` when open, `w-0` closed. */
+export function memberList(page: Page): Locator {
+  return page.locator('aside.lg\\:bg-sidebar\\/50');
+}
+
+/**
+ * Open the desktop member list. It is CLOSED by default in a fresh
+ * context (RIGHT_SIDEBAR_STATE localStorage) and toggled from the top
+ * bar's panel button; idempotent.
+ */
+export async function openMemberList(page: Page): Promise<void> {
+  const list = memberList(page);
+  await expect(list).toBeAttached();
+  if (!/\bw-60\b/.test((await list.getAttribute('class')) ?? '')) {
+    await page
+      .locator('.app-topbar button:has(svg.lucide-panel-right)')
+      .click();
+  }
+  await expect(list).toHaveClass(/\bw-60\b/);
+}
+
+/**
+ * Layout guard (v0.4.0 findings #2/#4/#8/#16): every visible control in
+ * `scope` — buttons, inputs, role=button — must lie inside the box of its
+ * nearest ancestor that clips (any overflow other than `visible`), and
+ * inside the viewport. The failure mode this pins down is a single-line
+ * flex row whose items all refuse to shrink: the row grows past its
+ * container and the first `overflow-hidden`/`overflow-y-auto` up the tree
+ * cuts the last control off silently.
+ *
+ * A vertical scroller (`overflow-y: auto|scroll`) legitimately holds
+ * controls below the fold, so only the horizontal axis is checked against
+ * it; a horizontal scroll of a form row is never intended and IS reported.
+ * Hidden controls (display:none, visibility:hidden, zero box, aria-hidden
+ * subtree) are skipped. Failure messages name each offending control.
+ */
+export async function expectNoClippedControls(scope: Locator): Promise<void> {
+  const offenders = await scope.evaluate((root) => {
+    const TOLERANCE = 1.5;
+    const CONTROL = 'button, input, [role="button"]';
+    const round = (n: number) => Math.round(n);
+    const describe = (el: Element) => {
+      const html = el as HTMLElement;
+      const label =
+        el.getAttribute('aria-label') ||
+        el.getAttribute('title') ||
+        el.getAttribute('placeholder') ||
+        (html.innerText || '').trim().slice(0, 40) ||
+        el.id ||
+        el.className.toString().slice(0, 40);
+      return `${el.tagName.toLowerCase()}[${label}]`;
+    };
+    const clipping = (el: Element) => {
+      const style = getComputedStyle(el);
+      return {
+        x: style.overflowX !== 'visible',
+        y: style.overflowY !== 'visible',
+        scrollsY: style.overflowY === 'auto' || style.overflowY === 'scroll'
+      };
+    };
+
+    const controls = Array.from(root.querySelectorAll<HTMLElement>(CONTROL));
+    if (root.matches(CONTROL)) controls.unshift(root as HTMLElement);
+
+    const out: string[] = [];
+    for (const el of controls) {
+      if (el.closest('[aria-hidden="true"]')) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      // an ancestor with display:none leaves no offsetParent (fixed aside)
+      if (el.offsetParent === null && style.position !== 'fixed') continue;
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+
+      // A fixed-position control (or one inside a fixed layer such as a
+      // dialog) is laid out against the viewport, so an overflow-hidden
+      // ancestor in the document flow cannot clip it; only the viewport
+      // check below applies.
+      let ancestor = el.parentElement;
+      let fixedLayer = style.position === 'fixed';
+      while (ancestor && ancestor !== document.body && !fixedLayer) {
+        if (getComputedStyle(ancestor).position === 'fixed') {
+          fixedLayer = true;
+          break;
+        }
+        const clip = clipping(ancestor);
+        if (clip.x || clip.y) {
+          const a = ancestor.getBoundingClientRect();
+          const problems: string[] = [];
+          if (clip.x && (box.left < a.left - TOLERANCE || box.right > a.right + TOLERANCE)) {
+            problems.push(
+              `x ${round(box.left)}–${round(box.right)} outside ${round(a.left)}–${round(a.right)}`
+            );
+          }
+          if (
+            clip.y &&
+            !clip.scrollsY &&
+            (box.top < a.top - TOLERANCE || box.bottom > a.bottom + TOLERANCE)
+          ) {
+            problems.push(
+              `y ${round(box.top)}–${round(box.bottom)} outside ${round(a.top)}–${round(a.bottom)}`
+            );
+          }
+          if (problems.length) {
+            out.push(
+              `${describe(el)}: ${problems.join('; ')} — clipped by ${describe(ancestor)}`
+            );
+          }
+          break; // the nearest clipping ancestor decides
+        }
+        ancestor = ancestor.parentElement;
+      }
+
+      if (box.left < -TOLERANCE || box.right > window.innerWidth + TOLERANCE) {
+        out.push(
+          `${describe(el)}: x ${round(box.left)}–${round(box.right)} outside the ${window.innerWidth}px viewport`
+        );
+      }
+    }
+    return out;
+  });
+  expect(offenders, `clipped controls:\n${offenders.join('\n')}`).toEqual([]);
 }

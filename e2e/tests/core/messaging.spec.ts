@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { psql } from '../../helpers/db';
 import {
   authedGoto,
+  channelComposer,
   messageRow,
   openMessageContextMenu,
   selectChannel,
@@ -92,16 +93,19 @@ test('context menu offers the full action set on own message', async ({
   await page.keyboard.press('Escape');
 });
 
-test('delete own message removes it from the pane', async ({ page }) => {
+test('delete own message leaves a "Message deleted" tombstone in its place', async ({ page }) => {
   const text = `to-delete ${Date.now()}`;
   await sendChannelMessage(page, text);
+  const rowId = await messageRow(page, text).getAttribute('id');
 
   await openMessageContextMenu(page, text);
   await page.getByRole('menuitem', { name: 'Delete Message' }).click();
   // Confirmation dialog
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
+  // The text is gone; the row stays, with the same anchor, as a tombstone.
   await expect(page.getByText(text, { exact: true })).toHaveCount(0);
+  await expect(page.locator(`#${rowId}`)).toContainText('Message deleted');
 });
 
 test('a 16k code-block message renders without freezing the tab', async ({
@@ -142,4 +146,45 @@ test('a 16k code-block message renders without freezing the tab', async ({
     new Promise<false>((resolve) => setTimeout(() => resolve(false), 3_000))
   ]);
   expect(responsive).toBe(true);
+});
+
+test('an over-length code block is sent as a message.txt attachment', async ({
+  page
+}) => {
+  // 17k chars inside a fence — over the 16k plaintext budget. The
+  // composer converts the body into an attachment instead of rejecting
+  // the send, and tells the author via a toast.
+  const marker = `txt ${Date.now().toString(36)}`;
+  const composer = channelComposer(page);
+  await composer.click();
+  await composer.fill('```\n' + marker + '\n' + 'x'.repeat(17_000) + '\n```');
+  await page.keyboard.press('Enter');
+
+  await expect(
+    page.getByText('Message was over the length limit — sent as message.txt')
+  ).toBeVisible({ timeout: 20_000 });
+
+  // The attachment card (a FileCard <a href>) lands in the channel and
+  // the file serves with the fenced body; the message row itself holds
+  // no over-length content.
+  const card = page.locator('a').filter({ hasText: 'message.txt' }).last();
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  const href = await card.getAttribute('href');
+  expect(href).not.toBeNull();
+  const res = await page.request.get(new URL(href!, 'http://127.0.0.1:14991').href);
+  expect(res.status()).toBe(200);
+  expect(await res.text()).toContain(marker);
+
+  const rowId = await page
+    .locator('[id^="msg-"]')
+    .filter({ has: card })
+    .last()
+    .getAttribute('id');
+  const id = rowId!.slice('msg-'.length);
+  expect(
+    psql('core', `SELECT count(*) FROM message_files WHERE message_id = ${id}`)
+  ).toBe('1');
+  expect(
+    psql('core', `SELECT length(coalesce(content, '')) < 16000 FROM messages WHERE id = ${id}`)
+  ).toBe('t');
 });

@@ -1,16 +1,24 @@
 import { logVoice } from '@/helpers/browser-logger';
-import { getTRPCClient } from '@/lib/trpc';
+import { getVoiceTRPCClient } from '@/lib/trpc';
 import type { TRemoteUserStreamKinds } from '@/types';
 import { getMediasoupKind, StreamKind } from '@pulse/shared';
 import { TRPCClientError } from '@trpc/client';
-import {
-  type AppData,
-  type Consumer,
-  type Device,
-  type RtpCapabilities,
-  type Transport
+// `import type` (not inline `type` members): under verbatimModuleSyntax
+// an inline-type import survives as a bare side-effect import, which
+// would keep mediasoup-client in the initial bundle although the
+// provider only fetches it on the first voice join.
+import type {
+  AppData,
+  Consumer,
+  Device,
+  RtpCapabilities,
+  Transport
 } from 'mediasoup-client/types';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
+import type { TTransportIceOptions } from '../media-policy';
+
+export type TTransportType = 'producer' | 'consumer';
 
 type TUseTransportParams = {
   addRemoteUserStream: (
@@ -31,13 +39,23 @@ type TUseTransportParams = {
     streamId: number,
     kind: StreamKind.EXTERNAL_AUDIO | StreamKind.EXTERNAL_VIDEO
   ) => void;
+  /**
+   * ICE on a transport reached `failed` (its ICE restart on `disconnected`
+   * did not recover it). The transport is already closed; the provider
+   * decides whether to rebuild the session.
+   */
+  onTransportFailed: (type: TTransportType) => void;
 };
+
+const CONSUME_FAILURE_MESSAGE =
+  "Couldn't receive a stream from the call — your browser may not support its codec";
 
 const useTransports = ({
   addRemoteUserStream,
   removeRemoteUserStream,
   addExternalStreamTrack,
-  removeExternalStreamTrack
+  removeExternalStreamTrack,
+  onTransportFailed
 }: TUseTransportParams) => {
   const producerTransport = useRef<Transport<AppData> | undefined>(undefined);
   const consumerTransport = useRef<Transport<AppData> | undefined>(undefined);
@@ -47,69 +65,107 @@ const useTransports = ({
     };
   }>({});
   const consumeOperationsInProgress = useRef<Set<string>>(new Set());
+  // One toast per session for consume failures: a codec this browser
+  // cannot decode fails every stream of that kind, and a toast per
+  // stream would be a wall of them.
+  const consumeFailureToasted = useRef(false);
 
-  const createProducerTransport = useCallback(async (device: Device) => {
-    logVoice('Creating producer transport', { device });
+  // Ref mirror so the transport event handlers (bound once at creation)
+  // always call the provider's latest handler.
+  const onTransportFailedRef = useRef(onTransportFailed);
+  useEffect(() => {
+    onTransportFailedRef.current = onTransportFailed;
+  }, [onTransportFailed]);
 
-    const trpc = getTRPCClient();
-    if (!trpc) return;
+  const closeAllConsumers = useCallback(() => {
+    Object.values(consumers.current).forEach((userConsumers) => {
+      Object.values(userConsumers).forEach((consumer) => {
+        if (!consumer.closed) consumer.close();
+      });
+    });
+    consumers.current = {};
+  }, []);
 
-    try {
+  /**
+   * Both creators THROW on failure. They used to swallow, so `init`
+   * carried on into a session with no media path at all — every consume
+   * logged "transport not available", and the status still reached
+   * CONNECTED while nothing could be heard.
+   */
+  const createProducerTransport = useCallback(
+    async (device: Device, ice: TTransportIceOptions) => {
+      logVoice('Creating producer transport', { device, ice });
+
+      const trpc = getVoiceTRPCClient();
+      if (!trpc) throw new Error('Voice server is not connected');
+
       const params = await trpc.voice.createProducerTransport.mutate();
 
       logVoice('Got producer transport parameters', { params });
 
-      producerTransport.current = device.createSendTransport(params);
+      const transport = device.createSendTransport({ ...params, ...ice });
+      producerTransport.current = transport;
 
-      producerTransport.current.on(
-        'connect',
-        async ({ dtlsParameters }, callback, errback) => {
-          logVoice('Producer transport connected', { dtlsParameters });
+      transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+        logVoice('Producer transport connected', { dtlsParameters });
 
-          try {
-            await trpc.voice.connectProducerTransport.mutate({
-              dtlsParameters
-            });
+        try {
+          await trpc.voice.connectProducerTransport.mutate({
+            dtlsParameters
+          });
 
-            callback();
-          } catch (error) {
-            errback(error as Error);
-            logVoice('Error connecting producer transport', { error });
-          }
+          callback();
+        } catch (error) {
+          errback(error as Error);
+          logVoice('Error connecting producer transport', { error });
         }
-      );
+      });
 
-      producerTransport.current.on('connectionstatechange', async (state) => {
+      transport.on('connectionstatechange', async (state) => {
         logVoice('Producer transport connection state changed', { state });
 
         if (state === 'disconnected') {
           logVoice('Producer transport disconnected, attempting ICE restart');
           try {
-            const trpc = getTRPCClient();
-            if (!trpc) return;
-            const result = await trpc.voice.restartIce.mutate({ type: 'producer' });
-            if (result?.iceParameters && producerTransport.current && !producerTransport.current.closed) {
-              await producerTransport.current.restartIce({ iceParameters: result.iceParameters });
+            const client = getVoiceTRPCClient();
+            if (!client) return;
+            const result = await client.voice.restartIce.mutate({
+              type: 'producer'
+            });
+            if (
+              result?.iceParameters &&
+              producerTransport.current &&
+              !producerTransport.current.closed
+            ) {
+              await producerTransport.current.restartIce({
+                iceParameters: result.iceParameters
+              });
               logVoice('Producer transport ICE restart succeeded');
             }
           } catch (error) {
-            logVoice('Producer transport ICE restart failed, closing', { error });
+            logVoice('Producer transport ICE restart failed, closing', {
+              error
+            });
             producerTransport.current?.close();
+            producerTransport.current = undefined;
+            onTransportFailedRef.current('producer');
           }
         } else if (state === 'failed') {
           logVoice('Producer transport failed');
           producerTransport.current?.close();
+          producerTransport.current = undefined;
+          onTransportFailedRef.current('producer');
         } else if (state === 'closed') {
           logVoice('Producer transport closed');
           producerTransport.current = undefined;
         }
       });
 
-      producerTransport.current.on('icecandidateerror', (error) => {
+      transport.on('icecandidateerror', (error) => {
         logVoice('Producer transport ICE candidate error', { error });
       });
 
-      producerTransport.current.on(
+      transport.on(
         'produce',
         async ({ rtpParameters, appData }, callback, errback) => {
           logVoice('Producing new track', { rtpParameters, appData });
@@ -145,97 +201,101 @@ const useTransports = ({
           }
         }
       );
-    } catch (error) {
-      logVoice('Error creating producer transport', { error });
-    }
-  }, []);
+    },
+    []
+  );
 
-  const createConsumerTransport = useCallback(async (device: Device) => {
-    logVoice('Creating consumer transport', { device });
+  const createConsumerTransport = useCallback(
+    async (device: Device, ice: TTransportIceOptions) => {
+      logVoice('Creating consumer transport', { device, ice });
 
-    const trpc = getTRPCClient();
-    if (!trpc) return;
+      const trpc = getVoiceTRPCClient();
+      if (!trpc) throw new Error('Voice server is not connected');
 
-    try {
       const params = await trpc.voice.createConsumerTransport.mutate();
 
       logVoice('Got consumer transport parameters', { params });
 
-      consumerTransport.current = device.createRecvTransport(params);
+      const transport = device.createRecvTransport({ ...params, ...ice });
+      consumerTransport.current = transport;
 
-      consumerTransport.current.on(
-        'connect',
-        async ({ dtlsParameters }, callback, errback) => {
-          logVoice('Consumer transport connected', { dtlsParameters });
+      transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+        logVoice('Consumer transport connected', { dtlsParameters });
 
-          try {
-            await trpc.voice.connectConsumerTransport.mutate({
-              dtlsParameters
-            });
+        try {
+          await trpc.voice.connectConsumerTransport.mutate({
+            dtlsParameters
+          });
 
-            callback();
-          } catch (error) {
-            errback(error as Error);
-            logVoice('Consumer transport connect error', { error });
-          }
+          callback();
+        } catch (error) {
+          errback(error as Error);
+          logVoice('Consumer transport connect error', { error });
         }
-      );
+      });
 
-      consumerTransport.current.on('connectionstatechange', async (state) => {
+      transport.on('connectionstatechange', async (state) => {
         logVoice('Consumer transport connection state changed', { state });
 
         if (state === 'disconnected') {
           logVoice('Consumer transport disconnected, attempting ICE restart');
           try {
-            const trpc = getTRPCClient();
-            if (!trpc) return;
-            const result = await trpc.voice.restartIce.mutate({ type: 'consumer' });
-            if (result?.iceParameters && consumerTransport.current && !consumerTransport.current.closed) {
-              await consumerTransport.current.restartIce({ iceParameters: result.iceParameters });
+            const client = getVoiceTRPCClient();
+            if (!client) return;
+            const result = await client.voice.restartIce.mutate({
+              type: 'consumer'
+            });
+            if (
+              result?.iceParameters &&
+              consumerTransport.current &&
+              !consumerTransport.current.closed
+            ) {
+              await consumerTransport.current.restartIce({
+                iceParameters: result.iceParameters
+              });
               logVoice('Consumer transport ICE restart succeeded');
             }
           } catch (error) {
-            logVoice('Consumer transport ICE restart failed, closing', { error });
-            Object.values(consumers.current).forEach((userConsumers) => {
-              Object.values(userConsumers).forEach((consumer) => {
-                consumer.close();
-              });
+            logVoice('Consumer transport ICE restart failed, closing', {
+              error
             });
-            consumers.current = {};
+            closeAllConsumers();
             consumerTransport.current?.close();
             consumerTransport.current = undefined;
+            onTransportFailedRef.current('consumer');
           }
         } else if (state === 'failed') {
           logVoice('Consumer transport failed, cleaning up');
-
-          Object.values(consumers.current).forEach((userConsumers) => {
-            Object.values(userConsumers).forEach((consumer) => {
-              consumer.close();
-            });
-          });
-          consumers.current = {};
-
+          closeAllConsumers();
           consumerTransport.current?.close();
           consumerTransport.current = undefined;
+          onTransportFailedRef.current('consumer');
         } else if (state === 'closed') {
           logVoice('Consumer transport closed');
           consumerTransport.current = undefined;
         }
       });
 
-      consumerTransport.current.on('icecandidateerror', (error) => {
+      transport.on('icecandidateerror', (error) => {
         logVoice('Consumer transport ICE candidate error', { error });
       });
-    } catch (error) {
-      logVoice('Failed to create consumer transport', { error });
-    }
-  }, []);
+    },
+    [closeAllConsumers]
+  );
 
+  /**
+   * `deviceRtpCapabilities` are the loaded Device's — what THIS browser
+   * can decode — not the router's. The server picks the consumer codec
+   * from what it is told the client supports; handed the router's own
+   * list it would happily pick a codec the browser lacks (an H264 screen
+   * share into a Firefox without OpenH264), and the local consume() then
+   * failed with nothing on screen.
+   */
   const consume = useCallback(
     async (
       remoteId: number,
       kind: StreamKind,
-      routerRtpCapabilities: RtpCapabilities
+      deviceRtpCapabilities: RtpCapabilities
     ) => {
       if (!consumerTransport.current) {
         logVoice('Consumer transport not available');
@@ -257,14 +317,14 @@ const useTransports = ({
       try {
         logVoice('Consuming remote producer', { remoteId, kind });
 
-        const trpc = getTRPCClient();
+        const trpc = getVoiceTRPCClient();
         if (!trpc) return;
 
         const { producerId, consumerId, consumerKind, consumerRtpParameters } =
           await trpc.voice.consume.mutate({
             kind,
             remoteId,
-            rtpCapabilities: routerRtpCapabilities
+            rtpCapabilities: deviceRtpCapabilities
           });
 
         logVoice('Got consumer parameters', {
@@ -296,35 +356,31 @@ const useTransports = ({
 
         logVoice('Created new consumer', { newConsumer });
 
-        const cleanupEvents = [
-          'transportclose',
-          'trackended',
-          '@close',
-          'close'
-        ];
-
-        cleanupEvents.forEach((event) => {
-          // @ts-expect-error - YOLO
-          newConsumer?.on(event, () => {
-            logVoice(`Consumer cleanup event "${event}" triggered`, {
-              remoteId,
-              kind
-            });
-
-            if (
-              kind === StreamKind.EXTERNAL_VIDEO ||
-              kind === StreamKind.EXTERNAL_AUDIO
-            ) {
-              removeExternalStreamTrack(remoteId, kind);
-            } else {
-              removeRemoteUserStream(remoteId, kind);
-            }
-
-            if (consumers.current[remoteId]?.[consumerKind]) {
-              delete consumers.current[remoteId][consumerKind];
-            }
+        // Consumer emits transportclose/trackended; its observer emits
+        // `close` for every close path (including consumer.close()).
+        const onConsumerGone = (event: string) => {
+          logVoice(`Consumer cleanup event "${event}" triggered`, {
+            remoteId,
+            kind
           });
-        });
+
+          if (
+            kind === StreamKind.EXTERNAL_VIDEO ||
+            kind === StreamKind.EXTERNAL_AUDIO
+          ) {
+            removeExternalStreamTrack(remoteId, kind);
+          } else {
+            removeRemoteUserStream(remoteId, kind);
+          }
+
+          if (consumers.current[remoteId]?.[consumerKind]) {
+            delete consumers.current[remoteId][consumerKind];
+          }
+        };
+
+        newConsumer.on('transportclose', () => onConsumerGone('transportclose'));
+        newConsumer.on('trackended', () => onConsumerGone('trackended'));
+        newConsumer.observer.on('close', () => onConsumerGone('close'));
 
         consumers.current[remoteId][consumerKind] = newConsumer;
 
@@ -341,7 +397,11 @@ const useTransports = ({
           addRemoteUserStream(remoteId, stream, kind);
         }
       } catch (error) {
-        logVoice('Error consuming remote producer', { error });
+        logVoice('Error consuming remote producer', { error, remoteId, kind });
+        if (!consumeFailureToasted.current) {
+          consumeFailureToasted.current = true;
+          toast.error(CONSUME_FAILURE_MESSAGE);
+        }
       } finally {
         consumeOperationsInProgress.current.delete(operationKey);
       }
@@ -356,14 +416,14 @@ const useTransports = ({
 
   const consumeExistingProducers = useCallback(
     async (
-      routerRtpCapabilities: RtpCapabilities,
+      deviceRtpCapabilities: RtpCapabilities,
       externalStreamTracks?: {
         [streamId: number]: { audio?: boolean; video?: boolean };
       }
     ) => {
-      logVoice('Consuming existing producers', { routerRtpCapabilities });
+      logVoice('Consuming existing producers');
 
-      const trpc = getTRPCClient();
+      const trpc = getVoiceTRPCClient();
       if (!trpc) return;
 
       try {
@@ -386,29 +446,41 @@ const useTransports = ({
         const consumePromises: Promise<void>[] = [];
 
         for (const remoteId of remoteAudioIds) {
-          consumePromises.push(consume(remoteId, StreamKind.AUDIO, routerRtpCapabilities));
+          consumePromises.push(
+            consume(remoteId, StreamKind.AUDIO, deviceRtpCapabilities)
+          );
         }
 
         for (const remoteId of remoteVideoIds) {
-          consumePromises.push(consume(remoteId, StreamKind.VIDEO, routerRtpCapabilities));
+          consumePromises.push(
+            consume(remoteId, StreamKind.VIDEO, deviceRtpCapabilities)
+          );
         }
 
         for (const remoteId of remoteScreenIds) {
-          consumePromises.push(consume(remoteId, StreamKind.SCREEN, routerRtpCapabilities));
+          consumePromises.push(
+            consume(remoteId, StreamKind.SCREEN, deviceRtpCapabilities)
+          );
         }
 
         for (const remoteId of remoteScreenAudioIds) {
-          consumePromises.push(consume(remoteId, StreamKind.SCREEN_AUDIO, routerRtpCapabilities));
+          consumePromises.push(
+            consume(remoteId, StreamKind.SCREEN_AUDIO, deviceRtpCapabilities)
+          );
         }
 
         for (const streamId of remoteExternalStreamIds) {
           const tracks = externalStreamTracks?.[streamId];
 
           if (tracks?.audio !== false) {
-            consumePromises.push(consume(streamId, StreamKind.EXTERNAL_AUDIO, routerRtpCapabilities));
+            consumePromises.push(
+              consume(streamId, StreamKind.EXTERNAL_AUDIO, deviceRtpCapabilities)
+            );
           }
           if (tracks?.video !== false) {
-            consumePromises.push(consume(streamId, StreamKind.EXTERNAL_VIDEO, routerRtpCapabilities));
+            consumePromises.push(
+              consume(streamId, StreamKind.EXTERNAL_VIDEO, deviceRtpCapabilities)
+            );
           }
         }
 
@@ -423,17 +495,9 @@ const useTransports = ({
   const cleanupTransports = useCallback(() => {
     logVoice('Cleaning up transports');
 
-    Object.values(consumers.current).forEach((userConsumers) => {
-      Object.values(userConsumers).forEach((consumer) => {
-        if (!consumer.closed) {
-          consumer.close();
-        }
-      });
-    });
-
-    consumers.current = {};
-
+    closeAllConsumers();
     consumeOperationsInProgress.current.clear();
+    consumeFailureToasted.current = false;
 
     if (producerTransport.current && !producerTransport.current.closed) {
       producerTransport.current.close();
@@ -448,7 +512,7 @@ const useTransports = ({
     consumerTransport.current = undefined;
 
     logVoice('Transports cleanup complete');
-  }, []);
+  }, [closeAllConsumers]);
 
   return {
     producerTransport,

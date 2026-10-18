@@ -1,4 +1,4 @@
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 
 export const getDisplayName = (
   user:

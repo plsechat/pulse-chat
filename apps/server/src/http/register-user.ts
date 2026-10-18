@@ -1,13 +1,11 @@
-import {
-  ActivityLogType,
-  OWNER_ROLE_ID,
-  type TJoinedUser
-} from '@pulse/shared';
+import { ActivityLogType, OWNER_ROLE_ID } from '@pulse/shared';
+import type { TJoinedUser } from '../types';
 import { randomUUIDv7 } from 'bun';
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db';
 import { publishUser } from '../db/publishers';
-import { getDefaultRole } from '../db/queries/roles';
+import { getDefaultRoleForServer } from '../db/queries/roles';
+import { getFirstServer } from '../db/queries/servers';
 import { getUserBySupabaseId } from '../db/queries/users';
 import { logger } from '../logger';
 import {
@@ -62,7 +60,10 @@ const registerUser = async (
       message: 'User registration failed'
     });
 
-    const defaultRole = await getDefaultRole();
+    const bootstrapServer = await getFirstServer();
+    const defaultRole = bootstrapServer
+      ? await getDefaultRoleForServer(bootstrapServer.id)
+      : undefined;
     if (defaultRole) {
       await db
         .insert(userRoles)
@@ -97,7 +98,10 @@ const registerUser = async (
           message: 'User registration failed'
         });
 
-        const defaultRole = await getDefaultRole();
+        const bootstrapServer = await getFirstServer();
+        const defaultRole = bootstrapServer
+          ? await getDefaultRoleForServer(bootstrapServer.id)
+          : undefined;
         if (defaultRole) {
           await tx
             .insert(userRoles)

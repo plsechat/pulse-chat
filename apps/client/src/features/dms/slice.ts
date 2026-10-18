@@ -1,11 +1,20 @@
+import { getLocalStorageItem, LocalStorageKey } from '@/helpers/storage';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { TVoiceUserState, UserStatus } from '@pulse/shared';
 import type {
   TJoinedDmChannel,
   TJoinedDmMessage,
-  TJoinedPublicUser,
-  TVoiceUserState,
-  UserStatus
-} from '@pulse/shared';
+  TMessageTombstone,
+  TJoinedPublicUser
+} from '@pulse/server/types';
+import {
+  mergeMessageWindow,
+  replaceMessageWindow,
+  windowOrDefault,
+  type TMergeMessagesOpts,
+  type TMessageWindowMap
+} from '../message-window';
+import { markTombstoned } from '../tombstone';
 
 export type TDmMessagesMap = {
   [dmChannelId: number]: TJoinedDmMessage[];
@@ -22,8 +31,15 @@ export type TDmCallsMap = {
 
 export interface TDmsState {
   channels: TJoinedDmChannel[];
+  // False until the first channel list arrives. HomeView deselects a DM
+  // that is missing from the list; without this gate a reload (list
+  // still in flight) bounced the restored DM straight back to Friends.
+  channelsLoaded: boolean;
   selectedChannelId: number | undefined;
   messagesMap: TDmMessagesMap;
+  // What lies beyond each edge of the loaded window per DM — see
+  // features/message-window.ts. Reset wherever messagesMap is.
+  messageWindowMap: TMessageWindowMap;
   activeCalls: TDmCallsMap;
   ownDmCallChannelId: number | undefined;
   dmTypingMap: Record<number, number[]>;
@@ -31,18 +47,27 @@ export interface TDmsState {
   // accepted or dismissed. Drives the global IncomingCallModal so
   // the ring follows the user across views.
   ringingCalls: number[];
-  loading: boolean;
 }
+
+// The open DM survives a reload: Redux is the source of truth and the
+// setSelectedDmChannelId action mirrors it to storage, so the slice
+// starts from the mirror instead of a component re-syncing it on mount.
+const readPersistedSelection = (): number | undefined => {
+  const saved = getLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  const id = saved ? Number(saved) : Number.NaN;
+  return Number.isFinite(id) ? id : undefined;
+};
 
 const initialState: TDmsState = {
   channels: [],
-  selectedChannelId: undefined,
+  channelsLoaded: false,
+  selectedChannelId: readPersistedSelection(),
   messagesMap: {},
+  messageWindowMap: {},
   activeCalls: {},
   ownDmCallChannelId: undefined,
   dmTypingMap: {},
-  ringingCalls: [],
-  loading: false
+  ringingCalls: []
 };
 
 export const dmsSlice = createSlice({
@@ -52,6 +77,7 @@ export const dmsSlice = createSlice({
     resetState: () => initialState,
     setChannels: (state, action: PayloadAction<TJoinedDmChannel[]>) => {
       state.channels = action.payload;
+      state.channelsLoaded = true;
     },
     addOrUpdateChannel: (state, action: PayloadAction<TJoinedDmChannel>) => {
       const idx = state.channels.findIndex(
@@ -69,9 +95,18 @@ export const dmsSlice = createSlice({
         state.selectedChannelId = undefined;
       }
       delete state.messagesMap[action.payload];
+      delete state.messageWindowMap[action.payload];
       delete state.dmTypingMap[action.payload];
+      // Its call goes with the channel: no runtime survives the row.
+      delete state.activeCalls[action.payload];
+      if (state.ownDmCallChannelId === action.payload) {
+        state.ownDmCallChannelId = undefined;
+      }
+      state.ringingCalls = state.ringingCalls.filter(
+        (id) => id !== action.payload
+      );
     },
-    // Presence transitions arrive as USER_JOIN/USER_LEAVE/USER_UPDATE
+    // Presence transitions arrive as USER_CONNECTED/USER_LEAVE/USER_UPDATE
     // events; without mirroring them onto the cached member projections
     // the DM sidebar/panel would only refresh status on a full refetch.
     updateMemberPresence: (
@@ -127,25 +162,60 @@ export const dmsSlice = createSlice({
       action: PayloadAction<{
         dmChannelId: number;
         messages: TJoinedDmMessage[];
-        opts?: { prepend?: boolean };
+        opts?: TMergeMessagesOpts;
       }>
     ) => {
       const { dmChannelId, messages, opts } = action.payload;
-      const existing = state.messagesMap[dmChannelId] ?? [];
-
-      const existingIds = new Set(existing.map((m) => m.id));
-      const filtered = messages.filter((m) => !existingIds.has(m.id));
-
-      let merged: TJoinedDmMessage[];
-      if (opts?.prepend) {
-        merged = [...filtered, ...existing];
-      } else {
-        merged = [...existing, ...filtered];
-      }
-
-      state.messagesMap[dmChannelId] = merged.sort(
-        (a, b) => a.createdAt - b.createdAt
+      // Dedupe, chronological order and the 300-message cap live in
+      // mergeMessageWindow (shared with the channel slice).
+      const result = mergeMessageWindow(
+        state.messagesMap[dmChannelId] ?? [],
+        messages,
+        opts ?? {},
+        state.messageWindowMap[dmChannelId]
       );
+      state.messagesMap[dmChannelId] = result.messages;
+      state.messageWindowMap[dmChannelId] = result.window;
+    },
+    /** A freshly fetched LATEST page: re-attaches the DM to the live tail. */
+    replaceMessages: (
+      state,
+      action: PayloadAction<{
+        dmChannelId: number;
+        messages: TJoinedDmMessage[];
+        hasOlder: boolean;
+      }>
+    ) => {
+      const { dmChannelId, messages, hasOlder } = action.payload;
+      const result = replaceMessageWindow(
+        state.messagesMap[dmChannelId] ?? [],
+        messages,
+        hasOlder
+      );
+      state.messagesMap[dmChannelId] = result.messages;
+      state.messageWindowMap[dmChannelId] = result.window;
+    },
+    setMessageWindow: (
+      state,
+      action: PayloadAction<{
+        dmChannelId: number;
+        hasOlder?: boolean;
+        hasNewer?: boolean;
+      }>
+    ) => {
+      const { dmChannelId, hasOlder, hasNewer } = action.payload;
+      const current = windowOrDefault(state.messageWindowMap[dmChannelId]);
+      state.messageWindowMap[dmChannelId] = {
+        hasOlder: hasOlder ?? current.hasOlder,
+        hasNewer: hasNewer ?? current.hasNewer
+      };
+    },
+    purgeChannelMessages: (
+      state,
+      action: PayloadAction<{ dmChannelId: number }>
+    ) => {
+      state.messagesMap[action.payload.dmChannelId] = [];
+      delete state.messageWindowMap[action.payload.dmChannelId];
     },
     updateMessage: (
       state,
@@ -159,16 +229,40 @@ export const dmsSlice = createSlice({
 
       messages[idx] = action.payload;
     },
+    /**
+     * A deletion leaves a tombstone: the row is marked in place
+     * (features/tombstone.ts), and so is the channel's `lastMessage`
+     * when it is the one, so the sidebar snippet reads "Message
+     * deleted" instead of the text that is gone.
+     */
     deleteMessage: (
       state,
-      action: PayloadAction<{ dmChannelId: number; dmMessageId: number }>
+      action: PayloadAction<{
+        dmChannelId: number;
+        dmMessageId: number;
+        tombstone: TMessageTombstone;
+      }>
     ) => {
-      const messages = state.messagesMap[action.payload.dmChannelId];
-      if (!messages) return;
+      const { dmChannelId, dmMessageId, tombstone } = action.payload;
+      const messages = state.messagesMap[dmChannelId];
+      if (messages) {
+        state.messagesMap[dmChannelId] = markTombstoned(
+          messages,
+          [dmMessageId],
+          tombstone
+        );
+      }
 
-      state.messagesMap[action.payload.dmChannelId] = messages.filter(
-        (m) => m.id !== action.payload.dmMessageId
-      );
+      const channel = state.channels.find((c) => c.id === dmChannelId);
+      if (channel?.lastMessage?.id === dmMessageId) {
+        channel.lastMessage = {
+          ...channel.lastMessage,
+          content: null,
+          metadata: null,
+          deletedAt: tombstone.deletedAt,
+          deletedBy: tombstone.deletedBy
+        };
+      }
     },
     updateChannelLastMessage: (
       state,
@@ -183,9 +277,6 @@ export const dmsSlice = createSlice({
       if (channel) {
         channel.lastMessage = action.payload.lastMessage;
       }
-    },
-    setLoading: (state, action: PayloadAction<boolean>) => {
-      state.loading = action.payload;
     },
     dmCallStarted: (
       state,
@@ -234,6 +325,69 @@ export const dmsSlice = createSlice({
       action: PayloadAction<number | undefined>
     ) => {
       state.ownDmCallChannelId = action.payload;
+    },
+    // A fresh dms.getActiveCalls snapshot, taken on every (re)connect. The
+    // socket close that precedes a reconnect evicts us from voice
+    // server-side, and a call can end entirely while we are away — so a
+    // call we still think we are in, but whose roster no longer lists us,
+    // is dead. Dropping it here is what makes the banner's Leave button
+    // and the home-view "in call" state stop describing a session that
+    // does not exist (the reconnect rejoin re-enters it when it can).
+    reconcileActiveCalls: (
+      state,
+      action: PayloadAction<{
+        calls: {
+          dmChannelId: number;
+          users: { userId: number; state: TVoiceUserState }[];
+        }[];
+        ownUserId: number | undefined;
+      }>
+    ) => {
+      const next: TDmCallsMap = {};
+      for (const call of action.payload.calls) {
+        next[call.dmChannelId] = {
+          dmChannelId: call.dmChannelId,
+          users: Object.fromEntries(
+            call.users.map((u) => [u.userId, u.state])
+          )
+        };
+      }
+      state.activeCalls = next;
+
+      const own = state.ownDmCallChannelId;
+      if (own === undefined) return;
+      const roster = next[own]?.users;
+      const stillIn =
+        roster !== undefined &&
+        action.payload.ownUserId !== undefined &&
+        action.payload.ownUserId in roster;
+      if (!stillIn) {
+        state.ownDmCallChannelId = undefined;
+      }
+    },
+    // DM_READ_STATE_UPDATE from another device/tab of the same user.
+    // Clear when the marker covers the newest message we know about;
+    // otherwise recount from loaded messages (a message arrived after
+    // the other device read), or leave the badge alone if none loaded.
+    applyReadState: (
+      state,
+      action: PayloadAction<{ dmChannelId: number; lastReadMessageId: number }>
+    ) => {
+      const { dmChannelId, lastReadMessageId } = action.payload;
+      const channel = state.channels.find((c) => c.id === dmChannelId);
+      if (!channel) return;
+
+      if (!channel.lastMessage || channel.lastMessage.id <= lastReadMessageId) {
+        channel.unreadCount = 0;
+        return;
+      }
+
+      const loaded = state.messagesMap[dmChannelId];
+      if (loaded) {
+        channel.unreadCount = loaded.filter(
+          (m) => m.id > lastReadMessageId
+        ).length;
+      }
     },
     clearChannelUnread: (state, action: PayloadAction<number>) => {
       const channel = state.channels.find((c) => c.id === action.payload);

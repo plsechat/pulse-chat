@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { getDmChannelMemberIds, getDmMessage } from '../../db/queries/dms';
 import { dmMessages } from '../../db/schema';
+import { enqueueProcessDmMetadata } from '../../queues/dm-message-metadata';
 import { invariant } from '../../utils/invariant';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
@@ -11,11 +12,17 @@ import { protectedProcedure } from '../../utils/trpc';
 const editMessageRoute = protectedProcedure
   .input(
     z.object({
-      messageId: z.number(),
+      messageId: z.number().int().positive(),
       content: z
         .string()
-        .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long')
-        .optional()
+        .min(1, 'Edited messages must include content')
+        .max(MAX_MESSAGE_WIRE_LENGTH, 'Message is too long'),
+      /**
+       * Whether `content` is a ciphertext envelope. Required so the
+       * server can refuse plaintext over an encrypted row (and vice
+       * versa) — the send route enforces the same contract.
+       */
+      e2ee: z.boolean()
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -35,6 +42,11 @@ const editMessageRoute = protectedProcedure
       message: 'You can only edit your own messages'
     });
 
+    invariant(!msg.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
+    });
+
     // A forwarded message is a verbatim copy of another author's
     // message; it can never be edited (same rule as channel forwards,
     // which use the `editable` flag they don't have here).
@@ -43,20 +55,20 @@ const editMessageRoute = protectedProcedure
       message: 'Forwarded messages cannot be edited'
     });
 
-    const updateSet: Record<string, unknown> = {
-      edited: true,
-      updatedAt: Date.now()
-    };
-
-    invariant(input.content, {
+    invariant(msg.e2ee === input.e2ee, {
       code: 'BAD_REQUEST',
-      message: 'Edited messages must include content'
+      message: msg.e2ee
+        ? 'This message is encrypted — plaintext edits are not allowed.'
+        : 'This message is not encrypted — encrypted edits are not allowed.'
     });
-    updateSet.content = input.content;
 
     await db
       .update(dmMessages)
-      .set(updateSet)
+      .set({
+        content: input.content,
+        edited: true,
+        updatedAt: Date.now()
+      })
       .where(eq(dmMessages.id, input.messageId));
 
     const joined = await getDmMessage(input.messageId);
@@ -66,6 +78,12 @@ const editMessageRoute = protectedProcedure
       for (const memberId of memberIds) {
         pubsub.publishFor(memberId, ServerEvents.DM_MESSAGE_UPDATE, joined);
       }
+    }
+
+    // Link previews follow the edited text; ciphertext has nothing to
+    // extract (the send route skips it the same way).
+    if (!msg.e2ee) {
+      enqueueProcessDmMetadata(input.content, input.messageId, msg.dmChannelId);
     }
   });
 

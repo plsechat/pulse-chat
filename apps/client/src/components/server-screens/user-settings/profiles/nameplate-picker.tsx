@@ -12,7 +12,7 @@ import { getNameStyleCss } from '@/helpers/name-style';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { NAMEPLATE_PRESET_SLUGS } from '@pulse/shared';
 import { Check } from 'lucide-react';
 import { memo, useCallback, useState, type CSSProperties } from 'react';

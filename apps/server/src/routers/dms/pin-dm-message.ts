@@ -10,7 +10,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const pinDmMessageRoute = protectedProcedure
   .input(
     z.object({
-      dmMessageId: z.number()
+      dmMessageId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -30,6 +30,11 @@ const pinDmMessageRoute = protectedProcedure
     invariant(memberIds.includes(ctx.userId), {
       code: 'FORBIDDEN',
       message: 'You are not a member of this DM channel'
+    });
+
+    invariant(!message.deletedAt, {
+      code: 'BAD_REQUEST',
+      message: 'This message was deleted'
     });
 
     invariant(!message.pinned, {

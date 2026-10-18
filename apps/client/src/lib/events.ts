@@ -6,11 +6,15 @@
  * in TAppEventMap, so a typo'd name or wrong payload is a compile
  * error instead of a listener that silently never fires.
  *
- * Zero imports on purpose — lib/e2ee and lib/preference-store emit and
- * listen here without dragging Redux into their layer. A throwing
- * handler is isolated so it can't starve the others (same rule as
- * combineUnsubscribes in subscription-helpers).
+ * Zero runtime imports on purpose — lib/e2ee and lib/preference-store
+ * emit and listen here without dragging Redux into their layer (the
+ * type-only import below is erased). A throwing handler is isolated so
+ * it can't starve the others (same rule as combineUnsubscribes in
+ * subscription-helpers).
  */
+
+import type { RtpCapabilities } from 'mediasoup-client/types';
+import type { TPollUpdate } from '@pulse/server/types';
 
 type TAppEventMap = {
   'mention-user': { userId: number; username: string };
@@ -22,6 +26,9 @@ type TAppEventMap = {
   'jump-to-message': undefined;
   'dm-navigate': { dmChannelId: number };
   'threads-changed': undefined;
+  // A channel row was tapped — fires even when that channel was already
+  // selected (Redux does not change then), so the mobile drawer can close.
+  'channel-selected': { channelId: number };
   'pinned-messages-changed': { channelId: number };
   'dm-pinned-messages-changed': { dmChannelId: number };
   'invites-changed': undefined;
@@ -29,6 +36,19 @@ type TAppEventMap = {
   'preferences-loaded': undefined;
   'e2ee-identity-mismatch': undefined;
   'e2ee-setup-needed': { resolve: () => void; reject: (err: Error) => void };
+  // A reconnect re-joined the voice session server-side; the voice
+  // provider (the only owner of the media transports) has to run init.
+  'voice-rejoin': { routerRtpCapabilities: RtpCapabilities; channelId: number };
+  // A poll's counts changed (vote, unvote, close); the card for that
+  // message merges them over its own view.
+  'poll-updated': TPollUpdate;
+  // The channel's Scheduled list / Follows tab should refetch.
+  'scheduled-posts-changed': { channelId: number };
+  'channel-follows-changed': { channelId: number };
+  // The HOME session was (re)opened — first connect or a reconnect. State
+  // the server only holds while a socket lives (game presence) is
+  // re-reported on it.
+  'home-session-opened': undefined;
 };
 
 type TAppEvent = keyof TAppEventMap;

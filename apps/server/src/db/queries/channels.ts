@@ -1,12 +1,11 @@
 import {
   ChannelPermission,
-  type TChannel,
   type TChannelUserPermissionsMap,
   type TLastReadMessageIdMap,
   type TMentionStateMap,
   type TReadStateMap
 } from '@pulse/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '..';
 import {
   channelReadStates,
@@ -15,149 +14,21 @@ import {
   channelUserPermissions,
   messages,
   serverMembers,
+  servers,
   userRoles
 } from '../schema';
 import { getUserRoleIds } from './roles';
 import { getServerById } from './servers';
 
-const getPermissions = async (
-  userId: number,
-  roleIds: number[],
-  permission: ChannelPermission,
-  channelId?: number
-) => {
-  const userPermissionsQuery = db
-    .select({
-      channelId: channelUserPermissions.channelId,
-      allow: channelUserPermissions.allow
-    })
-    .from(channelUserPermissions)
-    .where(
-      and(
-        eq(channelUserPermissions.userId, userId),
-        eq(channelUserPermissions.permission, permission),
-        channelId ? eq(channelUserPermissions.channelId, channelId) : undefined
-      )
-    );
-
-  let rolePermissionsQuery = null;
-
-  if (roleIds.length > 0) {
-    rolePermissionsQuery = db
-      .select({
-        channelId: channelRolePermissions.channelId,
-        allow: channelRolePermissions.allow
-      })
-      .from(channelRolePermissions)
-      .where(
-        and(
-          inArray(channelRolePermissions.roleId, roleIds),
-          eq(channelRolePermissions.permission, permission),
-          channelId
-            ? eq(channelRolePermissions.channelId, channelId)
-            : undefined
-        )
-      );
-  }
-
-  const [userPermissions, rolePermissions] = await Promise.all([
-    userPermissionsQuery,
-    rolePermissionsQuery || Promise.resolve([])
-  ]);
-
-  const userPermissionMap = new Map(
-    userPermissions.map((p) => [p.channelId, p.allow])
-  );
-
-  const rolePermissionMap = new Map<number, boolean>();
-
-  for (const perm of rolePermissions) {
-    const existing = rolePermissionMap.get(perm.channelId);
-
-    rolePermissionMap.set(perm.channelId, existing || perm.allow);
-  }
-
-  return { userPermissionMap, rolePermissionMap };
-};
-
-const channelUserCan = async (
-  channelId: number,
-  userId: number,
-  permission: ChannelPermission
-): Promise<boolean> => {
-  const [channel] = await db
-    .select()
-    .from(channels)
-    .where(eq(channels.id, channelId))
-    .limit(1);
-
-  if (!channel) {
-    return false;
-  }
-
-  // Check if user is server owner (bypasses all channel permissions)
-  const server = await getServerById(channel.serverId);
-  if (server && server.ownerId === userId) {
-    return true;
-  }
-
-  if (!channel.private) {
-    return true;
-  }
-
-  const roleIds = await getUserRoleIds(userId);
-
-  const { userPermissionMap, rolePermissionMap } = await getPermissions(
-    userId,
-    roleIds,
-    permission,
-    channelId
-  );
-
-  const userPerm = userPermissionMap.get(channelId);
-
-  if (userPerm !== undefined) {
-    return userPerm;
-  }
-
-  const rolePerm = rolePermissionMap.get(channelId);
-
-  if (rolePerm !== undefined) {
-    return rolePerm;
-  }
-
-  return false;
-};
-
-const getChannelsForUser = async (userId: number): Promise<TChannel[]> => {
-  const roleIds = await getUserRoleIds(userId);
-  const allChannels = await db.select().from(channels);
-
-  const { userPermissionMap, rolePermissionMap } = await getPermissions(
-    userId,
-    roleIds,
-    ChannelPermission.VIEW_CHANNEL
-  );
-
-  const accessibleChannels = allChannels.filter((channel) => {
-    if (!channel.private) {
-      return true;
-    }
-
-    const userPerm = userPermissionMap.get(channel.id);
-
-    if (userPerm !== undefined) {
-      return userPerm;
-    }
-
-    const rolePerm = rolePermissionMap.get(channel.id);
-
-    return rolePerm;
-  });
-
-  return accessibleChannels;
-};
-
+/**
+ * Effective channel permissions of one user, for every channel (of one
+ * server, or of the whole instance). Evaluation order, per channel and
+ * permission: the channel's default — allow on a public channel, deny on
+ * a private one — then role overrides (any held role allowing wins over
+ * roles denying), then a user override, which beats everything. Owner
+ * bypass is NOT applied here; callers that need it check servers.ownerId
+ * themselves (hasChannelPermission, getAffectedUserIdsForChannel).
+ */
 const getAllChannelUserPermissions = async (
   userId: number,
   serverId?: number
@@ -171,7 +42,7 @@ const getAllChannelUserPermissions = async (
     ? allChannels.map((c) => c.id)
     : undefined;
 
-  let userPermissions = await db
+  const userPermissions = await db
     .select({
       channelId: channelUserPermissions.channelId,
       permission: channelUserPermissions.permission,
@@ -262,7 +133,7 @@ const getAllChannelUserPermissions = async (
         continue;
       }
 
-      permissions[permissionType] = false;
+      permissions[permissionType] = !channel.private;
     }
 
     channelPermissions[channel.id] = {
@@ -272,68 +143,6 @@ const getAllChannelUserPermissions = async (
   }
 
   return channelPermissions;
-};
-
-const getRoleChannelPermissions = async (
-  roleId: number,
-  channelId: number
-): Promise<Record<ChannelPermission, boolean>> => {
-  const rolePermissions = await db
-    .select({
-      permission: channelRolePermissions.permission,
-      allow: channelRolePermissions.allow
-    })
-    .from(channelRolePermissions)
-    .where(
-      and(
-        eq(channelRolePermissions.roleId, roleId),
-        eq(channelRolePermissions.channelId, channelId)
-      )
-    );
-
-  const allPermissionTypes = Object.values(ChannelPermission);
-  const permissions: Record<string, boolean> = {};
-
-  const permissionMap = new Map(
-    rolePermissions.map((p) => [p.permission as ChannelPermission, p.allow])
-  );
-
-  for (const permissionType of allPermissionTypes) {
-    permissions[permissionType] = permissionMap.get(permissionType) ?? false;
-  }
-
-  return permissions;
-};
-
-const getUserChannelPermissions = async (
-  userId: number,
-  channelId: number
-): Promise<Record<ChannelPermission, boolean>> => {
-  const userPermissions = await db
-    .select({
-      permission: channelUserPermissions.permission,
-      allow: channelUserPermissions.allow
-    })
-    .from(channelUserPermissions)
-    .where(
-      and(
-        eq(channelUserPermissions.userId, userId),
-        eq(channelUserPermissions.channelId, channelId)
-      )
-    );
-
-  const allPermissionTypes = Object.values(ChannelPermission);
-  const permissions: Record<string, boolean> = {};
-
-  const permissionMap = new Map(
-    userPermissions.map((p) => [p.permission as ChannelPermission, p.allow])
-  );
-
-  for (const permissionType of allPermissionTypes) {
-    permissions[permissionType] = permissionMap.get(permissionType) ?? false;
-  }
-
-  return permissions;
 };
 
 const getAffectedUserIdsForChannel = async (
@@ -353,14 +162,27 @@ const getAffectedUserIdsForChannel = async (
     return [];
   }
 
-  // For public channels, return all members of this channel's server
+  // For public channels, every member of the server — minus the ones an
+  // override explicitly denies the requested permission (a user row, or
+  // every held role denying with none allowing). The server owner is
+  // never excluded.
   if (!channel.private || options?.forceAllUsers) {
     const members = await db
       .select({ userId: serverMembers.userId })
       .from(serverMembers)
       .where(eq(serverMembers.serverId, channel.serverId));
 
-    return members.map((m) => m.userId);
+    const memberIds = members.map((m) => m.userId);
+    const publicPermission = options?.forceAllUsers ? undefined : options?.permission;
+
+    if (!publicPermission) return memberIds;
+
+    return filterPublicChannelDenials(
+      channel.id,
+      channel.serverId,
+      publicPermission,
+      memberIds
+    );
   }
 
   // For private channels, filter by channel-specific permissions
@@ -417,6 +239,151 @@ const getAffectedUserIdsForChannel = async (
   return Array.from(userIdSet);
 };
 
+/**
+ * Ids of every E2EE channel `userId` can VIEW, across every server they
+ * are a member of, in ONE statement. Identity reset and key restore
+ * redistribute sender keys to all of these; the previous implementation
+ * ran getAffectedUserIdsForChannel once per E2EE channel on the instance,
+ * and every co-member of the resetter ran it too.
+ *
+ * Per-channel evaluation is the one hasChannelPermission enforces
+ * (getAllChannelUserPermissions): owner bypass, then a user override,
+ * then role overrides (any held role allowing wins), then the channel
+ * default — allow on public, deny on private. Server membership is
+ * required: an override left behind for a user who has since left the
+ * server does not make the channel theirs. getAffectedUserIdsForChannel
+ * agrees on every case except a private channel where a user override
+ * denies and a held role allows — there the enforcement path denies,
+ * and so does this query.
+ */
+const getViewableE2eeChannelIds = async (userId: number): Promise<number[]> => {
+  const heldRoleIds = db
+    .select({ roleId: userRoles.roleId })
+    .from(userRoles)
+    .where(eq(userRoles.userId, userId));
+
+  const userOverride = db
+    .select({ allow: channelUserPermissions.allow })
+    .from(channelUserPermissions)
+    .where(
+      and(
+        eq(channelUserPermissions.channelId, channels.id),
+        eq(channelUserPermissions.userId, userId),
+        eq(channelUserPermissions.permission, ChannelPermission.VIEW_CHANNEL)
+      )
+    );
+
+  const roleOverrides = db
+    .select({ allow: channelRolePermissions.allow })
+    .from(channelRolePermissions)
+    .where(
+      and(
+        eq(channelRolePermissions.channelId, channels.id),
+        eq(channelRolePermissions.permission, ChannelPermission.VIEW_CHANNEL),
+        inArray(channelRolePermissions.roleId, heldRoleIds)
+      )
+    );
+
+  const roleAllows = db
+    .select({ allow: channelRolePermissions.allow })
+    .from(channelRolePermissions)
+    .where(
+      and(
+        eq(channelRolePermissions.channelId, channels.id),
+        eq(channelRolePermissions.permission, ChannelPermission.VIEW_CHANNEL),
+        eq(channelRolePermissions.allow, true),
+        inArray(channelRolePermissions.roleId, heldRoleIds)
+      )
+    );
+
+  const rows = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .innerJoin(
+      serverMembers,
+      and(
+        eq(serverMembers.serverId, channels.serverId),
+        eq(serverMembers.userId, userId)
+      )
+    )
+    .innerJoin(servers, eq(servers.id, channels.serverId))
+    .where(
+      and(
+        eq(channels.e2ee, true),
+        sql`CASE
+          WHEN ${servers.ownerId} = ${userId} THEN true
+          WHEN EXISTS (${userOverride}) THEN (${userOverride})
+          WHEN EXISTS (${roleOverrides}) THEN EXISTS (${roleAllows})
+          ELSE NOT ${channels.private}
+        END`
+      )
+    )
+    .orderBy(channels.id);
+
+  return rows.map((r) => r.id);
+};
+
+const filterPublicChannelDenials = async (
+  channelId: number,
+  serverId: number,
+  permission: ChannelPermission,
+  memberIds: number[]
+): Promise<number[]> => {
+  const [userRows, roleRows] = await Promise.all([
+    db
+      .select({
+        userId: channelUserPermissions.userId,
+        allow: channelUserPermissions.allow
+      })
+      .from(channelUserPermissions)
+      .where(
+        and(
+          eq(channelUserPermissions.channelId, channelId),
+          eq(channelUserPermissions.permission, permission)
+        )
+      ),
+    db
+      .select({
+        roleId: channelRolePermissions.roleId,
+        allow: channelRolePermissions.allow
+      })
+      .from(channelRolePermissions)
+      .where(
+        and(
+          eq(channelRolePermissions.channelId, channelId),
+          eq(channelRolePermissions.permission, permission)
+        )
+      )
+  ]);
+
+  const hasDenial =
+    userRows.some((r) => !r.allow) || roleRows.some((r) => !r.allow);
+  if (!hasDenial) return memberIds;
+
+  const userOverride = new Map(userRows.map((r) => [r.userId, r.allow]));
+  const roleOverride = new Map(roleRows.map((r) => [r.roleId, r.allow]));
+
+  const holders = await db
+    .select({ userId: userRoles.userId, roleId: userRoles.roleId })
+    .from(userRoles)
+    .where(inArray(userRoles.roleId, [...roleOverride.keys()]));
+
+  const roleDecision = new Map<number, boolean>();
+  for (const { userId, roleId } of holders) {
+    const allow = roleOverride.get(roleId)!;
+    roleDecision.set(userId, (roleDecision.get(userId) ?? false) || allow);
+  }
+
+  const server = await getServerById(serverId);
+
+  return memberIds.filter((userId) => {
+    if (server?.ownerId === userId) return true;
+    const direct = userOverride.get(userId);
+    if (direct !== undefined) return direct;
+    return roleDecision.get(userId) ?? true;
+  });
+};
+
 const getChannelsReadStatesForUser = async (
   userId: number,
   channelId?: number,
@@ -431,6 +398,7 @@ const getChannelsReadStatesForUser = async (
       unreadCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
           THEN 1
@@ -439,6 +407,7 @@ const getChannelsReadStatesForUser = async (
       mentionCount: sql<number>`
         COUNT(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -498,6 +467,7 @@ const getForumUnreadForUser = async (
       unreadCount: sql<number>`
         COALESCE(SUM(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
           THEN 1
@@ -506,6 +476,7 @@ const getForumUnreadForUser = async (
       mentionCount: sql<number>`
         COALESCE(SUM(CASE
           WHEN ${messages.userId} != ${userId}
+            AND ${messages.deletedAt} IS NULL
             AND ${channelReadStates.lastReadMessageId} IS NOT NULL
             AND ${messages.id} > ${channelReadStates.lastReadMessageId}
             AND ${messages.mentionedUserIds}::jsonb @> ${sql`${JSON.stringify([userId])}::jsonb`}
@@ -535,13 +506,151 @@ const getForumUnreadForUser = async (
   };
 };
 
+type TUnreadCounts = { count: number; mentionCount: number };
+
+/**
+ * Unread + mention counts of ONE channel for MANY users in a single
+ * grouped statement — the message fan-out path (publishMessage) used to
+ * run the full per-channel aggregate once per recipient per message,
+ * i.e. O(members x messages-in-channel) on the single pool.
+ *
+ * Semantics match getChannelsReadStatesForUser exactly: only messages
+ * newer than the user's last-read marker and not authored by the user
+ * count, and a user with no read-state row (or a NULL marker) reads as
+ * 0 unread. Users absent from the returned map are therefore 0/0.
+ */
+const getChannelUnreadForUsers = async (
+  userIds: number[],
+  channelId: number
+): Promise<Map<number, TUnreadCounts>> => {
+  const result = new Map<number, TUnreadCounts>();
+  if (userIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      userId: channelReadStates.userId,
+      unreadCount: sql<number>`
+        COUNT(*) FILTER (WHERE ${messages.userId} != ${channelReadStates.userId})
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(*) FILTER (
+          WHERE ${messages.userId} != ${channelReadStates.userId}
+            AND ${messages.mentionedUserIds}::jsonb @> jsonb_build_array(${channelReadStates.userId})
+        )
+      `.as('mention_count')
+    })
+    .from(channelReadStates)
+    // A tombstone is nothing to read: it leaves the unread count the
+    // moment it is deleted (same rule in every count below and in
+    // servers.ts / dms.ts).
+    .innerJoin(
+      messages,
+      and(
+        eq(messages.channelId, channelReadStates.channelId),
+        gt(messages.id, channelReadStates.lastReadMessageId),
+        isNull(messages.deletedAt)
+      )
+    )
+    .where(
+      and(
+        eq(channelReadStates.channelId, channelId),
+        inArray(channelReadStates.userId, userIds),
+        isNotNull(channelReadStates.lastReadMessageId)
+      )
+    )
+    .groupBy(channelReadStates.userId);
+
+  for (const row of rows) {
+    result.set(row.userId, {
+      count: Number(row.unreadCount),
+      mentionCount: Number(row.mentionCount)
+    });
+  }
+
+  return result;
+};
+
+/**
+ * Batch twin of getForumUnreadForUser: aggregated unread + mention
+ * counts across every child THREAD of one forum, for many users, in one
+ * statement. Same per-user semantics as the single-user variant.
+ */
+const getForumUnreadForUsers = async (
+  userIds: number[],
+  forumChannelId: number
+): Promise<Map<number, TUnreadCounts>> => {
+  const result = new Map<number, TUnreadCounts>();
+  if (userIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      userId: channelReadStates.userId,
+      unreadCount: sql<number>`
+        COUNT(*) FILTER (WHERE ${messages.userId} != ${channelReadStates.userId})
+      `.as('unread_count'),
+      mentionCount: sql<number>`
+        COUNT(*) FILTER (
+          WHERE ${messages.userId} != ${channelReadStates.userId}
+            AND ${messages.mentionedUserIds}::jsonb @> jsonb_build_array(${channelReadStates.userId})
+        )
+      `.as('mention_count')
+    })
+    .from(channelReadStates)
+    .innerJoin(
+      channels,
+      and(
+        eq(channels.id, channelReadStates.channelId),
+        eq(channels.parentChannelId, forumChannelId),
+        eq(channels.type, 'THREAD')
+      )
+    )
+    // A tombstone is nothing to read: it leaves the unread count the
+    // moment it is deleted (same rule in every count below and in
+    // servers.ts / dms.ts).
+    .innerJoin(
+      messages,
+      and(
+        eq(messages.channelId, channelReadStates.channelId),
+        gt(messages.id, channelReadStates.lastReadMessageId),
+        isNull(messages.deletedAt)
+      )
+    )
+    .where(
+      and(
+        inArray(channelReadStates.userId, userIds),
+        isNotNull(channelReadStates.lastReadMessageId)
+      )
+    )
+    .groupBy(channelReadStates.userId);
+
+  for (const row of rows) {
+    result.set(row.userId, {
+      count: Number(row.unreadCount),
+      mentionCount: Number(row.mentionCount)
+    });
+  }
+
+  return result;
+};
+
+/**
+ * A channel row as it may leave the server. `fileAccessToken` is the
+ * per-channel secret that mints file tokens and must never reach a
+ * client; it is blanked rather than dropped so the TChannel shape the
+ * clients store stays intact (preview sessions already model "no token"
+ * as an empty string).
+ */
+const toWireChannel = <T extends { fileAccessToken: string }>(
+  channel: T
+): T => ({ ...channel, fileAccessToken: '' });
+
 export {
-  channelUserCan,
   getAffectedUserIdsForChannel,
   getAllChannelUserPermissions,
-  getChannelsForUser,
   getChannelsReadStatesForUser,
+  getChannelUnreadForUsers,
   getForumUnreadForUser,
-  getRoleChannelPermissions,
-  getUserChannelPermissions
+  getForumUnreadForUsers,
+  getViewableE2eeChannelIds,
+  toWireChannel
 };

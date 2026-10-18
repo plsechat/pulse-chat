@@ -1,4 +1,4 @@
-import type { TEmoji, TFile, TJoinedEmoji } from '@pulse/shared';
+import type { TEmoji, TFile, TJoinedEmoji } from '../../types';
 import { eq } from 'drizzle-orm';
 import { db } from '..';
 import { emojis, files, users } from '../schema';

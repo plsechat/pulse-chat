@@ -5,9 +5,11 @@ import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { Textarea } from '@/components/ui/textarea';
 import { closeServerScreens } from '@/features/server-screens/actions';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedPublicUser, TNameStyle } from '@pulse/shared';
+import type { TNameStyle } from '@pulse/shared';
+import type { TJoinedPublicUser } from '@pulse/server/types';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { AvatarDecorationPicker } from './avatar-decoration-picker';
@@ -50,6 +52,7 @@ const Profiles = memo(() => {
       toast.success('Profile updated');
     } catch (error) {
       setTrpcErrors(error);
+      toast.error(getTrpcError(error, 'Failed to update profile'));
     }
   }, [values, ownPublicUser, draftNameStyle, setTrpcErrors]);
 

@@ -6,8 +6,8 @@ import {
 } from '@playwright/test';
 import path from 'node:path';
 import { psql } from '../../helpers/db';
-import { authedPage, registerAndJoin, runUser } from '../../helpers/fixtures';
-import { dmComposer, goHome } from '../../helpers/ui';
+import { authedPage, registerAndJoin, RUN_TAG, runUser } from '../../helpers/fixtures';
+import { dmComposer, isDeckLayout, openDmList, openFriends, sendDmMessage } from '../../helpers/ui';
 
 /**
  * DM depth: the friend-request loop, group-DM lifecycle, and DM
@@ -34,10 +34,6 @@ function uid(name: string): string {
   return psql('core', `SELECT id FROM users WHERE name = '${name}'`);
 }
 
-async function openFriends(page: Page): Promise<void> {
-  await goHome(page);
-  await page.getByRole('button', { name: 'Friends' }).click();
-}
 
 /** A specific All-tab friend row (scopes the hover Message/Remove buttons). */
 function friendRow(page: Page, name: string) {
@@ -52,7 +48,12 @@ async function befriend(
   fromName: string
 ): Promise<void> {
   await openFriends(from);
-  await from.getByRole('button', { name: 'Add Friend' }).click();
+  // In the tab layout the Home overview also offers "Add friend": scope
+  // the click to the Friends panel.
+  const friendsScope = (await isDeckLayout(from))
+    ? from.getByRole('complementary', { name: 'Friends' })
+    : from;
+  await friendsScope.getByRole('button', { name: 'Add Friend' }).click();
   await from.getByPlaceholder('Search by username...').fill(toName);
   await from.getByText(toName, { exact: true }).first().waitFor();
   await from.locator('button[title="Send Friend Request"]').first().click();
@@ -165,12 +166,36 @@ test.describe('DM depth', () => {
     expect(denied.status()).toBe(403);
   });
 
+  test('DM body renders through the shared message body: emoji-only sizing parity', async () => {
+    // The 1:1 DM with B is open from the previous test. DMs render via
+    // the same ChatMessageBody as channels, so the emoji-only treatment
+    // (.emoji-only on .msg-content) must apply here too, while plain text
+    // stays plain.
+    const text = `shared-body ${RUN_TAG}`;
+    await sendDmMessage(pageA, text);
+    const textRow = pageA.locator('[id^="dm-msg-"]').filter({ hasText: text }).last();
+    await expect(textRow.locator('.msg-content')).toHaveCount(1);
+    await expect(textRow.locator('.msg-content.emoji-only')).toHaveCount(0);
+
+    await sendDmMessage(pageA, '🎉🎉');
+    const emojiRow = pageA.locator('[id^="dm-msg-"]').filter({ hasText: '🎉🎉' }).last();
+    await expect(emojiRow.locator('.msg-content.emoji-only')).toHaveCount(1, {
+      timeout: 15_000
+    });
+    // B receives both with the same treatment.
+    await pageB.getByText(A.displayName, { exact: true }).first().click();
+    await expect(dmComposer(pageB)).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').filter({ hasText: '🎉🎉' }).last().locator('.msg-content.emoji-only')
+    ).toHaveCount(1, { timeout: 15_000 });
+  });
+
   test('group DM: create from friends, promote to group, leave', async () => {
     // A already has friends B and (re-added below) — need two friends for
     // a group. Re-befriend C, then create a group with B and C.
     await befriend(pageA, pageC, C.displayName, A.displayName);
 
-    await goHome(pageA);
+    await openDmList(pageA);
     await pageA.locator('button[title="Create Group DM"]').click();
     await expect(
       pageA.getByRole('heading', { name: 'Create Group DM' })
@@ -206,7 +231,7 @@ test.describe('DM depth', () => {
       .toBe('3');
 
     // B sees the group in their sidebar with the member-count subtitle.
-    await goHome(pageB);
+    await openDmList(pageB);
     await expect(pageB.getByText('3 members').first()).toBeVisible({
       timeout: 15_000
     });
@@ -214,7 +239,7 @@ test.describe('DM depth', () => {
     // C leaves → member count drops but is_group stays true (Phase-B
     // gotcha: a shrunk group must not silently demote to 1:1, or old
     // group-encrypted history stops decrypting).
-    await goHome(pageC);
+    await openDmList(pageC);
     await pageC.getByText('3 members').first().click({ button: 'right' });
     await pageC.getByRole('menuitem', { name: 'Leave Group' }).click();
     await pageC.getByRole('button', { name: 'Leave', exact: true }).click();

@@ -3,23 +3,28 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { automodRules } from '../../db/schema';
-import { protectedProcedure } from '../../utils/trpc';
-import { automodActionsSchema, automodConfigSchema } from './_shared';
+import { serverProcedure } from '../../utils/procedures';
+import {
+  assertAutomodRefsInServer,
+  automodActionsSchema,
+  automodConfigSchema,
+  automodExemptIdsSchema
+} from './_shared';
 
-const updateAutomodRuleRoute = protectedProcedure
+const updateAutomodRuleRoute = serverProcedure(Permission.MANAGE_AUTOMOD)
   .input(
     z.object({
-      ruleId: z.number(),
+      ruleId: z.number().int().positive(),
       name: z.string().min(1).max(100).optional(),
       type: z.nativeEnum(AutomodRuleType).optional(),
       config: automodConfigSchema.optional(),
       actions: automodActionsSchema.optional(),
-      exemptRoleIds: z.array(z.number()).optional(),
-      exemptChannelIds: z.array(z.number()).optional()
+      exemptRoleIds: automodExemptIdsSchema.optional(),
+      exemptChannelIds: automodExemptIdsSchema.optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_AUTOMOD);
+    await assertAutomodRefsInServer(input, ctx.activeServerId);
 
     const updates: Record<string, unknown> = { updatedAt: Date.now() };
     if (input.name !== undefined) updates.name = input.name;
@@ -37,7 +42,7 @@ const updateAutomodRuleRoute = protectedProcedure
       .where(
         and(
           eq(automodRules.id, input.ruleId),
-          eq(automodRules.serverId, ctx.activeServerId!)
+          eq(automodRules.serverId, ctx.activeServerId)
         )
       )
       .returning();

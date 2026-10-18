@@ -72,12 +72,14 @@ describe('get visible users access control', () => {
       name: 'isolated-channel'
     });
 
-    // User 1 is NOT a member of server2
+    // User 1 is NOT a member of server2: a channel outside the active
+    // server reads as nonexistent (channelProcedure), never as a
+    // permission failure that would confirm the channel exists.
     const { caller } = await initTest(1);
 
     await expect(
       caller.channels.getVisibleUsers({ channelId })
-    ).rejects.toThrow('Insufficient channel permissions');
+    ).rejects.toThrow('Channel not found');
   });
 });
 

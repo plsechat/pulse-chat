@@ -6,11 +6,15 @@
  * (called inside `federationFetch`) accepts the requests.
  */
 
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
-import dns from 'dns/promises';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { config } from '../../config';
 import { db } from '../../db';
 import { dmChannelMembers, dmChannels, federationInstances, friendships, users } from '../../db/schema';
+import {
+  expectDispatcherLogsDbError,
+  mockDns,
+  spyOnFetch
+} from '../../__tests__/federation-fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { generateFederationKeys } from '../federation';
 import { relayUserInfoUpdate } from '../federation-user-info-dispatch';
@@ -20,45 +24,9 @@ config.federation.enabled = true;
 const PEER_DOMAIN_A = 'peera.userinfo.example.com';
 const PEER_DOMAIN_B = 'peerb.userinfo.example.com';
 
-type FetchCall = {
-  url: string;
-  method: string;
-  body: Record<string, unknown>;
-};
-
-const originalFetch = globalThis.fetch;
-
-function spyOnFetch(): { calls: FetchCall[] } {
-  const calls: FetchCall[] = [];
-  const fakeFetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
-    let body: Record<string, unknown> = {};
-    if (init?.body) {
-      try {
-        body = JSON.parse(init.body as string);
-      } catch {
-        body = {};
-      }
-    }
-    calls.push({ url: u, method: init?.method ?? 'GET', body });
-    return new Response(JSON.stringify({ applied: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  });
-  globalThis.fetch = fakeFetch as unknown as typeof fetch;
-  return { calls };
-}
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   mock.restore();
 });
-
-function mockDns() {
-  spyOn(dns, 'resolve4').mockResolvedValue(['93.184.216.34']);
-  spyOn(dns, 'resolve6').mockRejectedValue(new Error('NODATA'));
-}
 
 async function seedFederatedPeerWithDmFriend(
   domain: string,
@@ -113,6 +81,26 @@ async function seedFederatedPeerWithDmFriend(
   return { shadowId: shadow!.id, instanceId: instance!.id, channelId: channel!.id };
 }
 
+/**
+ * The relay is fire-and-forget; wait for the expected number of
+ * user-info-update calls (bounded) instead of a fixed pause that a
+ * loaded runner overruns.
+ */
+const updatesAmong = <T extends { url: string }>(calls: T[]): T[] =>
+  calls.filter((c) => c.url.includes('/federation/user-info-update'));
+
+const waitForUpdates = async <T extends { url: string }>(
+  calls: T[],
+  n: number
+): Promise<T[]> => {
+  // Expecting none: give a wrong relay a moment to show up before asserting.
+  if (n === 0) await new Promise((r) => setTimeout(r, 150));
+  for (let i = 0; i < 200 && updatesAmong(calls).length < n; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return updatesAmong(calls);
+};
+
 describe('relayUserInfoUpdate (E3)', () => {
   test('local user with one federated DM peer dispatches a single relay', async () => {
     await initTest(1);
@@ -127,11 +115,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, { status: 'idle' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 1);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.url).toContain(PEER_DOMAIN_A);
     expect(updates[0]!.body.status).toBe('idle');
@@ -148,11 +132,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, { status: 'dnd' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 2);
     expect(updates).toHaveLength(2);
     const domains = new Set(updates.map((c) => new URL(c.url).host));
     expect(domains).toEqual(new Set([PEER_DOMAIN_A, PEER_DOMAIN_B]));
@@ -166,11 +146,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, { status: 'idle' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 0);
     expect(updates).toHaveLength(0);
   });
 
@@ -189,11 +165,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     // Calling with a federated user id should no-op — only local
     // users push their own changes.
     await relayUserInfoUpdate(shadowId, { status: 'idle' });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 0);
     expect(updates).toHaveLength(0);
   });
 
@@ -210,11 +182,7 @@ describe('relayUserInfoUpdate (E3)', () => {
     const { calls } = spyOnFetch();
 
     await relayUserInfoUpdate(1, {});
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 0);
     expect(updates).toHaveLength(0);
   });
 
@@ -235,11 +203,7 @@ describe('relayUserInfoUpdate (E3)', () => {
       bio: 'New bio',
       bannerColor: '#ff5500'
     });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 1);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.body.name).toBe('NewName');
     expect(updates[0]!.body.bio).toBe('New bio');
@@ -261,12 +225,19 @@ describe('relayUserInfoUpdate (E3)', () => {
     // Avatar/banner changes don't carry data inline — they signal
     // the receiver to re-pull the full profile.
     await relayUserInfoUpdate(1, { triggerProfileSync: true });
-    await new Promise((r) => setTimeout(r, 20));
-
-    const updates = calls.filter((c) =>
-      c.url.includes('/federation/user-info-update')
-    );
+    const updates = await waitForUpdates(calls, 1);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.body.triggerProfileSync).toBe(true);
+  });
+});
+
+describe('relayUserInfoUpdate resilience', () => {
+  test('a DB failure before any relay is logged, never thrown', async () => {
+    await initTest(1);
+
+    await expectDispatcherLogsDbError(
+      () => relayUserInfoUpdate(1, { status: 'idle' }),
+      'relayUserInfoUpdate'
+    );
   });
 });

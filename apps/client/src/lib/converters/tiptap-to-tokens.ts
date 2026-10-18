@@ -79,15 +79,19 @@ function walkNode(node: Node, ctx: WalkContext): string {
   }
 
   // --- Code blocks: <pre><code>...</code></pre> ---
+  // A block-level node, so it ends with '\n' like a paragraph does —
+  // without it the paragraph after a code block lands on the closing
+  // fence line ("```after"), which the renderer reads as a bare fence
+  // and drops the text.
   if (tag === 'pre') {
     const codeEl = el.querySelector('code');
     if (codeEl) {
       const langClass = codeEl.getAttribute('class') ?? '';
       const lang = langClass.replace('language-', '');
       const code = codeEl.textContent ?? '';
-      return `\`\`\`${lang}\n${code}\n\`\`\``;
+      return `\`\`\`${lang}\n${code}\n\`\`\`\n`;
     }
-    return `\`\`\`\n${el.textContent ?? ''}\n\`\`\``;
+    return `\`\`\`\n${el.textContent ?? ''}\n\`\`\`\n`;
   }
 
   // --- Inline code (not inside <pre>) ---
@@ -119,11 +123,12 @@ function walkNode(node: Node, ctx: WalkContext): string {
   // --- Blockquote ---
   if (tag === 'blockquote') {
     const inner = walkNodes(el.childNodes, { ...ctx, insideBlockquote: true });
-    // Prefix each line with >
-    const lines = inner.split('\n');
-    return lines
-      .map((line) => `> ${line}`)
-      .join('\n');
+    // Every paragraph inside ends with '\n'. Drop the last one before
+    // prefixing — otherwise the quote gains an empty `> ` line that each
+    // edit round-trips into a real empty paragraph — and close the quote
+    // with its own newline so what follows it is not prefixed into it.
+    const lines = inner.replace(/\n$/, '').split('\n');
+    return lines.map((line) => `> ${line}`).join('\n') + '\n';
   }
 
   // --- Links ---
@@ -197,8 +202,12 @@ export function tiptapHtmlToTokens(html: string): string {
   // Trim trailing newline (paragraphs add one)
   result = result.replace(/\n+$/, '');
 
-  // Collapse 3+ consecutive newlines to \n\n
-  result = result.replace(/\n{3,}/g, '\n\n');
+  // Collapse 3+ consecutive newlines to \n\n — outside code fences
+  // only; blank lines inside a block are part of the code.
+  result = result
+    .split(/(```[\s\S]*?\n```)/)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(/\n{3,}/g, '\n\n')))
+    .join('');
 
   return result;
 }

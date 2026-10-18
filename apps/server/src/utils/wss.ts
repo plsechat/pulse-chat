@@ -12,11 +12,9 @@ import {
   ServerEvents,
   UserStatus,
   type TChannelUserPermissionsMap,
-  type TConnectionParams,
-  type TJoinedRole,
-  type TJoinedServer,
-  type TJoinedUser
+  type TConnectionParams
 } from '@pulse/shared';
+import type { TJoinedRole, TJoinedServer, TJoinedUser } from '../types';
 import { TRPCError } from '@trpc/server';
 import {
   applyWSSHandler,
@@ -25,6 +23,7 @@ import {
 import { eq } from 'drizzle-orm';
 import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
+import { config } from '../config';
 import { db } from '../db';
 import { findOrCreateShadowUser, syncShadowUserProfile } from '../db/mutations/federation';
 import { getAllChannelUserPermissions } from '../db/queries/channels';
@@ -34,14 +33,24 @@ import {
 } from '../db/queries/servers';
 import { getUserById, getUserByToken } from '../db/queries/users';
 import { channels } from '../db/schema';
-import { getWsInfo } from '../helpers/get-ws-info';
+import { getClientIp, getWsInfo } from '../helpers/get-ws-info';
 import { logger } from '../logger';
 import { enqueueActivityLog } from '../queues/activity-log';
 import { appRouter } from '../routers';
 import { getUserRoles } from '../routers/users/get-user-roles';
 import { VoiceRuntime } from '../runtimes/voice';
-import { verifyFederationToken } from './federation';
-import { setWsStatsProvider } from './ws-stats';
+import { verifyFederationToken, verifyFederationTokenDetailed } from './federation';
+import { schedulePresenceOffline } from './federation-user-info-dispatch';
+import { scheduleGamePresenceClear } from './game-presence';
+import {
+  registerPermissionCacheInvalidator,
+  unregisterPermissionCacheInvalidator
+} from './permission-cache-registry';
+import {
+  readSessionFamilyId,
+  registerSessionSocket
+} from './session-registry';
+import { setOnlineUserIdsProvider, setWsStatsProvider } from './ws-stats';
 import { invariant } from './invariant';
 import { pubsub } from './pubsub';
 import { removeUserFromVoice } from './voice-cleanup';
@@ -53,6 +62,60 @@ const wsMapByToken = new Map<string, WebSocket>();
 const wsMapByUserId = new Map<number, Set<WebSocket>>();
 
 const usersIpMap = new Map<number, string>();
+
+// Open sockets per source address, for the per-IP cap. Decremented on
+// close; an entry is removed at zero so the map tracks live sources only.
+const connectionsByIp = new Map<string, number>();
+
+/** WebSocket close code: policy violation (RFC 6455 §7.4.1). */
+const WS_CLOSE_POLICY_VIOLATION = 1008;
+
+/** WebSocket close code: message too big (RFC 6455 §7.4.1). */
+const WS_CLOSE_MESSAGE_TOO_BIG = 1009;
+
+/**
+ * Largest frame the server accepts. The biggest legitimate payload is
+ * one message at MAX_MESSAGE_WIRE_LENGTH plus its E2EE envelope — far
+ * below 1 MiB. Passed to `ws` as `maxPayload` (the Node implementation
+ * refuses the frame with 1009 before buffering it) AND checked on every
+ * message, because Bun's `ws`-compatible server ignores the option and
+ * only applies its own 16 MiB native ceiling.
+ */
+const WS_MAX_PAYLOAD_BYTES = 1024 * 1024;
+
+const frameSize = (data: unknown): number => {
+  if (typeof data === 'string') return Buffer.byteLength(data);
+  if (Array.isArray(data)) {
+    return data.reduce((sum: number, part) => sum + frameSize(part), 0);
+  }
+  if (ArrayBuffer.isView(data) || data instanceof ArrayBuffer) {
+    return data.byteLength;
+  }
+  return 0;
+};
+
+const envInt = (name: string, fallback: number): number => {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/**
+ * Connection caps, read when the server is created so a deployment's
+ * env (and a test's override) is honoured without a module reload.
+ * Per-IP guards unauthenticated socket floods; per-user bounds what one
+ * account (many tabs, a runaway client) can hold open; the params
+ * timeout drops sockets that connect and never identify themselves —
+ * without it they'd be kept alive by the 30 s keepalive ping forever.
+ */
+const readWsLimits = () => ({
+  maxConnectionsPerIp: envInt('WS_MAX_CONNECTIONS_PER_IP', 20),
+  maxConnectionsPerUser: envInt('WS_MAX_CONNECTIONS_PER_USER', 10),
+  connectionParamsTimeoutMs: envInt('WS_CONNECTION_PARAMS_TIMEOUT_MS', 10_000)
+});
+
+let wsLimits = readWsLimits();
 
 /**
  * Module-level mutator for the runtime user-status override map.
@@ -86,19 +149,27 @@ const createContext = async ({
 
   let decodedUser;
   let accessToken = params.accessToken;
+  let authSessionId: string | undefined;
 
   if (params.federationToken) {
     // Federation auth path
     logger.debug('[wss/createContext] federation auth path, token length=%d', params.federationToken.length);
-    const fedResult = await verifyFederationToken(params.federationToken);
+    const fedResult = await verifyFederationTokenDetailed(params.federationToken);
     logger.debug('[wss/createContext] federation token verification result=%o',
-      fedResult ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : null);
+      fedResult.ok ? { userId: fedResult.userId, username: fedResult.username, instanceId: fedResult.instanceId } : fedResult);
 
-    if (!fedResult) {
-      res.close(DisconnectCode.FEDERATION_REJECTED, 'Invalid federation token');
+    if (!fedResult.ok) {
+      // An expired token gets its own code: the client re-mints at home
+      // and reconnects. Everything else is a peer-level rejection the
+      // client must not retry against.
+      if (fedResult.reason === 'expired') {
+        res.close(DisconnectCode.FEDERATION_TOKEN_EXPIRED, 'Federation token expired');
+      } else {
+        res.close(DisconnectCode.FEDERATION_REJECTED, 'Invalid federation token');
+      }
     }
 
-    invariant(fedResult, {
+    invariant(fedResult.ok, {
       code: 'UNAUTHORIZED',
       message: 'Invalid federation token'
     });
@@ -129,6 +200,10 @@ const createContext = async ({
       code: 'UNAUTHORIZED',
       message: 'Invalid authentication token'
     });
+
+    // Read the family claim only AFTER getUserByToken verified the
+    // token; a second signature check here would buy nothing.
+    authSessionId = readSessionFamilyId(accessToken);
   }
 
   if (decodedUser?.banned) {
@@ -183,11 +258,37 @@ const createContext = async ({
     _cachedChannelPerms = undefined;
   };
 
+  // Reachable by user id so a route that changes ANOTHER user's standing
+  // (ownership transfer) can drop their caches on every connection; the
+  // socket close handler unregisters it.
+  registerPermissionCacheInvalidator(
+    decodedUser.id,
+    accessToken,
+    invalidatePermissionCache
+  );
+
+  // Sockets of a session family must drop when the family is revoked
+  // (logout elsewhere, password change, refresh-token reuse). The
+  // socket is already in wsMapByToken by the time tRPC builds the
+  // context (createWsServer's connection-params listener runs before
+  // tRPC's); the mock context in unit tests has no socket and skips
+  // this. The unregister is bound to this socket's close so a refreshed
+  // page that reuses the token cannot be unregistered by the old socket.
+  const ownSocket = wsMapByToken.get(accessToken);
+  if (authSessionId !== undefined && ownSocket) {
+    const unregister = registerSessionSocket(
+      decodedUser.id,
+      accessToken,
+      (code, reason) => ownSocket.close(code, reason)
+    );
+    ownSocket.once('close', unregister);
+  }
+
   const _activeServer = { id: undefined as number | undefined };
 
   // Read-only preview session (servers.preview): grants exactly
   // VIEW_CHANNEL on the previewed server's public channels. Cleared when
-  // the connection joins a real server (others.joinServer) or via
+  // the connection joins a real server (others.openSession) or via
   // servers.leavePreview.
   const _previewServer = { id: undefined as number | undefined };
 
@@ -198,6 +299,17 @@ const createContext = async ({
     // Default to the active server so callers that omit serverId
     // are scoped to the current server instead of checking globally.
     const effectiveServerId = serverId ?? _activeServer.id;
+
+    // No server to evaluate against (the connection never joined one, or
+    // left its active server): deny. Aggregating roles across every
+    // server the user is in would grant a permission held anywhere.
+    if (effectiveServerId === undefined) {
+      logger.debug(
+        '[perm] denied reason=no-active-server target=%o',
+        targetPermission
+      );
+      return false;
+    }
 
     const user = await getCachedUser();
     if (!user) {
@@ -210,17 +322,15 @@ const createContext = async ({
     }
 
     // Check if user is the server owner (bypasses all permission checks)
-    if (effectiveServerId) {
-      const server = await getCachedServer(effectiveServerId);
-      if (server && server.ownerId === user.id) {
-        logger.debug(
-          '[perm] granted reason=owner userId=%d serverId=%s target=%o',
-          user.id,
-          effectiveServerId,
-          targetPermission
-        );
-        return true;
-      }
+    const server = await getCachedServer(effectiveServerId);
+    if (server && server.ownerId === user.id) {
+      logger.debug(
+        '[perm] granted reason=owner userId=%d serverId=%s target=%o',
+        user.id,
+        effectiveServerId,
+        targetPermission
+      );
+      return true;
     }
 
     const roles = await getCachedUserRoles(user.id, effectiveServerId);
@@ -287,8 +397,20 @@ const createContext = async ({
       return granted;
     }
 
-    // Ensure the channel belongs to the caller's active server
-    if (_activeServer.id && channelRecord.serverId !== _activeServer.id) {
+    // Outside a preview, channel permissions only exist relative to the
+    // connection's active server: no active server means no access (a
+    // connection that never joined, or left, must not read every public
+    // channel on the instance), and a channel of another server is denied.
+    if (_activeServer.id === undefined) {
+      logger.debug(
+        '[chan-perm] denied reason=no-active-server channelId=%d target=%o',
+        channelId,
+        targetPermission
+      );
+      return false;
+    }
+
+    if (channelRecord.serverId !== _activeServer.id) {
       logger.debug(
         '[chan-perm] denied reason=cross-server channelId=%d activeServerId=%d target=%o',
         channelId,
@@ -296,15 +418,6 @@ const createContext = async ({
         targetPermission
       );
       return false;
-    }
-
-    if (!channelRecord.private) {
-      logger.debug(
-        '[chan-perm] granted reason=public channelId=%d target=%o',
-        channelId,
-        targetPermission
-      );
-      return true;
     }
 
     const user = await getCachedUser();
@@ -329,16 +442,24 @@ const createContext = async ({
       return true;
     }
 
+    // Overrides apply to EVERY channel: a public channel defaults to
+    // allow and a private one to deny, then role rows, then user rows
+    // (see getAllChannelUserPermissions). A channel missing from the
+    // cached map (created after this connection's map was built) falls
+    // back to that default.
     const userChannelPermissions = await getCachedChannelPermissions();
     const channelInfo = userChannelPermissions[channelId];
     if (!channelInfo) {
+      const granted = !channelRecord.private;
       logger.debug(
-        '[chan-perm] denied reason=no-permissions-row userId=%d channelId=%d target=%o',
+        '[chan-perm] %s reason=no-permissions-row userId=%d channelId=%d private=%s target=%o',
+        granted ? 'granted' : 'denied',
         user.id,
         channelId,
+        channelRecord.private,
         targetPermission
       );
-      return false;
+      return granted;
     }
     if (!channelInfo.permissions[ChannelPermission.VIEW_CHANNEL]) {
       logger.debug(
@@ -398,6 +519,28 @@ const createContext = async ({
         wsMapByUserId.set(userId, connections);
       }
       connections.add(ws);
+
+      // Per-user cap, applied once the socket is attributable to an
+      // account. The newest socket is the one refused: the join fails
+      // with TOO_MANY_REQUESTS and the socket is closed a tick later so
+      // that error reaches the client before the close frame. The close
+      // handler removes it from the set again.
+      if (connections.size > wsLimits.maxConnectionsPerUser) {
+        logger.warn(
+          '[WS] user %d exceeded %d connections, closing newest',
+          userId,
+          wsLimits.maxConnectionsPerUser
+        );
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(WS_CLOSE_POLICY_VIOLATION, 'Too many connections');
+          }
+        }, 0);
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many connections for this user'
+        });
+      }
     }
   };
 
@@ -471,6 +614,7 @@ const createContext = async ({
   return {
     pubsub,
     accessToken,
+    authSessionId,
     user: decodedUser,
     authenticated: isFederated,
     userId: decodedUser.id,
@@ -500,15 +644,60 @@ const createContext = async ({
 
 const createWsServer = async (server: http.Server) => {
   return new Promise<WebSocketServer>((resolve) => {
-    wss = new WebSocketServer({ server });
+    wsLimits = readWsLimits();
 
-    wss.on('connection', (ws) => {
+    wss = new WebSocketServer({ server, maxPayload: WS_MAX_PAYLOAD_BYTES });
+
+    wss.on('connection', (ws, req) => {
       ws.userId = undefined;
       ws.token = '';
 
+      // Per-IP cap. Counted before the first message so an unauthenticated
+      // flood is bounded; released in the close handler below.
+      const ip = getClientIp(req);
+      const openForIp = (connectionsByIp.get(ip) ?? 0) + 1;
+      connectionsByIp.set(ip, openForIp);
+
+      ws.once('close', () => {
+        const remaining = (connectionsByIp.get(ip) ?? 1) - 1;
+        if (remaining <= 0) connectionsByIp.delete(ip);
+        else connectionsByIp.set(ip, remaining);
+      });
+
+      if (openForIp > wsLimits.maxConnectionsPerIp) {
+        logger.warn(
+          '[WS] %s exceeded %d connections, refusing',
+          ip,
+          wsLimits.maxConnectionsPerIp
+        );
+        ws.close(WS_CLOSE_POLICY_VIOLATION, 'Too many connections');
+        return;
+      }
+
       logger.debug('[WS] connection open');
 
+      // A socket that never sends its connection params is not a client
+      // of ours; drop it instead of holding it open on keepalive pings.
+      const paramsTimer = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        logger.debug('[WS] no connection params within %d ms, closing', wsLimits.connectionParamsTimeoutMs);
+        ws.close(WS_CLOSE_POLICY_VIOLATION, 'Connection params timeout');
+      }, wsLimits.connectionParamsTimeoutMs);
+      paramsTimer.unref();
+      ws.once('close', () => clearTimeout(paramsTimer));
+
+      // Registered before tRPC's handler (which attaches on the same
+      // 'connection' event after this listener), so an oversize frame is
+      // refused before anything tries to parse it.
+      ws.on('message', (data) => {
+        if (frameSize(data) > WS_MAX_PAYLOAD_BYTES) {
+          logger.warn('[WS] %s sent a frame over %d bytes, closing', ip, WS_MAX_PAYLOAD_BYTES);
+          ws.close(WS_CLOSE_MESSAGE_TOO_BIG, 'Message too big');
+        }
+      });
+
       ws.once('message', async (message) => {
+        clearTimeout(paramsTimer);
         try {
           const parsed = JSON.parse(message.toString());
           const params = parsed.data as TConnectionParams;
@@ -530,6 +719,10 @@ const createWsServer = async (server: http.Server) => {
 
       ws.on('close', async () => {
         logger.debug('[WS] connection close userId=%s', ws.userId ?? '-');
+
+        if (ws.userId !== undefined && ws.token) {
+          unregisterPermissionCacheInvalidator(ws.userId, ws.token);
+        }
 
         // Clean up the token map only if it still points at THIS socket.
         // A refreshed page reuses the same access token, so the old
@@ -634,6 +827,21 @@ const createWsServer = async (server: http.Server) => {
         usersIpMap.delete(user.id);
         userStatusOverrides.delete(user.id);
 
+        // The shell that reported what they were playing left with the
+        // session (sign-out, a closed app, a crash): the presence goes
+        // after the same kind of debounce, unless they are back by then.
+        // A shadow's presence is cleared by its home instance's push.
+        if (!user.isFederated && user.gamePresence) {
+          scheduleGamePresenceClear(user.id, () => hasLiveWsConnection(user.id));
+        }
+
+        // Peers holding a shadow of this local user learn they went
+        // offline — debounced, so a page refresh does not flicker. A
+        // shadow's presence is its home instance's to announce.
+        if (config.federation.enabled && !user.isFederated) {
+          schedulePresenceOffline(user.id, () => hasLiveWsConnection(user.id));
+        }
+
         try {
           // Scope USER_LEAVE to everyone with a presence interest —
           // server co-members, DM partners, and friends. The client
@@ -705,6 +913,19 @@ setWsStatsProvider(() => {
     connections += set.size;
   }
   return { onlineUsers, connections };
+});
+
+// The directory's "online" column: who has a live socket and is not
+// invisible — the same answer getStatusById gives a member list, so a
+// card never counts someone the roster shows as offline.
+setOnlineUserIdsProvider(() => {
+  const ids: number[] = [];
+  for (const [userId, set] of wsMapByUserId) {
+    if (set.size === 0) continue;
+    if (userStatusOverrides.get(userId) === UserStatus.INVISIBLE) continue;
+    ids.push(userId);
+  }
+  return ids;
 });
 
 export {

@@ -51,7 +51,7 @@ const SearchPopover = memo(
     return (
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button size="icon" variant="ghost">
+          <Button size="icon" variant="ghost" aria-label="Add override">
             <Plus className="h-4 w-4" />
           </Button>
         </PopoverTrigger>

@@ -13,12 +13,15 @@ import { LoadingCard } from '@/components/ui/loading-card';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { openDialog } from '@/features/dialogs/actions';
-import { useAdminPlugins } from '@/features/server/admin/hooks';
+import {
+  useAdminPlugins,
+  type TAdminPlugin
+} from '@/features/server/admin/hooks';
+import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
 import { usePluginsEnabled } from '@/features/server/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TPluginInfo } from '@pulse/shared';
 import {
   AlertCircle,
   FileText,
@@ -28,11 +31,11 @@ import {
   Terminal,
   User
 } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 type TPluginItemProps = {
-  plugin: TPluginInfo;
+  plugin: TAdminPlugin;
   onToggle: (pluginId: string, enabled: boolean) => Promise<void>;
 };
 
@@ -52,18 +55,15 @@ const PluginItem = memo(({ plugin, onToggle }: TPluginItemProps) => {
   );
 
   const handleViewLogs = useCallback(() => {
-    openDialog(Dialog.PLUGIN_LOGS, {
-      pluginName: plugin.name,
-      pluginId: plugin.id,
-      logs: [] // will be populated by subscription later
-    });
-  }, [plugin.name, plugin.id]);
+    openDialog(Dialog.PLUGIN_LOGS, { pluginId: plugin.id });
+  }, [plugin.id]);
 
   const handleViewCommands = useCallback(() => {
     openDialog(Dialog.PLUGIN_COMMANDS, {
-      pluginId: plugin.id
+      pluginId: plugin.id,
+      commands: plugin.commands
     });
-  }, [plugin.id]);
+  }, [plugin.id, plugin.commands]);
 
   const handleViewSettings = useCallback(() => {
     openDialog(Dialog.PLUGIN_SETTINGS, {
@@ -188,9 +188,23 @@ const PluginItem = memo(({ plugin, onToggle }: TPluginItemProps) => {
   );
 });
 
-const Plugins = memo(() => {
-  const enabled = usePluginsEnabled();
-  const { loading, plugins, refetch } = useAdminPlugins();
+/**
+ * Instance-level plugin management. Plugins load once per instance (the
+ * loader has no server scope), so this panel lives in the Instance group
+ * and talks to the instance-owner `plugins.*` routes. Each server decides
+ * separately whether its members may RUN plugin commands — the Plugins
+ * switch under Server Settings → General — and the note below shows
+ * where the current server stands.
+ */
+const InstancePlugins = memo(() => {
+  const commandsEnabledHere = usePluginsEnabled();
+  const activeServerId = useActiveServerId();
+  const joinedServers = useJoinedServers();
+  const activeServerName = useMemo(
+    () => joinedServers.find((s) => s.id === activeServerId)?.name,
+    [joinedServers, activeServerId]
+  );
+  const { loading, plugins, refetch, errors } = useAdminPlugins();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = useCallback(async () => {
@@ -212,9 +226,7 @@ const Plugins = memo(() => {
 
       try {
         await trpc.plugins.toggle.mutate({ pluginId, enabled });
-        toast.success(
-          `Plugin ${enabled ? 'enabled' : 'disabled'} successfully`
-        );
+        toast.success(`Plugin ${enabled ? 'enabled' : 'disabled'}`);
       } catch (error) {
         toast.error(getTrpcError(error, 'Failed to toggle plugin'));
       } finally {
@@ -228,22 +240,25 @@ const Plugins = memo(() => {
     return <LoadingCard className="h-[600px]" />;
   }
 
+  const fetchError = Object.values(errors).find(Boolean);
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Plugins</CardTitle>
+            <CardTitle>Installed plugins</CardTitle>
             <CardDescription>
-              Manage installed plugins and extend your Pulse server with
-              additional features and functionality.
+              Plugins extend every server on this instance. Dropping a
+              plugin into the plugins directory and restarting the server
+              registers it here.
             </CardDescription>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={handleRefresh}
-            disabled={isRefreshing || loading || !enabled}
+            disabled={isRefreshing || loading}
             className="shrink-0"
           >
             <RefreshCw
@@ -253,43 +268,42 @@ const Plugins = memo(() => {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
-        {enabled ? (
-          <>
-            {plugins.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <Package className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <h3 className="font-semibold text-lg mb-1">
-                  No plugins installed
-                </h3>
-                <p className="text-sm text-muted-foreground max-w-sm">
-                  Install plugins to add new features and extend the
-                  functionality of your Pulse server.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {plugins.map((plugin, index) => (
-                  <div key={plugin.id}>
-                    <PluginItem plugin={plugin} onToggle={handleToggle} />
-                    {index < plugins.length - 1 && (
-                      <Separator className="mt-3" />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
+      <CardContent className="space-y-4">
+        {fetchError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{fetchError}</AlertDescription>
+          </Alert>
+        )}
+
+        <Alert>
+          <Terminal className="h-4 w-4" />
+          <AlertDescription>
+            {commandsEnabledHere
+              ? `Members of ${activeServerName ?? 'this server'} can run commands from the enabled plugins.`
+              : `Plugin commands are switched off for ${activeServerName ?? 'this server'} — turn on Plugins under Server Settings → General to let members use them.`}
+          </AlertDescription>
+        </Alert>
+
+        {plugins.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <AlertCircle className="w-16 h-16 text-muted-foreground mb-4" />
-            <h3 className="font-semibold text-lg mb-1">Plugins are disabled</h3>
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Package className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h3 className="font-semibold text-lg mb-1">No plugins installed</h3>
             <p className="text-sm text-muted-foreground max-w-sm">
-              Plugins have been disabled for this server. Enable plugins in the
-              server settings to manage and use plugins.
+              Install plugins to add new features and extend what every
+              server on this instance can do.
             </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {plugins.map((plugin, index) => (
+              <div key={plugin.id}>
+                <PluginItem plugin={plugin} onToggle={handleToggle} />
+                {index < plugins.length - 1 && <Separator className="mt-3" />}
+              </div>
+            ))}
           </div>
         )}
       </CardContent>
@@ -297,4 +311,4 @@ const Plugins = memo(() => {
   );
 });
 
-export { Plugins };
+export { InstancePlugins };

@@ -13,9 +13,9 @@
  * http/federation-member-removed.ts for the receiver).
  *
  * Fire-and-forget: local moderation must never fail because a peer is
- * unreachable. Errors are logged and the relay is not retried — if the
- * peer missed it, the stale rail entry is cosmetic and the user is
- * still locked out here (kick removed membership; ban blocks the WS).
+ * unreachable. The relay goes through the federation outbox, so a peer
+ * that is down receives it when it comes back; meanwhile the user is
+ * already locked out here (kick removed membership; ban blocks the WS).
  */
 
 import { eq } from 'drizzle-orm';
@@ -23,7 +23,7 @@ import { db } from '../db';
 import { federationInstances, servers, users } from '../db/schema';
 import { logger } from '../logger';
 import { config } from '../config';
-import { relayToInstance } from './federation';
+import { enqueueRelay } from './federation-outbox';
 
 async function relayFederatedModeration(
   targetUserId: number,
@@ -74,7 +74,7 @@ async function relayFederatedModeration(
 
     if (!server) return;
 
-    await relayToInstance(instance.domain, '/federation/member-removed', {
+    await enqueueRelay(instance.domain, '/federation/member-removed', {
       subjectPublicId: target.federatedPublicId,
       serverPublicId: server.publicId,
       serverName: server.name,

@@ -16,6 +16,9 @@ const onDmChannelUpdateRoute = userSubscription(ServerEvents.DM_CHANNEL_UPDATE);
 const onDmChannelDeleteRoute = userSubscription(ServerEvents.DM_CHANNEL_DELETE);
 const onDmMemberAddRoute = userSubscription(ServerEvents.DM_MEMBER_ADD);
 const onDmMemberRemoveRoute = userSubscription(ServerEvents.DM_MEMBER_REMOVE);
+const onDmReadStateUpdateRoute = userSubscription(
+  ServerEvents.DM_READ_STATE_UPDATE
+);
 
 export {
   onDmCallDeclinedRoute,
@@ -30,5 +33,6 @@ export {
   onDmMessageDeleteRoute,
   onDmMessageUpdateRoute,
   onDmNewMessageRoute,
+  onDmReadStateUpdateRoute,
   onDmTypingRoute
 };

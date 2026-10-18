@@ -1,6 +1,10 @@
 import { ActivityLogType, DisconnectCode, ServerEvents } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
+import {
+  rotateFileAccessTokens,
+  rotateFileAccessTokensForUser
+} from '../db/mutations/channels';
 import { publishUser } from '../db/publishers';
 import {
   getServerById,
@@ -11,6 +15,8 @@ import { users } from '../db/schema';
 import { enqueueActivityLog } from '../queues/activity-log';
 import { markBanned } from './banned-cache';
 import { relayFederatedModeration } from './federation-moderation-dispatch';
+import { invariant } from './invariant';
+import { announceMemberLeft } from './membership-events';
 import type { Context } from './trpc';
 
 /**
@@ -19,6 +25,24 @@ import type { Context } from './trpc';
  * no-op (returning false) when the target isn't a member, so resolvers
  * can call them on a target who already left.
  */
+
+/**
+ * Owner protection, shared by every server-scoped moderation action
+ * (kick, ban, voice mute/deafen, voice disconnect): the server owner is
+ * never a valid target. MANAGE_USERS is delegated by the owner, and a
+ * delegate who could remove or silence the owner would own the server
+ * in practice.
+ */
+const assertModerationTarget = async (
+  serverId: number,
+  targetUserId: number
+): Promise<void> => {
+  const server = await getServerById(serverId);
+  invariant(!server || server.ownerId !== targetUserId, {
+    code: 'FORBIDDEN',
+    message: 'The server owner cannot be moderated'
+  });
+};
 
 const kickFromServer = async (opts: {
   targetUserId: number;
@@ -31,6 +55,8 @@ const kickFromServer = async (opts: {
   const isMember = await isServerMember(opts.serverId, opts.targetUserId);
   if (!isMember) return false;
 
+  await assertModerationTarget(opts.serverId, opts.targetUserId);
+
   const userConnections = opts.getUserWs(opts.targetUserId);
   if (userConnections) {
     for (const ws of userConnections) {
@@ -39,6 +65,8 @@ const kickFromServer = async (opts: {
   }
 
   await removeServerMember(opts.serverId, opts.targetUserId);
+  // The attachment links they still hold must stop resolving.
+  await rotateFileAccessTokens({ serverId: opts.serverId });
 
   // Include the globally-unique publicId so clients can scope the event —
   // the numeric serverId collides across federated instances.
@@ -68,6 +96,8 @@ const kickFromServer = async (opts: {
     opts.reason
   );
 
+  await announceMemberLeft({ userId: opts.targetUserId, serverId: opts.serverId });
+
   enqueueActivityLog({
     type: ActivityLogType.USER_KICKED,
     userId: opts.targetUserId,
@@ -89,6 +119,8 @@ const banServerMember = async (opts: {
 }): Promise<boolean> => {
   const isMember = await isServerMember(opts.serverId, opts.targetUserId);
   if (!isMember) return false;
+
+  await assertModerationTarget(opts.serverId, opts.targetUserId);
 
   const userConnections = opts.getUserWs(opts.targetUserId);
   if (userConnections) {
@@ -112,6 +144,10 @@ const banServerMember = async (opts: {
   // rejected without a DB round-trip.
   markBanned(opts.targetUserId);
 
+  // A ban is instance-wide: the attachment links they hold from ANY
+  // server they belong to must stop resolving, not only this one's.
+  await rotateFileAccessTokensForUser(opts.targetUserId);
+
   // Two events: a global 'update' so co-members across every shared server
   // see the banned flag flip (e.g. for "this user is banned" indicators),
   // and a server-scoped 'delete' so the active server's user list drops
@@ -127,6 +163,8 @@ const banServerMember = async (opts: {
     opts.reason
   );
 
+  await announceMemberLeft({ userId: opts.targetUserId, serverId: opts.serverId });
+
   enqueueActivityLog({
     type: ActivityLogType.USER_BANNED,
     userId: opts.targetUserId,
@@ -139,4 +177,4 @@ const banServerMember = async (opts: {
   return true;
 };
 
-export { banServerMember, kickFromServer };
+export { assertModerationTarget, banServerMember, kickFromServer };

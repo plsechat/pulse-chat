@@ -1,19 +1,21 @@
-import { serializer } from '@/components/chat-primitives/serializer';
+import { ChatMessageBody } from '@/components/chat-primitives/message-body';
 import { PinBannerShell } from '@/components/chat-primitives/pin-banner-shell';
 import { decryptDmMessages } from '@/features/dms/actions';
 import { useHomeUserById } from '@/features/server/users/hooks';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getHomeTRPCClient } from '@/lib/trpc';
-import type { TJoinedDmMessage } from '@pulse/shared';
-import parse from 'html-react-parser';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import type { TJoinedDmMessage } from '@pulse/server/types';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { onAppEvent } from '@/lib/events';
 
 /**
  * DM equivalent of the channel `PinBanner`. Owns the DM data flow
  * (`dms.getPinned`, `dm-pinned-messages-changed`) and renders the
- * latest pinned message through DM's own legacy-html serializer
- * pipeline. Layout, animation, and width-clamping behavior are
+ * latest pinned message through the shared `ChatMessageBody` in
+ * compact mode — the same legacy-HTML → DOMPurify → serializer and
+ * token → TokenContentRenderer pipeline every message body uses
+ * (audit A8-16: this banner used to hand raw content to an HTML
+ * parser). Layout, animation, and width-clamping behavior are
  * provided by the shared `PinBannerShell`.
  */
 const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
@@ -57,18 +59,9 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
   // roster while a federated server is active.
   const author = useHomeUserById(latest?.userId ?? -1);
 
-  // DM messages can be either tiptap-style HTML (legacy) or token JSON.
-  // Mirror DmPinnedMessageItem's approach: parse + serializer for
-  // expanded body. Plain-text strip is always safe.
-  const expandedNode = useMemo(() => {
-    if (!latest?.content) return null;
-    return parse(latest.content, {
-      replace: (domNode) => serializer(domNode, () => {})
-    });
-  }, [latest?.content]);
-
   if (!latest) return null;
 
+  // Plain-text strip is format-aware (legacy HTML and tokens).
   const previewText = latest.content
     ? stripToPlainText(latest.content)
     : latest.files && latest.files.length > 0
@@ -82,7 +75,7 @@ const DmPinBanner = memo(({ dmChannelId }: { dmChannelId: number }) => {
       expanded={expanded}
       onToggleExpanded={() => setExpanded((e) => !e)}
       expandedContent={
-        <div className="msg-content">{expandedNode}</div>
+        <ChatMessageBody message={latest} homeScope compact />
       }
     />
   );

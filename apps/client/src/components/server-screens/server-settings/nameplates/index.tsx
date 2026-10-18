@@ -18,7 +18,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFiles } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedNameplate } from '@pulse/shared';
+import type { TJoinedNameplate } from '@pulse/server/types';
 import { Trash2, Upload } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -39,7 +39,12 @@ const PackRow = memo(({ pack, instanceDomain, onDelete }: TPackRowProps) => (
     />
     <div className="relative flex h-full items-center justify-between px-3">
       <span className="text-sm font-medium truncate">{pack.name}</span>
-      <Button size="icon" variant="ghost" onClick={() => onDelete(pack)}>
+      <Button
+        size="icon"
+        variant="ghost"
+        onClick={() => onDelete(pack)}
+        aria-label={`Delete nameplate ${pack.name}`}
+      >
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>

@@ -33,8 +33,14 @@ export function _resetBundleFetchRateLimit(): void {
   bundleRateLimitBuckets.clear();
 }
 
-export function _tryConsumeBundleFetchToken(publicId: string): boolean {
-  const now = Date.now();
+/**
+ * `now` is injectable so tests can advance the clock instead of
+ * sleeping through the refill interval; callers never pass it.
+ */
+export function _tryConsumeBundleFetchToken(
+  publicId: string,
+  now: number = Date.now()
+): boolean {
   let bucket = bundleRateLimitBuckets.get(publicId);
   if (!bucket) {
     bucket = {

@@ -8,36 +8,40 @@ import { usePreviewMode } from '@/features/server/hooks';
 import { useDismissOnOutsideClick } from '@/hooks/use-dismiss-on-outside-click';
 import { useViewportAtLeast } from '@/hooks/use-viewport-breakpoint';
 import { cn } from '@/lib/utils';
-import { Hash, LayoutList, List, Lock, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
+import { CalendarClock, Hash, LayoutList, List, Lock, Megaphone, PanelRight, PanelRightClose, Pin, Search, Volume2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SearchPopover } from '../search/search-popover';
 import { Tooltip } from '../ui/tooltip';
 import { NotificationDropdown } from './notification-dropdown';
 import { PinnedMessagesPanel } from './pinned-messages-panel';
+import { ScheduledPostsPopover } from './scheduled-posts-popover';
 import { ThreadListPopover } from './thread-list-popover';
 import { VolumeController } from './volume-controller';
 
 type TTopBarProps = {
   onToggleRightSidebar: () => void;
+  /** Below `lg` the members panel is an overlay drawer (the server view
+   *  owns its state); the same button opens that instead. */
+  onToggleMobileMembers?: () => void;
   isOpen: boolean;
 };
 
 const TopBar = memo(
-  ({ onToggleRightSidebar, isOpen }: TTopBarProps) => {
+  ({ onToggleRightSidebar, onToggleMobileMembers, isOpen }: TTopBarProps) => {
     const isCurrentVoiceChannelSelected = useIsCurrentVoiceChannelSelected();
     const currentVoiceChannelId = useCurrentVoiceChannelId();
     const selectedChannel = useSelectedChannel();
     const previewMode = usePreviewMode();
     // The members sidebar uses lg:relative — below 1024px it slides
-    // off the right edge regardless of the user's preference. The
-    // toggle button stays in the top bar though, so without this flag
-    // it'd silently lie about the state. Track the breakpoint and
-    // grey out the button + clarify the tooltip when sidebar is
-    // unavailable.
+    // off the right edge regardless of the user's preference, and the
+    // top bar is the only members entry point between 768 and 1023px
+    // (the mobile header is md:hidden). Below the breakpoint the same
+    // button toggles the overlay drawer instead of the docked panel.
     const sidebarAvailable = useViewportAtLeast(1024);
     const [showPinned, setShowPinned] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
     const [showThreads, setShowThreads] = useState(false);
+    const [showScheduled, setShowScheduled] = useState(false);
 
     // Dismiss-on-outside-click is anchored to each popover's containing
     // wrapper div (which holds both the toggle button and the popover
@@ -48,12 +52,15 @@ const TopBar = memo(
     const searchWrapperRef = useRef<HTMLDivElement>(null);
     const pinnedWrapperRef = useRef<HTMLDivElement>(null);
     const threadsWrapperRef = useRef<HTMLDivElement>(null);
+    const scheduledWrapperRef = useRef<HTMLDivElement>(null);
     const closeSearch = useCallback(() => setShowSearch(false), []);
     const closePinned = useCallback(() => setShowPinned(false), []);
     const closeThreads = useCallback(() => setShowThreads(false), []);
+    const closeScheduled = useCallback(() => setShowScheduled(false), []);
     useDismissOnOutsideClick(showSearch, searchWrapperRef, closeSearch);
     useDismissOnOutsideClick(showPinned, pinnedWrapperRef, closePinned);
     useDismissOnOutsideClick(showThreads, threadsWrapperRef, closeThreads);
+    useDismissOnOutsideClick(showScheduled, scheduledWrapperRef, closeScheduled);
 
     useEffect(() => {
       const handler = (e: KeyboardEvent) => {
@@ -69,11 +76,17 @@ const TopBar = memo(
     }, []);
 
     return (
-      <div className="app-topbar hidden md:flex h-12 w-full border-b border-border/60 items-center px-4 transition-all duration-300 ease-in-out gap-3">
+      <div className="app-topbar hidden md:flex h-13 w-full border-b border-border/50 items-center px-4 transition-all duration-300 ease-in-out gap-3">
         {/* Channel info on left */}
         {selectedChannel && (
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            {selectedChannel.type === 'TEXT' && (
+            {selectedChannel.type === 'TEXT' && selectedChannel.announcement && (
+              <Megaphone
+                className="h-4 w-4 text-muted-foreground/60 flex-shrink-0"
+                aria-label="Announcement channel"
+              />
+            )}
+            {selectedChannel.type === 'TEXT' && !selectedChannel.announcement && (
               <Hash className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
             )}
             {selectedChannel.type === 'VOICE' && (
@@ -101,8 +114,9 @@ const TopBar = memo(
           </div>
         )}
 
-        {/* Controls on right */}
-        <div className="flex items-center gap-1 ml-auto">
+        {/* Controls on right: one quiet pill so the header reads as a
+            title with a toolbox, not a row of loose icons */}
+        <div className="ml-auto flex items-center gap-0.5 rounded-full bg-secondary/60 p-0.5 ring-1 ring-border/50">
           {isCurrentVoiceChannelSelected && currentVoiceChannelId && (
             <VolumeController channelId={currentVoiceChannelId} />
           )}
@@ -118,6 +132,8 @@ const TopBar = memo(
                     'h-7 px-2 transition-colors duration-150',
                     showSearch && 'bg-accent text-primary'
                   )}
+                  aria-label="Search messages"
+                  aria-expanded={showSearch}
                 >
                   <Tooltip content="Search (Ctrl+K)">
                     <div>
@@ -138,6 +154,8 @@ const TopBar = memo(
                     'h-7 px-2 transition-colors duration-150',
                     showPinned && 'bg-accent text-primary'
                   )}
+                  aria-label="Pinned messages"
+                  aria-expanded={showPinned}
                 >
                   <Tooltip content="Pinned Messages">
                     <div>
@@ -161,6 +179,8 @@ const TopBar = memo(
                     'h-7 px-2 transition-colors duration-150',
                     showThreads && 'bg-accent text-primary'
                   )}
+                  aria-label="Threads"
+                  aria-expanded={showThreads}
                 >
                   <Tooltip content="Threads">
                     <div>
@@ -175,6 +195,34 @@ const TopBar = memo(
                   />
                 )}
               </div>
+              {/* Scheduled messages are a member's own (or a moderator's view) — not a preview surface */}
+              {!previewMode && !selectedChannel.e2ee && (
+                <div className="relative" ref={scheduledWrapperRef}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowScheduled(!showScheduled)}
+                    className={cn(
+                      'h-7 px-2 transition-colors duration-150',
+                      showScheduled && 'bg-accent text-primary'
+                    )}
+                    aria-label="Scheduled messages"
+                    aria-expanded={showScheduled}
+                  >
+                    <Tooltip content="Scheduled messages">
+                      <div>
+                        <CalendarClock className={cn('w-4 h-4', showScheduled && 'text-primary')} />
+                      </div>
+                    </Tooltip>
+                  </Button>
+                  {showScheduled && (
+                    <ScheduledPostsPopover
+                      channelId={selectedChannel.id}
+                      onClose={closeScheduled}
+                    />
+                  )}
+                </div>
+              )}
               {/* Notification prefs are member-scoped — meaningless in preview */}
               {!previewMode && (
                 <NotificationDropdown channelId={selectedChannel.id} />
@@ -187,15 +235,22 @@ const TopBar = memo(
             <Button
               variant="ghost"
               size="sm"
-              onClick={onToggleRightSidebar}
-              disabled={!sidebarAvailable}
-              className={cn(
-                'h-7 px-2 transition-colors duration-150',
-                !sidebarAvailable && 'opacity-50 cursor-not-allowed'
-              )}
+              onClick={
+                sidebarAvailable
+                  ? onToggleRightSidebar
+                  : (onToggleMobileMembers ?? onToggleRightSidebar)
+              }
+              className="h-7 px-2 transition-colors duration-150"
+              title={
+                !sidebarAvailable
+                  ? 'Open Members'
+                  : isOpen
+                    ? 'Close Members Sidebar'
+                    : 'Open Members Sidebar'
+              }
             >
               {!sidebarAvailable ? (
-                <Tooltip content="Members panel (unavailable — make the window wider)">
+                <Tooltip content="Open Members">
                   <div>
                     <PanelRight className="w-4 h-4" />
                   </div>

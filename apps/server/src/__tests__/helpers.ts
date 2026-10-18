@@ -44,7 +44,7 @@ const initTest = async (userId: number = 1) => {
   const { caller, mockedToken, ctx } = await getCaller(userId);
   const { handshakeHash } = await caller.others.handshake();
 
-  const initialData = await caller.others.joinServer({
+  const initialData = await caller.others.openSession({
     handshakeHash: handshakeHash
   });
 
@@ -64,6 +64,96 @@ const login = async (email: string, password: string, invite?: string) =>
     })
   });
 
+type Caller = ReturnType<typeof appRouter.createCaller>;
+
+type SubscriptionSource<T> =
+  | {
+      subscribe: (observer: {
+        next: (value: T) => void;
+        error?: (err: unknown) => void;
+        complete?: () => void;
+      }) => { unsubscribe: () => void };
+    }
+  | AsyncIterable<T>;
+
+/**
+ * Subscribe to `caller.<ns>.<route>()`, run `trigger`, and resolve the
+ * first event the subscription yields — the one-line shape for the
+ * `on*` routes. The listener is registered BEFORE the trigger runs
+ * (pubsub.subscribeFor registers synchronously), and the subscription
+ * is torn down afterwards so a listener never leaks into the next
+ * test. Rejects when nothing arrives within `timeoutMs` (default 2 s),
+ * so a route that publishes to the wrong user fails loudly instead of
+ * hanging the file.
+ */
+const firstSubscriptionEvent = async <T = unknown>(
+  caller: Caller,
+  ns: keyof Caller & string,
+  route: string,
+  trigger: () => unknown,
+  opts: { input?: unknown; timeoutMs?: number } = {}
+): Promise<T> => {
+  const namespace = (caller as unknown as Record<string, Record<string, unknown>>)[
+    ns
+  ];
+  const procedure = namespace?.[route];
+  if (typeof procedure !== 'function') {
+    throw new Error(`No subscription procedure ${ns}.${route}`);
+  }
+
+  const source = (await procedure(opts.input)) as SubscriptionSource<T>;
+  const timeoutMs = opts.timeoutMs ?? 2_000;
+  let unsubscribe: (() => void) | undefined;
+
+  const first = new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(`${ns}.${route} yielded no event within ${timeoutMs}ms`)
+        ),
+      timeoutMs
+    );
+    const settle = <R>(fn: (v: R) => void) => (v: R) => {
+      clearTimeout(timer);
+      fn(v);
+    };
+
+    if ('subscribe' in source && typeof source.subscribe === 'function') {
+      const sub = source.subscribe({
+        next: settle(resolve),
+        error: settle(reject)
+      });
+      unsubscribe = () => sub.unsubscribe();
+      return;
+    }
+
+    if (Symbol.asyncIterator in source) {
+      const iterator = source[Symbol.asyncIterator]();
+      iterator.next().then(
+        settle((result: IteratorResult<T>) => {
+          if (result.done) reject(new Error(`${ns}.${route} ended early`));
+          else resolve(result.value);
+        }),
+        settle(reject)
+      );
+      unsubscribe = () => {
+        void iterator.return?.();
+      };
+      return;
+    }
+
+    clearTimeout(timer);
+    reject(new Error(`${ns}.${route} is not a subscription`));
+  });
+
+  try {
+    await trigger();
+    return await first;
+  } finally {
+    unsubscribe?.();
+  }
+};
+
 const uploadFile = async (file: File, token: string) =>
   fetch(`${testsBaseUrl}/upload`, {
     method: 'POST',
@@ -77,4 +167,29 @@ const uploadFile = async (file: File, token: string) =>
     body: file
   });
 
-export { getCaller, getMockedToken, initTest, login, uploadFile };
+/**
+ * Poll a condition (bounded) instead of pausing a fixed time: fan-out
+ * and federation relays are fire-and-forget, and a loaded CI runner
+ * overruns any fixed pause. Returns once the condition holds or the
+ * budget is spent; the caller's assertion then reports the state.
+ */
+const waitUntil = async (
+  condition: () => boolean | Promise<boolean>,
+  { timeoutMs = 3000, stepMs = 10 } = {}
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() >= deadline) return;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+};
+
+export {
+  firstSubscriptionEvent,
+  getCaller,
+  getMockedToken,
+  initTest,
+  login,
+  uploadFile,
+  waitUntil
+};

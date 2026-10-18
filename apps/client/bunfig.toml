@@ -1,0 +1,6 @@
+[test]
+# happy-dom supplies window/document/localStorage for lib code that touches
+# the DOM (tiptap converters, preference-store, use-chat-scroll); the
+# fake-indexeddb shim is loaded after it so the e2ee store tests keep a
+# working indexedDB. See src/__tests__/preload.ts and register-dom.ts.
+preload = ["./src/__tests__/preload.ts"]

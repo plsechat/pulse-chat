@@ -1,28 +1,28 @@
-import { ServerEvents } from '@pulse/shared';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { consumeInvite, releaseInvite } from '../../db/queries/invites';
 import { getDefaultRoleForServer } from '../../db/queries/roles';
 import {
   addServerMember,
   getServerById,
-  getServerMemberIds,
   getServersByUserId,
   isServerMember
 } from '../../db/queries/servers';
-import { getPublicUserById } from '../../db/queries/users';
 import { invites, userRoles } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
+import { announceMemberJoin } from '../../utils/membership-events';
 import { protectedProcedure } from '../../utils/trpc';
 
+// Membership join by invite code (servers.joinByInvite). Opening the
+// joined server on this socket is a separate others.openSession call.
 const joinServerByInviteRoute = protectedProcedure
   .input(
     z.object({
-      inviteCode: z.string().min(1)
+      inviteCode: z.string().min(1).max(64)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    // Find invite
     const [invite] = await db
       .select()
       .from(invites)
@@ -34,33 +34,15 @@ const joinServerByInviteRoute = protectedProcedure
       message: 'Invalid invite code'
     });
 
-    // Check expiry
     if (invite.expiresAt && invite.expiresAt < Date.now()) {
       ctx.throwValidationError('inviteCode', 'This invite has expired');
     }
 
-    // Atomically increment uses and check max uses in one query
-    if (invite.maxUses) {
-      const [updated] = await db
-        .update(invites)
-        .set({ uses: sql`${invites.uses} + 1` })
-        .where(
-          and(
-            eq(invites.id, invite.id),
-            or(
-              sql`${invites.maxUses} IS NULL`,
-              sql`${invites.uses} < ${invites.maxUses}`
-            )
-          )
-        )
-        .returning();
-
-      if (!updated) {
-        ctx.throwValidationError(
-          'inviteCode',
-          'This invite has reached its maximum uses'
-        );
-      }
+    if (invite.maxUses && invite.uses >= invite.maxUses) {
+      ctx.throwValidationError(
+        'inviteCode',
+        'This invite has reached its maximum uses'
+      );
     }
 
     const server = await getServerById(invite.serverId);
@@ -70,69 +52,63 @@ const joinServerByInviteRoute = protectedProcedure
       message: 'Server not found'
     });
 
-    // Check if already a member
-    const alreadyMember = await isServerMember(server.id, ctx.userId);
-
-    if (alreadyMember) {
-      // Already a member, just return server summary
+    // Already a member: nothing to consume, just return the summary.
+    if (await isServerMember(server.id, ctx.userId)) {
       const servers = await getServersByUserId(ctx.userId);
       return servers.find((s) => s.id === server.id)!;
     }
 
-    // Check if server allows new users
+    // Every refusal happens BEFORE a use is consumed — joining a closed
+    // server used to burn a use of a max-uses invite and then fail.
     invariant(server.allowNewUsers, {
       code: 'FORBIDDEN',
       message: 'This server is not accepting new members'
     });
 
-    // Add member
-    await addServerMember(server.id, ctx.userId, invite.id);
-
-    // Assign default role
-    const defaultRole = await getDefaultRoleForServer(server.id);
-    if (defaultRole) {
-      await db
-        .insert(userRoles)
-        .values({
-          userId: ctx.userId,
-          roleId: defaultRole.id,
-          createdAt: Date.now()
-        })
-        .onConflictDoNothing();
+    // One conditional UPDATE: the expiry / max-uses check and the
+    // increment are atomic, so two joins racing for the last use cannot
+    // both pass.
+    const consumed = await consumeInvite(invite.code);
+    if (!consumed) {
+      ctx.throwValidationError(
+        'inviteCode',
+        'This invite has reached its maximum uses'
+      );
     }
 
-    // Increment invite uses (only if not already incremented by the atomic maxUses check)
-    if (!invite.maxUses) {
-      await db
-        .update(invites)
-        .set({ uses: sql`${invites.uses} + 1` })
-        .where(eq(invites.id, invite.id));
+    try {
+      await addServerMember(server.id, ctx.userId, invite.id);
+
+      const defaultRole = await getDefaultRoleForServer(server.id);
+      if (defaultRole) {
+        await db
+          .insert(userRoles)
+          .values({
+            userId: ctx.userId,
+            roleId: defaultRole.id,
+            createdAt: Date.now()
+          })
+          .onConflictDoNothing();
+      }
+    } catch (err) {
+      // The join did not go through — give the use back.
+      await releaseInvite(invite.code);
+      throw err;
     }
 
-    // Publish event
     const servers = await getServersByUserId(ctx.userId);
     const summary = servers.find((s) => s.id === server.id)!;
 
-    ctx.pubsub.publishFor(ctx.userId, ServerEvents.SERVER_MEMBER_JOIN, {
-      serverId: server.id,
+    // One fan-out to every member: the joiner's rail entry and the
+    // existing members' roster add (they see the new user without
+    // waiting for their first session on the server).
+    await announceMemberJoin({
+      pubsub: ctx.pubsub,
+      server,
       userId: ctx.userId,
-      server: summary
+      username: ctx.user.name,
+      summary
     });
-
-    // Notify existing members so they see the new user in the member list
-    const memberIds = await getServerMemberIds(server.id);
-    const publicUser = await getPublicUserById(ctx.userId);
-    if (publicUser) {
-      ctx.pubsub.publishFor(
-        memberIds.filter((id) => id !== ctx.userId),
-        ServerEvents.USER_JOIN,
-        {
-          serverId: server.id,
-          serverPublicId: server.publicId,
-          user: publicUser
-        }
-      );
-    }
 
     return summary;
   });

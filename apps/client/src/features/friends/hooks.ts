@@ -5,7 +5,6 @@ import { ownUserIdSelector } from '../server/users/selectors';
 import {
   blockedUsersSelector,
   friendRequestsSelector,
-  friendsLoadingSelector,
   friendsSelector
 } from './selectors';
 
@@ -13,7 +12,6 @@ export const useFriends = () => useSelector(friendsSelector);
 
 export const useFriendRequests = () => useSelector(friendRequestsSelector);
 
-export const useFriendsLoading = () => useSelector(friendsLoadingSelector);
 
 export const useBlockedUsers = () => useSelector(blockedUsersSelector);
 

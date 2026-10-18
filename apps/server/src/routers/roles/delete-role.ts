@@ -2,28 +2,24 @@ import { ActivityLogType, Permission } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { rotateFileAccessTokens } from '../../db/mutations/channels';
 import { fallbackUsersToDefaultRole } from '../../db/mutations/users';
 import { publishRole } from '../../db/publishers';
 import { getRole } from '../../db/queries/roles';
 import { roles } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
+import { assertCanManageRole, getRoleCeiling } from './_hierarchy';
+import { invalidateAllPermissionCaches } from '../../utils/permission-cache-registry';
 
-const deleteRoleRoute = protectedProcedure
+const deleteRoleRoute = serverProcedure(Permission.MANAGE_ROLES)
   .input(
     z.object({
-      roleId: z.number()
+      roleId: z.number().int().positive()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_ROLES);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const role = await getRole(input.roleId);
 
     invariant(role, {
@@ -44,9 +40,16 @@ const deleteRoleRoute = protectedProcedure
       message: 'Cannot delete the default role'
     });
 
-    await fallbackUsersToDefaultRole(role.id);
+    const ceiling = await getRoleCeiling(ctx.userId, ctx.activeServerId);
+    assertCanManageRole(ceiling, role);
+
+    await fallbackUsersToDefaultRole(role.id, role.serverId);
     await db.delete(roles).where(eq(roles.id, role.id));
 
+    invalidateAllPermissionCaches();
+    // A role change can take a private channel away from its holders:
+    // re-key every private channel's attachment URLs in this server.
+    await rotateFileAccessTokens({ serverId: ctx.activeServerId });
     publishRole(role.id, 'delete', role.serverId);
     enqueueActivityLog({
       type: ActivityLogType.DELETED_ROLE,

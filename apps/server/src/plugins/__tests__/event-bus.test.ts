@@ -205,7 +205,8 @@ describe('event-bus', () => {
 
       await eventBus.emit('user:joined', {
         userId: 1,
-        username: 'testuser'
+        username: 'testuser',
+        serverId: 1
       });
 
       expect(handler).toHaveBeenCalledTimes(1);

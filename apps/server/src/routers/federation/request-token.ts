@@ -8,7 +8,7 @@ import { protectedProcedure } from '../../utils/trpc';
 const requestTokenRoute = protectedProcedure
   .input(
     z.object({
-      targetDomain: z.string()
+      targetDomain: z.string().min(1).max(253)
     })
   )
   .mutation(async ({ ctx, input }) => {

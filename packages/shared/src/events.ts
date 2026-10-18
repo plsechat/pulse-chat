@@ -5,7 +5,9 @@ export enum ServerEvents {
   MESSAGE_BULK_DELETE = "messageBulkDelete",
   MESSAGE_TYPING = "messageTyping",
 
-  USER_JOIN = "userJoin",
+  // A user's client session connected to (bootstrapped) a server it is
+  // already a member of. Becoming a member is SERVER_MEMBER_JOIN.
+  USER_CONNECTED = "userConnected",
   USER_LEAVE = "userLeave",
 
   CHANNEL_CREATE = "channelCreate",
@@ -63,6 +65,7 @@ export enum ServerEvents {
   DM_CALL_USER_LEFT = "dmCallUserLeft",
   DM_CALL_DECLINED = "dmCallDeclined",
   DM_MESSAGE_TYPING = "dmMessageTyping",
+  DM_READ_STATE_UPDATE = "dmReadStateUpdate",
 
   SERVER_MEMBER_JOIN = "serverMemberJoin",
   SERVER_MEMBER_LEAVE = "serverMemberLeave",
@@ -91,6 +94,42 @@ export enum ServerEvents {
   USER_KICKED = "userKicked",
 
   USER_BLOCK_CHANGED = "userBlockChanged",
+
+  // Scheduled community events (raid planner). CREATE/UPDATE carry the
+  // event row, DELETE is a cancellation, SIGNUPS_UPDATE carries the new
+  // roster counts, REMINDER goes to the signed-up members at 24 h / 1 h
+  // / start.
+  EVENT_CREATE = "eventCreate",
+  EVENT_UPDATE = "eventUpdate",
+  EVENT_DELETE = "eventDelete",
+  EVENT_SIGNUPS_UPDATE = "eventSignupsUpdate",
+  EVENT_REMINDER = "eventReminder",
+
+  // Community import: the job's owner receives the whole job view after
+  // every persisted page so the wizard can show live progress and
+  // resume where it left off.
+  IMPORT_PROGRESS = "importProgress",
+
+  // Polls: every viewer of the channel receives the poll's counts (and
+  // voter ids when the poll is not anonymous) after a vote, unvote or
+  // close — the card redraws its bars from this alone.
+  POLL_UPDATE = "pollUpdate",
+  // A scheduled post of the channel was created, sent or cancelled; the
+  // Scheduled list refetches (the list route decides what the viewer
+  // may see).
+  SCHEDULED_POST_UPDATE = "scheduledPostUpdate",
+  // The follow relations of a channel changed (followed, unfollowed, a
+  // remote follower attached); the Follows tab refetches.
+  CHANNEL_FOLLOWS_UPDATE = "channelFollowsUpdate",
+
+  // Soundboard: the sound list of a server changed (members refetch /
+  // patch their grid); VOICE_SOUND_PLAY is ROOM-scoped (the runtime key,
+  // like VOICE_NEW_PRODUCER) — every client in that voice room plays the
+  // clip locally and shows the ripple on the player's tile.
+  SOUND_CREATE = "soundCreate",
+  SOUND_UPDATE = "soundUpdate",
+  SOUND_DELETE = "soundDelete",
+  VOICE_SOUND_PLAY = "voiceSoundPlay",
 }
 
 export type TNewMessage = {

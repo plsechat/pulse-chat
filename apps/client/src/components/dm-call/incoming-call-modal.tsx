@@ -1,12 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/user-avatar';
-import { setActiveView } from '@/features/app/actions';
-import { dismissRingingCall, joinDmVoiceCall } from '@/features/dms/actions';
+import {
+  dismissRingingCall,
+  joinDmVoiceCall,
+  navigateToDm
+} from '@/features/dms/actions';
 import { useDmChannels, useRingingCalls } from '@/features/dms/hooks';
 import { playSound } from '@/features/server/sounds/actions';
 import { SoundType } from '@/features/server/types';
-import { useOwnUserId } from '@/features/server/users/hooks';
-import { LocalStorageKey, setLocalStorageItem } from '@/helpers/storage';
+import { useHomeOwnUserId } from '@/features/server/users/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useVoice } from '@/features/server/voice/hooks';
 import { getHomeTRPCClient } from '@/lib/trpc';
@@ -14,7 +16,6 @@ import { Phone, PhoneOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useOutgoingCallTimeout } from './use-outgoing-call-timeout';
-import { emitAppEvent } from '@/lib/events';
 
 const RING_INTERVAL_MS = 2500;
 
@@ -59,7 +60,9 @@ IncomingCallModal.displayName = 'IncomingCallModal';
 const IncomingCallContent = memo(
   ({ dmChannelId }: { dmChannelId: number }) => {
     const channels = useDmChannels();
-    const ownUserId = useOwnUserId();
+    // DM member ids are HOME ids; the ambient id is a remote shadow id
+    // while a federated server is active and would list us as the caller.
+    const ownUserId = useHomeOwnUserId();
     const { init } = useVoice();
     const [accepting, setAccepting] = useState(false);
 
@@ -106,19 +109,8 @@ const IncomingCallContent = memo(
       setAccepting(true);
       try {
         // Land on the DM view first so the user sees the conversation
-        // they just accepted into. HomeView reads ACTIVE_DM_CHANNEL_ID
-        // from local storage on mount; we set it before flipping the
-        // active view so the route lands in the right DM.
-        setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
-        setLocalStorageItem(
-          LocalStorageKey.ACTIVE_DM_CHANNEL_ID,
-          String(dmChannelId)
-        );
-        // Tell HomeView (already mounted) to switch — the local state
-        // there is the source of truth for which DM is rendered, so
-        // localStorage alone wouldn't trigger a re-render.
-        emitAppEvent('dm-navigate', { dmChannelId });
-        setActiveView('home');
+        // they just accepted into.
+        await navigateToDm(dmChannelId);
 
         const result = await joinDmVoiceCall(dmChannelId);
         if (result) {

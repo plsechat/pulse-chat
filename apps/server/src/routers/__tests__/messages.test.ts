@@ -1,22 +1,45 @@
-import { ChannelType } from '@pulse/shared';
-import { describe, expect, test } from 'bun:test';
+import {
+  ChannelPermission,
+  ChannelType,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  ServerEvents
+} from '@pulse/shared';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { randomUUIDv7 } from 'bun';
 import { eq } from 'drizzle-orm';
+import {
+  createEmptyTextChannel,
+  createTestChannel,
+  insertOtherServer
+} from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { channels, messages, userRoles } from '../../db/schema';
+import { countQueries } from '../../__tests__/query-count';
+import { publishMessage } from '../../db/publishers';
+import {
+  channelReadStates,
+  channelUserPermissions,
+  channels,
+  messages,
+  serverMembers,
+  userRoles,
+  users
+} from '../../db/schema';
+import { pubsub } from '../../utils/pubsub';
+import {
+  isTypingSignalRateLimited,
+  TYPING_SIGNAL_MIN_INTERVAL_MS
+} from '../messages/signal-typing';
 
-// Exact-count tests need a TEXT channel with no seeded messages: channel 1
-// carries a seed message, and channel 2 is the seeded VOICE channel, which
-// no longer accepts messages. Called inside each test (not beforeEach) so
-// it doesn't compete with the global per-test TRUNCATE.
-const createEmptyTextChannel = async (name: string) => {
+/** A private TEXT channel in the bootstrap server with no override rows. */
+const insertPrivateChannel = async (name: string) => {
   const [channel] = await getTestDb()
     .insert(channels)
     .values({
       type: ChannelType.TEXT,
       name,
-      position: 50,
+      position: 70,
+      private: true,
       fileAccessToken: randomUUIDv7(),
       fileAccessTokenUpdatedAt: Date.now(),
       publicId: randomUUIDv7(),
@@ -25,10 +48,29 @@ const createEmptyTextChannel = async (name: string) => {
       createdAt: Date.now()
     })
     .returning();
-
   return channel!;
 };
 
+/** Grant one channel permission to a user on a private channel. */
+const grantChannelPermission = (
+  channelId: number,
+  userId: number,
+  permission: ChannelPermission
+) =>
+  getTestDb()
+    .insert(channelUserPermissions)
+    .values({
+      channelId,
+      userId,
+      permission,
+      allow: true,
+      createdAt: Date.now()
+    });
+
+// Exact-count tests need a TEXT channel with no seeded messages: channel 1
+// carries a seed message, and channel 2 is the seeded VOICE channel, which
+// no longer accepts messages. Called inside each test (not beforeEach) so
+// it doesn't compete with the global per-test TRUNCATE.
 describe('messages router', () => {
   test('should throw when user lacks permissions (edit - not own message)', async () => {
     const { caller: caller1 } = await initTest(1);
@@ -294,16 +336,18 @@ describe('messages router', () => {
       messageId
     });
 
+    // A deletion leaves a tombstone: the row stays in the list, in
+    // place, with its content gone and the deletion recorded.
     const messagesAfter = await caller.messages.get({
       channelId: 1,
       cursor: null,
       limit: 50
     });
 
-    expect(
-      messagesAfter.messages.find((m) => m.id === messageId)
-    ).toBeUndefined();
-    expect(messagesAfter.messages.length).toBe(messageCountBefore - 1);
+    const tombstone = messagesAfter.messages.find((m) => m.id === messageId);
+    expect(tombstone).toMatchObject({ content: null, deletedBy: 1 });
+    expect(tombstone!.deletedAt).toBeGreaterThan(0);
+    expect(messagesAfter.messages.length).toBe(messageCountBefore);
   });
 
   test('should allow admin to delete any message', async () => {
@@ -334,9 +378,10 @@ describe('messages router', () => {
       limit: 50
     });
 
+    // The admin's deletion is recorded on the tombstone.
     expect(
       messagesAfter.messages.find((m) => m.id === messageId)
-    ).toBeUndefined();
+    ).toMatchObject({ content: null, userId: 2, deletedBy: 1 });
   });
 
   test('should throw when editing non-existing message', async () => {
@@ -394,7 +439,8 @@ describe('messages router', () => {
 
     expect(messageWithReaction!.reactions).toBeDefined();
     expect(messageWithReaction!.reactions.length).toBe(1);
-    expect(messageWithReaction!.reactions[0]!.emoji).toBe('👍');
+    // Stored by shortcode, whatever spelling the client sent.
+    expect(messageWithReaction!.reactions[0]!.emoji).toBe('+1');
     expect(messageWithReaction!.reactions[0]!.userId).toBe(1);
 
     await caller.messages.toggleReaction({
@@ -456,8 +502,8 @@ describe('messages router', () => {
 
     const emojis = messageWithReactions!.reactions.map((r) => r.emoji);
 
-    expect(emojis).toContain('👍');
-    expect(emojis).toContain('❤️');
+    expect(emojis).toContain('+1');
+    expect(emojis).toContain('heart');
   });
 
   test('should allow multiple different reactions on the same message', async () => {
@@ -506,9 +552,35 @@ describe('messages router', () => {
 
     const emojis = messageWithReactions!.reactions.map((r) => r.emoji);
 
-    expect(emojis).toContain('👍');
-    expect(emojis).toContain('❤️');
-    expect(emojis).toContain('😂');
+    expect(emojis).toContain('+1');
+    expect(emojis).toContain('heart');
+    expect(emojis).toContain('joy');
+  });
+
+  test('every spelling of a reaction lands on one stored row: glyph, :token:, name; custom names stay bare', async () => {
+    const { caller } = await initTest();
+
+    await caller.messages.send({ channelId: 1, content: 'Spellings', files: [] });
+    const messageId = (await caller.messages.get({ channelId: 1, cursor: null, limit: 1 })).messages[0]!.id;
+    const reactionsOf = async () =>
+      (await caller.messages.get({ channelId: 1, cursor: null, limit: 1 })).messages[0]!.reactions.map((r) => r.emoji);
+
+    // The glyph adds `+1`; the token form toggles the SAME row off; the name adds it back.
+    await caller.messages.toggleReaction({ messageId, emoji: '👍' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    await caller.messages.toggleReaction({ messageId, emoji: ':+1:' });
+    expect(await reactionsOf()).toEqual([]);
+    await caller.messages.toggleReaction({ messageId, emoji: '+1' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    // The variation selector does not make a different heart.
+    await caller.messages.toggleReaction({ messageId, emoji: '❤️' });
+    await caller.messages.toggleReaction({ messageId, emoji: '❤' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    // A custom emoji token is stored by its bare name (the emoji table is keyed on it).
+    await caller.messages.toggleReaction({ messageId, emoji: ':pogchamp:' });
+    expect(await reactionsOf()).toEqual(['+1', 'pogchamp']);
+    // What is left after normalizing must still be something.
+    await expect(caller.messages.toggleReaction({ messageId, emoji: '   ' })).rejects.toThrow();
   });
 
   test('should send multiple messages', async () => {
@@ -670,11 +742,16 @@ describe('messages router', () => {
       limit: 50
     });
 
-    expect(after.messages.length).toBe(baselineCount + 2);
+    // Tombstones: the rows stay, marked, and the others are untouched.
+    expect(after.messages.length).toBe(baselineCount + 5);
 
     for (const id of idsToDelete) {
-      expect(after.messages.find((m) => m.id === id)).toBeUndefined();
+      expect(after.messages.find((m) => m.id === id)).toMatchObject({
+        content: null,
+        deletedBy: 1
+      });
     }
+    expect(after.messages.filter((m) => m.deletedAt == null)).toHaveLength(baselineCount + 2);
   });
 
   test('should reject bulk delete without MANAGE_MESSAGES permission', async () => {
@@ -861,6 +938,473 @@ describe('messages router', () => {
           forwardedFrom: { sourceKind: 'channel', sourceId: 999999 }
         })
       ).rejects.toThrow('Source message not found');
+    });
+  });
+
+  describe('reply validation', () => {
+    test('a reply must target a message in the same channel', async () => {
+      const { caller: owner } = await initTest(1);
+      const { caller: member } = await initTest(2);
+      const secret = await insertPrivateChannel('reply-secret');
+
+      const secretId = await owner.messages.send({
+        channelId: secret.id,
+        content: 'private text'
+      });
+
+      // From #general, a member references the private message by id.
+      await expect(
+        member.messages.send({
+          channelId: 1,
+          content: 'quoting you',
+          replyToId: secretId
+        })
+      ).rejects.toThrow('Reply target not found in this channel');
+
+      await expect(
+        member.messages.send({
+          channelId: 1,
+          content: 'quoting nothing',
+          replyToId: 999999
+        })
+      ).rejects.toThrow('Reply target not found in this channel');
+
+      // Same-channel reply works and the preview resolves.
+      const target = await member.messages.send({
+        channelId: 1,
+        content: 'target'
+      });
+      const replyId = await member.messages.send({
+        channelId: 1,
+        content: 'reply',
+        replyToId: target
+      });
+      const page = await member.messages.get({ channelId: 1, limit: 10 });
+      const reply = page.messages.find((m) => m.id === replyId);
+      expect(reply!.replyTo?.content).toBe('target');
+    });
+  });
+
+  describe('pagination bounds', () => {
+    test('limit above 100 and non-integer cursors are rejected', async () => {
+      const { caller } = await initTest(1);
+
+      await expect(
+        caller.messages.get({ channelId: 1, limit: 101 })
+      ).rejects.toThrow();
+      await expect(
+        caller.messages.get({ channelId: 1, limit: 0 })
+      ).rejects.toThrow();
+      await expect(
+        caller.messages.get({ channelId: 1, cursor: 1.5 })
+      ).rejects.toThrow();
+      await expect(
+        caller.messages.get({ channelId: 1, aroundId: 0 })
+      ).rejects.toThrow();
+
+      const ok = await caller.messages.get({ channelId: 1, limit: 100 });
+      expect(Array.isArray(ok.messages)).toBe(true);
+    });
+  });
+
+  describe('encryption flag symmetry', () => {
+    test('an encrypted send into a plaintext channel is rejected', async () => {
+      const { caller } = await initTest(1);
+
+      await expect(
+        caller.messages.send({
+          channelId: 1,
+          content: 'ciphertext',
+          e2ee: true
+        })
+      ).rejects.toThrow('not encrypted');
+    });
+
+    test('a plaintext send into an encrypted channel is rejected', async () => {
+      const { caller } = await initTest(1);
+      const e2eeChannel = await createTestChannel({ serverId: 1, e2ee: true });
+
+      await expect(
+        caller.messages.send({
+          channelId: e2eeChannel,
+          content: 'plaintext'
+        })
+      ).rejects.toThrow('This channel requires E2EE messages');
+
+      await caller.messages.send({
+        channelId: e2eeChannel,
+        content: 'ciphertext',
+        e2ee: true
+      });
+    });
+  });
+
+  describe('content caps', () => {
+    test('plaintext is capped at MAX_MESSAGE_CONTENT_LENGTH on send and edit', async () => {
+      const { caller } = await initTest(1);
+      const channel = await createEmptyTextChannel('caps');
+
+      await expect(
+        caller.messages.send({
+          channelId: channel.id,
+          content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1)
+        })
+      ).rejects.toThrow('Message is too long');
+
+      const messageId = await caller.messages.send({
+        channelId: channel.id,
+        content: 'a'.repeat(MAX_MESSAGE_CONTENT_LENGTH)
+      });
+
+      await expect(
+        caller.messages.edit({
+          messageId,
+          content: 'b'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1)
+        })
+      ).rejects.toThrow('Message is too long');
+    });
+
+    test('ciphertext may exceed the plaintext cap up to the wire cap', async () => {
+      const { caller } = await initTest(1);
+      const e2eeChannel = await createTestChannel({ serverId: 1, e2ee: true });
+
+      await caller.messages.send({
+        channelId: e2eeChannel,
+        content: 'c'.repeat(MAX_MESSAGE_CONTENT_LENGTH + 1),
+        e2ee: true
+      });
+    });
+
+    test('attachment list and ids are bounded', async () => {
+      const { caller } = await initTest(1);
+
+      await expect(
+        caller.messages.send({
+          channelId: 1,
+          content: 'x',
+          files: Array.from({ length: 11 }, () => 'temp-id')
+        })
+      ).rejects.toThrow();
+      await expect(
+        caller.messages.send({
+          channelId: 1,
+          content: 'x',
+          files: ['f'.repeat(65)]
+        })
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('pin / unpin / getPinned', () => {
+    test('pin and unpin round-trip through getPinned', async () => {
+      const { caller } = await initTest(1);
+      const channel = await createEmptyTextChannel('pins');
+
+      const messageId = await caller.messages.send({
+        channelId: channel.id,
+        content: 'pin me'
+      });
+
+      await caller.messages.pin({ messageId });
+      await expect(caller.messages.pin({ messageId })).rejects.toThrow(
+        'already pinned'
+      );
+
+      const pinned = await caller.messages.getPinned({ channelId: channel.id });
+      expect(pinned.map((m) => m.id)).toEqual([messageId]);
+      expect(pinned[0]!.pinnedBy).toBe(1);
+
+      await caller.messages.unpin({ messageId });
+      await expect(caller.messages.unpin({ messageId })).rejects.toThrow(
+        'not pinned'
+      );
+      expect(
+        await caller.messages.getPinned({ channelId: channel.id })
+      ).toHaveLength(0);
+    });
+
+    test('pin needs PIN_MESSAGES', async () => {
+      const tdb = getTestDb();
+      const { caller: owner } = await initTest(1);
+      const { caller: member, ctx: memberCtx } = await initTest(2);
+
+      const messageId = await owner.messages.send({
+        channelId: 1,
+        content: 'pin target'
+      });
+
+      await tdb.delete(userRoles).where(eq(userRoles.userId, 2));
+      memberCtx.invalidatePermissionCache();
+
+      await expect(member.messages.pin({ messageId })).rejects.toThrow(
+        'Insufficient permissions'
+      );
+    });
+
+    test('pin/unpin/getPinned need VIEW on a private channel; scope is the server', async () => {
+      const { caller: owner } = await initTest(1);
+      const { caller: member } = await initTest(2);
+      const secret = await insertPrivateChannel('pin-secret');
+
+      const messageId = await owner.messages.send({
+        channelId: secret.id,
+        content: 'hidden'
+      });
+
+      await expect(member.messages.pin({ messageId })).rejects.toThrow(
+        'Insufficient channel permissions'
+      );
+      await expect(
+        member.messages.getPinned({ channelId: secret.id })
+      ).rejects.toThrow('Insufficient channel permissions');
+
+      await owner.messages.pin({ messageId });
+      await expect(member.messages.unpin({ messageId })).rejects.toThrow(
+        'Insufficient channel permissions'
+      );
+
+      // A message in another server reads as not found.
+      const other = await insertOtherServer();
+      const foreignChannel = await createTestChannel({ serverId: other.id });
+      const [foreign] = await getTestDb()
+        .insert(messages)
+        .values({
+          content: 'foreign',
+          userId: 1,
+          channelId: foreignChannel,
+          createdAt: Date.now()
+        })
+        .returning();
+      await expect(
+        owner.messages.pin({ messageId: foreign!.id })
+      ).rejects.toThrow('Message not found');
+    });
+  });
+
+  describe('reactions on private channels', () => {
+    test('reacting needs VIEW on the message channel; emoji is bounded', async () => {
+      const { caller: owner } = await initTest(1);
+      const { caller: member } = await initTest(2);
+      const secret = await insertPrivateChannel('react-secret');
+
+      const messageId = await owner.messages.send({
+        channelId: secret.id,
+        content: 'hidden'
+      });
+
+      await expect(
+        member.messages.toggleReaction({ messageId, emoji: '👍' })
+      ).rejects.toThrow('Insufficient channel permissions');
+
+      await grantChannelPermission(
+        secret.id,
+        2,
+        ChannelPermission.VIEW_CHANNEL
+      );
+      const { caller: viewer } = await initTest(2);
+      await viewer.messages.toggleReaction({ messageId, emoji: '👍' });
+
+      await expect(
+        viewer.messages.toggleReaction({ messageId, emoji: '' })
+      ).rejects.toThrow();
+      await expect(
+        viewer.messages.toggleReaction({ messageId, emoji: 'x'.repeat(65) })
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('signalTyping', () => {
+    afterEach(() => {
+      mock.restore();
+    });
+
+    test('needs channel SEND_MESSAGES and server scope', async () => {
+      const { caller: member } = await initTest(2);
+      const secret = await insertPrivateChannel('typing-secret');
+
+      await expect(
+        member.messages.signalTyping({ channelId: secret.id })
+      ).rejects.toThrow('Insufficient channel permissions');
+
+      const other = await insertOtherServer();
+      const foreignChannel = await createTestChannel({ serverId: other.id });
+      await expect(
+        member.messages.signalTyping({ channelId: foreignChannel })
+      ).rejects.toThrow('Channel not found');
+
+      await expect(
+        member.messages.signalTyping({ channelId: 0 })
+      ).rejects.toThrow();
+    });
+
+    test('the limiter admits one signal per window per (user, channel)', () => {
+      // Injected clock: the floor is measured in the limiter's own time
+      // base, independent of how long the route's queries take.
+      const userId = 987654;
+      const channelId = 123456;
+      const t0 = 1_000_000;
+
+      expect(isTypingSignalRateLimited(userId, channelId, t0)).toBe(false);
+      expect(isTypingSignalRateLimited(userId, channelId, t0 + 1)).toBe(true);
+      expect(
+        isTypingSignalRateLimited(
+          userId,
+          channelId,
+          t0 + TYPING_SIGNAL_MIN_INTERVAL_MS - 1
+        )
+      ).toBe(true);
+      // Keys are per channel and per user: neither neighbour is throttled.
+      expect(isTypingSignalRateLimited(userId, channelId + 1, t0 + 1)).toBe(
+        false
+      );
+      expect(isTypingSignalRateLimited(userId + 1, channelId, t0 + 1)).toBe(
+        false
+      );
+      // The window lapses exactly at the floor.
+      expect(
+        isTypingSignalRateLimited(
+          userId,
+          channelId,
+          t0 + TYPING_SIGNAL_MIN_INTERVAL_MS
+        )
+      ).toBe(false);
+    });
+
+    test('an admitted signal fans out to the channel viewers', async () => {
+      const { caller } = await initTest(1);
+      const channel = await createEmptyTextChannel('typing-fanout');
+
+      // Ids restart between tests, so a previous test may have stamped
+      // this (user, channel) key moments ago — let the window lapse.
+      await Bun.sleep(TYPING_SIGNAL_MIN_INTERVAL_MS);
+
+      const publishFor = spyOn(pubsub, 'publishFor');
+      await caller.messages.signalTyping({ channelId: channel.id });
+
+      const typing = publishFor.mock.calls.filter(
+        (c) => c[1] === ServerEvents.MESSAGE_TYPING
+      );
+      expect(typing).toHaveLength(1);
+      expect(typing[0]![2]).toEqual({ channelId: channel.id, userId: 1 });
+    });
+  });
+
+  describe('publishMessage unread fan-out', () => {
+    /** CHANNEL_READ_STATES_UPDATE payloads keyed by recipient. */
+    const readStateUpdates = (
+      calls: unknown[][],
+      channelId: number
+    ): Map<number, { count: number; mentionCount: number }> => {
+      const out = new Map<number, { count: number; mentionCount: number }>();
+      for (const call of calls) {
+        if (call[1] !== ServerEvents.CHANNEL_READ_STATES_UPDATE) continue;
+        const payload = call[2] as {
+          channelId: number;
+          count: number;
+          mentionCount: number;
+        };
+        if (payload.channelId !== channelId) continue;
+        out.set(call[0] as number, {
+          count: payload.count,
+          mentionCount: payload.mentionCount
+        });
+      }
+      return out;
+    };
+
+    test('query count is independent of the recipient count; counts are exact', async () => {
+      const tdb = getTestDb();
+      const now = Date.now();
+      const [seeded] = await tdb
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.channelId, 1))
+        .limit(1);
+
+      // Users 2 and 3 have read up to the seeded message.
+      await tdb.insert(channelReadStates).values([
+        { userId: 2, channelId: 1, lastReadMessageId: seeded!.id, lastReadAt: now },
+        { userId: 3, channelId: 1, lastReadMessageId: seeded!.id, lastReadAt: now }
+      ]);
+      const [first] = await tdb
+        .insert(messages)
+        .values({
+          content: 'hi <@2>',
+          userId: 1,
+          channelId: 1,
+          mentionedUserIds: [2],
+          createdAt: now
+        })
+        .returning({ id: messages.id });
+
+      const publishFor = spyOn(pubsub, 'publishFor');
+      try {
+        const baseline = await countQueries(() =>
+          publishMessage(first!.id, 1, 'create')
+        );
+        const small = readStateUpdates(publishFor.mock.calls, 1);
+        expect(small.get(2)).toEqual({ count: 1, mentionCount: 1 });
+        expect(small.get(3)).toEqual({ count: 1, mentionCount: 0 });
+        expect(small.has(1)).toBe(false); // never the author
+
+        // 50 more members, all read up to `first`.
+        const extraIds: number[] = [];
+        for (let i = 0; i < 50; i++) {
+          const [u] = await tdb
+            .insert(users)
+            .values({
+              name: `fanout-${i}-${randomUUIDv7().slice(0, 6)}`,
+              supabaseId: `fanout-${randomUUIDv7()}`,
+              publicId: randomUUIDv7(),
+              createdAt: now
+            })
+            .returning({ id: users.id });
+          extraIds.push(u!.id);
+        }
+        await tdb.insert(serverMembers).values(
+          extraIds.map((userId) => ({ serverId: 1, userId, joinedAt: now }))
+        );
+        await tdb.insert(channelReadStates).values(
+          extraIds.map((userId) => ({
+            userId,
+            channelId: 1,
+            lastReadMessageId: first!.id,
+            lastReadAt: now
+          }))
+        );
+        const mentioned = extraIds.slice(0, 5);
+        const [second] = await tdb
+          .insert(messages)
+          .values({
+            content: 'again',
+            userId: 1,
+            channelId: 1,
+            mentionedUserIds: mentioned,
+            createdAt: now + 1
+          })
+          .returning({ id: messages.id });
+
+        publishFor.mockClear();
+        const big = await countQueries(() =>
+          publishMessage(second!.id, 1, 'create')
+        );
+
+        expect(big.queries).toBe(baseline.queries);
+        expect(big.queries).toBeLessThanOrEqual(12);
+
+        const large = readStateUpdates(publishFor.mock.calls, 1);
+        expect(large.size).toBe(52);
+        expect(large.get(2)).toEqual({ count: 2, mentionCount: 1 });
+        expect(large.get(3)).toEqual({ count: 2, mentionCount: 0 });
+        for (const id of extraIds) {
+          expect(large.get(id)).toEqual({
+            count: 1,
+            mentionCount: mentioned.includes(id) ? 1 : 0
+          });
+        }
+      } finally {
+        publishFor.mockRestore();
+      }
     });
   });
 });

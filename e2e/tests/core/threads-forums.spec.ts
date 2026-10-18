@@ -7,6 +7,7 @@ import {
 import { psql } from '../../helpers/db';
 import { authedPage, CORE_OWNER } from '../../helpers/fixtures';
 import {
+  expectNoClippedControls,
   messageRow,
   openMessageContextMenu,
   selectChannel,
@@ -19,7 +20,7 @@ import {
  * Runs as the operator (MANAGE_CHANNELS) so archive/delete surfaces render.
  *
  * Composer ambiguity rule: while a thread panel is open there are TWO
- * tiptap composers whose placeholder starts with "Message #" — the shared
+ * tiptap composers whose placeholder starts with "Write to #" — the shared
  * channelComposer() helper strict-mode-fails. Always address thread
  * composers by their EXACT placeholder.
  */
@@ -39,7 +40,7 @@ let page: Page;
 
 function threadComposer(p: Page, name: string) {
   return p.locator(
-    `[contenteditable="true"]:has(p[data-placeholder="Message #${name}"])`
+    `[contenteditable="true"]:has(p[data-placeholder="Write to #${name}"])`
   );
 }
 
@@ -235,6 +236,52 @@ test.describe('threads and forums', () => {
         `SELECT count(*) FROM thread_followers WHERE thread_id = ${postId}`
       )
     ).toBe('1');
+  });
+
+  test('Manage Tags: the inline tag editor keeps Save and Cancel inside the dialog', async () => {
+    // Finding #16: name input + nine swatches + Save/Cancel on one line
+    // needed ~476 px in a 400 px dialog; the body's overflow-y-auto cut
+    // Save off the end. Operator (MANAGE_CHANNELS) sees the Tags button
+    // in the forum's filter bar.
+    await page.getByRole('button', { name: 'Tags', exact: true }).click();
+    const dialog = page
+      .locator('div.fixed.inset-0')
+      .filter({ has: page.getByRole('heading', { name: 'Manage Tags' }) })
+      .first();
+    await expect(dialog).toBeVisible();
+
+    const tagName = `tag-${RUN}`;
+    await dialog.getByPlaceholder('Tag name').fill(tagName);
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(dialog.getByText(tagName, { exact: true })).toBeVisible({
+      timeout: 15_000
+    });
+    await expectNoClippedControls(dialog);
+
+    // Edit mode: the row becomes input + Save/Cancel, swatches beneath.
+    await dialog.getByRole('button', { name: `Edit tag ${tagName}` }).click();
+    const save = dialog.getByRole('button', { name: 'Save tag', exact: true });
+    await expect(save).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Cancel', exact: true })
+    ).toBeVisible();
+    await expectNoClippedControls(dialog);
+
+    // Save a rename through the icon button.
+    const renamed = `${tagName}-b`;
+    // The edit input is the one without the "Tag name" placeholder (autofocused).
+    await dialog.locator('input:not([placeholder="Tag name"])').fill(renamed);
+    await save.click();
+    await expect(dialog.getByText(renamed, { exact: true })).toBeVisible({
+      timeout: 15_000
+    });
+
+    await dialog.getByRole('button', { name: `Delete tag ${renamed}` }).click();
+    await expect(dialog.getByText(renamed, { exact: true })).toHaveCount(0, {
+      timeout: 15_000
+    });
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
   });
 
   test('forum post card menu: follow toggle and delete post', async () => {

@@ -12,7 +12,8 @@ import { getDisplayName } from '@/helpers/get-display-name';
 import { fullDateTime } from '@/helpers/time-format';
 import {
   computeSafetyNumber,
-  formatForDisplay
+  formatForDisplay,
+  stablePublicIdOf
 } from '@/lib/e2ee/safety-number';
 import type { VerifiedIdentityMethod } from '@/lib/e2ee/store';
 import { base64ToArrayBuffer } from '@/lib/e2ee/utils';
@@ -21,7 +22,7 @@ import { AlertTriangle } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import type { TDialogBaseProps } from '../types';
 
-type TIdentityChangedDialogProps = TDialogBaseProps & {
+export type TIdentityChangedDialogProps = TDialogBaseProps & {
   userId: number;
   newIdentityKey: string;
   previousIdentityKey?: string;
@@ -49,6 +50,12 @@ const IdentityChangedDialog = memo(
     onBlock
   }: TIdentityChangedDialogProps) => {
     const user = useUserById(userId);
+    // Safety numbers hash HOME publicIds (instance-local numeric ids
+    // never agree across a federated pair); both come from the roster
+    // the dispatcher's ids refer to.
+    const localUser = useUserById(localUserId ?? 0);
+    const localPublicId = stablePublicIdOf(localUser);
+    const remotePublicId = stablePublicIdOf(user);
     const [safetyNumber, setSafetyNumber] = useState<string | null>(null);
     const [busy, setBusy] = useState<'accept' | 'verify' | 'block' | null>(
       null
@@ -61,7 +68,8 @@ const IdentityChangedDialog = memo(
 
     useEffect(() => {
       if (
-        localUserId === null ||
+        !localPublicId ||
+        !remotePublicId ||
         !localIdentityKey ||
         !newIdentityKey
       ) {
@@ -72,11 +80,11 @@ const IdentityChangedDialog = memo(
       (async () => {
         try {
           const digits = await computeSafetyNumber({
-            localUserId,
+            localPublicId,
             localIdentityKey: new Uint8Array(
               base64ToArrayBuffer(localIdentityKey)
             ),
-            remoteUserId: userId,
+            remotePublicId,
             remoteIdentityKey: new Uint8Array(
               base64ToArrayBuffer(newIdentityKey)
             )
@@ -90,7 +98,7 @@ const IdentityChangedDialog = memo(
       return () => {
         cancelled = true;
       };
-    }, [localUserId, localIdentityKey, newIdentityKey, userId]);
+    }, [localPublicId, remotePublicId, localIdentityKey, newIdentityKey]);
 
     const wrap = (
       action: 'accept' | 'verify' | 'block',

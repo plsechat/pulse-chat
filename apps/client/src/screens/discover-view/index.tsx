@@ -1,25 +1,16 @@
-import {
-  joinFederatedServer,
-  switchServer
-} from '@/features/app/actions';
-import { useFederatedServers } from '@/features/app/hooks';
-import { appSliceActions } from '@/features/app/slice';
-import { getHandshakeHash } from '@/features/server/actions';
+import { useFederatedServers, useJoinedServers } from '@/features/app/hooks';
 import { startServerPreview } from '@/features/server/preview/actions';
-import { store } from '@/features/store';
 import { EmptyState } from '@/components/ui/empty-state';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type {
-  TFederationActiveInstance,
-  TRemoteServerSummary,
-  TServerSummary
-} from '@pulse/shared';
-import { requestTextInput } from '@/features/dialogs/actions';
-import { Check, Compass, Globe, Loader2, Lock, Search, Users } from 'lucide-react';
+import type { TFederationActiveInstance } from '@pulse/shared';
+import type { TRemoteServerSummary, TServerSummary } from '@pulse/server/types';
+import { BookOpen, Check, Compass, Globe, Loader2, Lock, Search, Users } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { DirectorySection } from './directory-section';
+import { joinLocalServerFromCard, joinRemoteServerFromCard } from './join-actions';
 
 type TDiscoverServer = TServerSummary & { joined: boolean };
 
@@ -205,7 +196,7 @@ const FederatedServerCard = memo(
 );
 
 const DiscoverView = memo(() => {
-  const [activeTab, setActiveTab] = useState<'local' | 'federated'>('local');
+  const [activeTab, setActiveTab] = useState<'local' | 'federated' | 'directory'>('local');
   const [servers, setServers] = useState<TDiscoverServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [joiningId, setJoiningId] = useState<number | null>(null);
@@ -223,15 +214,36 @@ const DiscoverView = memo(() => {
   );
   const [searchQuery, setSearchQuery] = useState('');
 
+  // A joined community's card follows the live summary (name,
+  // description, logo): SERVER_SETTINGS_UPDATE lands there, while this
+  // list is fetched once. Cards for communities the user has not joined
+  // never receive the event (it fans out to members) and keep what the
+  // fetch returned.
+  const joinedServers = useJoinedServers();
+  const liveServers = useMemo(() => {
+    const byPublicId = new Map(joinedServers.map((s) => [s.publicId, s]));
+    return servers.map((s) => {
+      const live = byPublicId.get(s.publicId);
+      if (!live) return s;
+      return {
+        ...s,
+        name: live.name,
+        logo: live.logo,
+        description:
+          live.description !== undefined ? live.description : s.description
+      };
+    });
+  }, [servers, joinedServers]);
+
   const filteredServers = useMemo(() => {
-    if (!searchQuery.trim()) return servers;
+    if (!searchQuery.trim()) return liveServers;
     const q = searchQuery.toLowerCase();
-    return servers.filter(
+    return liveServers.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.description?.toLowerCase().includes(q)
     );
-  }, [servers, searchQuery]);
+  }, [liveServers, searchQuery]);
 
   const filteredRemoteServers = useMemo(() => {
     if (!searchQuery.trim()) return remoteServers;
@@ -300,49 +312,20 @@ const DiscoverView = memo(() => {
     const server = servers.find((s) => s.id === serverId);
     if (!server) return;
 
-    let password: string | undefined;
-    if (server.hasPassword) {
-      const result = await requestTextInput({
-        title: 'Server Password',
-        message: `"${server.name}" requires a password to join.`,
-        type: 'password',
-        confirmLabel: 'Join'
-      });
-      if (!result) return;
-      password = result;
-    }
-
     setJoiningId(serverId);
 
     try {
-      const trpc = getHomeTRPCClient();
-      if (!trpc) return;
-      const summary = await trpc.servers.joinDiscover.mutate({ serverId, password });
-
-      // Add to Redux state
-      store.dispatch(appSliceActions.addJoinedServer(summary));
+      const summary = await joinLocalServerFromCard({
+        serverId,
+        name: server.name,
+        hasPassword: server.hasPassword ?? false
+      });
+      if (!summary) return;
 
       // Mark as joined in the discover list
       setServers((prev) =>
         prev.map((s) => (s.id === serverId ? { ...s, joined: true } : s))
       );
-
-      // Switch to the newly joined server
-      const hash = getHandshakeHash();
-      if (hash) {
-        await switchServer(summary.id, hash);
-      }
-
-      toast.success(`Joined ${summary.name}`);
-    } catch (error: unknown) {
-      console.error('Failed to join server:', error);
-      const errMsg = error instanceof Error ? error.message : '';
-      const msg = errMsg.includes('Invalid password')
-        ? 'Invalid password'
-        : errMsg.includes('Too many failed')
-          ? errMsg
-          : 'Failed to join server';
-      toast.error(msg);
     } finally {
       setJoiningId(null);
     }
@@ -361,58 +344,24 @@ const DiscoverView = memo(() => {
 
   const handleJoinFederated = useCallback(
     async (server: TRemoteServerSummary) => {
-      // Prompt for password if the remote server requires one
-      let password: string | undefined;
-      if (server.hasPassword) {
-        const result = await requestTextInput({
-          title: 'Server Password',
-          message: `"${server.name}" on ${server.instanceDomain} requires a password to join.`,
-          type: 'password',
-          confirmLabel: 'Join'
-        });
-        if (!result) return;
-        password = result;
+      const instance = instances.find((i) => i.domain === server.instanceDomain);
+      if (!instance) {
+        toast.error('Instance not found');
+        return;
       }
 
       setJoiningFedPublicId(server.publicId);
-
       try {
-        const trpc = getHomeTRPCClient();
-        if (!trpc) return;
-
-        // Find the instance
-        const instance = instances.find(
-          (i) => i.domain === server.instanceDomain
-        );
-        if (!instance) throw new Error('Instance not found');
-
-        // Get federation token + remote URL
-        const { federationToken, remoteUrl } =
-          await trpc.federation.joinRemote.mutate({
-            instanceId: instance.id,
-            remoteServerPublicId: server.publicId
-          });
-
-        const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-
-        await joinFederatedServer(
-          server.instanceDomain,
-          server.instanceName,
-          remoteUrl,
-          server.publicId,
-          federationToken,
-          expiresAt,
-          password
-        );
-      } catch (error) {
-        console.error('[handleJoinFederated] error:', error);
-        const errMsg = error instanceof Error ? error.message : '';
-        const msg = errMsg.includes('Invalid password')
-          ? 'Invalid password'
-          : errMsg.includes('Too many failed')
-            ? errMsg
-            : 'Failed to join federated server';
-        toast.error(msg);
+        await joinRemoteServerFromCard({
+          publicId: server.publicId,
+          name: server.name,
+          instance: {
+            id: instance.id,
+            domain: server.instanceDomain,
+            name: server.instanceName
+          },
+          hasPassword: server.hasPassword ?? false
+        });
       } finally {
         setJoiningFedPublicId(null);
       }
@@ -422,11 +371,13 @@ const DiscoverView = memo(() => {
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-      <div className="flex h-12 items-center border-b border-border px-4 shadow-sm">
-        <Compass className="mr-2 h-5 w-5 text-muted-foreground" />
+      <div className="flex min-h-12 flex-wrap items-center gap-y-2 border-b border-border px-4 py-2 shadow-sm">
+        <Compass className="mr-2 h-5 w-5 text-muted-foreground" aria-hidden="true" />
         <h2 className="font-semibold text-foreground">Discover Servers</h2>
-        <div className="ml-4 flex gap-1">
+        <div className="ml-4 flex gap-1" role="group" aria-label="Discover sections">
           <button
+            type="button"
+            aria-pressed={activeTab === 'local'}
             onClick={() => {
               setActiveTab('local');
               setSearchQuery('');
@@ -441,6 +392,8 @@ const DiscoverView = memo(() => {
             Local
           </button>
           <button
+            type="button"
+            aria-pressed={activeTab === 'federated'}
             onClick={() => {
               setActiveTab('federated');
               setSearchQuery('');
@@ -452,25 +405,47 @@ const DiscoverView = memo(() => {
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            <Globe className="h-3.5 w-3.5" />
+            <Globe className="h-3.5 w-3.5" aria-hidden="true" />
             Federated
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeTab === 'directory'}
+            onClick={() => {
+              setActiveTab('directory');
+              setSearchQuery('');
+            }}
+            className={cn(
+              'rounded-md px-3 py-1 text-sm font-medium transition-colors flex items-center gap-1',
+              activeTab === 'directory'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            Directory
           </button>
         </div>
         <div className="ml-auto">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input
-              type="text"
-              placeholder="Search servers..."
+              type="search"
+              aria-label={activeTab === 'directory' ? 'Search the directory by name, tag or game' : 'Search servers'}
+              placeholder={activeTab === 'directory' ? 'Search name, tag, game…' : 'Search servers...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 w-48 rounded-md border border-border bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="h-8 w-40 rounded-md border border-border bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:w-48"
             />
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        {activeTab === 'directory' && (
+          <DirectorySection active searchQuery={searchQuery} />
+        )}
+
         {activeTab === 'local' && (
           <>
             {loading ? (

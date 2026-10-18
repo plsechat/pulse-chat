@@ -27,6 +27,29 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
+const THEME_CLASSES: Exclude<Theme, 'system'>[] = [
+  'light',
+  'dark',
+  'onyx',
+  'midnight',
+  'sunset',
+  'rose',
+  'forest',
+  'dracula',
+  'nord',
+  'sand'
+];
+
+/** The concrete theme the "system" option resolves to. */
+const resolveSystemTheme = (
+  prefersDark: boolean
+): Exclude<Theme, 'system'> => (prefersDark ? 'dark' : 'light');
+
+const applyThemeClass = (root: HTMLElement, theme: Exclude<Theme, 'system'>) => {
+  root.classList.remove(...THEME_CLASSES);
+  root.classList.add(theme);
+};
+
 function ThemeProvider({
   children,
   defaultTheme = 'system',
@@ -40,19 +63,18 @@ function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement;
 
-    root.classList.remove('light', 'dark', 'onyx', 'midnight', 'sunset', 'rose', 'forest', 'dracula', 'nord', 'sand');
-
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-        .matches
-        ? 'dark'
-        : 'light';
-
-      root.classList.add(systemTheme);
+    if (theme !== 'system') {
+      applyThemeClass(root, theme);
       return;
     }
 
-    root.classList.add(theme);
+    // "System" follows the OS for as long as it is selected — switching
+    // the OS between light and dark re-applies without a reload.
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => applyThemeClass(root, resolveSystemTheme(mql.matches));
+    apply();
+    mql.addEventListener('change', apply);
+    return () => mql.removeEventListener('change', apply);
   }, [theme]);
 
   useEffect(() => {
@@ -89,4 +111,4 @@ const useTheme = () => {
 };
 
 // eslint-disable-next-line react-refresh/only-export-components
-export { ThemeProvider, useTheme, type Theme };
+export { resolveSystemTheme, ThemeProvider, useTheme, type Theme };

@@ -1,8 +1,11 @@
+import { createSelector } from '@reduxjs/toolkit';
 import type { IRootState } from '../store';
+
+const sumCounts = (counts: Record<string, number | undefined>) =>
+  Object.values(counts).reduce<number>((sum, n) => sum + (n ?? 0), 0);
 
 export const appLoadingSelector = (state: IRootState) => state.app.loading;
 
-export const devicesSelector = (state: IRootState) => state.app.devices;
 
 export const modViewOpenSelector = (state: IRootState) => state.app.modViewOpen;
 
@@ -40,3 +43,20 @@ export const federatedMentionCountsSelector = (state: IRootState) =>
 
 export const federatedConnectionStatusesSelector = (state: IRootState) =>
   state.app.federatedConnectionStatuses;
+
+/**
+ * Everything unread, across every joined and federated server plus DMs —
+ * what the tab title and the desktop dock badge show. The per-server
+ * counts already include the active server's channels, so the active
+ * server's readStatesMap is not added on top (it was, once, and only the
+ * active server counted at all).
+ */
+export const totalUnreadSelector = createSelector(
+  [
+    serverUnreadCountsSelector,
+    federatedUnreadCountsSelector,
+    totalDmUnreadCountSelector
+  ],
+  (serverCounts, federatedCounts, dmUnread) =>
+    sumCounts(serverCounts) + sumCounts(federatedCounts) + dmUnread
+);

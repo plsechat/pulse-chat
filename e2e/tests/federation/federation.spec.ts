@@ -1,10 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import path from 'node:path';
 import { registerUser, storageStateFor } from '../../helpers/api';
-import {
-  channelButton,
-  disableAnimations,
-  waitForAppReady
-} from '../../helpers/ui';
+import { channelButton, disableAnimations, openDiscover, openDmWith, openServerSettings, waitForAppReady } from '../../helpers/ui';
 
 /**
  * Full federation loop between two instances, mirroring the manual smoke
@@ -34,6 +31,30 @@ const DM_MSG = `cross-instance dm from A ${RUN_TAG}`;
 
 const A_URL = 'http://127.0.0.1:14994';
 const B_URL = 'http://127.0.0.1:14995';
+// B's community logo, uploaded below so A's federated view has a peer
+// image to render (tab icon, header, avatars all go the same route).
+const FIXTURE_PNG = path.join(__dirname, '..', '..', 'fixtures', 'pixel.png');
+const PEER_PUBLIC_URL = /^http:\/\/pulse-fed-b:4991\/public\//;
+
+/**
+ * The image is requested from the PEER over plain http and must actually
+ * decode: a wrong host (home `/public/<remote-uuid>` → 404) or a CSP
+ * without the peer's origin (img-src had only `https:`) both leave
+ * naturalWidth at 0 while the element itself is "visible".
+ */
+async function expectPeerImageLoads(img: Locator): Promise<void> {
+  await expect(img).toHaveAttribute('src', PEER_PUBLIC_URL, { timeout: 15_000 });
+  await expect
+    .poll(
+      () =>
+        img.evaluate((el) => {
+          const image = el as HTMLImageElement;
+          return image.complete ? image.naturalWidth : 0;
+        }),
+      { timeout: 15_000 }
+    )
+    .toBeGreaterThan(0);
+}
 
 const OWNER_A = {
   email: 'owner-a@e2e.local',
@@ -63,11 +84,9 @@ async function loginPage(
 }
 
 async function openFederationSettings(page: Page): Promise<void> {
-  // Server Settings lives in the server-name header dropdown
-  await page.getByText('Pulse Server', { exact: true }).first().click();
-  await page.getByText('Server Settings', { exact: true }).click();
-  // Sidebar nav items are buttons, not tabs (Server Settings sidebar layout).
-  await page.getByRole('button', { name: 'Federation', exact: true }).click();
+  // The shared helper finds the server-name header dropdown in either
+  // layout (a bare text match would hit the community tab first).
+  await openServerSettings(page, 'Federation');
 }
 
 /**
@@ -150,6 +169,21 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // appears in A's remote discovery.
     await pageB.getByRole('button', { name: 'General', exact: true }).click();
 
+    // Give B's community a logo first (same page). The picker opens a
+    // file chooser from a click; the upload + changeLogo round-trip ends
+    // in the success toast.
+    const logoGroup = pageB
+      .getByText('Logo', { exact: true })
+      .locator('xpath=ancestor::div[contains(@class,"flex-col")][2]');
+    const [chooser] = await Promise.all([
+      pageB.waitForEvent('filechooser'),
+      logoGroup.locator('div.cursor-pointer').first().click()
+    ]);
+    await chooser.setFiles(FIXTURE_PNG);
+    await expect(pageB.getByText('Logo updated successfully!')).toBeVisible({
+      timeout: 15_000
+    });
+
     // Anchor on the "Federatable" label, walk to the nearest ancestor row
     // that owns a switch, and toggle it.
     const federatable = pageB.locator(
@@ -168,11 +202,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await pageA.goto(A_URL);
     await waitForAppReady(pageA);
 
-    // Discover view sits in the far-left rail
-    await pageA
-      .getByRole('button', { name: 'Discover Servers' })
-      .first()
-      .click();
+    await openDiscover(pageA);
     await pageA.getByRole('button', { name: 'Federated' }).first().click();
 
     await expect(pageA.getByText('pulse-fed-b:4991').first()).toBeVisible({
@@ -183,6 +213,39 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await expect(pageA.getByText(/joined/i).first()).toBeVisible({
       timeout: 15_000
     });
+  });
+
+  test('the federated community shows the peer’s logo on its tab and header', async () => {
+    // Joining switched A into the federated community. Its tab (rail
+    // button in the classic layout — both carry the "(pulse-fed-b:4991)"
+    // title) and the channel-list header must show B's logo, fetched
+    // from B over plain http, not the home instance's first community.
+    const tabIcon = pageA.getByTitle(/pulse-fed-b:4991/).locator('img').first();
+    await expectPeerImageLoads(tabIcon);
+
+    const headerLogo = pageA.locator('aside .community-header img').first();
+    await expectPeerImageLoads(headerLogo);
+
+    // A fresh browser: the membership list from the home server carries
+    // no logo, so the tab starts as a letter and must pick the real logo
+    // up from the community itself on connect (not from this browser's
+    // cached copy, which is dropped here).
+    await pageA.evaluate(() => localStorage.removeItem('pulse-federated-servers'));
+    await pageA.reload();
+    await waitForAppReady(pageA);
+    await pageA.getByTitle(/pulse-fed-b:4991/).first().click();
+    await expect(
+      pageA
+        .getByRole('button', { disabled: true })
+        .filter({ has: pageA.getByText('General Text', { exact: true }) })
+        .first()
+    ).toBeVisible({ timeout: 15_000 });
+    await expectPeerImageLoads(
+      pageA.getByTitle(/pulse-fed-b:4991/).locator('img').first()
+    );
+    await expectPeerImageLoads(
+      pageA.locator('aside .community-header img').first()
+    );
   });
 
   test('cross-instance messaging works in both directions', async () => {
@@ -200,7 +263,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await channelButton(pageA, 'General Text').click({ force: true });
 
     const composerA = pageA.locator(
-      '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
+      '[contenteditable="true"]:has(p[data-placeholder^="Write to #"])'
     );
     await expect(composerA).toBeVisible({ timeout: 15_000 });
     await composerA.fill(SMOKE_MSG);
@@ -217,7 +280,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
 
     // Reply propagates back to A's federated view
     const composerB = pageB.locator(
-      '[contenteditable="true"]:has(p[data-placeholder^="Message #"])'
+      '[contenteditable="true"]:has(p[data-placeholder^="Write to #"])'
     );
     await composerB.fill(ACK_MSG);
     await pageB.keyboard.press('Enter');
@@ -235,9 +298,11 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // skipped the remount and getTRPCClient fell back to the home client,
     // so the federated pane kept the home channel's (empty) content.
     //
-    // Rail server buttons are distinguished by title: the home server is
-    // "Pulse Server"; the federated one is "Pulse Server (pulse-fed-b:4991)".
-    const homeServer = pageA.getByTitle('Pulse Server', { exact: true });
+    // Rail buttons and community tabs alike carry a title that starts
+    // with the server name: the home server's is "Pulse Server" (a tab
+    // adds the description on a second line); the federated one's is
+    // "Pulse Server (pulse-fed-b:4991)".
+    const homeServer = pageA.getByTitle(/^Pulse Server(\n|$)/);
     const fedServer = pageA.getByTitle(/pulse-fed-b:4991/);
 
     // Home General Text has no federation messages.
@@ -316,15 +381,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // Locate by title attribute: the unread-DM badge's text REPLACES the
     // button's accessible name (content beats the title attr), so any
     // role+name match breaks whenever unread DMs exist.
-    await pageB
-      .locator('button[title="Home"]')
-      .filter({ visible: true })
-      .first()
-      .click({ force: true });
-    await pageB
-      .getByText('FedOwnerA')
-      .first()
-      .click({ timeout: 15_000 });
+    await openDmWith(pageB, 'FedOwnerA');
     await expect(
       pageB.locator('[id^="dm-msg-"]').getByText(DM_MSG, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
@@ -365,12 +422,7 @@ test.describe.serial('federation: peer, join, message, DM', () => {
         .filter({ has: pageA.getByText('General Text', { exact: true }) })
         .first()
     ).toBeVisible({ timeout: 15_000 });
-    await pageA
-      .locator('button[title="Home"]')
-      .filter({ visible: true })
-      .first()
-      .click({ force: true });
-    await pageA.getByText('FedOwnerB').first().click({ timeout: 15_000 });
+    await openDmWith(pageA, 'FedOwnerB');
     await expect(
       pageA.locator('[id^="dm-msg-"]').getByText(dmReply, { exact: true })
     ).toBeVisible({ timeout: 15_000 });

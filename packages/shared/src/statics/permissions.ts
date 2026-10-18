@@ -14,15 +14,17 @@ export enum Permission {
   MANAGE_SETTINGS = "MANAGE_SETTINGS",
   MANAGE_USERS = "MANAGE_USERS",
   MANAGE_MESSAGES = "MANAGE_MESSAGES",
-  MANAGE_STORAGE = "MANAGE_STORAGE",
   MANAGE_INVITES = "MANAGE_INVITES",
-  MANAGE_UPDATES = "MANAGE_UPDATES",
   MANAGE_PLUGINS = "MANAGE_PLUGINS",
   EXECUTE_PLUGIN_COMMANDS = "EXECUTE_PLUGIN_COMMANDS",
   PIN_MESSAGES = "PIN_MESSAGES",
   MANAGE_WEBHOOKS = "MANAGE_WEBHOOKS",
   MANAGE_AUTOMOD = "MANAGE_AUTOMOD",
   VIEW_REPORTS = "VIEW_REPORTS",
+  MANAGE_EVENTS = "MANAGE_EVENTS",
+  MANAGE_ANNOUNCEMENTS = "MANAGE_ANNOUNCEMENTS",
+  USE_SOUNDBOARD = "USE_SOUNDBOARD",
+  MANAGE_SOUNDS = "MANAGE_SOUNDS",
 }
 
 export const permissionLabels: Record<Permission, string> = {
@@ -40,15 +42,17 @@ export const permissionLabels: Record<Permission, string> = {
   [Permission.MANAGE_SETTINGS]: "Manage server settings",
   [Permission.MANAGE_USERS]: "Manage users",
   [Permission.MANAGE_MESSAGES]: "Manage messages",
-  [Permission.MANAGE_STORAGE]: "Manage storage",
   [Permission.MANAGE_INVITES]: "Manage invites",
-  [Permission.MANAGE_UPDATES]: "Manage updates",
   [Permission.MANAGE_PLUGINS]: "Manage plugins",
   [Permission.EXECUTE_PLUGIN_COMMANDS]: "Execute plugin commands",
   [Permission.PIN_MESSAGES]: "Pin messages",
   [Permission.MANAGE_WEBHOOKS]: "Manage webhooks",
   [Permission.MANAGE_AUTOMOD]: "Manage auto-moderation",
   [Permission.VIEW_REPORTS]: "Review reports",
+  [Permission.MANAGE_EVENTS]: "Manage events",
+  [Permission.MANAGE_ANNOUNCEMENTS]: "Post announcements",
+  [Permission.USE_SOUNDBOARD]: "Use the soundboard",
+  [Permission.MANAGE_SOUNDS]: "Manage sounds",
 };
 
 export const permissionDescriptions: Record<Permission, string> = {
@@ -74,11 +78,8 @@ export const permissionDescriptions: Record<Permission, string> = {
   [Permission.MANAGE_USERS]: "Grants the ability to manage users.",
   [Permission.MANAGE_MESSAGES]:
     "Grants the ability to manage messages from all users by editing or deleting them.",
-  [Permission.MANAGE_STORAGE]:
-    "Grants the ability to manage storage, such as enabling or disabling uploads.",
   [Permission.MANAGE_INVITES]:
     "Grants the ability to create, edit, and delete server invites.",
-  [Permission.MANAGE_UPDATES]: "Grants the ability to perform updates.",
   [Permission.MANAGE_PLUGINS]: "Grants the ability to manage plugins.",
   [Permission.EXECUTE_PLUGIN_COMMANDS]:
     "Grants the ability to execute plugin commands.",
@@ -90,6 +91,14 @@ export const permissionDescriptions: Record<Permission, string> = {
     "Grants the ability to manage auto-moderation rules.",
   [Permission.VIEW_REPORTS]:
     "Grants access to the server's report queue to review and act on member reports.",
+  [Permission.MANAGE_EVENTS]:
+    "Grants the ability to create and manage scheduled events, rosters and roster templates.",
+  [Permission.MANAGE_ANNOUNCEMENTS]:
+    "Grants the ability to post in announcement channels, which everyone can read.",
+  [Permission.USE_SOUNDBOARD]:
+    "Grants the ability to play soundboard sounds in voice channels.",
+  [Permission.MANAGE_SOUNDS]:
+    "Grants the ability to upload, edit, and delete soundboard sounds.",
 };
 
 export const DEFAULT_ROLE_PERMISSIONS = [
@@ -100,6 +109,7 @@ export const DEFAULT_ROLE_PERMISSIONS = [
   Permission.SHARE_SCREEN,
   Permission.ENABLE_WEBCAM,
   Permission.PIN_MESSAGES,
+  Permission.USE_SOUNDBOARD,
 ];
 
 export enum UploadHeaders {

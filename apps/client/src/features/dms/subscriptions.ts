@@ -1,7 +1,6 @@
-import { connectionManager } from '@/lib/connection-manager';
 import {
-  fetchAndProcessPendingDmSenderKeys,
-  processIncomingFederatedSenderKey
+  fetchAndProcessFederatedSenderKeys,
+  fetchAndProcessPendingDmSenderKeys
 } from '@/lib/e2ee';
 import { combineUnsubscribes, subscribe } from '@/lib/subscription-helpers';
 import { getHomeTRPCClient } from '@/lib/trpc';
@@ -13,6 +12,7 @@ import { emitAppEvent } from '@/lib/events';
 import {
   addDmMessages,
   addDmTypingUser,
+  applyDmReadState,
   decryptDmMessageInPlace,
   deleteDmMessage,
   dmCallDeclined,
@@ -21,9 +21,9 @@ import {
   dmCallUserJoined,
   dmCallUserLeft,
   fetchDmChannels,
+  handleDmMemberRemoved,
   removeDmChannel,
   syncDmGroupSenderKeysOnMemberAdd,
-  syncDmGroupSenderKeysOnMemberRemove,
   updateDmMessage
 } from './actions';
 
@@ -44,10 +44,16 @@ const subscribeToDms = () => {
         dmChannelId: decrypted.dmChannelId
       });
     }),
+    // A server predating tombstones sends no deletedAt/deletedBy; the
+    // row is then marked as deleted now, by nobody.
     subscribe(
       'onDmMessageDelete',
       trpc.dms.onMessageDelete,
-      ({ dmMessageId, dmChannelId }) => deleteDmMessage(dmChannelId, dmMessageId)
+      ({ dmMessageId, dmChannelId, deletedAt, deletedBy }) =>
+        deleteDmMessage(dmChannelId, dmMessageId, {
+          deletedAt: deletedAt ?? Date.now(),
+          deletedBy: deletedBy ?? null
+        })
     ),
     subscribe(
       'onDmCallStarted',
@@ -62,7 +68,7 @@ const subscribeToDms = () => {
       trpc.dms.onCallUserJoined,
       ({ dmChannelId, userId, state }) => {
         dmCallUserJoined(dmChannelId, userId, state);
-        addUserToVoiceChannel(userId, dmChannelId, state);
+        addUserToVoiceChannel(userId, dmChannelId, 'dm', state);
       }
     ),
     subscribe('onDmTyping', trpc.dms.onTyping, ({ dmChannelId, userId }) =>
@@ -73,7 +79,7 @@ const subscribeToDms = () => {
       trpc.dms.onCallUserLeft,
       ({ dmChannelId, userId }) => {
         dmCallUserLeft(dmChannelId, userId);
-        removeUserFromVoiceChannel(userId, dmChannelId);
+        removeUserFromVoiceChannel(userId, dmChannelId, 'dm');
       }
     ),
     subscribe(
@@ -83,6 +89,12 @@ const subscribeToDms = () => {
     ),
     subscribe('onDmChannelUpdate', trpc.dms.onChannelUpdate, () =>
       fetchDmChannels()
+    ),
+    subscribe(
+      'onDmReadStateUpdate',
+      trpc.dms.onReadStateUpdate,
+      ({ dmChannelId, lastReadMessageId }) =>
+        applyDmReadState(dmChannelId, lastReadMessageId)
     ),
     subscribe(
       'onDmChannelDelete',
@@ -102,16 +114,12 @@ const subscribeToDms = () => {
       // distribute it to the new joiner.
       await syncDmGroupSenderKeysOnMemberAdd(dmChannelId, userId);
     }),
-    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, async (data) => {
+    subscribe('onDmMemberRemove', trpc.dms.onMemberRemove, (data) => {
       const { dmChannelId, userId } = data as {
         dmChannelId: number;
         userId: number;
       };
-      await fetchDmChannels();
-      // Forward secrecy: rotate our sender key so the leaver can't
-      // decrypt new messages with the cached old key. If we *are* the
-      // leaver, do nothing — we're out of the channel.
-      await syncDmGroupSenderKeysOnMemberRemove(dmChannelId, userId);
+      return handleDmMemberRemoved(dmChannelId, userId);
     }),
     subscribe(
       'onDmSenderKeyDistribution',
@@ -129,63 +137,17 @@ const subscribeToDms = () => {
     ),
     // Phase E / E1f — federated channel SKDM available on a host.
     // Fired on home WS when one of our local users is a recipient of
-    // a fresh SKDM stored on a peer instance. We open or reuse the
-    // active-server tRPC to that host, fetch all pending SKDMs (the
-    // notification is a wake-up; the actual rows tell us what's
-    // there), decrypt each via the federated path, and ack on host.
+    // a fresh SKDM stored on a peer instance. The notification is a
+    // wake-up; the pull itself (shared with the host connect /
+    // reconnect path, which reconciles anything this wake-up missed)
+    // fetches the rows from the host, opens each through the
+    // federated path and acks on the host.
     subscribe(
       'onFederatedSenderKeyAvailable',
       trpc.e2ee.onFederatedSenderKeyAvailable,
       async ({ hostDomain }) => {
         try {
-          const hostTrpc =
-            connectionManager.getRemoteTRPCClient(hostDomain);
-          if (!hostTrpc) {
-            console.warn(
-              '[E2EE] no active connection to %s for federated SKDM',
-              hostDomain
-            );
-            return;
-          }
-
-          const pending = await hostTrpc.e2ee.getPendingSenderKeys.query({});
-          if (pending.length === 0) return;
-
-          const processedIds: number[] = [];
-          for (const row of pending) {
-            try {
-              if (!row.fromHomePublicId) {
-                // Sender record on host has no usable publicId —
-                // can't be addressed cross-instance. Skip; the row
-                // will get re-fetched if anything changes.
-                continue;
-              }
-              await processIncomingFederatedSenderKey({
-                hostDomain,
-                hostChannelId: row.channelId,
-                hostFromUserId: row.fromUserId,
-                fromHomePublicId: row.fromHomePublicId,
-                fromInstanceDomain: row.fromInstanceDomain,
-                distributionMessage: row.distributionMessage
-              });
-              processedIds.push(row.id);
-            } catch (err) {
-              console.warn(
-                '[E2EE] Failed to process federated SKDM row:',
-                err
-              );
-            }
-          }
-
-          if (processedIds.length > 0) {
-            try {
-              await hostTrpc.e2ee.acknowledgeSenderKeys.mutate({
-                ids: processedIds
-              });
-            } catch {
-              // Non-fatal: rows persist and get retried next time.
-            }
-          }
+          await fetchAndProcessFederatedSenderKeys(hostDomain);
         } catch (err) {
           console.error(
             '[E2EE] Federated SKDM-available handler failed:',

@@ -1,6 +1,7 @@
 import { UserContextMenu } from '@/components/context-menus/user';
 import { UserAvatar } from '@/components/user-avatar';
 import { UserPopover } from '@/components/user-popover';
+import { useSoundRipple } from '@/components/voice-provider/soundboard-store';
 import { useVolumeControl } from '@/components/voice-provider/volume-control-context';
 import type { TVoiceUser } from '@/features/server/types';
 import { useOwnUserId } from '@/features/server/users/hooks';
@@ -39,6 +40,7 @@ const VoiceUserCard = memo(
     const { getUserVolumeKey } = useVolumeControl();
     const ownUserId = useOwnUserId();
     const isOwnUser = userId === ownUserId;
+    const ripple = useSoundRipple(userId);
 
     const handlePinToggle = useCallback(() => {
       if (isPinned) {
@@ -77,6 +79,22 @@ const VoiceUserCard = memo(
             )}
           >
             <CardGradient />
+
+            {/* Soundboard: the player's tile ripples for a moment and
+                names the clip, so the room knows who made the noise.
+                Keyed on the trigger time so a repeat restarts it. */}
+            {ripple && (
+              <div
+                key={ripple.at}
+                className="soundboard-ripple pointer-events-none absolute inset-0 z-10 flex items-start justify-center pt-2"
+                data-testid="soundboard-ripple"
+                data-sound-id={ripple.soundId}
+              >
+                <span className="soundboard-ripple-badge rounded-full bg-amber-500/25 backdrop-blur-sm px-2 py-0.5 text-[11px] font-medium text-amber-100 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                  {ripple.emoji ?? '🔊'} {ripple.name}
+                </span>
+              </div>
+            )}
 
             <CardControls>
               {!isOwnUser && <VolumeButton volumeKey={getUserVolumeKey(userId)} />}

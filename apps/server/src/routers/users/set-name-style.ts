@@ -1,10 +1,10 @@
-import { nameStyleSchema } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishUser } from '../../db/publishers';
 import { users } from '../../db/schema';
 import { relayUserInfoUpdate } from '../../utils/federation-user-info-dispatch';
+import { nameStyleSchema } from '../../utils/name-style-schema';
 import { protectedProcedure } from '../../utils/trpc';
 
 /**

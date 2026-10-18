@@ -5,20 +5,40 @@ import {
   encryptDmMessage,
   ensureDmGroupSenderKey,
   isSenderKeyWire,
+  loadPersistedDmGroupPlaintexts,
   rotateDmGroupSenderKey
 } from '@/lib/e2ee';
 import type { E2EEPlaintext } from '@/lib/e2ee/types';
 import { patchFilesWithE2eeMetadata, setFileKeys } from '@/lib/e2ee/file-key-store';
 import { sendDesktopNotification } from '@/features/notifications/desktop-notification';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
-import { getHomeTRPCClient } from '@/lib/trpc';
+import {
+  LocalStorageKey,
+  removeLocalStorageItem,
+  setLocalStorageItem
+} from '@/helpers/storage';
+import {
+  NotConnectedError,
+  requireHomeTRPCClient
+} from '@/lib/not-connected-error';
+import { getHomeTRPCClient, getVoiceTRPCClient } from '@/lib/trpc';
 import { toast } from 'sonner';
-import { TYPING_MS, type TFile, type TJoinedDmChannel, type TJoinedDmMessage } from '@pulse/shared';
+import { TYPING_MS } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedDmChannel,
+  TJoinedDmMessage,
+  TMessageTombstone
+} from '@pulse/server/types';
 import { setCurrentVoiceChannelId, setCurrentVoiceServerId } from '../server/channels/actions';
 import { playSound } from '../server/sounds/actions';
 import { SoundType } from '../server/types';
 import { homeOwnUserIdSelector } from '../server/users/selectors';
-import { addUserToVoiceChannel } from '../server/voice/actions';
+import {
+  addUserToVoiceChannel,
+  endOwnVoiceSession,
+  setVoiceInstanceDomain
+} from '../server/voice/actions';
 import { store } from '../store';
 import { dmsSliceActions } from './slice';
 import { emitAppEvent } from '@/lib/events';
@@ -46,8 +66,21 @@ const markDmChannelAsRead = (dmChannelId: number) => {
 export const addOrUpdateDmChannel = (channel: TJoinedDmChannel) =>
   store.dispatch(dmsSliceActions.addOrUpdateChannel(channel));
 
-export const setSelectedDmChannelId = (channelId: number | undefined) =>
-  store.dispatch(dmsSliceActions.setSelectedChannelId(channelId));
+/**
+ * Redux `dms.selectedChannelId` is the single source of truth for which
+ * DM is open (HomeView renders from it; addDmMessages reads it to decide
+ * whether a message is on screen). The localStorage mirror is what
+ * restores the DM after a reload, so it is written here — alongside the
+ * dispatch — rather than by whichever component happened to select.
+ */
+export const setSelectedDmChannelId = (channelId: number | undefined) => {
+  if (channelId === undefined) {
+    removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  } else {
+    setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(channelId));
+  }
+  return store.dispatch(dmsSliceActions.setSelectedChannelId(channelId));
+};
 
 /**
  * Open a DM in the home view from anywhere in the app. Used by:
@@ -55,19 +88,17 @@ export const setSelectedDmChannelId = (channelId: number | undefined) =>
  *  - The "Create Group DM" dialog after creation
  *  - The IncomingCallModal accept handler
  *
- * HomeView owns the local-component state that picks which DM to
- * render, so a Redux update alone won't switch views — the
- * `dm-navigate` app event is the bridge.
+ * The selection itself is Redux state (HomeView renders from it); the
+ * `dm-navigate` app event only flips HomeView's Friends/DM tab.
  */
 export const navigateToDm = async (dmChannelId: number) => {
-  const { setLocalStorageItem, LocalStorageKey } = await import(
-    '@/helpers/storage'
-  );
   setLocalStorageItem(LocalStorageKey.HOME_TAB, 'dm');
-  setLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID, String(dmChannelId));
+  setSelectedDmChannelId(dmChannelId);
   emitAppEvent('dm-navigate', { dmChannelId });
-  const { setActiveView } = await import('../app/actions');
-  setActiveView('home');
+  // Jumping to a DM is a jump home: a federated server left in focus
+  // would keep routing home-view calls to the peer.
+  const { leaveServerContext } = await import('../app/actions');
+  leaveServerContext();
 };
 
 export const addDmMessages = async (
@@ -103,8 +134,16 @@ export const addDmMessages = async (
       // and they should still get the notification.
       const isViewingThisChannel =
         state.app.activeView === 'home' && selectedId === dmChannelId;
+      // On screen but paged far into history (window detached from the
+      // live tail, see features/message-window.ts): the message is not
+      // visible, so it counts as unread — no sound while the user is in
+      // the conversation, but no read marker either until they jump to
+      // the present.
+      const detached = !!state.dms.messageWindowMap[dmChannelId]?.hasNewer;
 
-      if (!isViewingThisChannel) {
+      if (isViewingThisChannel && detached) {
+        store.dispatch(dmsSliceActions.incrementChannelUnread(dmChannelId));
+      } else if (!isViewingThisChannel) {
         playSound(SoundType.MESSAGE_RECEIVED);
 
         const senderChannel = state.dms.channels.find((c) =>
@@ -127,7 +166,13 @@ export const addDmMessages = async (
       }
     }
   }
-  store.dispatch(dmsSliceActions.addMessages({ dmChannelId, messages, opts }));
+  store.dispatch(
+    dmsSliceActions.addMessages({
+      dmChannelId,
+      messages,
+      opts: { ...opts, live: isSubscription }
+    })
+  );
 
   // Update the channel's lastMessage so the sidebar snippet stays current
   if (isSubscription && messages.length > 0) {
@@ -151,12 +196,28 @@ export const updateDmMessage = (message: TJoinedDmMessage) => {
   );
 };
 
-export const deleteDmMessage = (dmChannelId: number, dmMessageId: number) => {
-  store.dispatch(dmsSliceActions.deleteMessage({ dmChannelId, dmMessageId }));
+/**
+ * A deleted DM message becomes a tombstone in the list; its cached
+ * plaintext (E2EE) goes with it, and a pinned one tells the pinned
+ * surfaces to refetch.
+ */
+export const deleteDmMessage = (
+  dmChannelId: number,
+  dmMessageId: number,
+  tombstone: TMessageTombstone
+) => {
+  const wasPinned = !!store
+    .getState()
+    .dms.messagesMap[dmChannelId]?.find((m) => m.id === dmMessageId)?.pinned;
+
+  store.dispatch(
+    dmsSliceActions.deleteMessage({ dmChannelId, dmMessageId, tombstone })
+  );
+  void deleteCachedPlaintext(dmMessageId).catch(() => {});
+
+  if (wasPinned) emitAppEvent('dm-pinned-messages-changed', { dmChannelId });
 };
 
-export const setDmsLoading = (loading: boolean) =>
-  store.dispatch(dmsSliceActions.setLoading(loading));
 
 export const resetDmsState = () =>
   store.dispatch(dmsSliceActions.resetState());
@@ -189,15 +250,12 @@ async function decryptDmChannelLastMessages(
 export const fetchDmChannels = async () => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return;
-  setDmsLoading(true);
   try {
     const channels = await trpc.dms.getChannels.query();
     const decrypted = await decryptDmChannelLastMessages(channels);
     setDmChannels(decrypted);
   } catch (err) {
     console.error('Failed to fetch DM channels:', err);
-  } finally {
-    setDmsLoading(false);
   }
 };
 
@@ -206,6 +264,30 @@ export const fetchActiveDmCalls = async () => {
   if (!trpc) return;
   try {
     const activeCalls = await trpc.dms.getActiveCalls.query();
+
+    // Snapshot first: a call we still think we are in but which the
+    // server no longer lists us in (socket-close eviction before a
+    // reconnect, or a call that ended while we were away) is dead, and
+    // the session ids that point at it go with it.
+    const before = store.getState();
+    const deadCallId = before.dms.ownDmCallChannelId;
+    store.dispatch(
+      dmsSliceActions.reconcileActiveCalls({
+        calls: activeCalls,
+        ownUserId: homeOwnUserIdSelector(before)
+      })
+    );
+    const after = store.getState();
+    if (
+      deadCallId !== undefined &&
+      after.dms.ownDmCallChannelId === undefined &&
+      after.server.currentVoiceChannelId === deadCallId &&
+      after.server.currentVoiceKind === 'dm'
+    ) {
+      setCurrentVoiceChannelId(undefined);
+      setCurrentVoiceServerId(undefined);
+    }
+
     for (const call of activeCalls) {
       store.dispatch(
         dmsSliceActions.dmCallStarted({
@@ -221,7 +303,7 @@ export const fetchActiveDmCalls = async () => {
             state: user.state
           })
         );
-        addUserToVoiceChannel(user.userId, call.dmChannelId, user.state);
+        addUserToVoiceChannel(user.userId, call.dmChannelId, 'dm', user.state);
       }
     }
   } catch (err) {
@@ -248,9 +330,14 @@ export const getOrCreateDmChannel = async (
   }
 };
 
+/**
+ * Page toward the past from `cursor` (the oldest loaded createdAt).
+ * The reducer trims the newest end past the cap and flags the window
+ * detached itself; only what lies above the page is recorded here.
+ */
 export const fetchDmMessages = async (
   dmChannelId: number,
-  cursor?: number | null
+  cursor: number
 ) => {
   const trpc = getHomeTRPCClient();
   if (!trpc) return undefined;
@@ -259,15 +346,86 @@ export const fetchDmMessages = async (
 
     // Decrypt any E2EE messages
     const decryptedMessages = await decryptDmMessages(result.messages);
-    addDmMessages(dmChannelId, decryptedMessages, { prepend: !!cursor });
+    await addDmMessages(dmChannelId, decryptedMessages, { prepend: true });
+    store.dispatch(
+      dmsSliceActions.setMessageWindow({
+        dmChannelId,
+        hasOlder: result.nextCursor != null
+      })
+    );
 
-    // Clear unread badge when fetching the first page (user opened the channel)
-    if (!cursor) {
+    return result.nextCursor;
+  } catch (err) {
+    console.error('Failed to fetch DM messages:', err);
+  }
+};
+
+/**
+ * Fetch the LATEST page and attach the window to the live tail — on
+ * opening the DM and on "Jump to Present". The page is fetched before
+ * anything is dropped so the pane never flashes empty; while it is in
+ * flight the window is marked attached so a live message landing
+ * meanwhile is kept and survives the replace. Opening the conversation
+ * is what clears its unread badge.
+ */
+export const fetchLatestDmMessages = async (dmChannelId: number) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  if (store.getState().dms.messageWindowMap[dmChannelId]?.hasNewer) {
+    store.dispatch(
+      dmsSliceActions.setMessageWindow({ dmChannelId, hasNewer: false })
+    );
+  }
+  try {
+    const result = await trpc.dms.getMessages.query({ dmChannelId });
+
+    const decryptedMessages = await decryptDmMessages(result.messages);
+    store.dispatch(
+      dmsSliceActions.replaceMessages({
+        dmChannelId,
+        messages: decryptedMessages,
+        hasOlder: result.nextCursor != null
+      })
+    );
+
+    store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
+    markDmChannelAsRead(dmChannelId);
+  } catch (err) {
+    console.error('Failed to fetch DM messages:', err);
+  }
+};
+
+/**
+ * Page a detached window toward the present: the messages newer than
+ * `after` (the newest loaded createdAt). Reaching the tail re-attaches
+ * the window, and that is the moment the conversation has been read:
+ * live messages that arrived while it was detached were counted unread
+ * (addDmMessages), so the badge clears and the server marker advances
+ * exactly as opening the conversation does. The server writes no read
+ * state for a forward page itself.
+ */
+export const fetchNewerDmMessages = async (
+  dmChannelId: number,
+  after: number
+) => {
+  const trpc = getHomeTRPCClient();
+  if (!trpc) return;
+  try {
+    const result = await trpc.dms.getMessages.query({ dmChannelId, after });
+
+    const decryptedMessages = await decryptDmMessages(result.messages);
+    // Appending past the cap trims the oldest end and flags hasOlder in
+    // the reducer; only the newer edge is news here.
+    await addDmMessages(dmChannelId, decryptedMessages);
+    const attached = result.afterCursor == null;
+    store.dispatch(
+      dmsSliceActions.setMessageWindow({ dmChannelId, hasNewer: !attached })
+    );
+
+    if (attached) {
       store.dispatch(dmsSliceActions.clearChannelUnread(dmChannelId));
       markDmChannelAsRead(dmChannelId);
     }
-
-    return result.nextCursor;
   } catch (err) {
     console.error('Failed to fetch DM messages:', err);
   }
@@ -594,7 +752,17 @@ export async function decryptDmMessages(
 
   // Sender-key (group DM) decrypts. Each chain is independent so
   // these can run in parallel. The chain wrapper persists plaintext
-  // by messageId on success — re-decrypts hit cache.
+  // by messageId on success — re-decrypts hit cache, and the whole
+  // page's cache rows are loaded in one IDB read up front.
+  const persistedSenderKey =
+    senderKeyMessages.length > 0
+      ? await loadPersistedDmGroupPlaintexts(
+          senderKeyMessages.map(({ msg }) => ({
+            id: msg.id,
+            fromUserId: msg.userId
+          }))
+        )
+      : undefined;
   await Promise.all(
     senderKeyMessages.map(async ({ index, msg }) => {
       try {
@@ -602,7 +770,8 @@ export async function decryptDmMessages(
           msg.dmChannelId,
           msg.userId,
           msg.content!,
-          msg.id
+          msg.id,
+          persistedSenderKey
         );
         setFileKeys(msg.id, payload.fileKeys);
         const files = patchFilesWithE2eeMetadata(msg.files, payload.fileKeys);
@@ -698,8 +867,7 @@ export const sendDmMessage = async (
    */
   forwardedFrom?: { sourceKind: 'channel' | 'dm'; sourceId: number }
 ) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   const state = store.getState();
   const channel = state.dms.channels.find((c) => c.id === dmChannelId);
   const recipientUserId = getDmRecipientUserId(dmChannelId);
@@ -768,8 +936,7 @@ export const sendDmMessage = async (
 };
 
 export const editDmMessage = async (messageId: number, content: string) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
 
   const state = store.getState();
 
@@ -825,33 +992,78 @@ export const editDmMessage = async (messageId: number, content: string) => {
     ownSentPlaintextCache.set(encryptedContent, plaintext);
     await trpc.dms.editMessage.mutate({
       messageId,
-      content: encryptedContent
+      content: encryptedContent,
+      e2ee: true
     });
     return;
   }
 
-  await trpc.dms.editMessage.mutate({ messageId, content });
+  await trpc.dms.editMessage.mutate({ messageId, content, e2ee: false });
 };
 
 export const deleteDmMessageAction = async (messageId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.deleteMessage.mutate({ messageId });
 };
 
-export const removeDmChannel = (dmChannelId: number) =>
-  store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
+export const removeDmChannel = (dmChannelId: number) => {
+  const state = store.getState();
+  // The reducer clears selectedChannelId when it matches; mirror that in
+  // storage or a reload would reopen a DM that no longer exists.
+  if (state.dms.selectedChannelId === dmChannelId) {
+    removeLocalStorageItem(LocalStorageKey.ACTIVE_DM_CHANNEL_ID);
+  }
+  // A call cannot outlive its channel: the server tears the runtime
+  // down with the row, so drop our own session with it — leaving it set
+  // showed a live call UI whose Leave could only fail ("not in a call").
+  const inItsCall =
+    state.dms.ownDmCallChannelId === dmChannelId ||
+    (state.server.currentVoiceKind === 'dm' &&
+      state.server.currentVoiceChannelId === dmChannelId);
+  if (inItsCall) {
+    endOwnVoiceSession();
+  }
+  return store.dispatch(dmsSliceActions.removeChannel(dmChannelId));
+};
+
+/**
+ * DM_MEMBER_REMOVE. When WE are the removed member the channel is gone
+ * for us: drop it (messages, typing state and the selection go with it)
+ * and say so — until now the only trace was the conversation vanishing
+ * on the next refetch. Anyone else leaving keeps the channel; the
+ * refetch picks up the new member list and we rotate our sender key so
+ * the leaver cannot read on with the cached one.
+ */
+export const handleDmMemberRemoved = async (
+  dmChannelId: number,
+  removedUserId: number
+) => {
+  const state = store.getState();
+  if (removedUserId === homeOwnUserIdSelector(state)) {
+    const channel = state.dms.channels.find((c) => c.id === dmChannelId);
+    const name =
+      channel?.name ||
+      channel?.members
+        .filter((m) => m.id !== removedUserId)
+        .map((m) => m.name)
+        .join(', ') ||
+      'the conversation';
+    removeDmChannel(dmChannelId);
+    toast.info(`You were removed from ${name}`);
+    return;
+  }
+  await fetchDmChannels();
+  await syncDmGroupSenderKeysOnMemberRemove(dmChannelId, removedUserId);
+};
 
 export const deleteDmChannel = async (dmChannelId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.deleteChannel.mutate({ dmChannelId });
   removeDmChannel(dmChannelId);
 };
 
 export const leaveDmChannel = async (dmChannelId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.leave.mutate({ dmChannelId });
   // Server publishes DM_CHANNEL_DELETE to the leaver, but drop the
   // channel synchronously here too so the toast lands on a UI that
@@ -861,8 +1073,7 @@ export const leaveDmChannel = async (dmChannelId: number) => {
 };
 
 export const enableDmEncryption = async (dmChannelId: number) => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
+  const trpc = requireHomeTRPCClient();
   await trpc.dms.enableEncryption.mutate({ dmChannelId });
   // Refresh local state so `channel.e2ee` flips to true immediately.
   // Without this we'd rely on the DM_CHANNEL_UPDATE pubsub round-trip,
@@ -966,31 +1177,61 @@ export const joinDmVoiceCall = async (dmChannelId: number) => {
     } else {
       // Dynamically import to avoid circular dependency with voice/actions
       const { leaveVoice } = await import('../server/voice/actions');
-      await leaveVoice();
+      // Hop, not hang-up: only the join cue plays.
+      await leaveVoice({ silent: true });
     }
   }
 
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return undefined;
+  // DM calls are hosted by the home instance by construction (dms.* is a
+  // home router), so the join itself goes to home …
+  const trpc = requireHomeTRPCClient();
   const result = await trpc.dms.voiceJoin.mutate({
     dmChannelId,
     state: { micMuted: false, soundMuted: false }
   });
+  // … and the session is pinned there BEFORE the channel id is set, so
+  // every later voice mutation/subscription (getVoiceTRPCClient) keeps
+  // hitting home while the user browses federated servers mid-call.
+  setVoiceInstanceDomain(undefined);
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(dmChannelId));
   // Joining covers an in-flight ring — drop it from the modal.
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
-  // Also set the server voice channel ID so useVoiceEvents subscribes
-  setCurrentVoiceChannelId(dmChannelId);
+  // Also set the server voice channel ID so useVoiceEvents subscribes —
+  // in the DM keyspace, so a same-id server channel is not mistaken
+  // for this call.
+  setCurrentVoiceChannelId(dmChannelId, 'dm');
   return result;
 };
 
 export const leaveDmVoiceCall = async () => {
-  const trpc = getHomeTRPCClient();
-  if (!trpc) return;
-  await trpc.dms.voiceLeave.mutate();
+  const state = store.getState();
+  const inDmCall =
+    state.dms.ownDmCallChannelId !== undefined ||
+    state.server.currentVoiceKind === 'dm';
+
+  if (!inDmCall) {
+    return;
+  }
+
+  // The session's client is read BEFORE the local clear drops the
+  // instance pin; a DM call is always pinned to home, so a missing client
+  // means the home socket is down (NotConnectedError, as before).
+  const trpc = getVoiceTRPCClient();
+
+  // Redux first, then the mutate (mirrors leaveVoice): the local session
+  // must end even when the server no longer has it — a call whose
+  // channel was deleted makes voiceLeave throw "not in a call", and
+  // clearing only on success left the user stuck in a dead call UI.
   store.dispatch(dmsSliceActions.setOwnDmCallChannelId(undefined));
   setCurrentVoiceChannelId(undefined);
   setCurrentVoiceServerId(undefined);
+
+  if (!trpc) throw new NotConnectedError();
+  try {
+    await trpc.dms.voiceLeave.mutate();
+  } catch (error) {
+    toast.error(getTrpcError(error, 'Failed to leave the call'));
+  }
 };
 
 export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
@@ -1011,14 +1252,30 @@ export const dmCallStarted = (dmChannelId: number, startedBy: number) => {
 };
 
 export const dmCallEnded = (dmChannelId: number) => {
+  // Our own voluntary leave clears this marker before the mutate, so a
+  // marker still set means the server ended the call under us (its
+  // channel was deleted, we were evicted) and the session must go too.
+  const wasOwnCall = store.getState().dms.ownDmCallChannelId === dmChannelId;
   store.dispatch(dmsSliceActions.dmCallEnded({ dmChannelId }));
   // Auto-dismiss any incoming-call modal for this channel — the call
   // is over, no point ringing for it.
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+  if (wasOwnCall) {
+    endOwnVoiceSession();
+  }
 };
 
 export const dismissRingingCall = (dmChannelId: number) =>
   store.dispatch(dmsSliceActions.removeRingingCall(dmChannelId));
+
+/** Another session of ours read this DM up to `lastReadMessageId`. */
+export const applyDmReadState = (
+  dmChannelId: number,
+  lastReadMessageId: number
+) =>
+  store.dispatch(
+    dmsSliceActions.applyReadState({ dmChannelId, lastReadMessageId })
+  );
 
 /**
  * Clear an unread badge on a DM the user is actively looking at —

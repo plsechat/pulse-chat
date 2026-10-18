@@ -1,15 +1,20 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
-import { isInviteValid } from '../db/queries/invites';
+import {
+  consumeInvite,
+  isInviteValid,
+  releaseInvite
+} from '../db/queries/invites';
 import { getSettings } from '../db/queries/server';
 import {
   getUserBySupabaseId,
   isDisplayNameTaken,
   resolveTokenIdentity
 } from '../db/queries/users';
-import { invites, users } from '../db/schema';
+import { users } from '../db/schema';
 import { getWsInfo } from '../helpers/get-ws-info';
+import { claimExternalIdentity, providerIdentityFromAuth } from '../import/placeholders';
 import { logger } from '../logger';
 import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
 import { getJsonBody } from './helpers';
@@ -37,11 +42,16 @@ const provisionRouteHandler = async (
     // Body is optional for provision
   }
 
+  const invite =
+    typeof body.invite === 'string' && body.invite.length <= 64
+      ? body.invite
+      : undefined;
+
   const token = authHeader.slice(7);
   const identity = await resolveTokenIdentity(token);
 
   if (!identity) {
-    logger.error('Provision auth failed: invalid or expired token');
+    logger.debug('Provision auth failed: invalid or expired token');
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid or expired token' }));
     return res;
@@ -53,6 +63,17 @@ const provisionRouteHandler = async (
     | undefined;
   const displayName = meta?.full_name || meta?.name || meta?.preferred_username || undefined;
   const existingUser = await getUserBySupabaseId(supabaseUserId);
+  // An OAuth sign-in names who this person is on the provider; if a
+  // community import left a placeholder for that identity, the account
+  // takes its history over (import/placeholders.ts). Never fatal for
+  // the sign-in itself.
+  const providerIdentity = providerIdentityFromAuth(identity);
+  const claimHistory = async (userId: number) => {
+    if (!providerIdentity) return;
+    await claimExternalIdentity(providerIdentity, userId).catch((err) =>
+      logger.warn('[provision] identity claim failed for user %d:', userId, err)
+    );
+  };
 
   if (existingUser) {
     if (existingUser.banned) {
@@ -61,6 +82,8 @@ const provisionRouteHandler = async (
         `Account banned: ${existingUser.banReason || 'No reason provided'}`
       );
     }
+
+    await claimHistory(existingUser.id);
 
     // Update display name if the user still has a generic name and OAuth provides a better one
     if (displayName && existingUser.name === 'New User') {
@@ -99,24 +122,20 @@ const provisionRouteHandler = async (
   // A new user reaching /auth/provision is a social-OAuth signup (password
   // users are already created by /register). Social signups can be disabled
   // independently; an invite bypasses it.
+  let consumedInvite: string | undefined;
+
   if (
     isRegistrationDisabled() ||
     !settings.allowNewUsers ||
     !isRegistrationMethodEnabled('social')
   ) {
-    const inviteError = await isInviteValid(body.invite);
-
-    if (inviteError) {
-      throw new HttpValidationError('invite', inviteError);
+    // Atomic check-and-increment (see consumeInvite): two concurrent
+    // social signups cannot both take the last use of a maxUses invite.
+    if (!(await consumeInvite(invite))) {
+      const inviteError = await isInviteValid(invite);
+      throw new HttpValidationError('invite', inviteError || 'Invalid invite code');
     }
-
-    await db
-      .update(invites)
-      .set({
-        uses: sql`${invites.uses} + 1`
-      })
-      .where(eq(invites.code, body.invite!))
-      .execute();
+    consumedInvite = invite;
   }
 
   // For OAuth, use display name from provider or email prefix as fallback
@@ -133,9 +152,18 @@ const provisionRouteHandler = async (
     finalName = `${finalName}-${Math.random().toString(36).slice(2, 6)}`;
   }
 
-  await registerUser(supabaseUserId, body.invite, connectionInfo?.ip, finalName);
+  try {
+    await registerUser(supabaseUserId, invite, connectionInfo?.ip, finalName);
+  } catch (err) {
+    // The account was never created — hand the invite use back.
+    await releaseInvite(consumedInvite);
+    throw err;
+  }
 
   logger.info(`Provisioned new app user for Supabase ID ${supabaseUserId}`);
+
+  const created = await getUserBySupabaseId(supabaseUserId);
+  if (created) await claimHistory(created.id);
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ success: true }));

@@ -47,6 +47,20 @@ import { PinButton } from './pin-button';
 import { VolumeButton } from './volume-button';
 
 
+/**
+ * iPhone Safari has no Element.requestFullscreen; only a <video> can go
+ * fullscreen there, through the WebKit-prefixed video API. Calling the
+ * missing method threw synchronously.
+ */
+type TWebkitVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+
+const elementFullscreenSupported = () =>
+  typeof document !== 'undefined' &&
+  typeof document.documentElement.requestFullscreen === 'function';
+
+const videoFullscreenSupported = (video: HTMLVideoElement | null) =>
+  typeof (video as TWebkitVideo | null)?.webkitEnterFullscreen === 'function';
+
 type tScreenShareControlsProps = {
   isPinned: boolean;
   isZoomEnabled: boolean;
@@ -101,10 +115,11 @@ const QuickBar = memo(({ children }: TQuickBarProps) => {
     <div
       className={cn(
         'absolute bottom-2 left-1/2 -translate-x-1/2 z-20',
-        'opacity-0 group-hover:opacity-100 transition-opacity',
+        'opacity-0 group-hover-or-touch:opacity-100 transition-opacity',
         'flex items-center gap-1 rounded-full bg-black/60 backdrop-blur-sm px-1.5 py-1',
         'pointer-events-auto cursor-default'
       )}
+      onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseMove={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
@@ -244,12 +259,26 @@ const ScreenShareCard = memo(
     }, [containerRef]);
 
     const toggleFullscreen = useCallback(() => {
-      if (document.fullscreenElement === containerRef.current) {
+      const container = containerRef.current;
+      if (!container) return;
+      if (document.fullscreenElement === container) {
         document.exitFullscreen().catch(() => {});
-      } else {
-        containerRef.current?.requestFullscreen().catch(() => {});
+        return;
       }
-    }, [containerRef]);
+      if (elementFullscreenSupported()) {
+        container.requestFullscreen().catch(() => {});
+        return;
+      }
+      // iPhone Safari: the video element itself, via the WebKit API.
+      const video = screenShareRef.current as TWebkitVideo | null;
+      if (videoFullscreenSupported(video)) video?.webkitEnterFullscreen?.();
+    }, [containerRef, screenShareRef]);
+
+    // No fullscreen API of either kind: hide the control instead of
+    // offering a button that does nothing.
+    const canFullscreen =
+      elementFullscreenSupported() ||
+      videoFullscreenSupported(screenShareRef.current);
 
     const handleDoubleClick = useCallback(() => {
       // Fullscreen is reserved for cards that were ALREADY pinned —
@@ -362,15 +391,17 @@ const ScreenShareCard = memo(
                     className={QUICK_BTN}
                     size="xl"
                   />
-                  <IconButton
-                    variant="ghost"
-                    icon={isFullscreen ? Minimize : Maximize}
-                    onClick={toggleFullscreen}
-                    title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    className={QUICK_BTN}
-                    size="xl"
-                  />
+                  {canFullscreen && (
+                    <IconButton
+                      variant="ghost"
+                      icon={isFullscreen ? Minimize : Maximize}
+                      onClick={toggleFullscreen}
+                      title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      className={QUICK_BTN}
+                      size="xl"
+                    />
+                  )}
                   <IconButton
                     variant="ghost"
                     icon={ScreenShareOff}
@@ -393,20 +424,22 @@ const ScreenShareCard = memo(
                       className={QUICK_BTN}
                     />
                   )}
-                  <IconButton
-                    variant="ghost"
-                    icon={isFullscreen ? Minimize : Maximize}
-                    onClick={toggleFullscreen}
-                    title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                    className={QUICK_BTN}
-                    size="xl"
-                  />
+                  {canFullscreen && (
+                    <IconButton
+                      variant="ghost"
+                      icon={isFullscreen ? Minimize : Maximize}
+                      onClick={toggleFullscreen}
+                      title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      aria-label={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                      className={QUICK_BTN}
+                      size="xl"
+                    />
+                  )}
                 </>
               )}
             </QuickBar>
 
-            <div className="absolute bottom-0 left-0 right-0 p-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute bottom-0 left-0 right-0 p-2 z-10 opacity-0 group-hover-or-touch:opacity-100 transition-opacity">
               <div className="flex items-center gap-2 min-w-0">
                 <Monitor className="size-3.5 text-purple-400 flex-shrink-0" />
                 <span className="text-white font-medium text-xs truncate">
@@ -456,9 +489,11 @@ const ScreenShareCard = memo(
                 </ContextMenuRadioGroup>
               </ContextMenuSubContent>
             </ContextMenuSub>
-            <ContextMenuItem onClick={toggleFullscreen}>
-              {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            </ContextMenuItem>
+            {canFullscreen && (
+              <ContextMenuItem onClick={toggleFullscreen}>
+                {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              </ContextMenuItem>
+            )}
             {hasOutgoingScreenAudio && (
               <ContextMenuCheckboxItem
                 checked={screenAudioMuted}
@@ -474,9 +509,11 @@ const ScreenShareCard = memo(
           </ContextMenuContent>
         ) : (
           <ContextMenuContent>
-            <ContextMenuItem onClick={toggleFullscreen}>
-              {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            </ContextMenuItem>
+            {canFullscreen && (
+              <ContextMenuItem onClick={toggleFullscreen}>
+                {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              </ContextMenuItem>
+            )}
             {showPinControls && (
               <ContextMenuItem onClick={handlePinToggle}>
                 {isPinned ? 'Unpin' : 'Pop Out'}

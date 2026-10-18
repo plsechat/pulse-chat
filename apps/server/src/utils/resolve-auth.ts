@@ -1,4 +1,4 @@
-import type { TUser } from '@pulse/shared';
+import type { TUser } from '../types';
 import { findOrCreateShadowUser } from '../db/mutations/federation';
 import { getUserByToken } from '../db/queries/users';
 import { verifyFederationToken } from './federation';

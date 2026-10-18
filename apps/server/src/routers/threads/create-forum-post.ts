@@ -1,11 +1,17 @@
-import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
+import {
+  ChannelPermission,
+  ChannelType,
+  MAX_FILES_PER_POST,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  Permission,
+  ServerEvents
+} from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel, publishMessage } from '../../db/publishers';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
-import { getServerMemberIds } from '../../db/queries/servers';
 import {
   channels,
   forumPostTags,
@@ -14,53 +20,62 @@ import {
   threadFollowers
 } from '../../db/schema';
 import { parseMentionedUserIds } from '../../helpers/parse-mentions';
+import { eventBus } from '../../plugins/event-bus';
 import { fileManager } from '../../utils/file-manager';
 import { invariant } from '../../utils/invariant';
+import { channelProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
+import {
+  copyParentOverrides,
+  getThreadViewerIds,
+  MAX_TAGS_PER_POST,
+  MAX_TEMP_FILE_ID_LENGTH,
+  publishPrivateThreadPermissions,
+  resolveForumTagIds
+} from './_shared';
 
-const createForumPostRoute = protectedProcedure
+// Channel-level SEND_MESSAGES (implies VIEW) on the forum itself — the
+// server-level flag alone says nothing about a private forum.
+const createForumPostRoute = channelProcedure(
+  ChannelPermission.SEND_MESSAGES,
+  { serverPermission: Permission.SEND_MESSAGES }
+)
   .input(
     z.object({
-      channelId: z.number(),
       title: z.string().min(1).max(200),
-      content: z.string().min(1).max(4000),
-      tagIds: z.array(z.number()).optional(),
-      files: z.array(z.string()).optional()
+      // Same plaintext budget as an ordinary message in the thread.
+      content: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH),
+      tagIds: z
+        .array(z.number().int().positive())
+        .max(MAX_TAGS_PER_POST)
+        .optional(),
+      files: z
+        .array(z.string().min(1).max(MAX_TEMP_FILE_ID_LENGTH))
+        .max(MAX_FILES_PER_POST)
+        .optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
+    const forumChannel = ctx.channel;
 
-    // Verify the channel exists, is a FORUM type, and is in the active server
-    const [forumChannel] = await db
-      .select({
-        id: channels.id,
-        type: channels.type,
-        serverId: channels.serverId
-      })
-      .from(channels)
-      .where(
-        and(
-          eq(channels.id, input.channelId),
-          eq(channels.serverId, ctx.activeServerId)
-        )
-      )
-      .limit(1);
-
-    if (!forumChannel || forumChannel.type !== ChannelType.FORUM) {
+    if (forumChannel.type !== ChannelType.FORUM) {
       return ctx.throwValidationError('channelId', 'Forum channel not found');
     }
 
-    await ctx.needsPermission(Permission.SEND_MESSAGES, forumChannel.serverId);
+    // The opening post is plaintext by construction; it cannot live in
+    // an encrypted thread, and an encrypted forum has no way to carry it.
+    invariant(!forumChannel.e2ee, {
+      code: 'BAD_REQUEST',
+      message: 'Encrypted forums do not support posts'
+    });
+
+    const tagIds = await resolveForumTagIds(forumChannel.id, input.tagIds);
 
     const now = Date.now();
 
     const result = await db.transaction(async (tx) => {
-      // Create thread channel for the forum post
+      // Create thread channel for the forum post. Visibility is
+      // inherited: a public post under a private forum would leak it.
       const [thread] = await tx
         .insert(channels)
         .values({
@@ -71,12 +86,18 @@ const createForumPostRoute = protectedProcedure
           fileAccessTokenUpdatedAt: now,
           serverId: forumChannel.serverId,
           parentChannelId: forumChannel.id,
+          private: forumChannel.private,
+          e2ee: forumChannel.e2ee,
           archived: false,
           autoArchiveDuration: 1440,
           publicId: randomUUIDv7(),
           createdAt: now
         })
         .returning();
+
+      if (forumChannel.private) {
+        await copyParentOverrides(tx, forumChannel.id, thread!.id, now);
+      }
 
       // Create the initial message in the thread
       const [firstMessage] = await tx
@@ -90,9 +111,9 @@ const createForumPostRoute = protectedProcedure
         .returning();
 
       // Attach tags if provided
-      if (input.tagIds && input.tagIds.length > 0) {
+      if (tagIds.length > 0) {
         await tx.insert(forumPostTags).values(
-          input.tagIds.map((tagId) => ({
+          tagIds.map((tagId) => ({
             threadId: thread!.id,
             tagId
           }))
@@ -146,14 +167,23 @@ const createForumPostRoute = protectedProcedure
     publishChannel(result.thread.id, 'create');
     publishMessage(result.message.id, result.thread.id, 'create');
 
-    const memberIds = await getServerMemberIds(forumChannel.serverId);
-    pubsub.publishFor(memberIds, ServerEvents.THREAD_CREATE, {
+    const viewerIds = await getThreadViewerIds(result.thread.id);
+    await publishPrivateThreadPermissions(forumChannel.private, viewerIds);
+    pubsub.publishFor(viewerIds, ServerEvents.THREAD_CREATE, {
       id: result.thread.id,
       name: result.thread.name,
       messageCount: 1,
       lastMessageAt: now,
       archived: false,
       parentChannelId: forumChannel.id,
+      creatorId: ctx.userId
+    });
+
+    eventBus.emit('thread:created', {
+      threadId: result.thread.id,
+      parentChannelId: forumChannel.id,
+      serverId: forumChannel.serverId,
+      name: result.thread.name,
       creatorId: ctx.userId
     });
 

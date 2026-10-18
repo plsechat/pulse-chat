@@ -7,9 +7,12 @@ export enum LocalStorageKey {
   RIGHT_SIDEBAR_STATE = 'pulse-right-sidebar-state',
   VOLUME_SETTINGS = 'pulse-volume-settings',
   RECENT_EMOJIS = 'pulse-recent-emojis',
+  AUDIO_DRIVER_PROMPT_DISMISSED = 'pulse-audio-driver-prompt-dismissed',
   ACTIVE_SERVER_ID = 'pulse-active-server-id',
+  /** `{ instanceDomain, serverId }` of the federated server in focus —
+   *  kept apart from ACTIVE_SERVER_ID, which is a HOME server id only. */
+  ACTIVE_FEDERATED_SERVER = 'pulse-active-federated-server',
   FEDERATED_SERVERS = 'pulse-federated-servers',
-  ACTIVE_INSTANCE = 'pulse-active-instance',
   APPEARANCE_SETTINGS = 'pulse-appearance-settings',
   SERVER_CHANNEL_MAP = 'pulse-server-channel-map',
   SOUND_NOTIFICATION_SETTINGS = 'pulse-sound-notification-settings',
@@ -17,7 +20,15 @@ export enum LocalStorageKey {
   SCROLL_POSITIONS = 'pulse-scroll-positions',
   DM_SCROLL_POSITIONS = 'pulse-dm-scroll-positions',
   ACTIVE_DM_CHANNEL_ID = 'pulse-active-dm-channel-id',
-  HOME_TAB = 'pulse-home-tab'
+  HOME_TAB = 'pulse-home-tab',
+  DECK_TABS = 'pulse-deck-tabs',
+  DECK_PANEL_WIDTH = 'pulse-deck-panel-width',
+  /** Game presence sharing: the master switch + hidden communities. */
+  PRESENCE_SETTINGS = 'pulse-presence-settings',
+  /** Soundboard clip ids the user starred (shown first in the grid). */
+  SOUNDBOARD_FAVOURITES = 'pulse-soundboard-favourites',
+  /** The viewer's own level for the watch panel's player (0–100). */
+  WATCH_VOLUME = 'pulse-watch-volume'
 }
 
 const getLocalStorageItem = (key: LocalStorageKey): string | null => {
@@ -31,7 +42,15 @@ const getLocalStorageItemAsJSON = <T>(
   const item = localStorage.getItem(key);
 
   if (item) {
-    return JSON.parse(item) as T;
+    try {
+      return JSON.parse(item) as T;
+    } catch {
+      // Corrupt or truncated value (quota hit mid-write, manual edit).
+      // Several callers run at module evaluation, so throwing here kept
+      // React from mounting at all; fall back and drop the bad value so
+      // the next write starts clean.
+      localStorage.removeItem(key);
+    }
   }
 
   return defaultValue;

@@ -11,7 +11,7 @@ import {
   useHomeUserById,
   useUserById
 } from '@/features/server/users/hooks';
-import { useChatScope } from '@/components/chat-primitives/chat-scope';
+import { useChatScope } from '@/components/chat-primitives/chat-scope-context';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { LayoutList, MessageSquare } from 'lucide-react';
 import { memo, useCallback } from 'react';

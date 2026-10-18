@@ -9,7 +9,7 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const enableEncryptionRoute = protectedProcedure
-  .input(z.object({ dmChannelId: z.number() }))
+  .input(z.object({ dmChannelId: z.number().int().positive() }))
   .mutation(async ({ input, ctx }) => {
     const [channel] = await db
       .select()

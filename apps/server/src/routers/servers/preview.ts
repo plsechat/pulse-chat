@@ -48,7 +48,7 @@ const previewServerRoute = protectedProcedure
       });
 
       // Validate remaining uses WITHOUT consuming one — only an actual
-      // join (servers.join) increments.
+      // join (servers.joinByInvite) increments.
       invariant(!invite.maxUses || invite.uses < invite.maxUses, {
         code: 'FORBIDDEN',
         message: 'This invite has reached its maximum uses'
@@ -104,6 +104,7 @@ const previewServerRoute = protectedProcedure
             autoArchiveDuration: channels.autoArchiveDuration,
             forumDefaultSort: channels.forumDefaultSort,
             e2ee: channels.e2ee,
+            announcement: channels.announcement,
             publicId: channels.publicId,
             createdAt: channels.createdAt,
             updatedAt: channels.updatedAt

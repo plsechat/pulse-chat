@@ -1,10 +1,11 @@
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '../../types';
 import { eq } from 'drizzle-orm';
 import fs from 'fs/promises';
 import path from 'path';
 import { db } from '..';
 import { PUBLIC_PATH } from '../../helpers/paths';
 import { logger } from '../../logger';
+import { invalidateFileAssociation } from '../../utils/file-association-cache';
 import { files, messageFiles } from '../schema';
 
 const removeFile = async (fileId: number): Promise<TFile | undefined> => {
@@ -16,6 +17,10 @@ const removeFile = async (fileId: number): Promise<TFile | undefined> => {
     .returning();
 
   if (removedFile) {
+    // /public memoises what a name is attached to; the row is gone, so
+    // the next request must miss instead of serving a deleted file.
+    invalidateFileAssociation(removedFile.name);
+
     try {
       const filePath = path.join(PUBLIC_PATH, removedFile.name);
 

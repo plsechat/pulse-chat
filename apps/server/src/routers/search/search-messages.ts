@@ -1,60 +1,89 @@
+import { ChannelPermission } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TMessage,
+  TMessageReplyPreview
+} from '../../types';
 import {
-  ChannelPermission,
-  type TFile,
-  type TJoinedMessage,
-  type TMessage,
-  type TMessageReplyPreview
-} from '@pulse/shared';
-import { and, desc, eq, gt, ilike, inArray, lt, type SQL } from 'drizzle-orm';
+  and,
+  desc,
+  eq,
+  exists,
+  gt,
+  ilike,
+  inArray,
+  isNull,
+  lt,
+  sql,
+  type SQL
+} from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { getReactionsForMessageIds } from '../../db/queries/messages';
 import { channels, files, messageFiles, messages } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const searchMessagesRoute = protectedProcedure
+const searchMessagesRoute = serverProcedure()
   .input(
     z.object({
       query: z.string().min(1).max(200),
-      channelId: z.number().optional(),
-      userId: z.number().optional(),
+      channelId: z.number().int().positive().optional(),
+      userId: z.number().int().positive().optional(),
       hasFile: z.boolean().optional(),
       hasLink: z.boolean().optional(),
-      before: z.number().optional(),
-      after: z.number().optional(),
-      cursor: z.number().optional(),
-      limit: z.number().min(1).max(50).default(25)
+      before: z.number().int().optional(),
+      after: z.number().int().optional(),
+      cursor: z.number().int().optional(),
+      limit: z.number().int().min(1).max(50).default(25)
     })
   )
   .query(async ({ ctx, input }) => {
     const escapedQuery = input.query.replace(/[%_\\]/g, '\\$&');
+    // Tombstones have no content to match; the explicit filter keeps
+    // that true for every later condition (hasFile, hasLink).
     const conditions: SQL[] = [
       ilike(messages.content, `%${escapedQuery}%`),
-      eq(messages.e2ee, false)
+      eq(messages.e2ee, false),
+      isNull(messages.deletedAt)
     ];
+
+    // The channel set the caller may read. Every later step (rows, file
+    // tokens, reply previews) is restricted to it — a server-wide search
+    // must not surface private channels the caller has no VIEW on.
+    let visibleChannelIds: number[];
 
     if (input.channelId) {
       await ctx.needsChannelPermission(
         input.channelId,
         ChannelPermission.VIEW_CHANNEL
       );
-      conditions.push(eq(messages.channelId, input.channelId));
+      visibleChannelIds = [input.channelId];
     } else {
-      // Scope search to channels within the caller's active server
       const serverChannelRows = await db
         .select({ id: channels.id })
         .from(channels)
-        .where(eq(channels.serverId, ctx.activeServerId!));
+        .where(eq(channels.serverId, ctx.activeServerId));
 
-      const serverChannelIds = serverChannelRows.map((c) => c.id);
-
-      if (serverChannelIds.length === 0) {
-        return { messages: [], nextCursor: null };
+      // Sequential on purpose: the per-connection permission cache is
+      // lazily filled by the first call, so a parallel burst would load
+      // it once per channel.
+      visibleChannelIds = [];
+      for (const { id } of serverChannelRows) {
+        if (
+          await ctx.hasChannelPermission(id, ChannelPermission.VIEW_CHANNEL)
+        ) {
+          visibleChannelIds.push(id);
+        }
       }
 
-      conditions.push(inArray(messages.channelId, serverChannelIds));
+      if (visibleChannelIds.length === 0) {
+        return { messages: [], nextCursor: null };
+      }
     }
+
+    conditions.push(inArray(messages.channelId, visibleChannelIds));
 
     if (input.userId) {
       conditions.push(eq(messages.userId, input.userId));
@@ -62,6 +91,20 @@ const searchMessagesRoute = protectedProcedure
 
     if (input.hasLink) {
       conditions.push(ilike(messages.content, '%http%'));
+    }
+
+    if (input.hasFile) {
+      // A correlated EXISTS keeps the result one row per message and the
+      // ORDER BY free — the previous DISTINCT ON + ORDER BY createdAt
+      // pair is rejected by Postgres outright.
+      conditions.push(
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(messageFiles)
+            .where(eq(messageFiles.messageId, messages.id))
+        )
+      );
     }
 
     if (input.before) {
@@ -78,27 +121,12 @@ const searchMessagesRoute = protectedProcedure
 
     const { limit } = input;
 
-    let rows: TMessage[];
-
-    if (input.hasFile) {
-      // Join with messageFiles to filter messages that have attachments
-      const results = await db
-        .selectDistinctOn([messages.id], { message: messages })
-        .from(messages)
-        .innerJoin(messageFiles, eq(messageFiles.messageId, messages.id))
-        .where(and(...conditions))
-        .orderBy(desc(messages.createdAt))
-        .limit(limit + 1);
-
-      rows = results.map((r) => r.message);
-    } else {
-      rows = await db
-        .select()
-        .from(messages)
-        .where(and(...conditions))
-        .orderBy(desc(messages.createdAt))
-        .limit(limit + 1);
-    }
+    const rows: TMessage[] = await db
+      .select()
+      .from(messages)
+      .where(and(...conditions))
+      .orderBy(desc(messages.createdAt))
+      .limit(limit + 1);
 
     let nextCursor: number | null = null;
 
@@ -135,6 +163,7 @@ const searchMessagesRoute = protectedProcedure
     ]);
 
     const channelMap = new Map(channelRows.map((c) => [c.id, c]));
+    const channelByMessage = new Map(rows.map((m) => [m.id, m.channelId]));
 
     const filesByMessage = fileRows.reduce<Record<number, TFile[]>>(
       (acc, row) => {
@@ -142,10 +171,13 @@ const searchMessagesRoute = protectedProcedure
           acc[row.messageId] = [];
         }
 
-        const msg = rows.find((m) => m.id === row.messageId);
-        const channel = msg ? channelMap.get(msg.channelId) : undefined;
+        const channelId = channelByMessage.get(row.messageId);
+        const channel =
+          channelId !== undefined ? channelMap.get(channelId) : undefined;
         const rowCopy: TFile = { ...row.file };
 
+        // Only channels the caller can view reached this point, so a
+        // token is only ever minted for an attachment they may open.
         if (channel?.private) {
           rowCopy._accessToken = generateFileToken(
             row.file.id,
@@ -173,7 +205,15 @@ const searchMessagesRoute = protectedProcedure
           userId: messages.userId
         })
         .from(messages)
-        .where(inArray(messages.id, replyToIds));
+        // Replies are same-channel by construction (send validates it);
+        // the condition keeps a stray id from ever previewing content
+        // outside the channels the caller can read.
+        .where(
+          and(
+            inArray(messages.id, replyToIds),
+            inArray(messages.channelId, channelIds)
+          )
+        );
 
       replyToMap = replyRows.reduce<Record<number, TMessageReplyPreview>>(
         (acc, r) => {

@@ -16,30 +16,11 @@ import { randomUUIDv7 } from 'bun';
 import { describe, expect, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
-import { serverMembers, servers, settings, users } from '../../db/schema';
+import { channels, serverMembers, servers, settings, users } from '../../db/schema';
+import {
+  insertMemberUser
+} from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
-
-const insertMemberUser = async () => {
-  const suffix = randomUUIDv7();
-  const [user] = await db
-    .insert(users)
-    .values({
-      supabaseId: `admin-supa-${suffix}`,
-      name: `AdminTestUser-${suffix.slice(0, 8)}`,
-      publicId: `admin-pid-${suffix}`,
-      createdAt: Date.now()
-    })
-    .returning();
-
-  await db.insert(serverMembers).values({
-    userId: user!.id,
-    serverId: 1,
-    nickname: null,
-    joinedAt: Date.now()
-  });
-
-  return user!;
-};
 
 describe('admin router', () => {
   test('every admin procedure is refused for a non-owner', async () => {
@@ -167,7 +148,7 @@ describe('admin router', () => {
     expect(health.database.servers).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(health.federation)).toBe(true);
 
-    // joinServer in initTest writes SERVER_STARTED/USER_* rows via the
+    // openSession in initTest writes SERVER_STARTED/USER_* rows via the
     // async activity queue; seed one row directly so the assertion
     // never races the drain.
     const { activityLog } = await import('../../db/schema');
@@ -264,6 +245,25 @@ describe('admin router', () => {
     await expect(caller.admin.banUser({ userId: 1 })).rejects.toThrow(
       'cannot ban yourself'
     );
+  });
+
+  test('banUser re-keys the private channels of the servers the user belongs to', async () => {
+    const { caller } = await initTest();
+    const target = await insertMemberUser();
+
+    await db.update(channels).set({ private: true }).where(eq(channels.id, 1));
+    const [before] = await db
+      .select({ fileAccessToken: channels.fileAccessToken })
+      .from(channels)
+      .where(eq(channels.id, 1));
+
+    await caller.admin.banUser({ userId: target.id, reason: 'spam' });
+
+    const [after] = await db
+      .select({ fileAccessToken: channels.fileAccessToken })
+      .from(channels)
+      .where(eq(channels.id, 1));
+    expect(after!.fileAccessToken).not.toBe(before!.fileAccessToken);
   });
 
   test('unbanUser clears the flag; unbanning a non-banned user is refused', async () => {

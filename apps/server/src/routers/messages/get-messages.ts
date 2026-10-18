@@ -2,13 +2,15 @@ import {
   ChannelPermission,
   ChannelType,
   DEFAULT_MESSAGES_LIMIT,
-  ServerEvents,
-  type TFile,
-  type TJoinedMessage,
-  type TJoinedPublicUser,
-  type TMessage,
-  type TMessageReplyPreview
+  ServerEvents
 } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TJoinedPublicUser,
+  TMessage,
+  TMessageReplyPreview
+} from '../../types';
 import { and, asc, desc, eq, gt, inArray, lt, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -28,52 +30,44 @@ import {
 } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
 import { invariant } from '../../utils/invariant';
+import { channelProcedure } from '../../utils/procedures';
 import { pubsub } from '../../utils/pubsub';
-import { protectedProcedure } from '../../utils/trpc';
 
-const getMessagesRoute = protectedProcedure
+const MAX_MESSAGES_LIMIT = 100;
+
+// Preview 'permit': a read-only preview session (servers.preview) reads
+// the previewed server's public channels through this route.
+const getMessagesRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
+  preview: 'permit'
+})
   .input(
     z.object({
-      channelId: z.number(),
-      cursor: z.number().nullish(),
+      cursor: z.number().int().nullish(),
       // Jump-to-message support: `aroundId` returns a window of messages
       // centered on that message id; `after` pages FORWARD (ascending)
       // from a createdAt cursor to fill the gap below an around-window.
       // Mutually exclusive with `cursor`; aroundId wins if both given.
-      aroundId: z.number().nullish(),
-      after: z.number().nullish(),
-      limit: z.number().default(DEFAULT_MESSAGES_LIMIT)
+      aroundId: z.number().int().positive().nullish(),
+      after: z.number().int().nullish(),
+      // Hard upper bound: `limit + 1` rows plus the files/reactions/replies
+      // fan-out run on the single Bun thread, so an unbounded limit is a
+      // one-call way to load a whole channel.
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_MESSAGES_LIMIT)
+        .default(DEFAULT_MESSAGES_LIMIT)
     })
   )
   .meta({ infinite: true })
   .query(async ({ ctx, input }) => {
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
     const { channelId, cursor, limit } = input;
-
-    const [channel] = await db
-      .select({
-        private: channels.private,
-        fileAccessToken: channels.fileAccessToken,
-        serverId: channels.serverId
-      })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .limit(1);
-
-    invariant(channel, {
-      code: 'NOT_FOUND',
-      message: 'Channel not found'
-    });
+    const { channel } = ctx;
 
     // Read-only preview session (servers.preview) fetching from the
     // previewed server: serve messages, but never touch read state.
-    const isPreview =
-      ctx.previewServerId !== undefined &&
-      channel.serverId === ctx.previewServerId;
+    const { isPreview } = ctx;
 
     let rows: TMessage[];
     let nextCursor: number | null = null;
@@ -260,7 +254,15 @@ const getMessagesRoute = protectedProcedure
           e2ee: messages.e2ee
         })
         .from(messages)
-        .where(inArray(messages.id, replyToIds));
+        // Replies are same-channel by construction (send validates it);
+        // the condition keeps a stray id from ever previewing content
+        // outside the channel the caller is reading.
+        .where(
+          and(
+            inArray(messages.id, replyToIds),
+            eq(messages.channelId, channelId)
+          )
+        );
 
       // Probe attachments per replied-to message so file-only messages
       // (content null + attachments present) don't render as "Message

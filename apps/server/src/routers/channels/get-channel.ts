@@ -2,24 +2,18 @@ import { Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
+import { toWireChannel } from '../../db/queries/channels';
 import { channels } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const getChannelRoute = protectedProcedure
+const getChannelRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(
     z.object({
-      channelId: z.number().min(1)
+      channelId: z.number().int().positive()
     })
   )
   .query(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS);
-
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     const [channel] = await db
       .select()
       .from(channels)
@@ -31,7 +25,7 @@ const getChannelRoute = protectedProcedure
       message: 'Channel not found'
     });
 
-    return channel;
+    return toWireChannel(channel);
   });
 
 export { getChannelRoute };

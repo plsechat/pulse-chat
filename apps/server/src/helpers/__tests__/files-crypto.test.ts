@@ -1,17 +1,22 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import { generateFileToken, verifyFileToken } from '../files-crypto';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import * as serverQueries from '../../db/queries/server';
+import {
+  FILE_TOKEN_BUCKET_MS,
+  FILE_TOKEN_MAX_TTL_MS,
+  generateFileToken,
+  verifyFileToken
+} from '../files-crypto';
 
-const mockGetFileHmacSecretSync = mock(() => 'test-server-token-12345');
+// The HMAC secret comes from the real `getFileHmacSecretSync`: setup.ts
+// warms it from the seeded server row before every test. The two tests
+// that care about the lookup itself spy on the export (restorable) —
+// never `mock.module`, which is process-global and irreversible.
 
-mock.module('../../db/queries/server', () => ({
-  getFileHmacSecretSync: mockGetFileHmacSecretSync
-}));
+afterEach(() => {
+  mock.restore();
+});
 
 describe('files-crypto', () => {
-  beforeEach(() => {
-    mockGetFileHmacSecretSync.mockClear();
-  });
-
   describe('generateFileToken', () => {
     test('should generate a valid token for given fileId and channelAccessToken', () => {
       const fileId = 123;
@@ -21,8 +26,8 @@ describe('files-crypto', () => {
 
       expect(token).toBeDefined();
       expect(typeof token).toBe('string');
-      expect(token.length).toBe(64);
-      expect(mockGetFileHmacSecretSync).toHaveBeenCalledTimes(1);
+      // `<exp unix seconds>.<hex sha256 hmac>`
+      expect(token).toMatch(/^\d{10}\.[0-9a-f]{64}$/);
     });
 
     test('should generate different tokens for different fileIds', () => {
@@ -56,10 +61,26 @@ describe('files-crypto', () => {
     test('should use server token from getFileHmacSecretSync', () => {
       const fileId = 123;
       const channelAccessToken = 'channel-token-abc';
+      const secretSpy = spyOn(serverQueries, 'getFileHmacSecretSync');
 
-      generateFileToken(fileId, channelAccessToken);
+      const token = generateFileToken(fileId, channelAccessToken);
 
-      expect(mockGetFileHmacSecretSync).toHaveBeenCalledTimes(1);
+      expect(secretSpy).toHaveBeenCalledTimes(1);
+      expect(verifyFileToken(fileId, channelAccessToken, token)).toBe(true);
+    });
+
+    test('tokens are bound to the server secret', () => {
+      const fileId = 123;
+      const channelAccessToken = 'channel-token-abc';
+      const realToken = generateFileToken(fileId, channelAccessToken);
+
+      spyOn(serverQueries, 'getFileHmacSecretSync').mockReturnValue(
+        'a-different-server-secret'
+      );
+      const otherSecretToken = generateFileToken(fileId, channelAccessToken);
+
+      expect(otherSecretToken).not.toBe(realToken);
+      expect(verifyFileToken(fileId, channelAccessToken, realToken)).toBe(false);
     });
   });
 
@@ -170,6 +191,128 @@ describe('files-crypto', () => {
 
         expect(isValid).toBe(true);
       }
+    });
+  });
+
+  describe('expiry', () => {
+    const fileId = 123;
+    const salt = 'channel-token-abc';
+    // A fixed instant 1 ms into a bucket, so the bucket arithmetic is
+    // exercised at both ends below.
+    const bucketStart =
+      Math.floor(1_800_000_000_000 / FILE_TOKEN_BUCKET_MS) *
+      FILE_TOKEN_BUCKET_MS;
+
+    const expOf = (token: string) => Number(token.split('.')[0]) * 1000;
+
+    test('tokens minted anywhere inside one bucket are byte-identical', () => {
+      const early = generateFileToken(fileId, salt, bucketStart + 1);
+      const late = generateFileToken(
+        fileId,
+        salt,
+        bucketStart + FILE_TOKEN_BUCKET_MS - 1
+      );
+      const nextBucket = generateFileToken(
+        fileId,
+        salt,
+        bucketStart + FILE_TOKEN_BUCKET_MS
+      );
+
+      expect(late).toBe(early);
+      expect(nextBucket).not.toBe(early);
+    });
+
+    test('every token is valid for at least one bucket and at most two', () => {
+      const first = generateFileToken(fileId, salt, bucketStart);
+      const last = generateFileToken(
+        fileId,
+        salt,
+        bucketStart + FILE_TOKEN_BUCKET_MS - 1
+      );
+
+      expect(expOf(first) - bucketStart).toBe(FILE_TOKEN_MAX_TTL_MS);
+      expect(expOf(last) - (bucketStart + FILE_TOKEN_BUCKET_MS - 1)).toBe(
+        FILE_TOKEN_BUCKET_MS + 1
+      );
+    });
+
+    test('a token stops verifying exactly at its exp', () => {
+      const token = generateFileToken(fileId, salt, bucketStart + 1);
+      const exp = expOf(token);
+
+      expect(verifyFileToken(fileId, salt, token, bucketStart + 1)).toBe(true);
+      expect(verifyFileToken(fileId, salt, token, exp - 1)).toBe(true);
+      expect(verifyFileToken(fileId, salt, token, exp)).toBe(false);
+      expect(verifyFileToken(fileId, salt, token, exp + 1)).toBe(false);
+    });
+
+    test('a token minted long ago is rejected now', () => {
+      const stale = generateFileToken(
+        fileId,
+        salt,
+        Date.now() - FILE_TOKEN_MAX_TTL_MS - 1
+      );
+
+      expect(verifyFileToken(fileId, salt, stale)).toBe(false);
+    });
+
+    test('a forged exp fails the signature even when it is in range', () => {
+      const token = generateFileToken(fileId, salt, bucketStart + 1);
+      const [exp, signature] = token.split('.');
+      const forged = `${Number(exp) + 60}.${signature}`;
+
+      expect(verifyFileToken(fileId, salt, forged, bucketStart + 1)).toBe(
+        false
+      );
+    });
+
+    test('a correctly signed far-future exp is still outside the bound', () => {
+      // Signed with the real secret, as a leaked-secret attacker would,
+      // but for a window ten days out: the 24 h ceiling rejects it.
+      const farFuture = generateFileToken(
+        fileId,
+        salt,
+        bucketStart + 10 * 24 * 60 * 60 * 1000
+      );
+
+      expect(verifyFileToken(fileId, salt, farFuture, bucketStart)).toBe(
+        false
+      );
+      // ...and verifies once its own window arrives.
+      expect(
+        verifyFileToken(
+          fileId,
+          salt,
+          farFuture,
+          expOf(farFuture) - FILE_TOKEN_BUCKET_MS
+        )
+      ).toBe(true);
+    });
+
+    test('malformed exp parts are rejected before any HMAC work', () => {
+      const token = generateFileToken(fileId, salt, bucketStart + 1);
+      const signature = token.split('.')[1]!;
+
+      for (const bad of [
+        signature,
+        `.${signature}`,
+        `abc.${signature}`,
+        `1e10.${signature}`,
+        `-1.${signature}`,
+        `12.5.${signature}`,
+        `1234567890123.${signature}`,
+        `${'9'.repeat(200)}.${signature}`
+      ]) {
+        expect(verifyFileToken(fileId, salt, bad, bucketStart + 1)).toBe(false);
+      }
+    });
+
+    test('the wrong salt never verifies, expired or not', () => {
+      const token = generateFileToken(fileId, salt, bucketStart + 1);
+
+      expect(verifyFileToken(fileId, 'other-salt', token, bucketStart + 1)).toBe(
+        false
+      );
     });
   });
 

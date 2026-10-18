@@ -6,7 +6,7 @@ import { requestConfirmation } from '@/features/dialogs/actions';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getTrpcError, parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TJoinedEmoji } from '@pulse/shared';
+import type { TJoinedEmoji } from '@pulse/server/types';
 import { filesize } from 'filesize';
 import { Trash2 } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
@@ -56,6 +56,7 @@ const UpdateEmoji = memo(
         refetch();
       } catch (error) {
         setErrors(parseTrpcErrors(error));
+        toast.error(getTrpcError(error, 'Failed to update emoji'));
       }
     }, [name, selectedEmoji.id, refetch]);
 
@@ -72,7 +73,7 @@ const UpdateEmoji = memo(
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Edit Emoji</CardTitle>
-            <Button size="icon" variant="ghost" onClick={onDeleteEmoji}>
+            <Button size="icon" variant="ghost" onClick={onDeleteEmoji} aria-label="Delete emoji">
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>

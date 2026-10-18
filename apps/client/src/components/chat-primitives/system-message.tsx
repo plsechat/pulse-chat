@@ -2,20 +2,82 @@ import {
   useHomeUserById,
   useUserById
 } from '@/features/server/users/hooks';
-import { useChatScope } from '@/components/chat-primitives/chat-scope';
+import { AnnouncementCard } from '@/components/chat-primitives/announcement-card';
+import { useChatScope } from '@/components/chat-primitives/chat-scope-context';
+import { parseAnnouncementRow } from '@/features/follows/announcement-rows';
+import { EventCard } from '@/components/chat-primitives/event-card';
+import { ServerScreen } from '@/components/server-screens/screens';
+import { parseEventSystemRow } from '@/features/events/system-rows';
+import { MessageTombstone } from '@/components/chat-primitives/message-tombstone';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useChannelById } from '@/features/server/channels/hooks';
+import { useCan } from '@/features/server/hooks';
+import { openServerScreen } from '@/features/server-screens/actions';
+import { getDisplayName } from '@/helpers/get-display-name';
+import { parseAutomodAlert, type TAutomodAlert } from '@/helpers/automod-alert';
 import { fullDateTime } from '@/helpers/time-format';
+import { Permission } from '@pulse/shared';
 import { format } from 'date-fns';
-import { ShieldAlert } from 'lucide-react';
+import { Bot, ShieldAlert } from 'lucide-react';
 import { memo } from 'react';
 
 type SystemMessageProps = {
   message: {
+    id: number;
     userId: number;
     content: string | null;
     createdAt: number;
+    deletedAt?: number | null;
   };
 };
+
+/**
+ * An Auto-Mod `alert_channel` row, rendered as the notice it is rather
+ * than as a chat bubble from the rule's author. Moderators who manage
+ * the rules get a direct link to them.
+ */
+const AutomodAlert = memo(
+  ({ alert, date }: { alert: TAutomodAlert; date: Date }) => {
+    const offender = useUserById(alert.offenderId);
+    const channel = useChannelById(alert.channelId);
+    const can = useCan();
+    const canManage = can(Permission.MANAGE_AUTOMOD);
+
+    return (
+      <div className="flex justify-center py-2 px-4">
+        <Tooltip content={format(date, fullDateTime())}>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 border border-border rounded-lg px-4 py-2 max-w-lg select-none shadow-sm">
+            <Bot className="h-4 w-4 shrink-0 text-primary" />
+            <span>
+              Auto-Mod rule <strong>{alert.ruleName}</strong> blocked a message
+              from{' '}
+              <strong>
+                {offender ? getDisplayName(offender) : 'a member'}
+              </strong>{' '}
+              in <strong>#{channel?.name ?? 'a channel'}</strong>
+              {canManage && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={() =>
+                      openServerScreen(ServerScreen.SERVER_SETTINGS, {
+                        initialSection: 'automod'
+                      })
+                    }
+                  >
+                    Review rules
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+        </Tooltip>
+      </div>
+    );
+  }
+);
 
 const SystemMessage = memo(({ message }: SystemMessageProps) => {
   // Identity-reset banners appear in DMs (home-space userId); resolve
@@ -26,6 +88,17 @@ const SystemMessage = memo(({ message }: SystemMessageProps) => {
   const homeUser = useHomeUserById(message.userId);
   const user = homeScope ? homeUser : ambientUser;
   const date = new Date(message.createdAt);
+
+  // A deleted announcement copy (its source was deleted) keeps its row
+  // like any message; the audit line is not shown here — the deleter
+  // is an account of the source's server, not of this one.
+  if (message.deletedAt != null) {
+    return (
+      <div id={`msg-${message.id}`} className="flex justify-center py-2 px-4">
+        <MessageTombstone audit={null} />
+      </div>
+    );
+  }
 
   if (message.content === 'identity_reset') {
     return (
@@ -41,6 +114,23 @@ const SystemMessage = memo(({ message }: SystemMessageProps) => {
         </Tooltip>
       </div>
     );
+  }
+
+  const alert = parseAutomodAlert(message.content);
+  if (alert) {
+    return <AutomodAlert alert={alert} date={date} />;
+  }
+
+  // Planner rows: the RSVP card and the "ended" summary.
+  const eventRow = parseEventSystemRow(message.content);
+  if (eventRow) {
+    return <EventCard row={eventRow} date={date} />;
+  }
+
+  // A copy of a post from a followed announcement channel.
+  const announcement = parseAnnouncementRow(message.content);
+  if (announcement) {
+    return <AnnouncementCard messageId={message.id} row={announcement} date={date} />;
   }
 
   return null;

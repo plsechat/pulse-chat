@@ -1,7 +1,7 @@
 import type { IRootState } from '@/features/store';
 import { createSelector } from '@reduxjs/toolkit';
 import { UserStatus } from '@pulse/shared';
-import type { TJoinedPublicUser, TJoinedRole } from '@pulse/shared';
+import type { TJoinedPublicUser, TJoinedRole } from '@pulse/server/types';
 import { createCachedSelector } from 're-reselect';
 import { rolesSelector } from '../roles/selectors';
 
@@ -46,10 +46,6 @@ export const usersSelector = createSelector(
   }
 );
 
-export const ownUserSelector = createSelector(
-  [ownUserIdSelector, usersSelector],
-  (ownUserId, users) => users.find((user) => user.id === ownUserId)
-);
 
 export const userByIdSelector = createCachedSelector(
   [
@@ -105,10 +101,10 @@ export const ownPublicUserSelector = createSelector(
   (ownUserId, users) => users.find((user) => user.id === ownUserId)
 );
 
-export const userStatusSelector = createSelector(
+export const userStatusSelector = createCachedSelector(
   [userByIdSelector],
   (user) => user?.status ?? UserStatus.OFFLINE
-);
+)((_: IRootState, userId: number) => userId);
 
 export const usernamesSelector = createSelector([usersSelector], (users) => {
   const map: Record<number, string> = {};

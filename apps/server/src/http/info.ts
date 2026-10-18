@@ -1,12 +1,14 @@
 import {
   DEFAULT_SCREEN_MAX_FRAMERATE,
-  DEFAULT_SCREEN_MAX_RESOLUTION,
-  type TServerInfo
+  DEFAULT_SCREEN_MAX_RESOLUTION
 } from '@pulse/shared';
+import type { TServerInfo } from '../types';
 import http from 'http';
+import { config } from '../config';
 import { db } from '../db';
 import { getFirstServer } from '../db/queries/servers';
 import { settings } from '../db/schema';
+import { buildIceServers } from '../helpers/webrtc-ice';
 import {
   getEnabledAuthProviders,
   isPasswordLoginEnabled
@@ -59,6 +61,16 @@ const infoRouteHandler = async (
     maxScreenFramerate:
       screenLimits?.maxFramerate ?? DEFAULT_SCREEN_MAX_FRAMERATE
   };
+
+  // Optional TURN relay for clients that cannot reach the media port
+  // directly. Omitted entirely when unconfigured so the client keeps
+  // building relay-free transports; 'all' is the browser default and
+  // is likewise left implicit.
+  const iceServers = buildIceServers(config.webrtc);
+  if (iceServers) info.iceServers = iceServers;
+  if (config.webrtc.iceTransportPolicy !== 'all') {
+    info.iceTransportPolicy = config.webrtc.iceTransportPolicy;
+  }
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(info));

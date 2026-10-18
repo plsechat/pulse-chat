@@ -6,17 +6,7 @@ import {
 } from '@playwright/test';
 import { psql } from '../../helpers/db';
 import { authedPage, registerAndJoin, runUser } from '../../helpers/fixtures';
-import {
-  dmMessageRow,
-  goHome,
-  openDmViaAuthor,
-  openDmWith,
-  openUserSettings,
-  selectChannel,
-  sendChannelMessage,
-  sendDmMessage,
-  toast
-} from '../../helpers/ui';
+import { dmListRow, dmMessageRow, openDmViaAuthor, openDmWith, openUserSettings, selectChannel, sendChannelMessage, sendDmMessage, toast } from '../../helpers/ui';
 
 /**
  * E2EE DM flows — the pillar with the worst shipping record (restore
@@ -37,6 +27,7 @@ const USER_B = runUser('e2ee-b');
 const SEED_MSG = `e2ee seed ${USER_A.displayName}`;
 const DM_HELLO = `plaintext hello ${USER_A.displayName}`;
 const SECRET_A = `secret-from-a ${USER_A.displayName}`;
+const SECRET_A_EDITED = `secret-from-a-edited ${USER_A.displayName}`;
 const SECRET_B = `secret-from-b ${USER_A.displayName}`;
 const POST_RESET_MSG = `post-reset ${USER_A.displayName}`;
 const PASSPHRASE = 'backup-passphrase-1234';
@@ -165,11 +156,7 @@ test.describe('E2EE direct messages', () => {
   });
 
   test('enable encryption: ciphertext at rest, live decrypt both ways', async () => {
-    await goHome(pageA);
-    await pageA
-      .getByText(USER_B.displayName)
-      .first()
-      .click({ button: 'right' });
+    await (await dmListRow(pageA, USER_B.displayName)).click({ button: 'right' });
     await pageA
       .getByRole('menuitem', { name: 'Enable Encryption' })
       .click();
@@ -192,6 +179,9 @@ test.describe('E2EE direct messages', () => {
       dmMessageRow(pageA, SECRET_A).locator('svg.lucide-lock')
     ).toBeVisible();
 
+    // B's conversation must be on screen to see the live decrypt (in the
+    // tab layout another panel may be in front).
+    await openDmWith(pageB, USER_A.displayName);
     await expect(
       pageB.locator('[id^="dm-msg-"]').getByText(SECRET_A, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
@@ -200,12 +190,34 @@ test.describe('E2EE direct messages', () => {
       pageA.locator('[id^="dm-msg-"]').getByText(SECRET_B, { exact: true })
     ).toBeVisible({ timeout: 15_000 });
 
+    // Edit round-trip: the author re-encrypts under the SAME message id
+    // and the peer must render the new text. The peer's plaintext cache
+    // is keyed by id, so a cache that ignores the ciphertext keeps
+    // serving the pre-edit text forever — this is the assertion that
+    // catches it.
+    const rowA = dmMessageRow(pageA, SECRET_A);
+    await rowA.hover();
+    await rowA.getByTitle('Edit Message').click();
+    const inlineEditor = rowA.locator('[contenteditable="true"]');
+    await expect(inlineEditor).toBeVisible();
+    await inlineEditor.fill(SECRET_A_EDITED);
+    await pageA.keyboard.press('Enter');
+    await expect(
+      pageA.locator('[id^="dm-msg-"]').getByText(SECRET_A_EDITED, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').getByText(SECRET_A_EDITED, { exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      pageB.locator('[id^="dm-msg-"]').getByText(SECRET_A, { exact: true })
+    ).toHaveCount(0);
+
     // At-rest assertions: the plaintext appears NOWHERE in the database,
     // while the pre-encryption control message is stored verbatim.
     expect(
       psql(
         'core',
-        `SELECT count(*) FROM dm_messages WHERE content LIKE '%${SECRET_A}%' OR content LIKE '%${SECRET_B}%'`
+        `SELECT count(*) FROM dm_messages WHERE content LIKE '%${SECRET_A}%' OR content LIKE '%${SECRET_A_EDITED}%' OR content LIKE '%${SECRET_B}%'`
       )
     ).toBe('0');
     expect(
@@ -234,10 +246,7 @@ test.describe('E2EE direct messages', () => {
     ).toBe('0');
 
     // Idempotency: the menu no longer offers Enable Encryption.
-    await pageA
-      .getByText(USER_B.displayName)
-      .first()
-      .click({ button: 'right' });
+    await (await dmListRow(pageA, USER_B.displayName)).click({ button: 'right' });
     await expect(
       pageA.getByRole('menuitem', { name: 'Leave Conversation' })
     ).toBeVisible();
@@ -362,7 +371,7 @@ test.describe('E2EE direct messages', () => {
     }
   });
 
-  test('identity reset (online peer): system message, silent re-pin, messaging continues', async () => {
+  test('identity reset (online peer, manually verified): system message, identity dialog, accept, messaging continues', async () => {
     // B watches the conversation live, so B RECEIVES the reset broadcast.
     await openDmWith(pageB, USER_A.displayName);
 
@@ -384,11 +393,18 @@ test.describe('E2EE direct messages', () => {
       pageB.getByText(/encryption keys have changed/).first()
     ).toBeVisible({ timeout: 15_000 });
 
-    // Because B processed the live reset broadcast, handlePeerIdentityReset
-    // re-pinned A's new identity silently — B's next send goes through with
-    // NO identity-changed dialog and messaging continues both ways.
-    await sendDmMessage(pageB, POST_RESET_MSG);
+    // B verified A in person earlier in this spec, so the live reset
+    // broadcast must NOT re-pin silently: a key change over a manual pin
+    // is exactly what the identity-changed dialog exists for. B sees it,
+    // accepts, and only then does messaging continue both ways. (A peer
+    // pinned on first use is re-pinned silently — covered by the client
+    // unit tests in lib/e2ee/__tests__/identity-reset-policy.test.ts.)
+    await expect(pageB.getByText(/identity has changed/)).toBeVisible({
+      timeout: 15_000
+    });
+    await pageB.getByRole('button', { name: 'Accept new identity' }).click();
     await expect(pageB.getByText(/identity has changed/)).toHaveCount(0);
+    await sendDmMessage(pageB, POST_RESET_MSG);
     await openDmWith(pageA, USER_B.displayName);
     await expect(
       pageA.locator('[id^="dm-msg-"]').getByText(POST_RESET_MSG, { exact: true })
@@ -406,33 +422,14 @@ test.describe('E2EE direct messages', () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  /**
-   * The identity-changed modal is the attack-detection surface — it fires
-   * only when a peer's key changes WITHOUT an accompanying reset event (a
-   * malicious server swapping keys). We could not trigger it deterministically
-   * through the client UI, and confirmed WHY empirically:
-   *
-   *  - A legitimate rotation always emits E2EE_IDENTITY_RESET. Any peer that
-   *    is online — OR that reconnects and re-subscribes — re-receives it
-   *    through the `e2ee.onIdentityReset` subscription (subscriptions.ts:94)
-   *    and `handlePeerIdentityReset` (index.ts:1394) silently re-pins the new
-   *    identity BEFORE the next send, so `buildSession`'s pin check never
-   *    trips. Dropping the WS and clearing B's Signal session both failed to
-   *    reach the dialog for this reason (the subscription re-delivers on
-   *    reconnect; reload re-decrypts history which re-establishes state).
-   *  - The only remaining trigger is a server that returns a different
-   *    identity key from getPreKeyBundle with no reset event — i.e. a
-   *    genuinely hostile server. The e2e harness runs the real server, which
-   *    doesn't do that.
-   *
-   * The online reset path (system message + silent re-pin + continued
-   * messaging) is covered by the preceding test. The dialog dispatch logic
-   * itself lives in lib/e2ee/identity-change-dispatch.ts (presentIdentityChange,
-   * single-modal collapse) and warrants a focused client unit test with a
-   * mocked store rather than a full-stack e2e.
+  /*
+   * The identity-changed modal (an unannounced key swap — a hostile
+   * server returning a different identity key with no reset event) has
+   * no e2e: a legitimate rotation always emits E2EE_IDENTITY_RESET, which
+   * every online or reconnecting peer re-receives and silently re-pins
+   * before the next send, so the dialog cannot be reached through the
+   * real server this harness runs. Its dispatch logic (presentIdentityChange,
+   * single-modal collapse) is covered by the client unit test
+   * apps/client/src/lib/e2ee/__tests__/identity-change-dispatch.test.ts.
    */
-  test.fixme(
-    'identity change dialog fires on an unannounced key swap (needs a hostile-server harness)',
-    () => {}
-  );
 });

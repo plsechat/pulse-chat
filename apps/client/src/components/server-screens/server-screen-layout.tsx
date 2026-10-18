@@ -13,13 +13,13 @@ const ServerScreenLayout = memo(
     return (
       <div className="flex h-full flex-col bg-background text-foreground">
         <div className="flex h-14 items-center gap-4 border-b border-border px-6">
-          <Button variant="ghost" size="icon" onClick={close}>
+          <Button variant="ghost" size="icon" onClick={close} aria-label="Back">
             <ChevronLeft className="h-5 w-5" />
           </Button>
           <h1 className="text-lg font-semibold">{title}</h1>
         </div>
 
-        <div className="flex-1 overflow-auto p-6">{children}</div>
+        <div className="flex-1 overflow-auto p-4 md:p-6">{children}</div>
       </div>
     );
   }

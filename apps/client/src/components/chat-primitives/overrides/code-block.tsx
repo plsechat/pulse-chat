@@ -1,7 +1,7 @@
+import { hljs, loadLanguage, registeredName } from '@/lib/highlight';
 import DOMPurify from 'dompurify';
-import hljs from 'highlight.js';
 import { Check, Copy } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 type TCodeBlockOverrideProps = {
   code: string;
@@ -19,11 +19,33 @@ const EXPLICIT_HIGHLIGHT_MAX_CHARS = 30_000;
 
 const CodeBlockOverride = memo(({ code, language }: TCodeBlockOverrideProps) => {
   const [copied, setCopied] = useState(false);
+  // Only the common grammars ship with the app (lib/highlight). A block
+  // naming one outside that set renders plain first and re-highlights
+  // once its grammar chunk has registered — `loaded` carries the
+  // registered name (paired with the label it answers) so the memo
+  // below re-runs exactly then and never reuses a previous label's
+  // grammar after the prop changes.
+  const [loaded, setLoaded] = useState<{ label: string; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!language || registeredName(language)) return;
+    let cancelled = false;
+    void loadLanguage(language).then((name) => {
+      if (!cancelled && name) setLoaded({ label: language, name });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [language]);
 
   const result = useMemo(() => {
-    if (language && hljs.getLanguage(language)) {
+    const grammar = language
+      ? (registeredName(language) ??
+        (loaded?.label === language ? loaded.name : null))
+      : null;
+    if (grammar) {
       if (code.length <= EXPLICIT_HIGHLIGHT_MAX_CHARS) {
-        return hljs.highlight(code, { language });
+        return hljs.highlight(code, { language: grammar });
       }
       return null;
     }
@@ -32,7 +54,7 @@ const CodeBlockOverride = memo(({ code, language }: TCodeBlockOverrideProps) => 
       return hljs.highlightAuto(code);
     }
     return null;
-  }, [code, language]);
+  }, [code, language, loaded]);
 
   const displayLang = language || result?.language || '';
 

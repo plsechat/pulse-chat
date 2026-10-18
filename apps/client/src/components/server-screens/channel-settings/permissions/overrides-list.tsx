@@ -1,6 +1,7 @@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { avatarFallbackClass } from '@/components/user-avatar/fallback';
 import { useRoleById } from '@/features/server/roles/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
@@ -10,7 +11,7 @@ import { cn } from '@/lib/utils';
 import type {
   TChannelRolePermission,
   TChannelUserPermission
-} from '@pulse/shared';
+} from '@pulse/server/types';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { SearchPopover } from './search-popover';
@@ -78,7 +79,7 @@ const UserItem = memo(
       >
         <div className="flex items-center gap-2">
           <Avatar className="h-5 w-5">
-            <AvatarFallback className="text-[10px]">
+            <AvatarFallback className={cn('text-[10px]', avatarFallbackClass(user))}>
               {getInitialsFromName(user.name)}
             </AvatarFallback>
           </Avatar>
@@ -219,7 +220,7 @@ const OverridesList = memo(
     );
 
     return (
-      <Card className="w-64 flex-shrink-0">
+      <Card className="w-full flex-shrink-0 md:w-64">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Roles/Users</CardTitle>

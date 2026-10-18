@@ -9,7 +9,7 @@ import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure } from '../../utils/trpc';
 
 const rejectRequestRoute = protectedProcedure
-  .input(z.object({ requestId: z.number() }))
+  .input(z.object({ requestId: z.number().int().positive() }))
   .mutation(async ({ ctx, input }) => {
     const joined = await getJoinedFriendRequest(input.requestId);
 

@@ -11,21 +11,35 @@ import {
   leaveServer,
   setActiveView
 } from '@/features/app/actions';
-import { useActiveServerId } from '@/features/app/hooks';
+import {
+  useActiveInstanceDomain,
+  useActiveServerId
+} from '@/features/app/hooks';
 import { openDialog, requestConfirmation } from '@/features/dialogs/actions';
 import { openServerScreen } from '@/features/server-screens/actions';
 import { disconnectFromServer } from '@/features/server/actions';
-import { useIsOwnUserOwner, usePreviewMode, useServerName } from '@/features/server/hooks';
-import { cn } from '@/lib/utils';
+import {
+  useCan,
+  useIsInstanceOwner,
+  useIsOwnUserOwner,
+  usePreviewMode,
+  useServerName
+} from '@/features/server/hooks';
+import { usersSelector } from '@/features/server/users/selectors';
+import { useLayoutMode } from '@/hooks/use-appearance-settings';
 import { getTRPCClient } from '@/lib/trpc';
-import { Permission } from '@pulse/shared';
+import { cn } from '@/lib/utils';
+import { Permission, UserStatus } from '@pulse/shared';
 import { ChevronDown, LogOut } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback } from 'react';
+import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { Dialog } from '../dialogs/dialogs';
 import { Protect } from '../protect';
 import { ServerScreen } from '../server-screens/screens';
+import { canOpenServerSettings } from '../server-screens/server-settings/permissions';
 import { Categories } from './categories';
+import { CommunityLogo } from './community-logo';
 import { UserControl } from './user-control';
 import { VoiceControl } from './voice-control';
 
@@ -38,6 +52,12 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   const isOwner = useIsOwnUserOwner();
   const activeServerId = useActiveServerId();
   const previewMode = usePreviewMode();
+  const deck = useLayoutMode() === 'deck';
+  const users = useSelector(usersSelector);
+  const memberCount = users.length;
+  const onlineCount = users.filter(
+    (u) => u.status && u.status !== UserStatus.OFFLINE
+  ).length;
 
   const handleDeleteServer = useCallback(async () => {
     if (!activeServerId) return;
@@ -98,86 +118,106 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
     setActiveView('home');
   }, [activeServerId]);
 
-  const serverSettingsPermissions = useMemo(
-    () => [
-      Permission.MANAGE_SETTINGS,
-      Permission.MANAGE_ROLES,
-      Permission.MANAGE_EMOJIS,
-      Permission.MANAGE_STORAGE,
-      Permission.MANAGE_USERS,
-      Permission.MANAGE_INVITES,
-      Permission.MANAGE_UPDATES
-    ],
-    []
+  // One gate for the menu entry and the screen: every permission that
+  // unlocks a section, plus the instance owner (who always has the
+  // Instance group on the home instance, whatever their server roles).
+  const can = useCan();
+  const isInstanceOwner = useIsInstanceOwner();
+  const activeInstanceDomain = useActiveInstanceDomain();
+  const showServerSettings = canOpenServerSettings(
+    can,
+    isInstanceOwner,
+    activeInstanceDomain
   );
 
   return (
     <aside
       className={cn(
-        'flex w-60 flex-col bg-transparent h-full overflow-hidden',
+        // Transparent on the desktop canvas; opaque as the mobile drawer,
+        // or the chat shows through it over the 50% backdrop.
+        'flex w-60 flex-col bg-sidebar shadow-xl h-full overflow-hidden',
+        deck
+          ? 'md:surface-soft md:my-2 md:ml-2 md:h-auto md:rounded-2xl md:bg-channels md:shadow-none'
+          : 'md:bg-transparent md:shadow-none',
         className
       )}
     >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex w-full justify-between h-12 items-center px-4 hover:bg-accent transition-colors cursor-pointer">
-            <h2 className="text-[15px] font-semibold text-foreground tracking-tight truncate">{serverName}</h2>
+          <button className="community-header flex w-full h-16 items-center gap-3 px-3 hover:brightness-110 transition-[filter] cursor-pointer">
+            <CommunityLogo />
+            <span className="min-w-0 flex-1 text-left">
+              <h2 className="text-[15px] font-semibold text-foreground tracking-tight truncate leading-5">
+                {serverName}
+              </h2>
+              <span className="block text-[11px] text-muted-foreground truncate tabular-nums">
+                {onlineCount > 0 && (
+                  <>
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 align-middle mr-1" />
+                    {onlineCount} online ·{' '}
+                  </>
+                )}
+                {memberCount} member{memberCount === 1 ? '' : 's'}
+              </span>
+            </span>
             <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           </button>
         </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56">
-              <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Server</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <Protect permission={Permission.MANAGE_CATEGORIES}>
-                <DropdownMenuItem
-                  onClick={() => openDialog(Dialog.CREATE_CATEGORY)}
-                >
-                  Add Category
-                </DropdownMenuItem>
-              </Protect>
-              <Protect permission={serverSettingsPermissions}>
-                <DropdownMenuItem
-                  onClick={() => openServerScreen(ServerScreen.SERVER_SETTINGS)}
-                >
-                  Server Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </Protect>
-              <Protect permission={Permission.MANAGE_INVITES}>
-                <DropdownMenuItem
-                  onClick={() => openDialog(Dialog.CREATE_INVITE)}
-                >
-                  Create Invite
-                </DropdownMenuItem>
-              </Protect>
-              <DropdownMenuItem onClick={handleLogOut}>
-                <LogOut className="h-4 w-4 mr-2" />
-                Log Out
+        <DropdownMenuContent className="w-56">
+          <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Server
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <Protect permission={Permission.MANAGE_CATEGORIES}>
+            <DropdownMenuItem
+              onClick={() => openDialog(Dialog.CREATE_CATEGORY)}
+            >
+              Add Category
+            </DropdownMenuItem>
+          </Protect>
+          {showServerSettings && (
+            <>
+              <DropdownMenuItem
+                onClick={() => openServerScreen(ServerScreen.SERVER_SETTINGS)}
+              >
+                Server Settings
               </DropdownMenuItem>
-              {/* Previewers aren't members — nothing to leave */}
-              {!isOwner && !previewMode && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={handleLeaveServer}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    Leave Server
-                  </DropdownMenuItem>
-                </>
-              )}
-              {isOwner && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={handleDeleteServer}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    Delete Server
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <Protect permission={Permission.MANAGE_INVITES}>
+            <DropdownMenuItem onClick={() => openDialog(Dialog.CREATE_INVITE)}>
+              Create Invite
+            </DropdownMenuItem>
+          </Protect>
+          <DropdownMenuItem onClick={handleLogOut}>
+            <LogOut className="h-4 w-4 mr-2" />
+            Log Out
+          </DropdownMenuItem>
+          {/* Previewers aren't members — nothing to leave */}
+          {!isOwner && !previewMode && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleLeaveServer}
+                className="text-destructive focus:text-destructive"
+              >
+                Leave Server
+              </DropdownMenuItem>
+            </>
+          )}
+          {isOwner && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleDeleteServer}
+                className="text-destructive focus:text-destructive"
+              >
+                Delete Server
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
       </DropdownMenu>
       {/*
         `pt-2` here matches the visual gap between the bottom of the
@@ -190,11 +230,19 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
       <div className="flex-1 overflow-y-auto md:pt-2">
         <Categories />
       </div>
-      <div className="md:hidden">
+      {/* The deck layout has no rail, so the voice and user controls sit
+          at the foot of the channel list instead of floating over it. */}
+      <div
+        className={cn(
+          deck
+            ? 'surface-soft mx-2 mb-2 rounded-xl bg-card overflow-hidden ring-1 ring-white/[0.05]'
+            : 'md:hidden'
+        )}
+      >
         <VoiceControl />
-        <UserControl />
+        <UserControl stacked={deck} />
       </div>
-      <div className="hidden md:block h-[5.5rem] shrink-0" />
+      {!deck && <div className="hidden md:block h-[5.5rem] shrink-0" />}
     </aside>
   );
 });

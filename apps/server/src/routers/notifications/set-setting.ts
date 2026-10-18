@@ -1,12 +1,14 @@
+import { ChannelPermission } from '@pulse/shared';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channelNotificationSettings } from '../../db/schema';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const setNotificationSettingRoute = protectedProcedure
+const setNotificationSettingRoute = channelProcedure(
+  ChannelPermission.VIEW_CHANNEL
+)
   .input(
     z.object({
-      channelId: z.number(),
       level: z.enum(['all', 'mentions', 'nothing', 'default'])
     })
   )
@@ -15,7 +17,7 @@ const setNotificationSettingRoute = protectedProcedure
       .insert(channelNotificationSettings)
       .values({
         userId: ctx.userId,
-        channelId: input.channelId,
+        channelId: ctx.channel.id,
         level: input.level,
         createdAt: Date.now()
       })

@@ -18,8 +18,8 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { users } from '../db/schema';
 import { logger } from '../logger';
-import { relayToInstance } from './federation';
 import { enumerateRotationPeers } from './federation-dm-group-dispatch';
+import { enqueueRelay } from './federation-outbox';
 
 type UserInfoChanges = {
   name?: string;
@@ -47,41 +47,127 @@ type UserInfoChanges = {
   triggerProfileSync?: boolean;
 };
 
+type RelayUserInfoOptions = {
+  /**
+   * Presence pushes are transient: attempted once, never queued. A
+   * status that failed to reach a peer is superseded by the next one,
+   * so retrying it later would only deliver stale state.
+   */
+  transient?: boolean;
+};
+
 /**
  * Push user-info changes for `localUserId` to every peer instance
- * that's likely to hold a shadow user for them.
+ * that's likely to hold a shadow user for them. Profile changes go
+ * through the outbox (a peer that is restarting still gets the rename
+ * / new avatar); presence (`transient`) does not.
  */
 async function relayUserInfoUpdate(
   localUserId: number,
-  changes: UserInfoChanges
+  changes: UserInfoChanges,
+  opts?: RelayUserInfoOptions
 ): Promise<void> {
-  if (Object.keys(changes).length === 0) return;
+  // The whole body is guarded, not just the per-relay promises: every
+  // call site is fire-and-forget (`void fn()` / no catch), so a DB error
+  // in the lookups BEFORE the relay would otherwise surface as an
+  // unhandled rejection.
+  try {
+    if (Object.keys(changes).length === 0) return;
 
-  const [user] = await db
-    .select({ publicId: users.publicId, isFederated: users.isFederated })
-    .from(users)
-    .where(eq(users.id, localUserId))
-    .limit(1);
+    const [user] = await db
+      .select({ publicId: users.publicId, isFederated: users.isFederated })
+      .from(users)
+      .where(eq(users.id, localUserId))
+      .limit(1);
 
-  // Only push for local users — federated shadow users on this
-  // instance get their updates from their home instance, not us.
-  if (!user || user.isFederated || !user.publicId) return;
+    // Only push for local users — federated shadow users on this
+    // instance get their updates from their home instance, not us.
+    if (!user || user.isFederated || !user.publicId) return;
 
-  const peerDomains = await enumerateRotationPeers(localUserId);
-  if (peerDomains.length === 0) return;
+    const peerDomains = await enumerateRotationPeers(localUserId);
+    if (peerDomains.length === 0) return;
 
-  for (const domain of peerDomains) {
-    relayToInstance(domain, '/federation/user-info-update', {
-      subjectPublicId: user.publicId,
-      ...changes
-    }).catch((err) =>
-      logger.error(
-        '[relayUserInfoUpdate] relay to %s failed: %o',
+    for (const domain of peerDomains) {
+      enqueueRelay(
         domain,
-        err
-      )
-    );
+        '/federation/user-info-update',
+        {
+          subjectPublicId: user.publicId,
+          ...changes
+        },
+        { transient: opts?.transient }
+      ).catch((err) =>
+        logger.error(
+          '[relayUserInfoUpdate] relay to %s failed: %o',
+          domain,
+          err
+        )
+      );
+    }
+  } catch (err) {
+    logger.error('[relayUserInfoUpdate] dispatch failed: %o', err);
   }
 }
 
-export { relayUserInfoUpdate };
+// ─── Presence ────────────────────────────────────────────────────────────
+//
+// Status is runtime state: a peer that holds a shadow for one of our
+// users only learns online/idle/dnd from an explicit push, and nothing
+// pushed on connect or disconnect. On the peer our user therefore sat
+// OFFLINE until they picked a status by hand, and stayed in that
+// status forever after logging out. The two hooks below close that:
+// the join route calls `relayPresenceConnected` when a user's FIRST
+// live socket completes its join, the WS close handler calls
+// `schedulePresenceOffline` when their LAST socket closes.
+//
+// The offline push is debounced: a page refresh closes the old socket
+// a moment before the new one joins, and peers should not see a
+// flicker to offline for that. The timer re-checks the live socket
+// count when it fires and does nothing if the user came back.
+
+const PRESENCE_OFFLINE_DEBOUNCE_MS = 5_000;
+let presenceOfflineDebounceMs = PRESENCE_OFFLINE_DEBOUNCE_MS;
+const pendingOffline = new Map<number, ReturnType<typeof setTimeout>>();
+
+const cancelPendingOffline = (userId: number): void => {
+  const timer = pendingOffline.get(userId);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  pendingOffline.delete(userId);
+};
+
+/**
+ * First live socket of a local user finished joining: push their
+ * current status to peers that hold a shadow for them. Cancels a
+ * pending offline push (reconnect inside the debounce window) and
+ * pushes anyway — the status override is cleared on disconnect, so
+ * what the peer last saw may no longer be right.
+ */
+function relayPresenceConnected(userId: number, status: string): void {
+  cancelPendingOffline(userId);
+  void relayUserInfoUpdate(userId, { status }, { transient: true });
+}
+
+/**
+ * Last live socket of a local user closed: push `offline` after the
+ * debounce unless `stillConnected()` reports a new socket by then.
+ */
+function schedulePresenceOffline(
+  userId: number,
+  stillConnected: () => boolean
+): void {
+  cancelPendingOffline(userId);
+  const timer = setTimeout(() => {
+    pendingOffline.delete(userId);
+    if (stillConnected()) return;
+    void relayUserInfoUpdate(userId, { status: 'offline' }, { transient: true });
+  }, presenceOfflineDebounceMs);
+  pendingOffline.set(userId, timer);
+}
+
+/** Test-only: shorten the offline debounce; `undefined` restores it. */
+export function _setPresenceOfflineDebounceForTests(ms: number | undefined): void {
+  presenceOfflineDebounceMs = ms ?? PRESENCE_OFFLINE_DEBOUNCE_MS;
+}
+
+export { relayPresenceConnected, relayUserInfoUpdate, schedulePresenceOffline };

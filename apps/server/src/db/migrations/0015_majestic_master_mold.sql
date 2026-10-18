@@ -8,9 +8,10 @@
 -- "the group between these N members," which doesn't generalise
 -- across instances.
 --
--- Idempotent: db/index.ts wipes drizzle's migration tracking on every
--- boot (pulse-issue-migration-pipeline), so the ALTER + CREATE INDEX
--- guard against re-execution.
+-- Idempotent: drizzle records applied migrations in
+-- drizzle.__drizzle_migrations and runs each one once; the guards on
+-- the ALTER + CREATE INDEX are the safety net for a replay (CI applies
+-- every migration twice — see scripts/check-migrations-idempotent.ts).
 
 DO $$ BEGIN
 	ALTER TABLE "dm_channels" ADD COLUMN IF NOT EXISTS "federation_group_id" text;

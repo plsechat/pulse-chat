@@ -1,3 +1,14 @@
+import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
+import { useDevices } from '@/components/devices-provider/hooks/use-devices';
+import { EmojiPicker } from '@/components/emoji-picker';
+import type { TEmojiItem } from '@/components/tiptap-input/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,27 +19,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { EmojiPicker } from '@/components/emoji-picker';
-import type { TEmojiItem } from '@/components/tiptap-input/types';
-import { useAvailableDevices } from '@/components/devices-provider/hooks/use-available-devices';
-import { useDevices } from '@/components/devices-provider/hooks/use-devices';
 import { openServerScreen } from '@/features/server-screens/actions';
-import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
+import {
+  useCurrentVoiceChannelId,
+  useCurrentVoiceKind
+} from '@/features/server/channels/hooks';
 import { useChannelCan } from '@/features/server/hooks';
 import { useOwnPublicUser } from '@/features/server/users/hooks';
 import { useVoice } from '@/features/server/voice/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getNameStyleCss } from '@/helpers/name-style';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
+import { requireHomeTRPCClient } from '@/lib/not-connected-error';
 import { cn } from '@/lib/utils';
-import { getTRPCClient } from '@/lib/trpc';
 import { ChannelPermission, UserStatus } from '@pulse/shared';
 import {
   ChevronUp,
@@ -39,12 +43,13 @@ import {
   Settings
 } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
+import { toast } from 'sonner';
+import { NameplateBackground } from '../nameplate';
 import { ServerScreen } from '../server-screens/screens';
 import { Button } from '../ui/button';
 import { UserAvatar } from '../user-avatar';
-import { getStatusLabel, UserStatusBadge } from '../user-status';
 import { UserPopover } from '../user-popover';
-import { NameplateBackground } from '../nameplate';
+import { getStatusLabel, UserStatusBadge } from '../user-status';
 
 const statusOptions = [
   UserStatus.ONLINE,
@@ -53,11 +58,24 @@ const statusOptions = [
   UserStatus.INVISIBLE
 ] as const;
 
-const UserControl = memo(() => {
+type TUserControlProps = {
+  /** Two rows (identity, then controls) for narrow hosts such as the
+   *  deck layout's channel list, where one row truncates the name. */
+  stacked?: boolean;
+};
+
+const UserControl = memo(({ stacked = false }: TUserControlProps) => {
   const ownPublicUser = useOwnPublicUser();
   const currentVoiceChannelId = useCurrentVoiceChannelId();
+  const currentVoiceKind = useCurrentVoiceKind();
   const { ownVoiceState, toggleMic, toggleSound } = useVoice();
-  const channelCan = useChannelCan(currentVoiceChannelId);
+  // SPEAK is a server-channel permission; a DM call has none, and its id
+  // must not be resolved against the server's channels (same-id clash).
+  const channelCan = useChannelCan(
+    currentVoiceKind === 'channel' ? currentVoiceChannelId : undefined
+  );
+  const canSpeak =
+    currentVoiceKind === 'dm' || channelCan(ChannelPermission.SPEAK);
   const { inputDevices, playbackDevices } = useAvailableDevices();
   const { devices, saveDevices } = useDevices();
   const [customStatusDialogOpen, setCustomStatusDialogOpen] = useState(false);
@@ -74,11 +92,20 @@ const UserControl = memo(() => {
     openServerScreen(ServerScreen.USER_SETTINGS);
   }, []);
 
-  const handleStatusChange = useCallback(async (status: (typeof statusOptions)[number]) => {
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    await trpc.users.setStatus.mutate({ status });
-  }, []);
+  // Presence and custom status belong to the HOME account: while a
+  // federated server is active the ambient client would set them on the
+  // remote shadow user instead, and a rejected call used to surface as
+  // nothing but an unhandled rejection.
+  const handleStatusChange = useCallback(
+    async (status: (typeof statusOptions)[number]) => {
+      try {
+        await requireHomeTRPCClient().users.setStatus.mutate({ status });
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update status'));
+      }
+    },
+    []
+  );
 
   const openCustomStatusDialog = useCallback(() => {
     setCustomStatusDraft(ownPublicUser?.customStatus ?? '');
@@ -93,14 +120,16 @@ const UserControl = memo(() => {
       emoji: string | null,
       expiresInMinutes: number | null
     ) => {
-      const trpc = getTRPCClient();
-      if (!trpc) return;
-      await trpc.users.setCustomStatus.mutate({
-        customStatus,
-        emoji,
-        expiresInMinutes
-      });
-      setCustomStatusDialogOpen(false);
+      try {
+        await requireHomeTRPCClient().users.setCustomStatus.mutate({
+          customStatus,
+          emoji,
+          expiresInMinutes
+        });
+        setCustomStatusDialogOpen(false);
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to update custom status'));
+      }
     },
     []
   );
@@ -154,7 +183,14 @@ const UserControl = memo(() => {
   const ownNameCss = getNameStyleCss(ownPublicUser.nameStyle);
 
   return (
-    <div className="relative flex items-center justify-between h-14 px-2 bg-muted/50 overflow-hidden">
+    <div
+      className={cn(
+        'relative bg-muted/50 overflow-hidden',
+        stacked
+          ? 'flex flex-col gap-1.5 px-2 pt-2 pb-1.5'
+          : 'flex items-center justify-between h-14 px-2'
+      )}
+    >
       {/* Own equipped nameplate as the tab's backdrop, dimmed so the
           avatar/name/controls stay readable on top of the art. */}
       <NameplateBackground
@@ -175,7 +211,10 @@ const UserControl = memo(() => {
                 showUserPopover={false}
               />
               <div className="absolute -bottom-0.5 -right-0.5">
-                <UserStatusBadge status={currentStatus} className="h-3.5 w-3.5" />
+                <UserStatusBadge
+                  status={currentStatus}
+                  className="h-3.5 w-3.5"
+                />
               </div>
             </div>
           </div>
@@ -297,7 +336,12 @@ const UserControl = memo(() => {
         </DialogContent>
       </Dialog>
 
-      <div className="relative flex items-center gap-0.5">
+      <div
+        className={cn(
+          'relative flex items-center gap-0.5',
+          stacked && 'justify-between'
+        )}
+      >
         {/* Mic button + device dropdown */}
         <div className="flex items-center">
           <Button
@@ -315,7 +359,7 @@ const UserControl = memo(() => {
                 ? 'Unmute microphone (Ctrl+Shift+M)'
                 : 'Mute microphone (Ctrl+Shift+M)'
             }
-            disabled={!channelCan(ChannelPermission.SPEAK)}
+            disabled={!canSpeak}
           >
             {ownVoiceState.micMuted ? (
               <MicOff className="h-4 w-4 icon-anim-wiggle" />
@@ -326,6 +370,7 @@ const UserControl = memo(() => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                aria-label="Input device"
                 className={cn(
                   'h-8 w-4 flex items-center justify-center rounded-r-md transition-colors cursor-pointer',
                   ownVoiceState.micMuted
@@ -390,6 +435,7 @@ const UserControl = memo(() => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                aria-label="Output device"
                 className={cn(
                   'h-8 w-4 flex items-center justify-center rounded-r-md transition-colors cursor-pointer',
                   ownVoiceState.soundMuted
@@ -429,8 +475,8 @@ const UserControl = memo(() => {
 
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground hover:bg-muted/50"
           onClick={handleSettingsClick}
           title="User settings"
         >

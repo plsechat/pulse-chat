@@ -3,7 +3,7 @@ import {
   useDmActiveCalls,
   useOwnDmCallChannelId
 } from '@/features/dms/hooks';
-import { useOwnUserId } from '@/features/server/users/hooks';
+import { useHomeOwnUserId } from '@/features/server/users/hooks';
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -31,7 +31,10 @@ const SOLO_TIMEOUT_MS = 30_000;
 const useOutgoingCallTimeout = () => {
   const ownDmCallChannelId = useOwnDmCallChannelId();
   const activeCalls = useDmActiveCalls();
-  const ownUserId = useOwnUserId();
+  // Call participants are HOME ids. With the ambient id (a remote shadow
+  // id while a federated server is active) "someone else is here" could
+  // match ourselves — or never match — and the solo timer misfired.
+  const ownUserId = useHomeOwnUserId();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether at least one peer has ever been in the call with
   // us. Drives the toast text on auto-leave: never-joined vs. left.

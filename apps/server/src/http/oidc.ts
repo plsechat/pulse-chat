@@ -11,16 +11,28 @@
  *
  * The session PULSE mints is self-contained (see utils/oidc.ts), so this
  * works under both AUTH_BACKEND=local and =supabase with no GoTrue.
+ *
+ * Public origin: proto + host come from `resolvePublicOrigin` — forwarded
+ * headers only when TRUST_PROXY is on, `PUBLIC_URL` when set, otherwise
+ * the Host header over plain http. The state cookie is `Secure` only when
+ * that resolved proto is https; a plain-http LAN deployment would
+ * otherwise never get its cookie back and every login would fail with
+ * "session expired". OIDC_REDIRECT_URI still overrides the derived
+ * callback URL.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import http from 'http';
 import { db } from '../db';
-import { isInviteValid } from '../db/queries/invites';
+import {
+  consumeInvite,
+  isInviteValid,
+  releaseInvite
+} from '../db/queries/invites';
 import { getSettings } from '../db/queries/server';
 import { getUserBySupabaseId, isDisplayNameTaken } from '../db/queries/users';
-import { invites, users } from '../db/schema';
-import { getWsInfo } from '../helpers/get-ws-info';
+import { users } from '../db/schema';
+import { getClientIp, resolvePublicOrigin } from '../helpers/get-ws-info';
 import { logger } from '../logger';
 import { registerUser } from './register-user';
 import { isRegistrationDisabled, isRegistrationMethodEnabled } from '../utils/env';
@@ -46,14 +58,7 @@ function getRequestOrigin(req: http.IncomingMessage): {
   origin: string;
   isHttps: boolean;
 } {
-  const proto = (
-    (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0] ||
-    'https'
-  ).trim();
-  const host =
-    (req.headers['x-forwarded-host'] as string | undefined) ||
-    req.headers.host ||
-    'localhost';
+  const { proto, host } = resolvePublicOrigin(req);
   return { origin: `${proto}://${host}`, isHttps: proto === 'https' };
 }
 
@@ -94,6 +99,10 @@ function stateCookie(value: string, isHttps: boolean, maxAge: number): string {
   if (isHttps) attrs.push('Secure');
   return attrs.join('; ');
 }
+
+// Invite codes ride in the state cookie; bound them like the other entry
+// points do.
+const MAX_INVITE_LENGTH = 64;
 
 // --- provisioning ----------------------------------------------------------
 
@@ -138,20 +147,19 @@ async function findOrProvisionOidcUser(
   // New user — enforce the same registration policy the OAuth path does.
   // OIDC signups can also be disabled independently; an invite bypasses it.
   const settings = await getSettings();
+  let consumedInvite: string | undefined;
+
   if (
     isRegistrationDisabled() ||
     !settings.allowNewUsers ||
     !isRegistrationMethodEnabled('oidc')
   ) {
-    const inviteError = await isInviteValid(invite);
-    if (inviteError) {
-      throw new Error(inviteError);
+    // Atomic check-and-increment (see consumeInvite): two concurrent OIDC
+    // signups cannot both take the last use of a maxUses invite.
+    if (!(await consumeInvite(invite))) {
+      throw new Error((await isInviteValid(invite)) || 'Invalid invite code');
     }
-    await db
-      .update(invites)
-      .set({ uses: sql`${invites.uses} + 1` })
-      .where(eq(invites.code, invite!))
-      .execute();
+    consumedInvite = invite;
   }
 
   let name = preferredName;
@@ -159,7 +167,14 @@ async function findOrProvisionOidcUser(
     name = `${name}-${randomToken(3).slice(0, 4)}`;
   }
 
-  await registerUser(supabaseId, invite, ip, name);
+  try {
+    await registerUser(supabaseId, invite, ip, name);
+  } catch (err) {
+    // The account was never created — hand the invite use back.
+    await releaseInvite(consumedInvite);
+    throw err;
+  }
+
   logger.info(`Provisioned new OIDC user for subject ${claims.sub.replace(/[\r\n]/g, '')}`);
   return supabaseId;
 }
@@ -179,7 +194,9 @@ export async function oidcStartRouteHandler(
 
   const { origin, isHttps } = getRequestOrigin(req);
   const url = new URL(req.url || '/', origin);
-  const invite = url.searchParams.get('invite') || undefined;
+  const inviteParam = url.searchParams.get('invite') || undefined;
+  const invite =
+    inviteParam && inviteParam.length <= MAX_INVITE_LENGTH ? inviteParam : undefined;
   const redirectUri = config.redirectUriOverride || `${origin}/auth/oidc/callback`;
 
   try {
@@ -213,6 +230,8 @@ export async function oidcCallbackRouteHandler(
   const { origin, isHttps } = getRequestOrigin(req);
   const clearCookie = stateCookie('', isHttps, 0);
 
+  // Browser-navigated endpoint: failures bounce back to the SPA with a
+  // message it can show, never a bare JSON error page.
   const fail = (msg: string) =>
     redirect(res, `${origin}/?oidc_error=${encodeURIComponent(msg)}`, clearCookie);
 
@@ -254,7 +273,7 @@ export async function oidcCallbackRouteHandler(
     }
 
     const claims = await verifyIdToken(config, discovery, tokens.id_token, state.nonce);
-    const ip = getWsInfo(undefined, req)?.ip;
+    const ip = getClientIp(req);
     const supabaseId = await findOrProvisionOidcUser(claims, state.invite, ip);
     const accessToken = await mintSessionToken(supabaseId);
 

@@ -19,7 +19,8 @@ import { toast } from 'sonner';
 import { useUserRoles } from '@/features/server/hooks';
 import { useUserStatus } from '@/features/server/users/hooks';
 import { cn } from '@/lib/utils';
-import { UserStatus, type TJoinedUser } from '@pulse/shared';
+import { UserStatus } from '@pulse/shared';
+import type { TJoinedUser } from '@pulse/server/types';
 import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Crown, MoreVertical, UserCog } from 'lucide-react';
@@ -83,7 +84,7 @@ const TableUser = memo(({ user }: TTableUserProps) => {
   return (
     <div
       key={user.id}
-      className="grid grid-cols-[60px_1fr_120px_120px_120px_80px_50px] gap-4 px-4 py-3 text-sm hover:bg-muted/30 transition-colors"
+      className="grid grid-cols-[3rem_minmax(7rem,1fr)_minmax(0,6rem)_5.25rem_5.25rem_3.25rem_2.25rem] gap-4 px-4 py-3 text-sm hover:bg-muted/30 transition-colors"
     >
       <div className="flex items-center justify-center">
         <UserAvatar
@@ -143,8 +144,9 @@ const TableUser = memo(({ user }: TTableUserProps) => {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Member actions"
             >
               <MoreVertical className="h-4 w-4" />
             </Button>

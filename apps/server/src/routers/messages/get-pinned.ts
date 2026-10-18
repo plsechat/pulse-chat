@@ -1,52 +1,33 @@
-import {
-  ChannelPermission,
-  type TFile,
-  type TJoinedMessage,
-  type TMessage,
-  type TMessageReplyPreview
-} from '@pulse/shared';
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { z } from 'zod';
+import { ChannelPermission } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TMessage,
+  TMessageReplyPreview
+} from '../../types';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { getReactionsForMessageIds } from '../../db/queries/messages';
-import { channels, files, messageFiles, messages } from '../../db/schema';
+import { files, messageFiles, messages } from '../../db/schema';
 import { generateFileToken } from '../../helpers/files-crypto';
-import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
-const getPinnedMessagesRoute = protectedProcedure
-  .input(
-    z.object({
-      channelId: z.number()
-    })
-  )
-  .query(async ({ ctx, input }) => {
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
-    const [channel] = await db
-      .select({
-        private: channels.private,
-        fileAccessToken: channels.fileAccessToken
-      })
-      .from(channels)
-      .where(eq(channels.id, input.channelId))
-      .limit(1);
-
-    invariant(channel, {
-      code: 'NOT_FOUND',
-      message: 'Channel not found'
-    });
+// Preview 'permit': pins are part of what a read-only preview may read.
+const getPinnedMessagesRoute = channelProcedure(
+  ChannelPermission.VIEW_CHANNEL,
+  { preview: 'permit' }
+).query(async ({ ctx, input }) => {
+    const { channel } = ctx;
 
     const rows: TMessage[] = await db
       .select()
       .from(messages)
       .where(
+        // Deletion clears the pin; the filter is belt and braces.
         and(
           eq(messages.channelId, input.channelId),
-          eq(messages.pinned, true)
+          eq(messages.pinned, true),
+          isNull(messages.deletedAt)
         )
       )
       .orderBy(desc(messages.pinnedAt));
@@ -105,7 +86,15 @@ const getPinnedMessagesRoute = protectedProcedure
           userId: messages.userId
         })
         .from(messages)
-        .where(inArray(messages.id, replyToIds));
+        // Replies are same-channel by construction (send validates it);
+        // the condition keeps a stray id from ever previewing content
+        // outside the channel the caller is reading.
+        .where(
+          and(
+            inArray(messages.id, replyToIds),
+            eq(messages.channelId, input.channelId)
+          )
+        );
 
       const fileRowsForReplies = await db
         .select({ messageId: messageFiles.messageId })

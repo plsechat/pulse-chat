@@ -6,17 +6,20 @@ import { publishChannel } from '../../db/publishers';
 import { categories, channels } from '../../db/schema';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
 
-const reorderChannelsRoute = protectedProcedure
+const reorderChannelsRoute = serverProcedure(Permission.MANAGE_CHANNELS)
   .input(
     z.object({
-      categoryId: z.number(),
-      channelIds: z.array(z.number())
+      categoryId: z.number().int().positive(),
+      channelIds: z.array(z.number().int().positive()).max(200)
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS);
+    invariant(new Set(input.channelIds).size === input.channelIds.length, {
+      code: 'BAD_REQUEST',
+      message: 'channelIds contains duplicates'
+    });
 
     // Verify the category belongs to the caller's active server
     const [category] = await db
@@ -25,7 +28,7 @@ const reorderChannelsRoute = protectedProcedure
       .where(
         and(
           eq(categories.id, input.categoryId),
-          eq(categories.serverId, ctx.activeServerId!)
+          eq(categories.serverId, ctx.activeServerId)
         )
       )
       .limit(1);
@@ -50,7 +53,7 @@ const reorderChannelsRoute = protectedProcedure
           .where(
             and(
               eq(channels.id, channelId),
-              eq(channels.serverId, ctx.activeServerId!)
+              eq(channels.serverId, ctx.activeServerId)
             )
           );
       }

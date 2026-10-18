@@ -17,18 +17,58 @@ on:
 permissions:
   contents: write
   packages: write
+  # Sigstore attestations for the binaries (attest-build-provenance) and
+  # the image provenance/SBOM pushed by build-push-action.
+  id-token: write
+  attestations: write
 
 jobs:
+  # A manual dispatch has no `needs:` edge to the Tests / E2E workflows
+  # (they trigger on push, this one on workflow_dispatch), so the gate
+  # asks the API whether both already passed for the exact commit being
+  # released. Re-run the red workflow and dispatch again if this fails.
+  gate:
+    name: Require green Tests + E2E on this commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check workflow conclusions for ${{ github.sha }}
+        run: |
+          set -e
+          failed=0
+          for wf in test.yml e2e.yml; do
+            conclusion=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "$wf" \
+              --commit "$GITHUB_SHA" \
+              --json status,conclusion \
+              --jq '[.[] | select(.status == "completed")] | map(.conclusion) | if index("success") then "success" elif length == 0 then "missing" else .[0] end')
+            echo "$wf: ${conclusion:-missing}"
+            if [ "$conclusion" != "success" ]; then
+              echo "::error::$wf has no successful run for $GITHUB_SHA (got '${conclusion:-missing}')"
+              failed=1
+            fi
+          done
+          exit $failed
+
   build-and-publish:
+    needs: gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: 1.3.9
+        # Version comes from root package.json "packageManager".
+        uses: oven-sh/setup-bun@v2
+
+      - name: Read pinned bun version
+        id: bun
+        run: echo "version=$(jq -r '.packageManager | sub("^bun@"; "")' package.json)" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -47,6 +87,52 @@ jobs:
       - name: Get new version
         id: get_version
         run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
+      # Release notes are curated in RELEASE-NOTES-v<version>.md (repo
+      # root) BEFORE dispatching. A bump without notes is an error; a
+      # re-cut (bump=none) without notes only warns so a rebuild of an
+      # existing version can still go out.
+      - name: Assemble release body
+        env:
+          VERSION: ${{ steps.get_version.outputs.version }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -e
+          notes="RELEASE-NOTES-v${VERSION}.md"
+          body="$RUNNER_TEMP/release-body.md"
+          if [ -f "$notes" ]; then
+            cat "$notes" > "$body"
+            printf '\n' >> "$body"
+          elif [ "$BUMP" != "none" ]; then
+            echo "::error::$notes is missing — write the release notes before bumping to v${VERSION}"
+            exit 1
+          else
+            echo "::warning::$notes is missing; the release body carries only the pull snippet"
+            : > "$body"
+          fi
+          cat >> "$body" <<EOT
+          ## Docker Image
+          \`\`\`bash
+          docker pull ghcr.io/${GITHUB_REPOSITORY}:v${VERSION}
+          \`\`\`
+          EOT
+          echo "path=$body" >> "$GITHUB_OUTPUT"
+        id: body
+
+      - name: Write SHA256SUMS
+        working-directory: apps/server/build/out
+        run: |
+          sha256sum pulse-linux-x64 pulse-linux-arm64 pulse-windows-x64.exe pulse-macos-arm64 release.json > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest binary provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            apps/server/build/out/pulse-linux-x64
+            apps/server/build/out/pulse-linux-arm64
+            apps/server/build/out/pulse-windows-x64.exe
+            apps/server/build/out/pulse-macos-arm64
 
       - name: Identify user
         run: |
@@ -71,7 +157,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           # Multi-arch manifest. Apple Silicon / ARM Linux hosts pull
@@ -79,6 +165,12 @@ jobs:
           # Dockerfile branches on TARGETARCH to compile each binary.
           platforms: linux/amd64,linux/arm64
           push: true
+          # Compile with the same bun CI tested (single source: package.json).
+          build-args: |
+            BUN_VERSION=${{ steps.bun.outputs.version }}
+          # SLSA provenance + SPDX SBOM attached to the image index.
+          provenance: true
+          sbom: true
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:v${{ steps.get_version.outputs.version }}
@@ -94,24 +186,19 @@ jobs:
           tag_name: v${{ steps.get_version.outputs.version }}
           name: v${{ steps.get_version.outputs.version }}
           draft: true
+          body_path: ${{ steps.body.outputs.path }}
           files: |
             apps/server/build/out/pulse-linux-x64
             apps/server/build/out/pulse-linux-arm64
             apps/server/build/out/pulse-windows-x64.exe
             apps/server/build/out/pulse-macos-arm64
             apps/server/build/out/release.json
-          body: |
-            ## Changes
-            (TODO)
+            apps/server/build/out/SHA256SUMS
 
-            ## Docker Image
-            ```bash
-            docker pull ghcr.io/${{ github.repository }}:v${{ steps.get_version.outputs.version }}
-            ```
       - name: Commit and push version bump
         if: ${{ inputs.bump != 'none' }}
         run: |
-          git add package.json bun.lock apps/server/package.json apps/client/package.json packages/shared/package.json
+          git add package.json bun.lock apps/server/package.json apps/client/package.json packages/shared/package.json packages/plugin-sdk/package.json
           git commit -m "chore: bump version to ${{ steps.get_version.outputs.version }}"
           git push
 

@@ -4,6 +4,76 @@
 
 @custom-variant dark (&:is(.dark *, .onyx *, .midnight *, .sunset *, .rose *, .forest *, .dracula *));
 
+/*
+  Touch screens never hover. Tailwind wraps `hover:` / `group-hover:` in
+  `@media (hover: hover)`, so a control that only appears on hover never
+  appears on a phone. These variants show it on hover where hovering
+  exists and always where it does not — use them for every
+  `opacity-0 group-hover:opacity-100` reveal.
+*/
+@custom-variant hover-or-touch {
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+  @media (hover: none) {
+    @slot;
+  }
+}
+@custom-variant group-hover-or-touch {
+  @media (hover: hover) {
+    &:is(:where(.group):hover *) {
+      @slot;
+    }
+  }
+  @media (hover: none) {
+    @slot;
+  }
+}
+/*
+  Per-row reveals (message action bar, gutter timestamp, add-reaction
+  pill): on hover where hovering exists, and on any device while the
+  row is the tapped-active one (`data-actions-open`, set by
+  components/channel-view/text/active-message-store). Unlike
+  group-hover-or-touch this never shows on every row at once on a
+  phone.
+*/
+@custom-variant group-hover-or-active {
+  @media (hover: hover) {
+    &:is(:where(.group):hover *) {
+      @slot;
+    }
+  }
+  /* Not :where() here: the active rule has to outrank a same-layer
+     media-query utility on the same element (the touch toolbar is
+     `hidden` under (hover: none) and `flex` only while active), and
+     equal specificity would leave it to source order. */
+  &:is(.group[data-actions-open] *) {
+    @slot;
+  }
+}
+
+/*
+  The app shell's height. `dvh` shrinks for the soft keyboard only where
+  the browser resizes the layout viewport (Chrome with
+  interactive-widget=resizes-content); iOS Safari keeps the layout
+  viewport and only shrinks the VISUAL viewport, so
+  hooks/use-visual-viewport keeps this variable at visualViewport.height
+  while the keyboard is up. Mobile shells size with `h-(--vvh)`.
+
+  --app-zoom mirrors the CSS `zoom` the appearance setting puts on
+  <html> (hooks/use-appearance-settings). Inside a zoomed root every
+  viewport unit and px is multiplied by the factor, so a 100dvh shell
+  at 80 % covers 80 % of the window and at 120 % overflows it; dividing
+  by the factor makes --vvh the real viewport again. Dialog height caps
+  use it for the same reason.
+*/
+:root {
+  --app-zoom: 1;
+  --vvh: calc(100dvh / var(--app-zoom));
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -40,166 +110,127 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-live: var(--live);
+  --color-community: var(--community);
+  --color-channels: var(--channels);
+  --ease-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 :root {
   --radius: 0.75rem;
+  /* Paper on a cool slate desk: the canvas is a shade of blue-grey, the
+     panes are white, so the same rail < channels < chat layering holds. */
   --background: #ffffff;
-  --foreground: #0a0a0a;
-  --card: #e8e8ea;
-  --card-foreground: #0a0a0a;
+  --foreground: #141827;
+  --card: #f1f3f9;
+  --card-foreground: #141827;
   --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #0d9488;
+  --popover-foreground: #141827;
+  --primary: #0f9d8a;
   --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #52525b;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #d4d4d8;
-  --accent-foreground: #0a0a0a;
-  --destructive: #dc2626;
-  --border: #e4e4e7;
-  --input: #e4e4e7;
-  --ring: #0d9488;
-  --chart-1: #0d9488;
+  --secondary: #eef1f7;
+  --secondary-foreground: #4b526b;
+  --muted: #f1f3f9;
+  --muted-foreground: #5f6783;
+  --accent: #e3e7f1;
+  --accent-foreground: #141827;
+  --destructive: #d93a4a;
+  --border: #dbe0ec;
+  --input: #dbe0ec;
+  --ring: #0f9d8a;
+  --chart-1: #0f9d8a;
   --chart-2: #16a34a;
-  --chart-3: #ea580c;
-  --chart-4: #db2777;
-  --chart-5: #dc2626;
-  /* One clear step BELOW the channel pane (#e8e8ea) so the rail<channels<chat
-     tonal layering holds in light mode and rail tiles read as raised pills. */
-  --sidebar: #e3e4e6;
-  --sidebar-foreground: #0a0a0a;
-  --sidebar-primary: #0d9488;
+  --chart-3: #d98a00;
+  --chart-4: #c8367f;
+  --chart-5: #d93a4a;
+  --live: #d98a00;
+  --sidebar: #e6e9f2;
+  --channels: #f4f6fb;
+  --sidebar-foreground: #141827;
+  --sidebar-primary: #0f9d8a;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f4f4f5;
-  --sidebar-accent-foreground: #0a0a0a;
-  --sidebar-border: #e4e4e7;
-  --sidebar-ring: #0d9488;
-  --link-color: #0d9488;
-  --code-bg: #f4f4f5;
-  --code-border: #e4e4e7;
-  --code-text: #18181b;
-  --code-header-text: #52525b;
-  --code-copy-hover-bg: #d4d4d8;
-  --code-inline-bg: #f4f4f5;
-  --code-inline-text: #0d9488;
-  --scrollbar-thumb: #d4d4d8;
-  --scrollbar-thumb-hover: #a1a1aa;
-  --hl-keyword: #be123c;
+  --sidebar-accent: #d9deea;
+  --sidebar-accent-foreground: #141827;
+  --sidebar-border: #d3d8e6;
+  --sidebar-ring: #0f9d8a;
+  --link-color: #0f9d8a;
+  --code-bg: #f1f3f9;
+  --code-border: #dbe0ec;
+  --code-text: #1c2033;
+  --code-header-text: #4b526b;
+  --code-copy-hover-bg: #d9deea;
+  --code-inline-bg: #eef1f7;
+  --code-inline-text: #0f9d8a;
+  --scrollbar-thumb: #cfd5e3;
+  --scrollbar-thumb-hover: #a9b1c7;
+  --hl-keyword: #b2234e;
   --hl-string: #0e7490;
-  --hl-comment: #71717a;
+  --hl-comment: #6b7390;
   --hl-number: #1d4ed8;
-  --hl-function: #7c3aed;
-  --hl-variable: #c2410c;
-  --hl-symbol: #0d9488;
-}
-
-.onyx {
-  --background: #08080a;
-  --foreground: #e4e4e7;
-  --card: #161618;
-  --card-foreground: #e4e4e7;
-  /* Overlay surface must sit ABOVE card in the tonal stack */
-  --popover: #0e0e10;
-  --popover-foreground: #e4e4e7;
-  --primary: #2dd4bf;
-  --primary-foreground: #042f2e;
-  --secondary: #141414;
-  --secondary-foreground: #d4d4d8;
-  --muted: #0f0f0f;
-  --muted-foreground: #71717a;
-  --accent: #1f1f22;
-  --accent-foreground: #e4e4e7;
-  --destructive: #ef4444;
-  --border: #1f1f22;
-  --input: #141414;
-  --ring: #2dd4bf;
-  --chart-1: #2dd4bf;
-  --chart-2: #4ade80;
-  --chart-3: #fbbf24;
-  --chart-4: #f472b6;
-  --chart-5: #f87171;
-  /* Canvas tone — panes (background) float ABOVE this */
-  --sidebar: #000000;
-  --sidebar-foreground: #e4e4e7;
-  --sidebar-primary: #2dd4bf;
-  --sidebar-primary-foreground: #042f2e;
-  --sidebar-accent: #0a0a0a;
-  --sidebar-accent-foreground: #e4e4e7;
-  --sidebar-border: #141414;
-  --sidebar-ring: #2dd4bf;
-  --link-color: #2dd4bf;
-  --code-bg: #0a0a0a;
-  --code-border: #1a1a1a;
-  --code-text: #d4d4d8;
-  --code-header-text: #71717a;
-  --code-copy-hover-bg: #1a1a1a;
-  --code-inline-bg: #0f0f0f;
-  --code-inline-text: #2dd4bf;
-  --scrollbar-thumb: #27272a;
-  --scrollbar-thumb-hover: #3f3f46;
-  --hl-keyword: #c084fc;
-  --hl-string: #86efac;
-  --hl-comment: #52525b;
-  --hl-number: #fdba74;
-  --hl-function: #7dd3fc;
-  --hl-variable: #fca5a5;
-  --hl-symbol: #5eead4;
+  --hl-function: #6d3fd6;
+  --hl-variable: #b85a1c;
+  --hl-symbol: #0f9d8a;
+  /* Shell tint: what tabs, headers and the active channel row use. It is
+     the theme's own primary with the chroma capped, so it can never clash
+     with the palette; communities are told apart by logo and initial. */
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 .dark {
-  --background: #1f1f25;
-  --foreground: #fafafa;
-  --card: #26262c;
-  --card-foreground: #fafafa;
-  /* Overlay surface must sit ABOVE card in the tonal stack */
-  --popover: #1f1f24;
-  --popover-foreground: #fafafa;
-  --primary: #14b8a6;
-  --primary-foreground: #ffffff;
-  --secondary: #26262b;
-  --secondary-foreground: #d4d4d8;
-  --muted: #1f1f23;
-  --muted-foreground: #a1a1aa;
-  --accent: #2c2c33;
-  --accent-foreground: #fafafa;
-  --destructive: #ef4444;
-  --border: #2c2c33;
-  --input: #26262b;
-  --ring: #14b8a6;
-  --chart-1: #14b8a6;
-  --chart-2: #4ade80;
-  --chart-3: #fbbf24;
-  --chart-4: #f472b6;
-  --chart-5: #f87171;
-  /* Canvas tone — panes (background) float ABOVE this */
-  --sidebar: #0f0f12;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #14b8a6;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #1c1c21;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #1a1a1d;
-  --sidebar-ring: #14b8a6;
-  --link-color: #14b8a6;
-  --code-bg: #111113;
-  --code-border: #1f1f23;
-  --code-text: #d4d4d8;
-  --code-header-text: #a1a1aa;
-  --code-copy-hover-bg: #27272a;
-  --code-inline-bg: #18181b;
-  --code-inline-text: #5eead4;
-  --scrollbar-thumb: #27272a;
-  --scrollbar-thumb-hover: #3f3f46;
-  --hl-keyword: #c084fc;
-  --hl-string: #86efac;
-  --hl-comment: #52525b;
-  --hl-number: #fdba74;
-  --hl-function: #7dd3fc;
-  --hl-variable: #fca5a5;
-  --hl-symbol: #5eead4;
+  /* Night: a deep indigo canvas with lifted blue-black panes. Cool all
+     the way through so the one warm token (--live) and each community's
+     tint are the only things that glow. */
+  --background: #141827;
+  --foreground: #eef1fa;
+  --card: #1b2033;
+  --card-foreground: #eef1fa;
+  --popover: #171c2d;
+  --popover-foreground: #eef1fa;
+  --primary: #2fe3c2;
+  --primary-foreground: #04231d;
+  --secondary: #1f2538;
+  --secondary-foreground: #d5dae8;
+  --muted: #181d2e;
+  --muted-foreground: #8d95b5;
+  --accent: #242b42;
+  --accent-foreground: #eef1fa;
+  --destructive: #ff5c6c;
+  --border: #272e47;
+  --input: #1f2538;
+  --ring: #2fe3c2;
+  --chart-1: #2fe3c2;
+  --chart-2: #5ee29a;
+  --chart-3: #ffb454;
+  --chart-4: #f27ab8;
+  --chart-5: #ff5c6c;
+  --live: #ffb454;
+  --sidebar: #090c16;
+  --channels: #0f1322;
+  --sidebar-foreground: #eef1fa;
+  --sidebar-primary: #2fe3c2;
+  --sidebar-primary-foreground: #04231d;
+  --sidebar-accent: #171b2b;
+  --sidebar-accent-foreground: #eef1fa;
+  --sidebar-border: #161a29;
+  --sidebar-ring: #2fe3c2;
+  --link-color: #5ce9cf;
+  --code-bg: #0e1120;
+  --code-border: #1f2538;
+  --code-text: #d5dae8;
+  --code-header-text: #8d95b5;
+  --code-copy-hover-bg: #242b42;
+  --code-inline-bg: #181d2e;
+  --code-inline-text: #7cf0db;
+  --scrollbar-thumb: #272e47;
+  --scrollbar-thumb-hover: #39425f;
+  --hl-keyword: #c89bff;
+  --hl-string: #9ff0b8;
+  --hl-comment: #5c6485;
+  --hl-number: #ffc98a;
+  --hl-function: #8fd6ff;
+  --hl-variable: #ffb0b8;
+  --hl-symbol: #7cf0db;
+  --community: oklch(from var(--primary) l min(c, 0.13) h);
 }
 
 @layer base {
@@ -208,10 +239,19 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-family: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
   button {
     cursor: pointer;
+  }
+  /*
+   * Form controls default to a fixed intrinsic width (an <input> is
+   * ~20ch wide and refuses to shrink below it), which is what pushes a
+   * flex row past its container when the host gets narrow. Zero-weight
+   * selector so any explicit width still wins.
+   */
+  :where(input, select, textarea) {
+    min-width: 0;
   }
   /*
    * Default keyboard-focus ring for any interactive element that opted
@@ -247,7 +287,7 @@ body,
 #root {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: var(--vvh);
   height: 100%;
 }
 
@@ -618,6 +658,48 @@ body,
   box-shadow: inset 0 0 0 3px rgb(34 197 94);
 }
 
+/* soundboard ripple — two amber rings expand from the tile's edge and
+   fade while the clip's badge settles in; one short burst, then gone.
+   Runs once per trigger (the element is re-keyed on the trigger time). */
+
+@keyframes soundboard-ring {
+  0% {
+    box-shadow: inset 0 0 0 0 rgb(245 158 11 / 0.9);
+  }
+  60% {
+    box-shadow: inset 0 0 0 10px rgb(245 158 11 / 0);
+  }
+  100% {
+    box-shadow: inset 0 0 0 10px rgb(245 158 11 / 0);
+  }
+}
+
+@keyframes soundboard-badge {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.9);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.soundboard-ripple {
+  border-radius: inherit;
+  animation: soundboard-ring 0.9s ease-out 1;
+}
+
+.soundboard-ripple-badge {
+  animation: soundboard-badge 1.6s ease-out 1 forwards;
+}
+
 /* jump/thread highlight — the target message pulses (4 quick beats with
    decaying intensity) so the eye locks onto it, then settles to normal.
    A single fade reads as "something flashed"; the repeated beat reads as
@@ -660,6 +742,15 @@ body,
 
 .animate-msg-highlight {
   animation: msg-highlight 2.4s ease-in-out forwards;
+}
+
+/* Message groups off-screen skip layout and paint until scrolled near;
+   the intrinsic size stands in for a group that has not rendered yet
+   and `auto` keeps the real size once it has, so scroll metrics stay
+   stable while reading back through a full 300-message window. */
+.message-group-window {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
 }
 
 /* nameplates — decorative member-row backgrounds. Animated presets get
@@ -1020,6 +1111,185 @@ button:hover .icon-anim-spin,
 
 .titlebar-overlay .app-topbar :is(button, a, input, [role='button'], [contenteditable='true']) {
   -webkit-app-region: no-drag;
+}
+
+/* The deck (new layout) is the window's top strip, so it drags too. */
+.titlebar-overlay .app-deck {
+  -webkit-app-region: drag;
+  padding-right: max(0.5rem, calc(100vw - env(titlebar-area-width, 100vw)));
+}
+
+.titlebar-overlay .app-deck :is(button, [role='tab'], [role='separator']) {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Surfaces and motion ─────────────────────────────────────────
+   Three layers: the canvas (sidebar token), the channel pane and the
+   content pane. Each raised layer carries a hairline highlight on its
+   top edge and a deep, soft drop so the stack reads as depth, not as
+   lines. Motion is one easing and three durations; everything answers
+   a user action and all of it switches off under reduced motion. */
+.surface {
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.05),
+    0 24px 60px -36px rgb(0 0 0 / 0.9);
+}
+.surface-soft {
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.04),
+    0 10px 30px -22px rgb(0 0 0 / 0.8);
+}
+:root:not(.dark):not(.onyx):not(.midnight):not(.sunset):not(.rose):not(.forest):not(.dracula) .surface,
+:root:not(.dark):not(.onyx):not(.midnight):not(.sunset):not(.rose):not(.forest):not(.dracula) .surface-soft {
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.9),
+    0 14px 40px -28px rgb(20 24 39 / 0.35);
+}
+
+/* squircle: the shape of every avatar and tile in the shell */
+.squircle {
+  border-radius: 28% !important;
+}
+.squircle > * {
+  border-radius: 28% !important;
+}
+
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(4px) scale(0.995); }
+  to { opacity: 1; transform: none; }
+}
+.view-enter {
+  animation: view-enter 220ms var(--ease-soft) both;
+}
+
+@keyframes panel-enter {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: none; }
+}
+.panel-enter {
+  animation: panel-enter 240ms var(--ease-soft) both;
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.badge-pop {
+  animation: badge-pop 260ms var(--ease-soft) both;
+}
+
+@keyframes msg-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.msg-enter {
+  animation: msg-enter 180ms var(--ease-soft) both;
+}
+
+.lift {
+  transition:
+    transform 160ms var(--ease-soft),
+    background-color 160ms var(--ease-soft),
+    box-shadow 160ms var(--ease-soft),
+    color 120ms;
+}
+.lift:hover {
+  transform: translateY(-1px);
+}
+.lift:active {
+  transform: translateY(0) scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-enter,
+  .panel-enter,
+  .badge-pop,
+  .msg-enter {
+    animation: none;
+  }
+  .lift,
+  .lift:hover,
+  .lift:active {
+    transform: none;
+  }
+}
+
+/* ── Community tint ──────────────────────────────────────────────
+   The shell root sets --community-hue for the community in focus. A soft
+   radial of that colour sits in the top-left of the deck and of the
+   channel list, like light from the room you're in. */
+.app-deck {
+  background-image: radial-gradient(
+    70rem 14rem at 8% -40%,
+    oklch(from var(--community) l c h / 0.22),
+    transparent 60%
+  );
+}
+
+/* the active tab is part of the pane below it: same fill, a tinted ring,
+   and a strip that covers the deck's bottom hairline under the tab */
+.community-tab-active {
+  background-color: var(--background);
+  box-shadow:
+    inset 0 0 0 1px oklch(from var(--community) l c h / 0.45),
+    0 8px 24px -16px oklch(from var(--community) l c h / 0.8);
+}
+.community-tab-active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -7px;
+  height: 7px;
+  background: var(--background);
+}
+
+.channel-tile {
+  background-color: oklch(from var(--community) l c h / 0.1);
+  color: oklch(from var(--community) l c h / 0.9);
+}
+.channel-row-active .channel-tile {
+  background-color: oklch(from var(--community) l c h / 0.28);
+  color: var(--foreground);
+}
+/* a message that mentions you: a warm wash and bar, the only warm thing
+   in the chat column, so it is found by colour alone */
+.mention-row {
+  background-color: oklch(from var(--live) l c h / 0.09);
+  box-shadow: inset 3px 0 0 0 var(--live);
+}
+.mention-row:hover {
+  background-color: oklch(from var(--live) l c h / 0.13);
+}
+
+.composer-box:focus-within {
+  border-color: oklch(from var(--community) l c h / 0.6);
+  box-shadow:
+    0 0 0 3px oklch(from var(--community) l c h / 0.16),
+    0 18px 40px -26px rgb(0 0 0 / 0.8);
+}
+
+.community-header {
+  background-image:
+    radial-gradient(
+      18rem 6rem at 100% 0%,
+      oklch(from var(--community) l c h / 0.35),
+      transparent 70%
+    ),
+    linear-gradient(
+      180deg,
+      oklch(from var(--community) l c h / 0.22),
+      transparent
+    );
+}
+
+
+.channel-row-active {
+  background-color: oklch(from var(--community) l c h / 0.16);
+}
+.channel-row-active::before {
+  background-color: var(--community) !important;
 }
 
 /* mentions */

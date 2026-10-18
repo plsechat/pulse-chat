@@ -4,8 +4,9 @@ import { fetchInfo } from '../../helpers/api';
 /**
  * SSO-only mode (derived, no dedicated env var): password registration
  * off + at least one advertised provider ⇒ passwordLoginEnabled=false.
- * The instance runs with REGISTRATION_PASSWORD_ENABLED=false and
- * GOOGLE_OAUTH_ENABLED=true (see docker/compose.yml).
+ * The instance runs with REGISTRATION_PASSWORD_ENABLED=false and a
+ * native OIDC provider configured (see docker/compose.yml). Social OAuth
+ * toggles only count under AUTH_BACKEND=supabase, so the fixture uses OIDC.
  *
  * The valid-invite 200 path is covered by unit tests (it needs a seeded
  * invite); here we prove the gate itself and the UI rendering, which
@@ -19,7 +20,7 @@ test('/info derives passwordLoginEnabled=false with a provider advertised', asyn
   expect(info.passwordLoginEnabled).toBe(false);
   expect(info.passwordRegistrationEnabled).toBe(false);
   expect(info.enabledAuthProviders).toEqual([
-    { name: 'google', label: 'Google' }
+    { name: 'oidc', label: 'Example SSO', kind: 'oidc' }
   ]);
 });
 
@@ -29,7 +30,7 @@ test('login screen shows ONLY the provider button — no password form, no tabs'
   await page.goto('/');
 
   await expect(page.getByText('Sign in to continue')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Google' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Example SSO' })).toBeVisible();
 
   // Zero form fields of any kind
   await expect(page.locator('input')).toHaveCount(0);
@@ -47,7 +48,7 @@ test('invite link is the break-glass: password form reappears', async ({
   await expect(page.getByRole('tab', { name: 'Sign In' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Create Account' })).toBeVisible();
   // Provider button still offered alongside
-  await expect(page.getByRole('button', { name: 'Google' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Example SSO' })).toBeVisible();
 });
 
 test('/login rejects password attempts server-side (not just hidden UI)', async ({

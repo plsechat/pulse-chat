@@ -13,13 +13,14 @@ import {
   registerAndJoin,
   runUser
 } from '../../helpers/fixtures';
-import { toast } from '../../helpers/ui';
+import { selectChannel, toast, voiceRosterEntry } from '../../helpers/ui';
 
 /**
  * Moderation: kick, ban (live disconnect + blocked login), unban, and
- * voice server-mute — all shipped with no e2e coverage; voice moderation
- * shipped blind in v0.2.3 (its target-side state sync was broken until
- * the ownVoiceState mirror fix that lands with this suite).
+ * voice server-mute + moderator disconnect. Voice moderation shipped
+ * blind in v0.2.3 (its target-side state sync was broken until the
+ * ownVoiceState mirror fix); the voice test here rides the real media
+ * path the e2e compose publishes for the core instance.
  *
  * Uses a per-run throwaway target: bans are INSTANCE-WIDE login blocks,
  * so banning a shared fixture user would wreck every other spec if a run
@@ -27,6 +28,7 @@ import { toast } from '../../helpers/ui';
  */
 
 const BASE = 'http://127.0.0.1:14991';
+const VOICE_CHANNEL = 'General Voice';
 
 const TARGET = runUser('mod-target');
 const KICK_REASON = `kick-reason-${TARGET.displayName}`;
@@ -230,23 +232,96 @@ test.describe('moderation', () => {
   });
 
   /**
-   * The two product blockers this fixme originally documented are FIXED:
-   *  - Grid tile (voice-user-card.tsx): the ContextMenu now has its own
-   *    DOM node (display:contents wrapper) instead of asChild-merging
-   *    onto the Popover's node, so right-click opens the moderation menu.
-   *  - Sidebar row (voice-user.tsx): same wrapper + contextmenu
-   *    stopPropagation, so the USER menu opens instead of the channel's.
-   *  - ownVoiceState split-brain: updateVoiceUserState now mirrors
-   *    serverMuted/serverDeafened into ownVoiceState for the own user,
-   *    so the mic-button guard and moderator toasts work.
-   *
-   * What still blocks the e2e: driving two REAL voice-channel joins
-   * (mediasoup produce/consume) from Playwright — the harness has no
-   * voice-join fixture yet. That's the Tier 3 "voice lifecycle" roadmap
-   * item; this test should be written alongside it.
+   * Voice server-mute: moderator toggles → the target's roster entry
+   * shows the enforced-mute icon in BOTH contexts, the target cannot lift
+   * it (mic button refused with a toast; the server also drops the unmute
+   * in voice.updateState), and a moderator Disconnect evicts the target
+   * with a toast. Signalling-level assertions; the media path exists
+   * (compose publishes the media port) but silence is not asserted.
    */
-  test.fixme(
-    'voice server-mute: enforced roster icon, target refusal toast, disconnect (needs Tier-3 voice-join harness)',
-    () => {}
-  );
+  test('voice server-mute: enforced roster icon in both contexts, target refusal toast, moderator disconnect', async () => {
+    test.setTimeout(120_000);
+    // unban leaves TARGET without membership — rejoin, then a live page.
+    await registerAndJoin(sharedBrowser, BASE, TARGET);
+    const { context, page: target } = await freshTarget();
+    try {
+      // Clear any settings/mod sheet the previous test left on the owner.
+      await ownerPage.keyboard.press('Escape');
+      await ownerPage.keyboard.press('Escape');
+      await selectChannel(ownerPage, 'General Text');
+
+      // Target joins voice and mutes itself, so the only remaining mic
+      // action is an UNMUTE — the one a server-mute must refuse.
+      await selectChannel(target, VOICE_CHANNEL);
+      await expect(voiceRosterEntry(ownerPage, TARGET.displayName)).toHaveCount(
+        1,
+        { timeout: 15_000 }
+      );
+      await target
+        .locator('button[title^="Mute microphone"]:visible')
+        .first()
+        .click();
+      const unmuteButton = target
+        .locator('button[title^="Unmute microphone"]:visible')
+        .first();
+      await expect(unmuteButton).toBeVisible();
+
+      const enforcedIcon = (page: Page) =>
+        voiceRosterEntry(page, TARGET.displayName).locator(
+          'div[title="Muted by a moderator"]'
+        );
+      await expect(enforcedIcon(ownerPage)).toHaveCount(0);
+
+      // Moderator: right-click the roster entry → Server Mute.
+      await voiceRosterEntry(ownerPage, TARGET.displayName)
+        .first()
+        .click({ button: 'right' });
+      await ownerPage.getByRole('menuitem', { name: 'Server Mute' }).click();
+
+      // Enforced icon on both sides; the target is told once.
+      await expect(enforcedIcon(ownerPage)).toHaveCount(1, { timeout: 10_000 });
+      await expect(enforcedIcon(target)).toHaveCount(1, { timeout: 10_000 });
+      const mutedToast = toast(target, 'You have been muted by a moderator');
+      await expect(mutedToast).toBeVisible({ timeout: 10_000 });
+      // Let the transition toast dismiss so the refusal below is
+      // unambiguous (same text, different trigger).
+      await expect(mutedToast).toHaveCount(0, { timeout: 15_000 });
+
+      // Target tries to unmute: refused client-side with the toast, the
+      // button stays on "Unmute", and the roster still shows the
+      // enforced icon everywhere.
+      await unmuteButton.click();
+      await expect(
+        toast(target, 'You have been muted by a moderator')
+      ).toBeVisible({ timeout: 5_000 });
+      await expect(unmuteButton).toBeVisible();
+      await expect(enforcedIcon(ownerPage)).toHaveCount(1);
+      await expect(enforcedIcon(target)).toHaveCount(1);
+
+      // Moderator disconnect: the target is evicted with a toast and
+      // leaves every roster.
+      await voiceRosterEntry(ownerPage, TARGET.displayName)
+        .first()
+        .click({ button: 'right' });
+      await ownerPage
+        .getByRole('menuitem', { name: 'Disconnect from Voice' })
+        .click();
+      await expect(
+        toast(target, 'You were disconnected from the voice channel')
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(voiceRosterEntry(ownerPage, TARGET.displayName)).toHaveCount(
+        0,
+        { timeout: 10_000 }
+      );
+      await expect(voiceRosterEntry(target, TARGET.displayName)).toHaveCount(
+        0,
+        { timeout: 10_000 }
+      );
+      await expect(
+        target.getByRole('button', { name: 'Disconnect', exact: true })
+      ).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
 });

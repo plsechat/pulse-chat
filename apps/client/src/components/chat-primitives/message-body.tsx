@@ -2,17 +2,18 @@ import { fullDateTime } from '@/helpers/time-format';
 import { useDecryptedFileUrl } from '@/hooks/use-decrypted-file-url';
 import {
   isEmojiOnlyContent,
-  isLegacyHtml,
-  TokenContentRenderer
-} from '@/lib/converters/token-content-renderer';
+  isLegacyHtml
+} from '@/lib/converters/token-content';
+import { TokenContentRenderer } from '@/lib/converters/token-content-renderer';
 import { cn } from '@/lib/utils';
 import {
   audioExtensions,
   imageExtensions,
+  isLinkPreviewEntry,
   videoExtensions,
-  type TFile,
   type TMessageMetadata
 } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { format } from 'date-fns';
 import DOMPurify from 'dompurify';
 import parse from 'html-react-parser';
@@ -71,6 +72,15 @@ type TMessageBodyProps = {
   message: TBodyMessage;
   instanceDomain?: string;
   homeScope?: boolean;
+  /**
+   * Content only — no attachments, inline media, link previews,
+   * reactions or the lock/edited chrome. For lists and banners (pin
+   * banner, search results, pinned-message panel) that quote a message
+   * but are not the message. Same sanitize/tokenize pipeline as the
+   * full body: legacy HTML → DOMPurify → serializer, tokens →
+   * TokenContentRenderer (audit A8-16).
+   */
+  compact?: boolean;
   onToggleReaction?: (emoji: string) => void;
   /** Own-message attachment delete (channel surfaces only today). */
   onRemoveFile?: (fileId: number) => void;
@@ -144,7 +154,8 @@ const ChatMessageBody = memo(({
   instanceDomain,
   homeScope,
   onToggleReaction,
-  onRemoveFile
+  onRemoveFile,
+  compact = false
 }: TMessageBodyProps) => {
   const content = message.content ?? '';
   const legacy = isLegacyHtml(content);
@@ -166,7 +177,10 @@ const ChatMessageBody = memo(({
         'href', 'src', 'alt', 'class', 'target', 'rel',
         'data-type', 'data-mention-type', 'data-mention-id', 'data-mention-name',
         'data-emoji-name', 'data-emoji-id',
-        'data-channel-id', 'data-channel-name'
+        'data-channel-id', 'data-channel-name',
+        // The plugin command card (overrides/command.tsx) reads its state
+        // from these; without them the card renders as an empty tag.
+        'data-plugin-id', 'data-command', 'data-subcommand', 'data-args', 'data-status', 'data-response'
       ],
       ALLOW_DATA_ATTR: false
     });
@@ -247,6 +261,26 @@ const ChatMessageBody = memo(({
     message.content !== null &&
     DECRYPTION_SENTINELS.includes(message.content);
 
+  if (compact) {
+    return (
+      <div className="max-w-full break-words msg-content min-w-0">
+        {isDecryptionFailure ? (
+          <span className="text-destructive/80 italic">
+            Unable to decrypt this message
+          </span>
+        ) : content ? (
+          legacy ? messageHtml : (
+            <TokenContentRenderer
+              content={content}
+              fileCount={message.files.length}
+              onFoundMedia={handleTokenMedia}
+            />
+          )
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-1">
       {isDecryptionFailure ? (
@@ -313,7 +347,7 @@ const ChatMessageBody = memo(({
       {message.metadata && message.metadata.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {message.metadata
-            .filter((meta) => meta.mediaType !== 'webhook')
+            .filter(isLinkPreviewEntry)
             .map((meta, index) => (
               <LinkPreview key={`preview-${index}`} metadata={meta} />
             ))}

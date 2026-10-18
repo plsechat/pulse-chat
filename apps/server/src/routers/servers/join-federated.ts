@@ -1,4 +1,3 @@
-import { ServerEvents } from '@pulse/shared';
 import { timingSafeEqual } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -12,6 +11,7 @@ import {
 import { servers, userRoles } from '../../db/schema';
 import { logger } from '../../logger';
 import { invariant } from '../../utils/invariant';
+import { announceMemberJoin } from '../../utils/membership-events';
 import {
   checkPasswordRateLimit,
   recordPasswordFailure,
@@ -110,10 +110,12 @@ const joinFederatedRoute = protectedProcedure
 
     logger.info('[servers/joinFederated] joined server=%s, userId=%d', server.name, ctx.userId);
 
-    ctx.pubsub.publishFor(ctx.userId, ServerEvents.SERVER_MEMBER_JOIN, {
-      serverId: server.id,
+    await announceMemberJoin({
+      pubsub: ctx.pubsub,
+      server,
       userId: ctx.userId,
-      server: summary
+      username: ctx.user.name,
+      summary
     });
 
     return summary;

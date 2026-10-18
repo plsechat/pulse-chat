@@ -2,7 +2,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { NotificationLevel } from '@pulse/shared';
 import { Bell, BellOff, BellRing, Check } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import {
@@ -16,6 +16,8 @@ import { Tooltip } from '../ui/tooltip';
 
 type TNotificationDropdownProps = {
   channelId: number;
+  /** Replaces the default bell button as the trigger (mobile menu row). */
+  children?: ReactNode;
 };
 
 const LEVEL_OPTIONS = [
@@ -24,7 +26,7 @@ const LEVEL_OPTIONS = [
   { value: NotificationLevel.NOTHING, label: 'Nothing', icon: BellOff },
 ] as const;
 
-const NotificationDropdown = memo(({ channelId }: TNotificationDropdownProps) => {
+const NotificationDropdown = memo(({ channelId, children }: TNotificationDropdownProps) => {
   const [level, setLevel] = useState<NotificationLevel>(NotificationLevel.DEFAULT);
 
   useEffect(() => {
@@ -65,17 +67,20 @@ const NotificationDropdown = memo(({ channelId }: TNotificationDropdownProps) =>
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 transition-all duration-200 ease-in-out"
-        >
-          <Tooltip content="Notification Settings">
-            <div>
-              <Bell className="w-4 h-4" />
-            </div>
-          </Tooltip>
-        </Button>
+        {children ?? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 transition-all duration-200 ease-in-out"
+            aria-label="Notification settings"
+          >
+            <Tooltip content="Notification Settings">
+              <div>
+                <Bell className="w-4 h-4" />
+              </div>
+            </Tooltip>
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         {LEVEL_OPTIONS.map((option) => (

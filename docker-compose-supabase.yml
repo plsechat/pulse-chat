@@ -101,7 +101,10 @@ services:
         condition: service_healthy
     ports:
       - "${PULSE_PORT:-5443}:5443"
-      - "40000-40020:40000-40020/udp"
+      # Voice media: one port, UDP and TCP (MEDIASOUP_PORT). Map a range
+      # only with MEDIASOUP_MODE=range.
+      - "40000:40000/udp"
+      - "40000:40000/tcp"
     env_file: .env
     environment:
       RUNNING_IN_DOCKER: "true"
@@ -116,10 +119,13 @@ services:
       REGISTRATION_DISABLED: ${REGISTRATION_DISABLED:-false}
       FEDERATION_ALLOW_PRIVATE_CIDRS: ${FEDERATION_ALLOW_PRIVATE_CIDRS:-}
       PUBLIC_IP: ${PUBLIC_IP}
+      # Kong fronts Pulse here, so client IPs arrive in X-Forwarded-For;
+      # without this the rate limiter and audit log see Kong's address.
+      TRUST_PROXY: "true"
       # Native OIDC (Authentik / Keycloak / Zitadel / Auth0 / any OIDC IdP).
       # PULSE runs the flow itself — no GoTrue provider needed. Register
       # ${SITE_URL}/auth/oidc/callback as a redirect URI in your IdP.
-      # Requires AUTH_SECRET (set above) to sign the session token.
+      # Requires AUTH_SECRET (from .env via env_file) to sign the session token.
       OIDC_OAUTH_ENABLED: ${OIDC_OAUTH_ENABLED:-false}
       OIDC_LABEL: ${OIDC_LABEL:-Single Sign-On}
       OIDC_ISSUER: ${OIDC_ISSUER:-}
@@ -128,7 +134,7 @@ services:
     volumes:
       - ./data/pulse:/root/.config/pulse
     healthcheck:
-      test: ["CMD-SHELL", "bun -e \"fetch('http://localhost:5443/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+      test: ["CMD", "bun", "/healthcheck.ts"]
       interval: 10s
       timeout: 5s
       retries: 12

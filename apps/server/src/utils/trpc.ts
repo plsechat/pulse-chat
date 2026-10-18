@@ -2,15 +2,15 @@ import {
   ChannelPermission,
   ServerEvents,
   UserStatus,
-  type Permission,
-  type TUser
+  type Permission
 } from '@pulse/shared';
+import type { TUser } from '../types';
 import { initTRPC, TRPCError } from '@trpc/server';
 import chalk from 'chalk';
 import type WebSocket from 'ws';
 import { config } from '../config';
 import { logger } from '../logger';
-import type { TConnectionInfo } from '../types';
+import type { TConnectionInfo } from '../helpers/get-ws-info';
 import { isBanned } from './banned-cache';
 import { invariant } from './invariant';
 import {
@@ -28,6 +28,13 @@ export type Context = {
   user: TUser;
   userId: number;
   accessToken: string;
+  /**
+   * Session family (`sid`) of the local-backend access token this
+   * connection authenticated with; undefined for OIDC, federation and
+   * supabase tokens. Lets a password change spare the caller's own
+   * device when it revokes every other session.
+   */
+  authSessionId?: string;
   activeServerId: number | undefined;
   previewServerId: number | undefined;
   currentVoiceChannelId: number | undefined;

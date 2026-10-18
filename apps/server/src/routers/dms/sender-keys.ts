@@ -14,6 +14,11 @@ import { invariant } from '../../utils/invariant';
 import { logger } from '../../logger';
 import { pubsub } from '../../utils/pubsub';
 import { protectedProcedure, userSubscription } from '../../utils/trpc';
+import {
+  MAX_DISTRIBUTION_MESSAGE_LENGTH,
+  MAX_E2EE_BATCH,
+  MAX_SENDER_KEY_ID
+} from '../e2ee/bounds';
 
 // Mirror of e2ee.distributeSenderKeysBatch but scoped to a DM channel.
 // Permission check is "is the caller a member of the DM" instead of
@@ -21,16 +26,21 @@ import { protectedProcedure, userSubscription } from '../../utils/trpc';
 const distributeSenderKeysRoute = protectedProcedure
   .input(
     z.object({
-      dmChannelId: z.number(),
+      dmChannelId: z.number().int().positive(),
       // Phase B chain rotation id. Defaults to 1 for the first chain
       // and pre-Phase-B clients still in the wild.
-      senderKeyId: z.number().int().min(1).default(1),
-      distributions: z.array(
-        z.object({
-          toUserId: z.number(),
-          distributionMessage: z.string()
-        })
-      )
+      senderKeyId: z.number().int().min(1).max(MAX_SENDER_KEY_ID).default(1),
+      distributions: z
+        .array(
+          z.object({
+            toUserId: z.number().int().positive(),
+            distributionMessage: z
+              .string()
+              .min(1)
+              .max(MAX_DISTRIBUTION_MESSAGE_LENGTH)
+          })
+        )
+        .max(MAX_E2EE_BATCH)
     })
   )
   .mutation(async ({ ctx, input }) => {
@@ -81,16 +91,37 @@ const distributeSenderKeysRoute = protectedProcedure
     );
 
     if (localDists.length > 0) {
-      await db.insert(dmE2eeSenderKeys).values(
-        localDists.map((d) => ({
-          dmChannelId: input.dmChannelId,
-          senderKeyId: input.senderKeyId,
-          fromUserId: ctx.userId,
-          toUserId: d.toUserId,
-          distributionMessage: d.distributionMessage,
-          createdAt: Date.now()
-        }))
-      );
+      const now = Date.now();
+      // Same upsert as e2ee.distributeSenderKeysBatch, on the
+      // dm_e2ee_sender_keys_unique_idx tuple (0032). The client's
+      // ensureDmGroupSenderKey is not single-flight, so the same chain
+      // can be distributed twice within milliseconds; DO UPDATE keeps one
+      // row per (channel, from, to, chain) and lets a re-sent
+      // distribution after a chain rebuild win instead of being dropped.
+      await db
+        .insert(dmE2eeSenderKeys)
+        .values(
+          localDists.map((d) => ({
+            dmChannelId: input.dmChannelId,
+            senderKeyId: input.senderKeyId,
+            fromUserId: ctx.userId,
+            toUserId: d.toUserId,
+            distributionMessage: d.distributionMessage,
+            createdAt: now
+          }))
+        )
+        .onConflictDoUpdate({
+          target: [
+            dmE2eeSenderKeys.dmChannelId,
+            dmE2eeSenderKeys.fromUserId,
+            dmE2eeSenderKeys.toUserId,
+            dmE2eeSenderKeys.senderKeyId
+          ],
+          set: {
+            distributionMessage: sql`excluded.distribution_message`,
+            createdAt: now
+          }
+        });
 
       for (const d of localDists) {
         pubsub.publishFor(d.toUserId, ServerEvents.DM_SENDER_KEY_DISTRIBUTION, {
@@ -141,7 +172,7 @@ const distributeSenderKeysRoute = protectedProcedure
   });
 
 const getPendingSenderKeysRoute = protectedProcedure
-  .input(z.object({ dmChannelId: z.number().optional() }))
+  .input(z.object({ dmChannelId: z.number().int().positive().optional() }))
   .query(async ({ ctx, input }) => {
     const conditions = [eq(dmE2eeSenderKeys.toUserId, ctx.userId)];
     if (input.dmChannelId !== undefined) {
@@ -163,7 +194,11 @@ const getPendingSenderKeysRoute = protectedProcedure
   });
 
 const acknowledgeSenderKeysRoute = protectedProcedure
-  .input(z.object({ ids: z.array(z.number()) }))
+  .input(
+    z.object({
+      ids: z.array(z.number().int().positive()).max(MAX_E2EE_BATCH)
+    })
+  )
   .mutation(async ({ ctx, input }) => {
     if (input.ids.length === 0) return;
 

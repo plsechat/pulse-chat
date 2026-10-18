@@ -1,5 +1,5 @@
 import { PaginatedTable } from '@/components/paginated-table';
-import type { TJoinedInvite } from '@pulse/shared';
+import type { TJoinedInvite } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { TableInvite } from './table-invite';
 
@@ -39,7 +39,7 @@ const InvitesTable = memo(({ invites, refetch }: TInvitesTableProps) => {
           <div>Actions</div>
         </>
       }
-      gridCols="grid-cols-[180px_60px_80px_100px_140px_80px_80px]"
+      gridCols="grid-cols-[minmax(7rem,1fr)_2.5rem_3.5rem_5.5rem_5.5rem_4rem_2.5rem]"
       itemsPerPage={8}
       searchPlaceholder="Search invites by code or creator..."
       emptyMessage="No invites found"

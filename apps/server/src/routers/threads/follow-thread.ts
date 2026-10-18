@@ -1,23 +1,20 @@
+import { ChannelPermission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { channels, threadFollowers } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
+import { serverProcedure } from '../../utils/procedures';
 import { protectedProcedure } from '../../utils/trpc';
 
-const followThreadRoute = protectedProcedure
+const followThreadRoute = serverProcedure()
   .input(
     z.object({
-      threadId: z.number(),
+      threadId: z.number().int().positive(),
       follow: z.boolean()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    invariant(ctx.activeServerId, {
-      code: 'BAD_REQUEST',
-      message: 'No active server'
-    });
-
     // Verify the thread exists and belongs to the caller's active server
     const [thread] = await db
       .select({ id: channels.id })
@@ -29,6 +26,12 @@ const followThreadRoute = protectedProcedure
       code: 'NOT_FOUND',
       message: 'Thread not found'
     });
+
+    // Following subscribes to a thread's traffic — only viewers may.
+    await ctx.needsChannelPermission(
+      thread.id,
+      ChannelPermission.VIEW_CHANNEL
+    );
 
     if (input.follow) {
       await db
@@ -54,7 +57,7 @@ const followThreadRoute = protectedProcedure
   });
 
 const getFollowStatusRoute = protectedProcedure
-  .input(z.object({ threadId: z.number() }))
+  .input(z.object({ threadId: z.number().int().positive() }))
   .query(async ({ input, ctx }) => {
     const [row] = await db
       .select({ threadId: threadFollowers.threadId })

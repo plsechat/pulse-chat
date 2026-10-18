@@ -1,17 +1,19 @@
 import { useCurrentVoiceChannelId } from '@/features/server/channels/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import { logVoice } from '@/helpers/browser-logger';
-import { getTRPCClient } from '@/lib/trpc';
+import { getVoiceTRPCClient } from '@/lib/trpc';
 import type { TRemoteUserStreamKinds } from '@/types';
 import { StreamKind } from '@pulse/shared';
 import type { RtpCapabilities } from 'mediasoup-client/types';
 import { useEffect, useRef } from 'react';
+import { useSelector } from 'react-redux';
+import type { IRootState } from '@/features/store';
 
 type TEvents = {
   consume: (
     remoteId: number,
     kind: StreamKind,
-    routerRtpCapabilities: RtpCapabilities
+    deviceRtpCapabilities: RtpCapabilities
   ) => Promise<void>;
   removeRemoteUserStream: (
     userId: number,
@@ -23,8 +25,34 @@ type TEvents = {
   ) => void;
   removeExternalStream: (streamId: number) => void;
   clearRemoteUserStreamsForUser: (userId: number) => void;
-  rtpCapabilities: RtpCapabilities;
+  /**
+   * The loaded Device's capabilities (what this browser can decode), read
+   * at event time — the Device only exists once init has run, which is
+   * after the first render that mounts this hook.
+   */
+  getDeviceRtpCapabilities: () => RtpCapabilities | null;
 };
+
+/** The room kinds a roster payload may name. */
+const isRoomKind = (value: unknown): value is 'channel' | 'dm' =>
+  value === 'channel' || value === 'dm';
+
+/**
+ * A payload for the session we are in. The numeric id spaces of server
+ * channels and DM calls overlap; a payload that names its ROOM kind must
+ * match ours. Only 'channel' / 'dm' count as a room kind: the producer
+ * events reuse the field name `kind` for the stream kind (audio, video,
+ * screen …), and the server already scopes those to the room through
+ * the runtime-keyed topic, so for them only the channel id is compared.
+ * A payload with no room kind (an older server) is taken as-is.
+ */
+const isForCurrentSession = (
+  payload: { channelId: number; kind?: unknown },
+  channelId: number | undefined,
+  kind: string | undefined
+) =>
+  payload.channelId === channelId &&
+  (!isRoomKind(payload.kind) || payload.kind === kind);
 
 const useVoiceEvents = ({
   consume,
@@ -32,9 +60,12 @@ const useVoiceEvents = ({
   removeExternalStreamTrack,
   removeExternalStream,
   clearRemoteUserStreamsForUser,
-  rtpCapabilities
+  getDeviceRtpCapabilities
 }: TEvents) => {
   const currentVoiceChannelId = useCurrentVoiceChannelId();
+  const currentVoiceKind = useSelector(
+    (state: IRootState) => state.server.currentVoiceKind
+  );
   const ownUserId = useOwnUserId();
 
   // Use refs for values needed inside subscription callbacks so they always
@@ -42,17 +73,19 @@ const useVoiceEvents = ({
   // This prevents voice event subscriptions from being torn down/recreated
   // during server navigation or other state changes.
   const channelIdRef = useRef(currentVoiceChannelId);
+  const kindRef = useRef(currentVoiceKind);
   const ownUserIdRef = useRef(ownUserId);
   const consumeRef = useRef(consume);
   const removeRemoteUserStreamRef = useRef(removeRemoteUserStream);
   const removeExternalStreamTrackRef = useRef(removeExternalStreamTrack);
   const removeExternalStreamRef = useRef(removeExternalStream);
   const clearRemoteUserStreamsForUserRef = useRef(clearRemoteUserStreamsForUser);
-  const rtpCapabilitiesRef = useRef(rtpCapabilities);
+  const getDeviceRtpCapabilitiesRef = useRef(getDeviceRtpCapabilities);
 
   useEffect(() => {
     channelIdRef.current = currentVoiceChannelId;
-  }, [currentVoiceChannelId]);
+    kindRef.current = currentVoiceKind;
+  }, [currentVoiceChannelId, currentVoiceKind]);
 
   useEffect(() => {
     ownUserIdRef.current = ownUserId;
@@ -79,8 +112,8 @@ const useVoiceEvents = ({
   }, [clearRemoteUserStreamsForUser]);
 
   useEffect(() => {
-    rtpCapabilitiesRef.current = rtpCapabilities;
-  }, [rtpCapabilities]);
+    getDeviceRtpCapabilitiesRef.current = getDeviceRtpCapabilities;
+  }, [getDeviceRtpCapabilities]);
 
   // Only re-subscribe when currentVoiceChannelId changes (join/leave voice).
   // All other values are accessed via refs inside callbacks.
@@ -90,7 +123,9 @@ const useVoiceEvents = ({
       return;
     }
 
-    const trpc = getTRPCClient();
+    // The session's hosting instance, pinned at join — never the instance
+    // in focus, which the user can change mid-call.
+    const trpc = getVoiceTRPCClient();
     if (!trpc) return;
 
     let isCleaningUp = false;
@@ -102,8 +137,14 @@ const useVoiceEvents = ({
     const onVoiceNewProducerSub = trpc.voice.onNewProducer.subscribe(
       undefined,
       {
-        onData: ({ remoteId, kind, channelId }) => {
-          if (channelIdRef.current !== channelId || isCleaningUp) return;
+        onData: (payload) => {
+          const { remoteId, kind, channelId } = payload;
+          if (
+            !isForCurrentSession(payload, channelIdRef.current, kindRef.current) ||
+            isCleaningUp
+          ) {
+            return;
+          }
 
           if (remoteId === ownUserIdRef.current) {
             logVoice('Ignoring own producer event', {
@@ -122,8 +163,17 @@ const useVoiceEvents = ({
             channelId
           });
 
+          const deviceRtpCapabilities = getDeviceRtpCapabilitiesRef.current();
+          if (!deviceRtpCapabilities) {
+            logVoice('New producer event before the device was loaded', {
+              remoteId,
+              kind
+            });
+            return;
+          }
+
           try {
-            consumeRef.current(remoteId, kind, rtpCapabilitiesRef.current);
+            consumeRef.current(remoteId, kind, deviceRtpCapabilities);
           } catch (error) {
             logVoice('Error consuming new producer', {
               error,
@@ -142,8 +192,14 @@ const useVoiceEvents = ({
     const onVoiceProducerClosedSub = trpc.voice.onProducerClosed.subscribe(
       undefined,
       {
-        onData: ({ channelId, remoteId, kind }) => {
-          if (channelIdRef.current !== channelId || isCleaningUp) return;
+        onData: (payload) => {
+          const { channelId, remoteId, kind } = payload;
+          if (
+            !isForCurrentSession(payload, channelIdRef.current, kindRef.current) ||
+            isCleaningUp
+          ) {
+            return;
+          }
 
           logVoice('Producer closed event received', {
             remoteId,
@@ -176,8 +232,14 @@ const useVoiceEvents = ({
     );
 
     const onVoiceUserLeaveSub = trpc.voice.onLeave.subscribe(undefined, {
-      onData: ({ channelId, userId }) => {
-        if (channelIdRef.current !== channelId || isCleaningUp) return;
+      onData: (payload) => {
+        const { channelId, userId } = payload;
+        if (
+          !isForCurrentSession(payload, channelIdRef.current, kindRef.current) ||
+          isCleaningUp
+        ) {
+          return;
+        }
 
         logVoice('User leave event received', { userId, channelId });
 
@@ -194,8 +256,14 @@ const useVoiceEvents = ({
 
     const onVoiceRemoveExternalStreamSub =
       trpc.voice.onRemoveExternalStream.subscribe(undefined, {
-        onData: ({ channelId, streamId }) => {
-          if (channelIdRef.current !== channelId || isCleaningUp) return;
+        onData: (payload) => {
+          const { channelId, streamId } = payload;
+          if (
+            !isForCurrentSession(payload, channelIdRef.current, kindRef.current) ||
+            isCleaningUp
+          ) {
+            return;
+          }
 
           logVoice('External stream removed event received', {
             streamId,
@@ -231,3 +299,5 @@ const useVoiceEvents = ({
 };
 
 export { useVoiceEvents };
+
+export const __testing = { isForCurrentSession };

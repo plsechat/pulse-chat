@@ -1,5 +1,10 @@
 import {
   ActivityLogType,
+  DIRECTORY_DESCRIPTION_MAX_LENGTH,
+  DIRECTORY_GAME_MAX_LENGTH,
+  DIRECTORY_TAG_MAX_LENGTH,
+  DIRECTORY_TAG_PATTERN,
+  DIRECTORY_TAGS_MAX,
   Permission,
   ServerEvents,
   StorageOverflowAction
@@ -19,23 +24,49 @@ import { servers } from '../../db/schema';
 import { pluginManager } from '../../plugins';
 import { enqueueActivityLog } from '../../queues/activity-log';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedureFor } from '../../utils/procedures';
 
-const updateSettingsRoute = protectedProcedure
+const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
   .input(
     z.object({
-      serverId: z.number(),
       name: z.string().min(2).max(24).optional(),
       description: z.string().max(128).optional(),
-      password: z.string().min(1).max(32).optional().nullable().default(null),
+      password: z.string().min(1).max(32).optional().nullable(),
       allowNewUsers: z.boolean().optional(),
       storageUploadEnabled: z.boolean().optional(),
       storageUploadMaxFileSize: z.number().min(0).optional(),
       storageSpaceQuotaByUser: z.number().min(0).optional(),
       storageOverflowAction: z.enum(StorageOverflowAction).optional(),
       enablePlugins: z.boolean().optional(),
+      // The Planner switch: off hides the planner and refuses its routes,
+      // feed and reminders; the events themselves are kept.
+      enableEvents: z.boolean().optional(),
       discoverable: z.boolean().optional(),
-      federatable: z.boolean().optional()
+      federatable: z.boolean().optional(),
+      // Public directory opt-in (card copy). Tags are trimmed and
+      // deduplicated case-insensitively; an empty description or game
+      // clears the field.
+      directoryListed: z.boolean().optional(),
+      directoryDescription: z
+        .string()
+        .trim()
+        .max(DIRECTORY_DESCRIPTION_MAX_LENGTH)
+        .optional()
+        .nullable(),
+      directoryTags: z
+        .array(
+          z
+            .string()
+            .trim()
+            .min(1)
+            .max(DIRECTORY_TAG_MAX_LENGTH)
+            .regex(DIRECTORY_TAG_PATTERN, {
+              message: 'Tags may contain letters, numbers, spaces, _ and -'
+            })
+        )
+        .max(DIRECTORY_TAGS_MAX)
+        .optional(),
+      directoryGame: z.string().trim().max(DIRECTORY_GAME_MAX_LENGTH).optional().nullable()
     })
   )
   .mutation(async ({ input, ctx }) => {
@@ -46,7 +77,34 @@ const updateSettingsRoute = protectedProcedure
       message: 'Server not found'
     });
 
-    await ctx.needsPermission(Permission.MANAGE_SETTINGS, input.serverId);
+    // A listing is only a card with working buttons while the server
+    // has an open join path: the Directory reuses servers.preview /
+    // servers.joinDiscover (which require `discoverable`) and both
+    // refuse a server that is not accepting members. Checked on the
+    // RESULTING state so turning discoverable off in the same save as
+    // the listing is refused too.
+    const resultingListed = input.directoryListed ?? server.directoryListed;
+    if (resultingListed) {
+      const resultingDiscoverable = input.discoverable ?? server.discoverable;
+      const resultingAllowNewUsers = input.allowNewUsers ?? server.allowNewUsers;
+      invariant(resultingDiscoverable && resultingAllowNewUsers, {
+        code: 'BAD_REQUEST',
+        message:
+          'A listed server must be discoverable and accepting new members'
+      });
+    }
+
+    if (input.directoryTags !== undefined) {
+      const seen = new Set<string>();
+      input.directoryTags = input.directoryTags.filter((tag) => {
+        const key = tag.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    if (input.directoryDescription === '') input.directoryDescription = null;
+    if (input.directoryGame === '') input.directoryGame = null;
 
     // "Federatable" is owner-controlled and instance-gated, unlike the
     // rest of these MANAGE_SETTINGS fields: only the server OWNER may
@@ -77,8 +135,14 @@ const updateSettingsRoute = protectedProcedure
       }
     }
 
-    const oldEnablePlugins = server.enablePlugins;
-    const { serverId, ...updates } = input;
+    const { serverId, ...rest } = input;
+
+    // Partial update: only the keys the caller sent are written. An
+    // omitted `password` must leave the current one alone (an explicit
+    // null clears it).
+    const updates = Object.fromEntries(
+      Object.entries(rest).filter(([, value]) => value !== undefined)
+    );
 
     await db
       .update(servers)
@@ -87,14 +151,6 @@ const updateSettingsRoute = protectedProcedure
         updatedAt: Date.now()
       })
       .where(eq(servers.id, serverId));
-
-    if (oldEnablePlugins !== input.enablePlugins) {
-      if (input.enablePlugins) {
-        await pluginManager.loadPlugins();
-      } else {
-        await pluginManager.unloadPlugins();
-      }
-    }
 
     // Publish to server members
     const publicSettings = await getServerPublicSettings(serverId);
@@ -105,10 +161,33 @@ const updateSettingsRoute = protectedProcedure
       publicSettings
     );
 
+    // The composer's command palette follows the Plugins switch at once:
+    // members get the list (or an empty map) without a reconnect.
+    if (
+      input.enablePlugins !== undefined &&
+      input.enablePlugins !== server.enablePlugins
+    ) {
+      ctx.pubsub.publishFor(
+        memberIds,
+        ServerEvents.PLUGIN_COMMANDS_CHANGE,
+        input.enablePlugins ? pluginManager.getCommands() : {}
+      );
+    }
+
+    // The join password is a secret: the audit row records that it
+    // changed, never its value.
+    const { password, ...loggedValues } = input;
     enqueueActivityLog({
       type: ActivityLogType.EDIT_SERVER_SETTINGS,
       userId: ctx.userId,
-      details: { values: input }
+      details: {
+        values: {
+          ...loggedValues,
+          ...(password === undefined
+            ? {}
+            : { password: password === null ? null : '[redacted]' })
+        }
+      }
     });
   });
 

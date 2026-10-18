@@ -1,9 +1,9 @@
-import {
-  type TFile,
-  type TJoinedMessage,
-  type TJoinedPublicUser,
-  type TVoiceUserState
-} from '@pulse/shared';
+import { type TVoiceUserState } from '@pulse/shared';
+import type {
+  TFile,
+  TJoinedMessage,
+  TJoinedPublicUser
+} from '@pulse/server/types';
 
 export enum SoundType {
   MESSAGE_RECEIVED = 'message_received',
@@ -31,9 +31,6 @@ export type TMessagesMap = {
   [channelId: number]: TJoinedMessage[];
 };
 
-export type TMessagesPagination = {
-  cursor: number | null;
-};
 
 export type TDisconnectInfo = {
   code: number;
@@ -49,7 +46,7 @@ export type TVoiceUser = TJoinedPublicUser & {
 /**
  * What the read-only preview banner/join prompt needs (servers.preview).
  * `inviteCode` set = preview came from an invite link and joining goes
- * through servers.join; null = Discover path (servers.joinDiscover).
+ * through servers.joinByInvite; null = Discover path (servers.joinDiscover).
  */
 export type TServerPreviewMeta = {
   serverDbId: number;

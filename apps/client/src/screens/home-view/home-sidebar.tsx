@@ -1,6 +1,11 @@
 import { AddDmMembersDialog } from '@/components/dialogs/add-dm-members';
+import { Dialog } from '@/components/dialogs/dialogs';
 import { NameplateBackground } from '@/components/nameplate';
 import { AvatarDecoration } from '@/components/user-avatar';
+import {
+  avatarFallbackClass,
+  groupAvatarFallbackClass
+} from '@/components/user-avatar/fallback';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
@@ -18,7 +23,7 @@ import {
   leaveDmChannel
 } from '@/features/dms/actions';
 import { useDmChannels } from '@/features/dms/hooks';
-import { requestConfirmation } from '@/features/dialogs/actions';
+import { openDialog, requestConfirmation } from '@/features/dialogs/actions';
 import { useIncomingFriendRequestCount } from '@/features/friends/hooks';
 import {
   useHomeOwnUserId,
@@ -31,12 +36,13 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { stripToPlainText } from '@/helpers/strip-to-plain-text';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { cn } from '@/lib/utils';
-import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/shared';
+import type { TJoinedDmChannel, TJoinedPublicUser } from '@pulse/server/types';
 import {
   DoorOpen,
   Lock,
   MessageSquare,
   Plus,
+  Settings,
   Trash2,
   UserPlus,
   Users
@@ -51,6 +57,8 @@ type THomeSidebarProps = {
   onDmSelect: (dmChannelId: number) => void;
   onFriendsClick: () => void;
   onCreateGroupDm?: () => void;
+  /** Hosted inside a panel that already carries a title. */
+  hideHeader?: boolean;
 };
 
 const HomeSidebar = memo(
@@ -59,16 +67,19 @@ const HomeSidebar = memo(
     selectedDmChannelId,
     onDmSelect,
     onFriendsClick,
-    onCreateGroupDm
+    onCreateGroupDm,
+    hideHeader
   }: THomeSidebarProps) => {
     const pendingCount = useIncomingFriendRequestCount();
     const dmChannels = useDmChannels();
 
     return (
       <>
-        <div className="flex w-full h-12 items-center border-b border-border px-4">
-          <h2 className="font-semibold text-foreground">Home</h2>
-        </div>
+        {!hideHeader && (
+          <div className="flex w-full h-12 items-center border-b border-border px-4">
+            <h2 className="font-semibold text-foreground">Home</h2>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-2">
@@ -192,7 +203,7 @@ const DmChannelItem = memo(
       const confirmed = await requestConfirmation({
         title: 'Enable Encryption',
         message:
-          'This will enable end-to-end encryption for this conversation. This cannot be reversed.',
+          'This will enable end-to-end encryption for this conversation. This cannot be reversed. Message text and attachments become unreadable to the server; who writes, when, reactions, pins, replies and attachment sizes stay visible to it.',
         confirmLabel: 'Enable',
         variant: 'info'
       });
@@ -255,7 +266,16 @@ const DmChannelItem = memo(
             )}
           >
             <NameplateBackground nameplate={nameplate} homeScope />
-            {channel.isGroup ? (
+            {channel.isGroup && channel.icon ? (
+              <Avatar className="h-8 w-8 flex-shrink-0">
+                <AvatarImage src={getFileUrl(channel.icon)} alt="" />
+                <AvatarFallback
+                  className={cn('text-xs', groupAvatarFallbackClass(channel.id))}
+                >
+                  {getInitialsFromName(displayName)}
+                </AvatarFallback>
+              </Avatar>
+            ) : channel.isGroup ? (
               <div className="relative h-8 w-8 flex-shrink-0">
                 {otherMembers.slice(0, 2).map((m, i) => (
                   <DmMemberAvatar
@@ -291,10 +311,17 @@ const DmChannelItem = memo(
                   {channel.members.length} members
                 </span>
               )}
-              {!channel.isGroup && channel.lastMessage?.content && (
-                <span className="truncate text-xs text-muted-foreground w-full text-left">
-                  {stripToPlainText(channel.lastMessage.content).slice(0, 40)}
+              {!channel.isGroup && channel.lastMessage?.deletedAt != null ? (
+                <span className="truncate text-xs italic text-muted-foreground/70 w-full text-left">
+                  Message deleted
                 </span>
+              ) : (
+                !channel.isGroup &&
+                channel.lastMessage?.content && (
+                  <span className="truncate text-xs text-muted-foreground w-full text-left">
+                    {stripToPlainText(channel.lastMessage.content).slice(0, 40)}
+                  </span>
+                )
               )}
             </div>
             {channel.unreadCount > 0 && (
@@ -305,6 +332,17 @@ const DmChannelItem = memo(
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {/* Name and icon are the owner's to change (dms.updateGroup). */}
+          {channel.isGroup && channel.ownerId === ownUserId && (
+            <ContextMenuItem
+              onClick={() =>
+                openDialog(Dialog.GROUP_DM_SETTINGS, { dmChannelId: channel.id })
+              }
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Group Settings
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             onClick={() => setShowAddDialog(true)}
             disabled={!canAddMore}
@@ -370,7 +408,7 @@ const DmMemberAvatarWithStatus = memo(
       <div className="relative w-fit h-fit flex-shrink-0">
         <Avatar className={cn('h-8 w-8', className)}>
           <AvatarImage src={getFileUrl(member.avatar)} />
-          <AvatarFallback className="bg-muted text-xs">
+          <AvatarFallback className={cn('text-xs', avatarFallbackClass(member))}>
             {getInitialsFromName(member.name)}
           </AvatarFallback>
         </Avatar>
@@ -389,7 +427,7 @@ const DmMemberAvatar = memo(
   ({ member, className }: { member: TJoinedPublicUser; className?: string }) => (
     <Avatar className={cn('h-8 w-8', className)}>
       <AvatarImage src={getFileUrl(member.avatar)} />
-      <AvatarFallback className="bg-muted text-xs">
+      <AvatarFallback className={cn('text-xs', avatarFallbackClass(member))}>
         {getInitialsFromName(member.name)}
       </AvatarFallback>
     </Avatar>

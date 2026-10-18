@@ -1,4 +1,4 @@
-import { ChannelPermission, type TFile, type TServer, type TSettings, type TUser } from ".";
+import type { ChannelPermission } from "./statics/permissions";
 
 export enum ChannelType {
   TEXT = "TEXT",
@@ -31,33 +31,16 @@ export type TRemoteProducerIds = {
   remoteExternalStreamIds: number[];
 };
 
-export type TPublicServerSettings = Pick<
-  TServer,
-  | "id"
-  | "name"
-  | "description"
-  | "publicId"
-  | "storageUploadEnabled"
-  | "storageQuota"
-  | "storageUploadMaxFileSize"
-  | "storageSpaceQuotaByUser"
-  | "storageOverflowAction"
-  | "enablePlugins"
-> & {
-  /** Current server logo, so clients can live-update the server rail on
-   *  SERVER_SETTINGS_UPDATE without a refetch. Optional — older servers
-   *  don't send it. */
-  logo?: TFile | null;
-};
+export type TGenericObject = Record<string, unknown>;
 
-export type TGenericObject = {
-  [key: string]: any;
-};
-
-export type TGenericFunction = {
-  (...args: any[]): any;
-};
-
+/**
+ * One entry of a message's `metadata` column. Link previews fill the
+ * descriptive fields; a webhook or plugin persona rides as a `webhook`
+ * entry; a plugin's structured card state rides as a
+ * `PLUGIN_DATA_MEDIA_TYPE` entry whose `pluginId` names the plugin and
+ * whose `data` is the plugin's own JSON (the watch-together card lives
+ * in `data.watch`). Readers that render previews skip the last two.
+ */
 export type TMessageMetadata = {
   url: string;
   title?: string;
@@ -67,6 +50,8 @@ export type TMessageMetadata = {
   images?: string[];
   videos?: string[];
   favicons?: string[];
+  pluginId?: string;
+  data?: Record<string, unknown>;
 };
 
 export type WithOptional<T, K extends keyof T> = Omit<T, K> &
@@ -79,8 +64,6 @@ export enum UserStatus {
   INVISIBLE = "invisible",
   OFFLINE = "offline",
 }
-
-export type TOwnUser = TUser;
 
 export type TConnectionParams = {
   accessToken: string;
@@ -125,33 +108,13 @@ export type TAuthProvider = {
   kind?: 'supabase' | 'oidc';
 };
 
-export type TServerInfo = Pick<
-  TSettings,
-  "serverId" | "name" | "description" | "allowNewUsers"
-> & {
-  id?: number;
-  logo: TFile | null;
-  version: string;
-  registrationDisabled?: boolean;
-  /** Whether email/password self-registration is enabled. When false, the
-   * client hides the Create Account form (unless an invite link is present).
-   * Absent = enabled (backwards compat with older servers). */
-  passwordRegistrationEnabled?: boolean;
-  /** Derived SSO-only flag: false when password registration is disabled
-   * AND at least one SSO provider is advertised. The client then hides the
-   * email/password login form (unless an invite link is present) and the
-   * server rejects password logins. Absent = enabled (backwards compat). */
-  passwordLoginEnabled?: boolean;
-  enabledAuthProviders?: TAuthProvider[];
-  supabaseUrl: string;
-  supabaseAnonKey: string;
-  giphyApiKey?: string;
-  /** Instance-global screen-share ceiling. The client offers every quality
-   * rung at or below these and clamps its capture to them. Absent = no cap
-   * advertised (older servers); the client falls back to its own defaults. */
-  maxScreenResolution?: string;
-  maxScreenFramerate?: number;
+export type TIceServer = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
 };
+
+export type TIceTransportPolicy = "all" | "relay";
 
 export type TArtifact = {
   name: string;
@@ -249,7 +212,18 @@ export type TFederationInfo = {
   federationEnabled: boolean;
 };
 
-export type TFederationInstanceSummary = {
+// Compatibility + delivery state of a peer: its advertised version,
+// the last relay failure against it (`unsupported:<path>` when it lacks
+// a route), and the outbox backlog (retrying / dead-lettered rows).
+export type TFederationPeerHealth = {
+  peerVersion: string | null;
+  lastError: string | null;
+  lastErrorAt: number | null;
+  pendingOutbox: number;
+  deadOutbox: number;
+};
+
+export type TFederationInstanceSummary = TFederationPeerHealth & {
   id: number;
   domain: string;
   name: string | null;
@@ -259,13 +233,23 @@ export type TFederationInstanceSummary = {
   createdAt: number;
 };
 
-// Public-facing slice of a federation peer for the discover view.
-// Excludes operator-sensitive metadata (status, direction, createdAt).
-export type TFederationActiveInstance = {
+// Public-facing slice of a federation peer for the discover view and
+// the server rail. Excludes operator-sensitive metadata (status,
+// direction, createdAt).
+export type TFederationActiveInstance = TFederationPeerHealth & {
   id: number;
   domain: string;
   name: string | null;
   lastSeenAt: number | null;
+};
+
+export type TFederationDeadOutboxRow = {
+  id: number;
+  path: string;
+  attempts: number;
+  lastError: string | null;
+  createdAt: number;
+  deadAt: number | null;
 };
 
 export type TFederationConfig = {
@@ -274,17 +258,6 @@ export type TFederationConfig = {
   hasKeys: boolean;
   publicKey?: string;
   allowUserFederatableServers: boolean;
-};
-
-export type TRemoteServerSummary = {
-  publicId: string;
-  name: string;
-  description: string | null;
-  logo: TFile | null;
-  memberCount: number;
-  instanceDomain: string;
-  instanceName: string;
-  hasPassword?: boolean;
 };
 
 export enum AutomodRuleType {

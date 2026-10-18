@@ -1,4 +1,6 @@
 import type { IRootState } from '@/features/store';
+import type { TVoiceKind } from '@/features/server/voice/keys';
+import { voiceSessionStartedAtSelector } from '@/features/server/voice/selectors';
 import { useSelector } from 'react-redux';
 import { memo, useEffect, useState } from 'react';
 
@@ -19,11 +21,12 @@ const formatDuration = (ms: number): string => {
 
 type TVoiceTimerProps = {
   channelId: number;
+  kind?: TVoiceKind;
 };
 
-const VoiceTimer = memo(({ channelId }: TVoiceTimerProps) => {
-  const startedAt = useSelector(
-    (state: IRootState) => state.server.voiceMap[channelId]?.startedAt
+const VoiceTimer = memo(({ channelId, kind = 'channel' }: TVoiceTimerProps) => {
+  const startedAt = useSelector((state: IRootState) =>
+    voiceSessionStartedAtSelector(state, channelId, kind)
   );
   const [elapsed, setElapsed] = useState(0);
 

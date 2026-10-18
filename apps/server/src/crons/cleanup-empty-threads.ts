@@ -3,8 +3,9 @@ import { ChannelType, ServerEvents } from '@pulse/shared';
 import { and, eq, lt, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { publishChannel } from '../db/publishers';
+import { ACTIVE_STATUSES } from '../db/queries/import-jobs';
 import { getServerMemberIds } from '../db/queries/servers';
-import { channels, messages } from '../db/schema';
+import { channels, importJobs, messages } from '../db/schema';
 import { logger } from '../logger';
 import { pubsub } from '../utils/pubsub';
 
@@ -25,13 +26,26 @@ const MIN_AGE_MS = 10 * 60 * 1000;
  *   2. Programmatic thread creation that failed mid-flight after the
  *      channel row was inserted but before the seed message landed.
  *
+ * A community import is a third source of empty threads that must NOT
+ * be swept: its threads step creates every thread row first and the
+ * messages step fills them later — more than ten minutes later on a
+ * big history. Threads of a server with an import in flight (pending,
+ * running or paused) are left alone; the first thread message of a
+ * swept thread would otherwise fail the whole job on the channel
+ * foreign key.
+ *
  * Cascades take care of follow rows, forum tag pivots, and
  * sender-key rows (all reference channels.id with ON DELETE CASCADE).
+ * `now` is injectable for the tick test.
  */
-const cleanupEmptyThreads = async () => {
+const cleanupEmptyThreads = async (now: number = Date.now()) => {
   logger.debug(`${chalk.dim('[Cron]')} Scanning for empty threads...`);
 
-  const cutoff = Date.now() - MIN_AGE_MS;
+  const cutoff = now - MIN_AGE_MS;
+  const activeStatuses = sql.join(
+    ACTIVE_STATUSES.map((status) => sql`${status}`),
+    sql`, `
+  );
 
   // Threads with zero rows in `messages` where messages.channel_id =
   // channels.id. Use a NOT EXISTS subquery so we don't materialize
@@ -50,6 +64,11 @@ const cleanupEmptyThreads = async () => {
         sql`NOT EXISTS (
           SELECT 1 FROM ${messages}
           WHERE ${messages.channelId} = ${channels.id}
+        )`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${importJobs}
+          WHERE ${importJobs.serverId} = ${channels.serverId}
+            AND ${importJobs.status} IN (${activeStatuses})
         )`
       )
     );

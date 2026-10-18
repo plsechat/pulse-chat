@@ -2,30 +2,47 @@ import type { TPinnedCard } from '@/components/channel-view/voice/hooks/use-pin-
 import { LocalStorageKey } from '@/helpers/storage';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
-  TCategory,
-  TChannel,
   TChannelUserPermissionsMap,
-  TCommandInfo,
   TCommandsMapByPlugin,
   TExternalStream,
   TExternalStreamsMap,
-  TJoinedEmoji,
-  TJoinedMessage,
-  TJoinedPublicUser,
-  TJoinedRole,
   TLastReadMessageIdMap,
   TMentionStateMap,
-  TPublicServerSettings,
   TReadStateMap,
-  TServerInfo,
   TVoiceMap,
   TVoiceUserState
 } from '@pulse/shared';
+import type {
+  TCategory,
+  TChannel,
+  TJoinedEmoji,
+  TJoinedMessage,
+  TMessageTombstone,
+  TJoinedPublicUser,
+  TJoinedRole,
+  TPublicServerSettings,
+  TServerInfo
+} from '@pulse/server/types';
+import {
+  mergeMessageWindow,
+  replaceMessageWindow,
+  windowOrDefault,
+  type TMergeMessagesOpts,
+  type TMessageWindowMap
+} from '../message-window';
+import { markTombstoned } from '../tombstone';
 import type {
   TDisconnectInfo,
   TMessagesMap,
   TServerPreviewMeta
 } from './types';
+import {
+  dmVoiceEntries,
+  rekeyServerVoiceMap,
+  voiceMapKey,
+  type TClientVoiceMap,
+  type TVoiceKind
+} from './voice/keys';
 
 /**
  * ID-keying convention (federation ID-collision fix):
@@ -45,7 +62,6 @@ import type {
  */
 export interface IServerState {
   connected: boolean;
-  connecting: boolean;
   reconnecting: boolean;
   reconnectAttempt: number;
   disconnectInfo?: TDisconnectInfo;
@@ -57,6 +73,9 @@ export interface IServerState {
   ownUserId: number | undefined;
   selectedChannelId: number | undefined;
   currentVoiceChannelId: number | undefined;
+  // Whether currentVoiceChannelId names a server voice channel or a DM
+  // call — the two id spaces overlap, so the id alone is ambiguous.
+  currentVoiceKind: TVoiceKind | undefined;
   currentVoiceServerId: number | undefined;
   // Globally-unique publicId of the channel the user is in voice on. Voice
   // persists across server/instance navigation, so voice-active UI must match
@@ -67,7 +86,17 @@ export interface IServerState {
   // voice badge): the numeric currentVoiceServerId collides across federated
   // instances and would light up the wrong rail icon.
   currentVoiceServerPublicId: string | undefined;
+  // Instance hosting the live voice session (undefined = home), pinned
+  // when the join succeeds. getVoiceTRPCClient routes every voice
+  // mutation/subscription by this, not by the instance in focus — the
+  // user keeps browsing other servers mid-call and the call must keep
+  // talking to the server it was joined on.
+  voiceInstanceDomain: string | undefined;
   messagesMap: TMessagesMap;
+  // What lies beyond each edge of the loaded window per channel — see
+  // features/message-window.ts. Lives beside messagesMap and is reset
+  // wherever messagesMap is.
+  messageWindowMap: TMessageWindowMap;
   users: TJoinedPublicUser[];
   roles: TJoinedRole[];
   publicSettings: TPublicServerSettings | undefined;
@@ -76,7 +105,8 @@ export interface IServerState {
   typingMap: {
     [channelId: number]: number[];
   };
-  voiceMap: TVoiceMap;
+  // Keyed by `${kind}:${id}` (voiceMapKey) — see voice/keys.ts.
+  voiceMap: TClientVoiceMap;
   externalStreamsMap: TExternalStreamsMap;
   ownVoiceState: TVoiceUserState;
   pinnedCard: TPinnedCard | undefined;
@@ -111,7 +141,6 @@ export interface IServerState {
 
 const initialState: IServerState = {
   connected: false,
-  connecting: false,
   reconnecting: false,
   reconnectAttempt: 0,
   disconnectInfo: undefined,
@@ -122,10 +151,13 @@ const initialState: IServerState = {
   emojis: [],
   selectedChannelId: undefined,
   currentVoiceChannelId: undefined,
+  currentVoiceKind: undefined,
   currentVoiceServerId: undefined,
   currentVoiceChannelPublicId: undefined,
   currentVoiceServerPublicId: undefined,
+  voiceInstanceDomain: undefined,
   messagesMap: {},
+  messageWindowMap: {},
   users: [],
   roles: [],
   publicSettings: undefined,
@@ -158,6 +190,29 @@ const initialState: IServerState = {
   previewMeta: undefined
 };
 
+/**
+ * Drop the parts of ownVoiceState that only exist for the duration of one
+ * voice session. The server seeds every join from its own defaults (voice
+ * runtime addUser), so webcam/screen-share and the moderator overrides are
+ * always false on the SFU after a rejoin — if the client kept them, the
+ * sidebar buttons would run split-brain (share icon lit with nothing
+ * flowing, a stale "muted by a moderator" refusal on the mic). micMuted and
+ * soundMuted are user preferences the client sends with the join request,
+ * so they deliberately survive.
+ */
+const clearSessionVoiceFlags = (state: IServerState) => {
+  // The session is over on every path that reaches here, so the instance
+  // pin goes with it — the next join pins afresh.
+  state.voiceInstanceDomain = undefined;
+  state.ownVoiceState = {
+    ...state.ownVoiceState,
+    webcamEnabled: false,
+    sharingScreen: false,
+    serverMuted: false,
+    serverDeafened: false
+  };
+};
+
 export const serverSlice = createSlice({
   name: 'server',
   initialState,
@@ -168,12 +223,37 @@ export const serverSlice = createSlice({
         info: state.info
       });
     },
+    /**
+     * Drop the active server's snapshot (channels, roles, read states,
+     * messages, roster …) while keeping the connection fields and the
+     * user's own voice session. Used when leaving a federated server's
+     * context for the home view: the remote snapshot otherwise stayed
+     * live — its unread counts in the tab title, its ids under every
+     * ambient call — while nothing on screen referred to it. Voice is
+     * kept because it is only ended by an explicit leave; the roster map
+     * goes with the snapshot exactly as it does on a server switch.
+     */
+    resetStateKeepVoice: (state) => {
+      Object.assign(state, {
+        ...initialState,
+        info: state.info,
+        loadingInfo: state.loadingInfo,
+        connected: state.connected,
+        reconnecting: state.reconnecting,
+        reconnectAttempt: state.reconnectAttempt,
+        disconnectInfo: state.disconnectInfo,
+        currentVoiceChannelId: state.currentVoiceChannelId,
+        currentVoiceKind: state.currentVoiceKind,
+        currentVoiceServerId: state.currentVoiceServerId,
+        currentVoiceChannelPublicId: state.currentVoiceChannelPublicId,
+        currentVoiceServerPublicId: state.currentVoiceServerPublicId,
+        voiceInstanceDomain: state.voiceInstanceDomain,
+        ownVoiceState: state.ownVoiceState,
+        pinnedCard: state.pinnedCard
+      });
+    },
     setConnected: (state, action: PayloadAction<boolean>) => {
       state.connected = action.payload;
-      state.connecting = false;
-    },
-    setConnecting: (state, action: PayloadAction<boolean>) => {
-      state.connecting = action.payload;
     },
     setReconnecting: (state, action: PayloadAction<boolean>) => {
       state.reconnecting = action.payload;
@@ -184,9 +264,7 @@ export const serverSlice = createSlice({
     setReconnectAttempt: (state, action: PayloadAction<number>) => {
       state.reconnectAttempt = action.payload;
     },
-    setServerId: (state, action: PayloadAction<string | undefined>) => {
-      state.serverId = action.payload;
-    },
+
     setInfo: (state, action: PayloadAction<TServerInfo | undefined>) => {
       state.info = action.payload;
     },
@@ -217,7 +295,6 @@ export const serverSlice = createSlice({
       }>
     ) => {
       state.connected = true;
-      state.connecting = false;
       state.categories = action.payload.categories;
       state.channels = action.payload.channels;
       state.roles = action.payload.roles;
@@ -237,12 +314,16 @@ export const serverSlice = createSlice({
       // Clear deferred state from previous server (will be populated by separate fetches)
       state.users = [];
       state.emojis = [];
-      state.voiceMap = {};
+      // The server's channel rosters are replaced by the deferred fetch;
+      // DM calls belong to the home account, not the server, and
+      // survive the switch (the call panel/banner still needs them).
+      state.voiceMap = dmVoiceEntries(state.voiceMap);
       state.externalStreamsMap = {};
       state.usersLoaded = false;
       state.emojisLoaded = false;
       // Clear transient state from previous server
       state.messagesMap = {};
+      state.messageWindowMap = {};
       state.typingMap = {};
       state.activeThreadId = undefined;
 
@@ -283,27 +364,59 @@ export const serverSlice = createSlice({
       action: PayloadAction<{
         channelId: number;
         messages: TJoinedMessage[];
-        opts?: { prepend?: boolean };
+        opts?: TMergeMessagesOpts;
       }>
     ) => {
       const { channelId, messages, opts } = action.payload;
-      const existing = state.messagesMap[channelId] ?? [];
-
-      // dedupe: only add new IDs
-      const existingIds = new Set(existing.map((m) => m.id));
-      const filtered = messages.filter((m) => !existingIds.has(m.id));
-
-      let merged: TJoinedMessage[];
-      if (opts?.prepend) {
-        merged = [...filtered, ...existing];
-      } else {
-        merged = [...existing, ...filtered];
-      }
-
-      // store in chronological asc order (oldest → newest)
-      state.messagesMap[channelId] = merged.sort(
-        (a, b) => a.createdAt - b.createdAt
+      // Dedupe, chronological order and the 300-message cap live in
+      // mergeMessageWindow; the window flags it returns say which edge
+      // was trimmed.
+      const result = mergeMessageWindow(
+        state.messagesMap[channelId] ?? [],
+        messages,
+        opts ?? {},
+        state.messageWindowMap[channelId]
       );
+      state.messagesMap[channelId] = result.messages;
+      state.messageWindowMap[channelId] = result.window;
+    },
+    /**
+     * A freshly fetched LATEST page: re-attaches the channel to the live
+     * tail (initial load, "Jump to Present"). See replaceMessageWindow
+     * for what of the existing array survives.
+     */
+    replaceMessages: (
+      state,
+      action: PayloadAction<{
+        channelId: number;
+        messages: TJoinedMessage[];
+        hasOlder: boolean;
+      }>
+    ) => {
+      const { channelId, messages, hasOlder } = action.payload;
+      const result = replaceMessageWindow(
+        state.messagesMap[channelId] ?? [],
+        messages,
+        hasOlder
+      );
+      state.messagesMap[channelId] = result.messages;
+      state.messageWindowMap[channelId] = result.window;
+    },
+    /** Partial update of a channel's window flags (from a page result). */
+    setMessageWindow: (
+      state,
+      action: PayloadAction<{
+        channelId: number;
+        hasOlder?: boolean;
+        hasNewer?: boolean;
+      }>
+    ) => {
+      const { channelId, hasOlder, hasNewer } = action.payload;
+      const current = windowOrDefault(state.messageWindowMap[channelId]);
+      state.messageWindowMap[channelId] = {
+        hasOlder: hasOlder ?? current.hasOlder,
+        hasNewer: hasNewer ?? current.hasNewer
+      };
     },
     updateMessage: (
       state,
@@ -321,29 +434,45 @@ export const serverSlice = createSlice({
 
       messages[messageIndex] = action.payload.message;
     },
+    /**
+     * A deletion leaves a tombstone: the row is marked in place
+     * (features/tombstone.ts), never dropped, so it keeps its anchor
+     * and its place in the list.
+     */
     deleteMessage: (
       state,
-      action: PayloadAction<{ channelId: number; messageId: number }>
+      action: PayloadAction<{
+        channelId: number;
+        messageId: number;
+        tombstone: TMessageTombstone;
+      }>
     ) => {
       const messages = state.messagesMap[action.payload.channelId];
 
       if (!messages) return;
 
-      state.messagesMap[action.payload.channelId] = messages.filter(
-        (m) => m.id !== action.payload.messageId
+      state.messagesMap[action.payload.channelId] = markTombstoned(
+        messages,
+        [action.payload.messageId],
+        action.payload.tombstone
       );
     },
     bulkDeleteMessages: (
       state,
-      action: PayloadAction<{ channelId: number; messageIds: number[] }>
+      action: PayloadAction<{
+        channelId: number;
+        messageIds: number[];
+        tombstone: TMessageTombstone;
+      }>
     ) => {
       const messages = state.messagesMap[action.payload.channelId];
 
       if (!messages) return;
 
-      const idsToDelete = new Set(action.payload.messageIds);
-      state.messagesMap[action.payload.channelId] = messages.filter(
-        (m) => !idsToDelete.has(m.id)
+      state.messagesMap[action.payload.channelId] = markTombstoned(
+        messages,
+        action.payload.messageIds,
+        action.payload.tombstone
       );
     },
     purgeChannelMessages: (
@@ -351,9 +480,11 @@ export const serverSlice = createSlice({
       action: PayloadAction<{ channelId: number }>
     ) => {
       state.messagesMap[action.payload.channelId] = [];
+      delete state.messageWindowMap[action.payload.channelId];
     },
     clearAllMessages: (state) => {
       state.messagesMap = {};
+      state.messageWindowMap = {};
     },
     clearTypingUsers: (state, action: PayloadAction<number>) => {
       delete state.typingMap[action.payload];
@@ -434,9 +565,7 @@ export const serverSlice = createSlice({
 
     // ROLES ------------------------------------------------------------
 
-    setRoles: (state, action: PayloadAction<TJoinedRole[]>) => {
-      state.roles = action.payload;
-    },
+
     updateRole: (
       state,
       action: PayloadAction<{
@@ -468,9 +597,7 @@ export const serverSlice = createSlice({
 
     // CHANNELS ------------------------------------------------------------
 
-    setChannels: (state, action: PayloadAction<TChannel[]>) => {
-      state.channels = action.payload;
-    },
+
     updateChannel: (
       state,
       action: PayloadAction<{ channelId: number; channel: Partial<TChannel> }>
@@ -527,32 +654,62 @@ export const serverSlice = createSlice({
         state.mentionStatesMap[action.payload] = 0;
       }
     },
+    // A bare number is a server voice channel; a DM call passes its kind
+    // explicitly. undefined ends the session whichever kind it was.
     setCurrentVoiceChannelId: (
       state,
-      action: PayloadAction<number | undefined>
+      action: PayloadAction<
+        number | { channelId: number; kind: TVoiceKind } | undefined
+      >
     ) => {
-      state.currentVoiceChannelId = action.payload;
+      const session =
+        typeof action.payload === 'number'
+          ? { channelId: action.payload, kind: 'channel' as const }
+          : action.payload;
+      state.currentVoiceChannelId = session?.channelId;
+      state.currentVoiceKind = session?.kind;
+      if (session === undefined) {
+        clearSessionVoiceFlags(state);
+      }
       // Capture the channel's globally-unique publicId at join time (while the
       // owning server's channels are loaded). It's preserved across server
       // switches, so the voice-active highlight matches by publicId, not the
       // colliding numeric id. Server channels only; DM voice leaves it unset.
       const voiceChannel =
-        action.payload != null
-          ? state.channels.find((c) => c.id === action.payload)
+        session?.kind === 'channel'
+          ? state.channels.find((c) => c.id === session.channelId)
           : undefined;
       state.currentVoiceChannelPublicId = voiceChannel?.publicId ?? undefined;
     },
     setCurrentVoiceServerId: (
       state,
-      action: PayloadAction<number | undefined>
+      action: PayloadAction<
+        number | undefined | { id: number; publicId: string | undefined }
+      >
     ) => {
-      state.currentVoiceServerId = action.payload;
+      const payload = action.payload;
+      if (payload !== undefined && typeof payload === 'object') {
+        // A reconnect rejoin restores a session on a server that is not
+        // necessarily the one in focus, so the hosting server's publicId
+        // travels with the restore instead of being read off the
+        // connected server (which would light up the wrong rail icon).
+        state.currentVoiceServerId = payload.id;
+        state.currentVoiceServerPublicId = payload.publicId;
+        return;
+      }
+      state.currentVoiceServerId = payload;
       // Capture the hosting server's globally-unique publicId alongside the
-      // numeric id. Voice joins always happen while the hosting server is
-      // the connected one, so state.serverId (its publicId) is correct here
-      // and survives later server/instance switches.
+      // numeric id. User-driven voice joins always happen while the hosting
+      // server is the connected one, so state.serverId (its publicId) is
+      // correct here and survives later server/instance switches.
       state.currentVoiceServerPublicId =
-        action.payload != null ? state.serverId : undefined;
+        payload != null ? state.serverId : undefined;
+    },
+    setVoiceInstanceDomain: (
+      state,
+      action: PayloadAction<string | undefined>
+    ) => {
+      state.voiceInstanceDomain = action.payload;
     },
     setChannelPermissions: (
       state,
@@ -612,9 +769,7 @@ export const serverSlice = createSlice({
 
     // CATEGORIES ------------------------------------------------------------
 
-    setCategories: (state, action: PayloadAction<TCategory[]>) => {
-      state.categories = action.payload;
-    },
+
     addCategory: (state, action: PayloadAction<TCategory>) => {
       const exists = state.categories.find((c) => c.id === action.payload.id);
 
@@ -655,7 +810,12 @@ export const serverSlice = createSlice({
         externalStreamsMap: TExternalStreamsMap;
       }>
     ) => {
-      state.voiceMap = action.payload.voiceMap;
+      // The snapshot is the server's channels only (keyed by bare id);
+      // DM-call entries are the home account's and stay.
+      state.voiceMap = {
+        ...dmVoiceEntries(state.voiceMap),
+        ...rekeyServerVoiceMap(action.payload.voiceMap)
+      };
       state.externalStreamsMap = action.payload.externalStreamsMap;
 
       // Reset voice state if the user is no longer in voice on this server
@@ -666,6 +826,7 @@ export const serverSlice = createSlice({
       // fired.) Only runs while viewing the voice-hosting server, so a
       // session on another instance is never clobbered by this fetch.
       if (
+        state.currentVoiceKind === 'channel' &&
         state.currentVoiceServerPublicId !== undefined &&
         state.currentVoiceServerPublicId === state.serverId
       ) {
@@ -676,9 +837,11 @@ export const serverSlice = createSlice({
           );
           if (!stillInVoice) {
             state.currentVoiceChannelId = undefined;
+            state.currentVoiceKind = undefined;
             state.currentVoiceServerId = undefined;
             state.currentVoiceChannelPublicId = undefined;
             state.currentVoiceServerPublicId = undefined;
+            clearSessionVoiceFlags(state);
           }
         }
       }
@@ -688,55 +851,65 @@ export const serverSlice = createSlice({
       state,
       action: PayloadAction<{
         channelId: number;
+        kind: TVoiceKind;
         userId: number;
         state: TVoiceUserState;
         startedAt?: number;
       }>
     ) => {
-      const { channelId, userId, state: userState, startedAt } = action.payload;
+      const { channelId, kind, userId, state: userState, startedAt } =
+        action.payload;
+      const key = voiceMapKey(kind, channelId);
 
-      if (!state.voiceMap[channelId]) {
-        state.voiceMap[channelId] = { users: {} };
-      }
+      const session = state.voiceMap[key] ?? { users: {} };
+      state.voiceMap[key] = session;
 
-      state.voiceMap[channelId].users[userId] = userState;
+      session.users[userId] = userState;
 
       if (startedAt !== undefined) {
-        state.voiceMap[channelId].startedAt = startedAt;
+        session.startedAt = startedAt;
       }
     },
     removeUserFromVoiceChannel: (
       state,
-      action: PayloadAction<{ channelId: number; userId: number; startedAt?: number }>
+      action: PayloadAction<{
+        channelId: number;
+        kind: TVoiceKind;
+        userId: number;
+        startedAt?: number;
+      }>
     ) => {
-      const { channelId, userId, startedAt } = action.payload;
+      const { channelId, kind, userId, startedAt } = action.payload;
+      const session = state.voiceMap[voiceMapKey(kind, channelId)];
 
-      if (!state.voiceMap[channelId]) return;
+      if (!session) return;
 
-      delete state.voiceMap[channelId].users[userId];
+      delete session.users[userId];
 
       if (startedAt !== undefined) {
-        state.voiceMap[channelId].startedAt = startedAt;
+        session.startedAt = startedAt;
       } else {
         // No startedAt means session ended (no users left)
-        delete state.voiceMap[channelId].startedAt;
+        delete session.startedAt;
       }
     },
     updateVoiceUserState: (
       state,
       action: PayloadAction<{
         channelId: number;
+        kind: TVoiceKind;
         userId: number;
         newState: Partial<TVoiceUserState>;
       }>
     ) => {
-      const { channelId, userId, newState } = action.payload;
+      const { channelId, kind, userId, newState } = action.payload;
+      const session = state.voiceMap[voiceMapKey(kind, channelId)];
 
-      if (!state.voiceMap[channelId]) return;
-      if (!state.voiceMap[channelId].users[userId]) return;
+      if (!session) return;
+      if (!session.users[userId]) return;
 
-      state.voiceMap[channelId].users[userId] = {
-        ...state.voiceMap[channelId].users[userId],
+      session.users[userId] = {
+        ...session.users[userId],
         ...newState
       };
     },
@@ -799,33 +972,7 @@ export const serverSlice = createSlice({
     setPluginCommands: (state, action: PayloadAction<TCommandsMapByPlugin>) => {
       state.pluginCommands = action.payload;
     },
-    addPluginCommand: (state, action: PayloadAction<TCommandInfo>) => {
-      const { pluginId } = action.payload;
 
-      if (!state.pluginCommands[pluginId]) {
-        state.pluginCommands[pluginId] = [];
-      }
-
-      const exists = state.pluginCommands[pluginId].find(
-        (c) => c.name === action.payload.name
-      );
-
-      if (exists) return;
-
-      state.pluginCommands[pluginId].push(action.payload);
-    },
-    removePluginCommand: (
-      state,
-      action: PayloadAction<{ commandName: string }>
-    ) => {
-      const { commandName } = action.payload;
-
-      for (const pluginId in state.pluginCommands) {
-        state.pluginCommands[pluginId] = state.pluginCommands[pluginId].filter(
-          (c) => c.name !== commandName
-        );
-      }
-    },
 
     // THREADS ------------------------------------------------------------
 

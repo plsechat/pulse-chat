@@ -1,6 +1,12 @@
 import { t } from '../../utils/trpc';
+import { bridgeLinkRoute } from './bridge-link';
+import { bridgeRemoteGuildsRoute } from './bridge-remote-guilds';
+import { bridgeStatusRoute } from './bridge-status';
+import { bridgeSyncRoute } from './bridge-sync';
+import { bridgeUnlinkRoute } from './bridge-unlink';
 import { createServerRoute } from './create';
 import { deleteServerRoute } from './delete';
+import { directoryGamesRoute, directoryRoute } from './directory';
 import { discoverServersRoute } from './discover';
 import { onMemberJoinRoute, onMemberLeaveRoute, onUnreadCountUpdateRoute } from './events';
 import { getAllServersRoute } from './get-all';
@@ -14,16 +20,22 @@ import { leavePreviewRoute } from './leave-preview';
 import { previewServerRoute } from './preview';
 import { reorderServersRoute } from './reorder';
 import { transferOwnerRoute } from './transfer-owner';
-import { updateServerRoute } from './update';
 
 export const serversRouter = t.router({
   create: createServerRoute,
-  update: updateServerRoute,
   delete: deleteServerRoute,
+  joinByInvite: joinServerByInviteRoute,
+  /**
+   * @deprecated Alias of `joinByInvite`, kept for one release for clients
+   * built against the previous release. v0.4.0 ships the alias; delete it
+   * in v0.5.0.
+   */
   join: joinServerByInviteRoute,
   joinDiscover: joinDiscoverRoute,
   joinFederated: joinFederatedRoute,
   discover: discoverServersRoute,
+  directory: directoryRoute,
+  directoryGames: directoryGamesRoute,
   preview: previewServerRoute,
   leavePreview: leavePreviewRoute,
   leave: leaveServerRoute,
@@ -32,6 +44,11 @@ export const serversRouter = t.router({
   getUnreadCounts: getUnreadCountsRoute,
   getMembers: getServerMembersRoute,
   transferOwner: transferOwnerRoute,
+  bridgeStatus: bridgeStatusRoute,
+  bridgeLink: bridgeLinkRoute,
+  bridgeUnlink: bridgeUnlinkRoute,
+  bridgeSync: bridgeSyncRoute,
+  bridgeRemoteGuilds: bridgeRemoteGuildsRoute,
   onMemberJoin: onMemberJoinRoute,
   onMemberLeave: onMemberLeaveRoute,
   onUnreadCountUpdate: onUnreadCountUpdateRoute

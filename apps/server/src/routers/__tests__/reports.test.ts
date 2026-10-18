@@ -277,11 +277,12 @@ describe('server mod queue', () => {
       action: 'delete-and-kick'
     });
 
+    // Takedown = tombstone attributed to the resolving moderator.
     const [gone] = await db
-      .select({ id: messages.id })
+      .select({ content: messages.content, deletedBy: messages.deletedBy })
       .from(messages)
       .where(eq(messages.id, msg.id));
-    expect(gone).toBeUndefined();
+    expect(gone).toEqual({ content: null, deletedBy: 1 });
 
     const [membership] = await db
       .select()
@@ -477,10 +478,10 @@ describe('operator queue + receipts', () => {
     });
 
     const [gone] = await db
-      .select({ id: messages.id })
+      .select({ content: messages.content, deletedBy: messages.deletedBy })
       .from(messages)
       .where(eq(messages.id, msg.id));
-    expect(gone).toBeUndefined();
+    expect(gone).toEqual({ content: null, deletedBy: 1 });
 
     const [author] = await db
       .select({ banned: users.banned, banReason: users.banReason })

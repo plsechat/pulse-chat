@@ -1,12 +1,10 @@
 import { ChannelPermission } from '@pulse/shared';
 import { inArray } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '../../db';
 import { getAffectedUserIdsForChannel } from '../../db/queries/channels';
 import { federationInstances, users } from '../../db/schema';
 import { config } from '../../config';
-import { refuseInPreview } from '../../utils/preview-guard';
-import { protectedProcedure } from '../../utils/trpc';
+import { channelProcedure } from '../../utils/procedures';
 
 /**
  * Phase E / E1e — descriptors variant of getVisibleUsers, returning
@@ -23,17 +21,12 @@ import { protectedProcedure } from '../../utils/trpc';
  * SKDM dispatch (E1b/c/d) uses `(publicId, instanceDomain)` to address
  * recipients, so it can't use the bare-id route.
  */
-const getVisibleUserDescriptorsRoute = protectedProcedure
-  .input(z.object({ channelId: z.number() }))
-  .query(async ({ input, ctx }) => {
-    // Read-only, but it enumerates the member list — preview scope is
-    // "public channels + messages", not the roster.
-    await refuseInPreview(ctx, input.channelId);
-    await ctx.needsChannelPermission(
-      input.channelId,
-      ChannelPermission.VIEW_CHANNEL
-    );
-
+// Read-only, but it enumerates the member list — preview scope is
+// "public channels + messages", not the roster.
+const getVisibleUserDescriptorsRoute = channelProcedure(
+  ChannelPermission.VIEW_CHANNEL,
+  { preview: 'refuse' }
+).query(async ({ input }) => {
     const userIds = await getAffectedUserIdsForChannel(input.channelId, {
       permission: ChannelPermission.VIEW_CHANNEL
     });

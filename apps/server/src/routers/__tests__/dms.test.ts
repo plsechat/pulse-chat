@@ -236,6 +236,60 @@ describe('DM group sender-key distribution', () => {
     expect(stillThere.length).toBe(1);
   });
 
+  test('distributing the same chain twice keeps one row with the newest distribution', async () => {
+    const { caller: caller1 } = await initTest(1);
+    const { caller: caller2 } = await initTest(2);
+    await initTest(3);
+
+    const groupId = await makeGroup(1, [1, 2, 3]);
+
+    // ensureDmGroupSenderKey is not single-flight on the client: the same
+    // chain (senderKeyId=1) can be distributed twice in a row. The unique
+    // tuple (0032) plus DO UPDATE must leave exactly one row carrying the
+    // later distribution rather than a duplicate or a stale first write.
+    await caller1.dms.distributeSenderKeys({
+      dmChannelId: groupId,
+      senderKeyId: 1,
+      distributions: [{ toUserId: 2, distributionMessage: 'first-send' }]
+    });
+    await caller1.dms.distributeSenderKeys({
+      dmChannelId: groupId,
+      senderKeyId: 1,
+      distributions: [{ toUserId: 2, distributionMessage: 'second-send' }]
+    });
+
+    const rows = await getTestDb()
+      .select()
+      .from(dmE2eeSenderKeys)
+      .where(
+        and(
+          eq(dmE2eeSenderKeys.dmChannelId, groupId),
+          eq(dmE2eeSenderKeys.fromUserId, 1),
+          eq(dmE2eeSenderKeys.toUserId, 2)
+        )
+      );
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.senderKeyId).toBe(1);
+    expect(rows[0]!.distributionMessage).toBe('second-send');
+
+    const pending2 = await caller2.dms.getPendingSenderKeys({
+      dmChannelId: groupId
+    });
+    expect(pending2.length).toBe(1);
+    expect(pending2[0]!.distributionMessage).toBe('second-send');
+
+    // A rotated chain is a different tuple and gets its own row.
+    await caller1.dms.distributeSenderKeys({
+      dmChannelId: groupId,
+      senderKeyId: 2,
+      distributions: [{ toUserId: 2, distributionMessage: 'rotated' }]
+    });
+    const afterRotate = await caller2.dms.getPendingSenderKeys({
+      dmChannelId: groupId
+    });
+    expect(afterRotate.map((p) => p.senderKeyId).sort()).toEqual([1, 2]);
+  });
+
   test('rejects distribute when caller is not a group member', async () => {
     await initTest(1);
     await initTest(2);
@@ -588,7 +642,11 @@ describe('DM forward attribution', () => {
     expect(fwd!.forwardedFromName).toBe('Test User');
 
     await expect(
-      caller1.dms.editMessage({ messageId: fwd!.id, content: 'tampered' })
+      caller1.dms.editMessage({
+        messageId: fwd!.id,
+        content: 'tampered',
+        e2ee: false
+      })
     ).rejects.toThrow('Forwarded messages cannot be edited');
   });
 });

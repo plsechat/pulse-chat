@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { AvatarDecoration } from '@/components/user-avatar';
+import { avatarFallbackClass } from '@/components/user-avatar/fallback';
 import { EmojiPicker } from '@/components/emoji-picker';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useActiveInstanceDomain } from '@/features/app/hooks';
@@ -9,17 +10,14 @@ import {
   useUsernames,
   useUsers
 } from '@/features/server/users/hooks';
+import { resolveReactionGlyph } from '@/helpers/emoji-shortcode';
 import { getFileUrl } from '@/helpers/get-file-url';
 import { getInitialsFromName } from '@/helpers/get-initials-from-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import {
-  Permission,
-  type TFile,
-  type TReactionUser
-} from '@pulse/shared';
-import { gitHubEmojis } from '@tiptap/extension-emoji';
+import { normalizeReaction, Permission } from '@pulse/shared';
+import type { TFile, TReactionUser } from '@pulse/server/types';
 import { SmilePlus } from 'lucide-react';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -37,6 +35,9 @@ type TReactionLike = {
 type TReactor = {
   id: number;
   name: string;
+  /** Cross-instance identity the avatar placeholder is keyed on; null
+   *  for a reactor who is neither in the roster nor on the row. */
+  publicId: string | null;
   avatar: TReactionUser['avatar'];
   /** Equipped avatar decoration, resolved from the live roster. */
   decoration: string | null;
@@ -87,8 +88,11 @@ const MessageReactions = memo(
     const fileDomain = homeScope ? undefined : instanceDomain;
 
     const handleReactionClick = useCallback(
-      async (emoji: string) => {
+      async (rawEmoji: string) => {
         if (!ownUserId) return;
+        // The stored spelling, so the pill pressed and the picker's
+        // choice toggle the same row the server keeps.
+        const emoji = normalizeReaction(rawEmoji);
 
         if (onToggle) {
           onToggle(emoji);
@@ -112,25 +116,24 @@ const MessageReactions = memo(
 
     const renderEmoji = useCallback(
       (emojiName: string, file: TFile | null): React.ReactNode => {
-        const gitHubEmoji = gitHubEmojis.find(
-          (e) =>
-            e.name === emojiName || e.shortcodes.includes(emojiName)
-        );
+        const resolved = resolveReactionGlyph(emojiName);
 
-        if (gitHubEmoji?.emoji) {
-          return <span className="text-lg">{gitHubEmoji.emoji}</span>;
+        // A glyph — known by name or a raw emoji the table lacks — is
+        // drawn as text; only a custom emoji's name has an image.
+        if (resolved.kind === 'glyph') {
+          return <span className="text-lg">{resolved.glyph}</span>;
         }
 
         return (
           <img
             src={getFileUrl(file, fileDomain)}
-            alt={`:${emojiName}:`}
+            alt={`:${resolved.name}:`}
             className="w-5 h-5 object-contain"
             onError={(e) => {
               // Fallback to text if image fails to load
               const target = e.target as HTMLImageElement;
 
-              target.outerHTML = `<span class="text-xs text-muted-foreground">:${emojiName}:</span>`;
+              target.outerHTML = `<span class="text-xs text-muted-foreground">:${resolved.name}:</span>`;
             }}
           />
         );
@@ -142,9 +145,12 @@ const MessageReactions = memo(
       const reactionMap = new Map<string, TAggregatedReaction>();
 
       reactions.forEach((reaction) => {
-        if (!reactionMap.has(reaction.emoji)) {
-          reactionMap.set(reaction.emoji, {
-            emoji: reaction.emoji,
+        // Keyed on the stored spelling: a row written as `👍` before
+        // reactions were normalized joins the `+1` pill.
+        const emoji = normalizeReaction(reaction.emoji);
+        if (!reactionMap.has(emoji)) {
+          reactionMap.set(emoji, {
+            emoji,
             count: 0,
             reactors: [],
             isUserReacted: false,
@@ -153,7 +159,7 @@ const MessageReactions = memo(
           });
         }
 
-        const aggregated = reactionMap.get(reaction.emoji)!;
+        const aggregated = reactionMap.get(emoji)!;
 
         aggregated.count++;
         // Prefer the server-sent identity (correct in DMs, for federated
@@ -162,6 +168,7 @@ const MessageReactions = memo(
         const live = liveUserById.get(reaction.userId);
         aggregated.reactors.push({
           id: reaction.userId,
+          publicId: live?.publicId ?? reaction.user?.publicId ?? null,
           name:
             reaction.user?.name ??
             usernames[reaction.userId] ??
@@ -210,7 +217,9 @@ const MessageReactions = memo(
                     <AvatarImage
                       src={getFileUrl(reactor.avatar, fileDomain)}
                     />
-                    <AvatarFallback className="bg-muted text-[9px] text-muted-foreground">
+                    <AvatarFallback
+                      className={cn('text-[9px]', avatarFallbackClass(reactor))}
+                    >
                       {getInitialsFromName(reactor.name)}
                     </AvatarFallback>
                   </Avatar>
@@ -271,7 +280,7 @@ const MessageReactions = memo(
             <button
               type="button"
               title="Add Reaction"
-              className="inline-flex items-center rounded-lg border border-transparent bg-accent/40 px-2 py-1 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-accent/60 transition-[opacity,background-color] duration-150"
+              className="inline-flex items-center rounded-lg border border-transparent bg-accent/40 px-2 py-1 opacity-0 group-hover-or-active:opacity-100 data-[state=open]:opacity-100 hover:bg-accent/60 transition-[opacity,background-color] duration-150"
             >
               <SmilePlus className="h-4 w-4 text-muted-foreground" />
             </button>

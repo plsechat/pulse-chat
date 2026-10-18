@@ -41,7 +41,13 @@ import type {
   StorageType
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { store as reduxStore } from '@/features/store';
+import {
+  homeUserByIdSelector,
+  userByIdSelector
+} from '@/features/server/users/selectors';
 import { clearAllOwnPlaintexts } from './plaintext-cache';
+import { stablePublicIdOf } from './safety-number';
+import { clearFileKeys, revokeAllDecryptedFileUrls } from './file-key-store';
 import type {
   ChainKind,
   SerializedChain
@@ -49,6 +55,7 @@ import type {
 import { arrayBufferToBase64, base64ToArrayBuffer } from './utils';
 
 const HOME_DB_NAME = 'pulse-e2ee';
+const INSTANCE_DB_PREFIX = 'pulse-e2ee-';
 const DB_VERSION = 6;
 
 const STORES = {
@@ -92,6 +99,13 @@ export type VerifiedIdentityMethod = 'tofu' | 'manual';
 export type VerifiedIdentityRecord = {
   /** Pinned identity public key, base64-encoded (matches IDENTITIES store format). */
   identityPublicKey: string;
+  /** The peer's HOME publicId — the stable id the safety number is
+   *  derived from (numeric ids differ per instance, see safety-number.ts).
+   *  Captured at pin time from the roster so the number still renders
+   *  for a peer who is no longer in any loaded roster. Absent on pins
+   *  written before publicIds were recorded; the UI then falls back to
+   *  the roster. */
+  publicId?: string;
   /** Unix ms when this identity was first pinned (TOFU) or manually verified. */
   verifiedAt: number;
   /** TOFU = silently pinned on first session; manual = user confirmed in-person. */
@@ -176,7 +190,11 @@ export class SignalProtocolStore implements StorageType {
     const verified = await this.getVerifiedIdentity(userId);
 
     if (!verified) {
-      await this.markIdentityTofu(userId, incomingB64);
+      await this.markIdentityTofu(
+        userId,
+        incomingB64,
+        this.resolvePeerPublicId(userId)
+      );
       return true;
     }
 
@@ -185,13 +203,37 @@ export class SignalProtocolStore implements StorageType {
     return verified.identityPublicKey === incomingB64;
   }
 
+  /**
+   * The stable (home) publicId of `userId` in THIS store's id-space, from
+   * the Redux rosters. The home store's ids are home ids: resolve through
+   * the home-scoped selector, which ignores a federated server's roster
+   * while one is active. A federated-instance store's ids are that
+   * instance's ids, which only the ambient roster knows — and only while
+   * that instance is the active one; otherwise the id would resolve to
+   * a different person, so no publicId is recorded and the Verify
+   * Identity page resolves it from the roster at display time instead.
+   */
+  private resolvePeerPublicId(userId: number): string | undefined {
+    const state = reduxStore.getState();
+    const instanceDomain = this.dbName.startsWith(INSTANCE_DB_PREFIX)
+      ? this.dbName.slice(INSTANCE_DB_PREFIX.length)
+      : null;
+    if (instanceDomain === null) {
+      return stablePublicIdOf(homeUserByIdSelector(state, userId));
+    }
+    if (state.app.activeInstanceDomain !== instanceDomain) return undefined;
+    return stablePublicIdOf(userByIdSelector(state, userId));
+  }
+
   /** Accept an identity change for `userId`: drop the old pin and
    *  re-TOFU under the new key, AND set the `acceptedChangeAt`
    *  marker so the UI surfaces a sticky "recently changed" warning
    *  until the user explicitly re-verifies (markIdentityManual) or
    *  clears the pin. Used by the user's explicit "Accept" action in
    *  the identity-changed modal, and by the auto-accept path that
-   *  handles legitimate peer-broadcast resets. */
+   *  handles legitimate peer-broadcast resets. The peer's stable
+   *  publicId is carried over from the record being replaced — the
+   *  identity changed, the person did not. */
   async acceptIdentityChange(
     userId: number,
     newIdentityPublicKey: string
@@ -204,6 +246,8 @@ export class SignalProtocolStore implements StorageType {
       verifiedMethod: 'tofu',
       acceptedChangeAt: now
     };
+    const stable = (await this.getVerifiedIdentity(userId))?.publicId;
+    if (stable) record.publicId = stable;
     await db.put(STORES.VERIFIED_IDENTITIES, record, String(userId));
   }
 
@@ -327,77 +371,6 @@ export class SignalProtocolStore implements StorageType {
     return !!kp;
   }
 
-  // In-memory sender key cache to avoid repeated IndexedDB reads
-  private senderKeyCache = new Map<string, string>();
-
-  // Sender key methods for channel E2EE
-  async getSenderKey(
-    channelId: number,
-    userId: number
-  ): Promise<string | undefined> {
-    const cacheKey = `${channelId}:${userId}`;
-    const cached = this.senderKeyCache.get(cacheKey);
-    if (cached) return cached;
-
-    const db = await this.getDb();
-    const value = await db.get(STORES.SENDER_KEYS, cacheKey);
-    if (value) this.senderKeyCache.set(cacheKey, value);
-    return value;
-  }
-
-  async storeSenderKey(
-    channelId: number,
-    userId: number,
-    key: string
-  ): Promise<void> {
-    const cacheKey = `${channelId}:${userId}`;
-    this.senderKeyCache.set(cacheKey, key);
-    const db = await this.getDb();
-    await db.put(STORES.SENDER_KEYS, key, cacheKey);
-  }
-
-  // DM-channel sender keys are stored in the same IDB object store but
-  // keyed with a `dm:` prefix so they can't collide with server-channel
-  // ids (server channel 5 and dm channel 5 are different things).
-  async getDmSenderKey(
-    dmChannelId: number,
-    userId: number
-  ): Promise<string | undefined> {
-    const cacheKey = `dm:${dmChannelId}:${userId}`;
-    const cached = this.senderKeyCache.get(cacheKey);
-    if (cached) return cached;
-
-    const db = await this.getDb();
-    const value = await db.get(STORES.SENDER_KEYS, cacheKey);
-    if (value) this.senderKeyCache.set(cacheKey, value);
-    return value;
-  }
-
-  async storeDmSenderKey(
-    dmChannelId: number,
-    userId: number,
-    key: string
-  ): Promise<void> {
-    const cacheKey = `dm:${dmChannelId}:${userId}`;
-    this.senderKeyCache.set(cacheKey, key);
-    const db = await this.getDb();
-    await db.put(STORES.SENDER_KEYS, key, cacheKey);
-  }
-
-  async getDmDistributedMembers(dmChannelId: number): Promise<number[]> {
-    const db = await this.getDb();
-    const value = await db.get(STORES.DISTRIBUTED_MEMBERS, `dm:${dmChannelId}`);
-    return value ?? [];
-  }
-
-  async setDmDistributedMembers(
-    dmChannelId: number,
-    memberIds: number[]
-  ): Promise<void> {
-    const db = await this.getDb();
-    await db.put(STORES.DISTRIBUTED_MEMBERS, memberIds, `dm:${dmChannelId}`);
-  }
-
   async getStoredIdentityKey(userId: number): Promise<string | undefined> {
     const db = await this.getDb();
     return db.get(STORES.IDENTITIES, `${userId}.1`);
@@ -419,52 +392,7 @@ export class SignalProtocolStore implements StorageType {
     await this.saveLocalIdentity(keyPair, registrationId);
   }
 
-  // --- Distributed Members persistence ---
-
-  async getDistributedMembers(channelId: number): Promise<number[]> {
-    const db = await this.getDb();
-    const value = await db.get(
-      STORES.DISTRIBUTED_MEMBERS,
-      String(channelId)
-    );
-    return value ?? [];
-  }
-
-  async setDistributedMembers(
-    channelId: number,
-    memberIds: number[]
-  ): Promise<void> {
-    const db = await this.getDb();
-    await db.put(
-      STORES.DISTRIBUTED_MEMBERS,
-      memberIds,
-      String(channelId)
-    );
-  }
-
-  async clearDistributedMemberFromAll(userId: number): Promise<void> {
-    const db = await this.getDb();
-    const tx = db.transaction(STORES.DISTRIBUTED_MEMBERS, 'readwrite');
-    const store = tx.objectStore(STORES.DISTRIBUTED_MEMBERS);
-    let cursor = await store.openCursor();
-    while (cursor) {
-      const members: number[] = cursor.value;
-      const filtered = members.filter((id) => id !== userId);
-      if (filtered.length !== members.length) {
-        await cursor.update(filtered);
-      }
-      cursor = await cursor.continue();
-    }
-    await tx.done;
-  }
-
-  async clearAllDistributedMembers(): Promise<void> {
-    const db = await this.getDb();
-    await db.clear(STORES.DISTRIBUTED_MEMBERS);
-  }
-
   async clearAll(): Promise<void> {
-    this.senderKeyCache.clear();
     const db = await this.getDb();
     const tx = db.transaction(Object.values(STORES), 'readwrite');
     for (const store of Object.values(STORES)) {
@@ -650,10 +578,13 @@ export class SignalProtocolStore implements StorageType {
   /** Pin a peer's identity key under TOFU. First time we observe this
    *  peer's identity, we record it silently — no UI prompt. Subsequent
    *  identity changes will fail `isTrustedIdentity` until the user
-   *  explicitly accepts via `acceptIdentityChange`. */
+   *  explicitly accepts via `acceptIdentityChange`. `publicId` is the
+   *  peer's stable id when the caller knows it (see
+   *  resolvePeerPublicId); omitted, an existing pin's value is kept. */
   async markIdentityTofu(
     userId: number,
-    identityPublicKey: string
+    identityPublicKey: string,
+    publicId?: string
   ): Promise<void> {
     const db = await this.getDb();
     const record: VerifiedIdentityRecord = {
@@ -661,16 +592,20 @@ export class SignalProtocolStore implements StorageType {
       verifiedAt: Date.now(),
       verifiedMethod: 'tofu'
     };
+    const stable = publicId ?? (await this.getVerifiedIdentity(userId))?.publicId;
+    if (stable) record.publicId = stable;
     await db.put(STORES.VERIFIED_IDENTITIES, record, String(userId));
   }
 
   /** Mark a peer's identity as manually verified (e.g., the user
    *  compared the safety number in person). Clears any
    *  acceptedChangeAt warning since manual verify is the strongest
-   *  trust signal. */
+   *  trust signal. The stable publicId the number was compared under
+   *  is carried forward (or supplied) so the record keeps rendering it. */
   async markIdentityManual(
     userId: number,
-    identityPublicKey: string
+    identityPublicKey: string,
+    publicId?: string
   ): Promise<void> {
     const db = await this.getDb();
     const record: VerifiedIdentityRecord = {
@@ -678,6 +613,8 @@ export class SignalProtocolStore implements StorageType {
       verifiedAt: Date.now(),
       verifiedMethod: 'manual'
     };
+    const stable = publicId ?? (await this.getVerifiedIdentity(userId))?.publicId;
+    if (stable) record.publicId = stable;
     await db.put(STORES.VERIFIED_IDENTITIES, record, String(userId));
   }
 
@@ -752,7 +689,7 @@ export function getStoreForInstance(domain: string | null): SignalProtocolStore 
 
   let store = instanceStores.get(domain);
   if (!store) {
-    store = new SignalProtocolStore(`pulse-e2ee-${domain}`);
+    store = new SignalProtocolStore(`${INSTANCE_DB_PREFIX}${domain}`);
     instanceStores.set(domain, store);
   }
   return store;
@@ -773,7 +710,9 @@ export function getActiveStore(): SignalProtocolStore {
  * created in this session. Used on sign-out so the next user on the
  * same browser cannot inherit the previous user's identity, sessions,
  * or sender keys. Also clears the Phase B own-message plaintext
- * cache (which lives in its own IDB).
+ * cache (which lives in its own IDB) and the in-memory attachment
+ * caches — decrypted file keys and the object URLs that pin decrypted
+ * Blobs — so no decrypted media outlives the identity that read it.
  */
 export async function clearAllStores(): Promise<void> {
   await signalStore.clearAll();
@@ -787,4 +726,6 @@ export async function clearAllStores(): Promise<void> {
   }
   instanceStores.clear();
   await clearAllOwnPlaintexts();
+  clearFileKeys();
+  revokeAllDecryptedFileUrls();
 }

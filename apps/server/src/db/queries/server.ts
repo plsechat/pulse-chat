@@ -1,7 +1,4 @@
-import type {
-  TJoinedSettings,
-  TPublicServerSettings
-} from '@pulse/shared';
+import type { TJoinedSettings, TPublicServerSettings } from '../../types';
 import { eq } from 'drizzle-orm';
 import { db } from '..';
 import { files, servers, settings } from '../schema';
@@ -27,6 +24,35 @@ const getSettings = async (): Promise<TJoinedSettings> => {
     ...serverSettings,
     logo: logo ?? null
   };
+};
+
+/**
+ * Instance-wide limits that live on the BOOTSTRAP server row (lowest id):
+ * uploads are instance-global (one files table, one disk) and plugins
+ * load at the instance level, so the first server's row is the single
+ * source of truth for both. The `settings` table still carries the same
+ * columns but nothing writes them — reading them there applied the
+ * seeded defaults forever, whatever the owner set in the UI.
+ */
+const getInstanceServerSettings = async () => {
+  const [server] = await db
+    .select({
+      storageUploadEnabled: servers.storageUploadEnabled,
+      storageQuota: servers.storageQuota,
+      storageUploadMaxFileSize: servers.storageUploadMaxFileSize,
+      storageSpaceQuotaByUser: servers.storageSpaceQuotaByUser,
+      storageOverflowAction: servers.storageOverflowAction,
+      enablePlugins: servers.enablePlugins
+    })
+    .from(servers)
+    .orderBy(servers.id)
+    .limit(1);
+
+  if (!server) {
+    throw new Error('Bootstrap server not found in database');
+  }
+
+  return server;
 };
 
 const getServerPublicSettings = async (
@@ -66,19 +92,25 @@ const getServerPublicSettings = async (
     storageSpaceQuotaByUser: server.storageSpaceQuotaByUser,
     storageOverflowAction: server.storageOverflowAction,
     enablePlugins: server.enablePlugins,
+    enableEvents: server.enableEvents,
     logo: logo ?? null
   };
 };
 
-const getPublicSettings = async (): Promise<TPublicServerSettings> => {
-  // For backward compat, reads from the first server
-  const [server] = await db.select().from(servers).limit(1);
+/**
+ * The per-community Planner switch (`servers.enable_events`). Off hides
+ * the planner and makes every events surface refuse; the rows stay so
+ * switching it back on brings them back unchanged. An unknown server
+ * reads as off, so a stale id can never reach an events route.
+ */
+const isEventsEnabled = async (serverId: number): Promise<boolean> => {
+  const [server] = await db
+    .select({ enableEvents: servers.enableEvents })
+    .from(servers)
+    .where(eq(servers.id, serverId))
+    .limit(1);
 
-  if (!server) {
-    throw new Error('No server found in database');
-  }
-
-  return getServerPublicSettings(server.id);
+  return server?.enableEvents === true;
 };
 
 // Per-instance HMAC secret used by files-crypto to mint short-lived file
@@ -113,8 +145,9 @@ const warmFileHmacSecret = async (): Promise<string> => {
 
 export {
   getFileHmacSecretSync,
-  getPublicSettings,
+  getInstanceServerSettings,
   getServerPublicSettings,
   getSettings,
+  isEventsEnabled,
   warmFileHmacSecret
 };

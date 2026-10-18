@@ -9,11 +9,19 @@
     "plugin:@typescript-eslint/eslint-recommended",
     "plugin:@typescript-eslint/recommended"
   ],
-  "plugins": ["@typescript-eslint", "unused-imports"],
+  "plugins": [
+    "@typescript-eslint",
+    "unused-imports"
+  ],
   "parserOptions": {
     "ecmaVersion": "latest"
   },
-  "ignorePatterns": ["data/**", "data-test/**", "node_modules/**", "build/**"],
+  "ignorePatterns": [
+    "data/**",
+    "data-test/**",
+    "node_modules/**",
+    "build/**"
+  ],
   "rules": {
     "allowEmptyCatch": 0,
     "unused-imports/no-unused-imports": "warn",
@@ -26,6 +34,38 @@
         "argsIgnorePattern": "^_"
       }
     ],
-    "@typescript-eslint/no-explicit-any": "warn"
-  }
+    "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        "vars": "all",
+        "varsIgnorePattern": "^_",
+        "args": "after-used",
+        "argsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/**/__tests__/**/*.ts"
+      ],
+      "excludedFiles": [
+        "src/__tests__/mock-modules.ts",
+        "src/__tests__/prepare.ts",
+        "src/__tests__/mock-db.ts",
+        "src/__tests__/setup.ts"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.object.name='mock'][callee.property.name='module']",
+            "message": "mock.module() is process-global and cannot be restored; it leaks into every later test file. Use spyOn() on the imported module/global and mock.restore() in afterEach. Only the bunfig preload files may call it."
+          }
+        ]
+      }
+    }
+  ]
 }

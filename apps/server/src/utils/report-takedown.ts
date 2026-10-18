@@ -1,38 +1,44 @@
 import { ServerEvents } from '@pulse/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db';
-import { removeFile } from '../db/mutations/files';
+import { tombstoneDmMessage, tombstoneMessages } from '../db/mutations/messages';
 import { publishMessage } from '../db/publishers';
 import { getDmChannelMemberIds } from '../db/queries/dms';
-import { getFilesByMessageId } from '../db/queries/files';
-import { dmMessageFiles, dmMessages, messages } from '../db/schema';
+import { dmMessages, messages } from '../db/schema';
 import { eventBus } from '../plugins/event-bus';
+import { relayAnnouncementDeletion } from './announcement-follow';
 import type { Context } from './trpc';
 
 /**
  * Takedown core shared by the operator and server-mod resolvers.
- * Mirrors the regular deletion routes exactly (file cleanup + the same
- * fan-out events), so clients can't tell a moderation takedown from an
- * author delete. If the reported message is already gone (author
- * deleted it; the FK went NULL), this is a no-op and the resolution
- * degrades to a plain resolve.
+ * Mirrors the regular deletion routes exactly (the same tombstone, the
+ * same fan-out events), so clients can't tell a moderation takedown
+ * from an author delete — except through the tombstone's `deletedBy`,
+ * which names the resolving moderator so MANAGE_MESSAGES holders see
+ * who took it down. If the reported message is already gone or already
+ * a tombstone (the author deleted it first), this is a no-op and the
+ * resolution degrades to a plain resolve.
  */
 const takeDownReportedContent = async (
   report: { targetMessageId: number | null; targetDmMessageId: number | null },
+  moderatorId: number,
   pubsub: Context['pubsub']
 ): Promise<void> => {
   if (report.targetMessageId !== null) {
     const [msg] = await db
       .select({ id: messages.id, channelId: messages.channelId })
       .from(messages)
-      .where(eq(messages.id, report.targetMessageId))
+      .where(
+        and(eq(messages.id, report.targetMessageId), isNull(messages.deletedAt))
+      )
       .limit(1);
 
     if (msg) {
-      const files = await getFilesByMessageId(msg.id);
-      await Promise.all(files.map((file) => removeFile(file.id)));
-      await db.delete(messages).where(eq(messages.id, msg.id));
-      publishMessage(msg.id, msg.channelId, 'delete');
+      const deletedAt = Date.now();
+      await tombstoneMessages([msg.id], moderatorId, deletedAt);
+      const tombstone = { deletedAt, deletedBy: moderatorId };
+      publishMessage(msg.id, msg.channelId, 'delete', tombstone);
+      void relayAnnouncementDeletion(msg.channelId, [msg.id], tombstone);
       eventBus.emit('message:deleted', {
         channelId: msg.channelId,
         messageId: msg.id
@@ -47,24 +53,25 @@ const takeDownReportedContent = async (
         dmChannelId: dmMessages.dmChannelId
       })
       .from(dmMessages)
-      .where(eq(dmMessages.id, report.targetDmMessageId))
+      .where(
+        and(
+          eq(dmMessages.id, report.targetDmMessageId),
+          isNull(dmMessages.deletedAt)
+        )
+      )
       .limit(1);
 
     if (msg) {
-      const attached = await db
-        .select({ fileId: dmMessageFiles.fileId })
-        .from(dmMessageFiles)
-        .where(eq(dmMessageFiles.dmMessageId, msg.id));
-      for (const { fileId } of attached) {
-        await removeFile(fileId);
-      }
-      await db.delete(dmMessages).where(eq(dmMessages.id, msg.id));
+      const deletedAt = Date.now();
+      await tombstoneDmMessage(msg.id, moderatorId, deletedAt);
 
       const memberIds = await getDmChannelMemberIds(msg.dmChannelId);
       for (const memberId of memberIds) {
         pubsub.publishFor(memberId, ServerEvents.DM_MESSAGE_DELETE, {
           dmMessageId: msg.id,
-          dmChannelId: msg.dmChannelId
+          dmChannelId: msg.dmChannelId,
+          deletedAt,
+          deletedBy: moderatorId
         });
       }
     }

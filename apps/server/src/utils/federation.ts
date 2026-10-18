@@ -6,19 +6,39 @@ import {
   exportJWK,
   generateKeyPair,
   decodeJwt,
+  errors as joseErrors,
   type JWK
 } from 'jose';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne } from 'drizzle-orm';
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { db } from '../db';
-import { federationInstances, federationKeys } from '../db/schema';
+import {
+  federationInstances,
+  federationKeys,
+  federationSeenJti
+} from '../db/schema';
 import { config } from '../config';
-import { federationFetch } from './federation-fetch';
+import { federationFetch, FederationRateLimitError } from './federation-fetch';
 import { getFederationProtocol } from './validate-url';
 import { getLogContext, newRequestId } from './log-context';
 import { logger } from '../logger';
 
+/**
+ * How long a superseded key keeps verifying after a rotation — ours
+ * (a retired federation_keys row) and a peer's (previous_public_key).
+ * Covers relays signed just before the rotation that are still in a
+ * peer's outbox, and peers that have not applied the announcement yet.
+ */
+const FEDERATION_KEY_GRACE_MS = 24 * 60 * 60 * 1000;
+
+type LocalKeys = {
+  id: number;
+  publicKey: JWK;
+  privateKey: JWK;
+};
+
 async function generateFederationKeys(): Promise<{
+  id: number;
   publicKey: string;
   privateKey: string;
 }> {
@@ -29,30 +49,102 @@ async function generateFederationKeys(): Promise<{
   const publicKeyStr = JSON.stringify(publicJwk);
   const privateKeyStr = JSON.stringify(privateJwk);
 
-  await db.insert(federationKeys).values({
-    publicKey: publicKeyStr,
-    privateKey: privateKeyStr,
-    createdAt: Date.now()
-  });
+  const [row] = await db
+    .insert(federationKeys)
+    .values({
+      publicKey: publicKeyStr,
+      privateKey: privateKeyStr,
+      createdAt: Date.now()
+    })
+    .returning({ id: federationKeys.id });
 
-  return { publicKey: publicKeyStr, privateKey: privateKeyStr };
+  return { id: row!.id, publicKey: publicKeyStr, privateKey: privateKeyStr };
 }
 
-async function getLocalKeys(): Promise<{
-  publicKey: JWK;
-  privateKey: JWK;
-} | null> {
+/**
+ * The key this instance signs with: the newest row that has not been
+ * retired. A retired row signs nothing but stays in the table for the
+ * grace window (the seen-jti cron sweeps it afterwards) so a peer that
+ * still holds our old public key can check a response we signed just
+ * before rotating.
+ */
+async function getLocalKeys(): Promise<LocalKeys | null> {
   const [keyRecord] = await db
     .select()
     .from(federationKeys)
-    .orderBy(federationKeys.id)
+    .where(isNull(federationKeys.retiredAt))
+    .orderBy(desc(federationKeys.id))
     .limit(1);
 
   if (!keyRecord) return null;
 
   return {
+    id: keyRecord.id,
     publicKey: JSON.parse(keyRecord.publicKey) as JWK,
     privateKey: JSON.parse(keyRecord.privateKey) as JWK
+  };
+}
+
+/**
+ * The key retired most recently, while it is still inside the grace
+ * window. A queued key-rotation announcement must be signed with it —
+ * the peer it is for has only that key pinned — so the outbox resolves
+ * it per attempt instead of persisting private key material in a row.
+ * Null once the seen-jti cron has swept the retired row: the push can
+ * no longer be honoured and the peer must be re-paired by hand.
+ */
+async function getRetiredSigningKeys(): Promise<LocalKeys | null> {
+  const [keyRecord] = await db
+    .select()
+    .from(federationKeys)
+    .where(isNotNull(federationKeys.retiredAt))
+    .orderBy(desc(federationKeys.retiredAt), desc(federationKeys.id))
+    .limit(1);
+
+  if (
+    !keyRecord ||
+    keyRecord.retiredAt === null ||
+    Date.now() - keyRecord.retiredAt >= FEDERATION_KEY_GRACE_MS
+  ) {
+    return null;
+  }
+
+  return {
+    id: keyRecord.id,
+    publicKey: JSON.parse(keyRecord.publicKey) as JWK,
+    privateKey: JSON.parse(keyRecord.privateKey) as JWK
+  };
+}
+
+/**
+ * Mint a new signing key and retire the current one(s). Returns the key
+ * that was live before (the rotation announcement is signed with it —
+ * the only key peers can verify yet) and the new key. The new row is
+ * inserted before the old is retired so a crash in between leaves two
+ * live keys with the newest winning, never none.
+ */
+async function rotateLocalFederationKeys(): Promise<{
+  previous: LocalKeys;
+  next: LocalKeys;
+}> {
+  const previous = await getLocalKeys();
+  if (!previous) {
+    throw new Error('Federation keys not generated');
+  }
+
+  const generated = await generateFederationKeys();
+  await db
+    .update(federationKeys)
+    .set({ retiredAt: Date.now() })
+    .where(and(isNull(federationKeys.retiredAt), ne(federationKeys.id, generated.id)));
+
+  return {
+    previous,
+    next: {
+      id: generated.id,
+      publicKey: JSON.parse(generated.publicKey) as JWK,
+      privateKey: JSON.parse(generated.privateKey) as JWK
+    }
   };
 }
 
@@ -73,6 +165,75 @@ async function getFederationConfig(): Promise<{
     allowUserFederatableServers: config.federation.allowUserFederatableServers
   };
 }
+
+// ─── Peer key material ───────────────────────────────────────────────────
+//
+// A peer's signature is checked against the key we pinned for it. After
+// the peer rotates, the inbound key-rotation handler moves the old key to
+// `previous_public_key` and stamps `key_rotated_at`; for the grace window
+// both keys verify, so relays the peer signed before switching (or queued
+// in its outbox) are not refused. Every verifier that reads
+// federation_instances.public_key goes through these helpers.
+
+type PeerKeyRow = {
+  publicKey: string | null;
+  previousPublicKey: string | null;
+  keyRotatedAt: number | null;
+};
+
+/**
+ * The public keys (JWK strings) a peer's signature may currently be
+ * checked against, current key first. Pure: takes the instance row the
+ * caller already has.
+ */
+function peerVerificationKeys(
+  row: PeerKeyRow,
+  now: number = Date.now()
+): string[] {
+  const keys: string[] = [];
+  if (row.publicKey) keys.push(row.publicKey);
+  if (
+    row.previousPublicKey &&
+    row.keyRotatedAt !== null &&
+    now - row.keyRotatedAt < FEDERATION_KEY_GRACE_MS
+  ) {
+    keys.push(row.previousPublicKey);
+  }
+  return keys;
+}
+
+/**
+ * `peerVerificationKeys` for an ACTIVE peer looked up by domain. Empty
+ * when the domain is unknown, not active, or has no key on file — the
+ * caller treats that as "cannot verify".
+ */
+async function getPeerVerificationKeys(domain: string): Promise<string[]> {
+  const [instance] = await db
+    .select({
+      publicKey: federationInstances.publicKey,
+      previousPublicKey: federationInstances.previousPublicKey,
+      keyRotatedAt: federationInstances.keyRotatedAt
+    })
+    .from(federationInstances)
+    .where(
+      and(
+        eq(federationInstances.domain, domain),
+        eq(federationInstances.status, 'active')
+      )
+    )
+    .limit(1);
+
+  return instance ? peerVerificationKeys(instance) : [];
+}
+
+/**
+ * Peers' clocks drift. A minute of tolerance on `exp`/`nbf`/`iat` keeps
+ * a receiver that runs slightly ahead from refusing every challenge
+ * with an "Invalid signature" that looks like a key problem, while a
+ * replayed token still dies within the minute after its TTL.
+ */
+const CLOCK_TOLERANCE_S = 60;
+const CLOCK_TOLERANCE_MS = CLOCK_TOLERANCE_S * 1000;
 
 async function generateFederationToken(
   userId: number,
@@ -104,14 +265,35 @@ async function generateFederationToken(
     .sign(privateKey);
 }
 
-async function verifyFederationToken(token: string): Promise<{
+type VerifiedFederationToken = {
   userId: number;
   username: string;
   avatar: string | null;
   publicId: string;
   issuerDomain: string;
   instanceId: number;
-} | null> {
+};
+
+/**
+ * Why a federation token was refused. `expired` is the one case the
+ * client can repair on its own (re-mint at home and reconnect); every
+ * other failure — bad signature, unknown or inactive issuer, malformed
+ * claims — is a peer-level rejection.
+ */
+type FederationTokenRejection = 'expired' | 'invalid';
+
+type FederationTokenResult =
+  | ({ ok: true } & VerifiedFederationToken)
+  | { ok: false; reason: FederationTokenRejection };
+
+async function verifyFederationTokenDetailed(
+  token: string
+): Promise<FederationTokenResult> {
+  const rejected = (reason: FederationTokenRejection): FederationTokenResult => ({
+    ok: false,
+    reason
+  });
+
   try {
     logger.debug('[verifyFederationToken] verifying token, length=%d', token.length);
 
@@ -122,7 +304,7 @@ async function verifyFederationToken(token: string): Promise<{
 
     if (!issuerDomain) {
       logger.warn('[verifyFederationToken] no issuer in token');
-      return null;
+      return rejected('invalid');
     }
 
     // Look up issuer in federationInstances (must be 'active')
@@ -140,27 +322,52 @@ async function verifyFederationToken(token: string): Promise<{
     logger.debug('[verifyFederationToken] instance lookup: found=%s, status=%s, hasPublicKey=%s',
       !!instance, instance?.status, !!instance?.publicKey);
 
-    if (!instance || !instance.publicKey) {
-      logger.warn('[verifyFederationToken] instance not found or no public key for domain=%s', issuerDomain);
-      return null;
+    const candidateKeys = instance ? peerVerificationKeys(instance) : [];
+    if (!instance || candidateKeys.length === 0) {
+      logger.warn('[verifyFederationToken] instance not found or no public key for domain=%s', sanitizeForLog(issuerDomain));
+      return rejected('invalid');
     }
 
-    // Verify signature with instance's stored public key
-    const publicKey = await importJWK(
-      JSON.parse(instance.publicKey) as JWK,
-      'EdDSA'
-    );
+    // Verify the signature with the peer's pinned key, falling back to
+    // its previous key inside the rotation grace window.
     logger.debug('[verifyFederationToken] verifying JWT with audience=%s', config.federation.domain);
-    const { payload } = await jwtVerify(token, publicKey, {
-      audience: config.federation.domain
-    });
-    logger.debug('[verifyFederationToken] JWT verified successfully, sub=%s, name=%s', payload.sub, (payload as Record<string, unknown>).name);
+    let payload: Record<string, unknown> | null = null;
+    for (const keyStr of candidateKeys) {
+      const publicKey = await importJWK(JSON.parse(keyStr) as JWK, 'EdDSA');
+      try {
+        const verified = await jwtVerify(token, publicKey, {
+          audience: config.federation.domain,
+          clockTolerance: CLOCK_TOLERANCE_S
+        });
+        payload = verified.payload as Record<string, unknown>;
+        break;
+      } catch (error) {
+        if (error instanceof joseErrors.JWTExpired) {
+          logger.warn(
+            '[verifyFederationToken] token from %s expired at %s — client must re-mint',
+            sanitizeForLog(issuerDomain),
+            sanitizeForLog(String(error.payload.exp))
+          );
+          return rejected('expired');
+        }
+        if (!(error instanceof joseErrors.JWSSignatureVerificationFailed)) {
+          throw error;
+        }
+      }
+    }
 
-    const publicId = ((payload as Record<string, unknown>).publicId as string) || null;
+    if (!payload) {
+      logger.warn('[verifyFederationToken] signature from %s matches neither current nor previous key', sanitizeForLog(issuerDomain));
+      return rejected('invalid');
+    }
+
+    logger.debug('[verifyFederationToken] JWT verified successfully, sub=%s, name=%s', payload.sub, payload.name);
+
+    const publicId = (payload.publicId as string) || null;
 
     if (!publicId) {
-      logger.warn('[verifyFederationToken] rejected token from %s: missing publicId claim', issuerDomain);
-      return null;
+      logger.warn('[verifyFederationToken] rejected token from %s: missing publicId claim', sanitizeForLog(issuerDomain));
+      return rejected('invalid');
     }
 
     // Update lastSeenAt
@@ -170,17 +377,33 @@ async function verifyFederationToken(token: string): Promise<{
       .where(eq(federationInstances.id, instance.id));
 
     return {
+      ok: true,
       userId: Number(payload.sub),
-      username: (payload as Record<string, unknown>).name as string,
-      avatar: ((payload as Record<string, unknown>).avatar as string) || null,
+      username: payload.name as string,
+      avatar: (payload.avatar as string) || null,
       publicId,
       issuerDomain,
       instanceId: instance.id
     };
   } catch (error) {
     logger.error('[verifyFederationToken] failed: %o', error);
-    return null;
+    return rejected('invalid');
   }
+}
+
+/**
+ * `verifyFederationTokenDetailed` collapsed to the verified claims or
+ * null, for callers that only need "who is this" (the upload path, the
+ * socket-close fallback). The WebSocket handshake uses the detailed
+ * form so an expired token gets its own close code.
+ */
+async function verifyFederationToken(
+  token: string
+): Promise<VerifiedFederationToken | null> {
+  const result = await verifyFederationTokenDetailed(token);
+  if (!result.ok) return null;
+  const { ok: _ok, ...verified } = result;
+  return verified;
 }
 
 // ─── Phase 4 / F1 — wire-format hardened challenge protocol ──────────────
@@ -190,8 +413,15 @@ async function verifyFederationToken(token: string): Promise<{
 // and a random `jti` for replay tracking. verifyChallenge re-canonicalizes
 // the received body, recomputes the digest, and rejects mismatches; it
 // also rejects unexpected issuers, audiences, expired tokens, and
-// previously-seen jtis (within a 10-minute retention window covering the
-// 5-minute signing TTL plus clock skew).
+// previously-seen jtis.
+//
+// Replay protection is anchored in the federation_seen_jti table: the
+// INSERT … ON CONFLICT DO NOTHING is the atomic "seen before?" check, so
+// a restart (or a second replica) does not reopen the window the way a
+// process-memory set did. The in-memory map in front of it only saves a
+// round trip for a replay that hits the same process; the table decides.
+// A jti is retained until the signature's own `exp` plus the clock
+// tolerance — past that the signature cannot verify anyway.
 //
 // Wire-format BREAKING vs. v0.1.x: a peer running pre-v0.2 code will fail
 // every verify against a v0.2 signature because the old verifier doesn't
@@ -205,8 +435,6 @@ async function verifyFederationToken(token: string): Promise<{
 
 const CHALLENGE_TTL = '5m';
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-// Replay window — a bit larger than TTL to cover clock skew between peers.
-const JTI_RETENTION_MS = 10 * 60 * 1000;
 
 const seenJtis = new Map<string, number>();
 
@@ -216,11 +444,32 @@ function pruneExpiredJtis(now: number): void {
   }
 }
 
-/** Test-only: drop the in-memory replay set so tests can exercise the
- *  same jti deterministically. Not exported through the index — only
- *  imported by `__tests__/federation-challenge.test.ts`. */
+/** Test-only: drop the in-memory replay fast path so tests can exercise
+ *  the same jti deterministically and prove the table still catches a
+ *  replay after a "restart". Not exported through the index. */
 export function _resetSeenJtis(): void {
   seenJtis.clear();
+}
+
+/**
+ * Record `jti` as seen. False when it was already recorded — by this
+ * process or any other one sharing the database.
+ */
+async function claimJti(jti: string, expiresAt: number): Promise<boolean> {
+  const now = Date.now();
+  pruneExpiredJtis(now);
+  if (seenJtis.has(jti)) return false;
+
+  const inserted = await db
+    .insert(federationSeenJti)
+    .values({ jti, expiresAt })
+    .onConflictDoNothing()
+    .returning({ jti: federationSeenJti.jti });
+
+  if (inserted.length === 0) return false;
+
+  seenJtis.set(jti, expiresAt);
+  return true;
 }
 
 function canonicalize(value: unknown): string {
@@ -246,11 +495,18 @@ async function payloadDigest(payload: unknown): Promise<string> {
   return Buffer.from(buf).toString('base64url');
 }
 
+/**
+ * Sign `payload` for `audienceDomain` with this instance's live key — or
+ * with `signingKeys` when the caller must sign with a specific pair (the
+ * key-rotation announcement goes out under the OLD key, the only one the
+ * peer can verify until it applies the rotation).
+ */
 async function signChallenge(
   payload: unknown,
-  audienceDomain: string
+  audienceDomain: string,
+  signingKeys?: LocalKeys
 ): Promise<string> {
-  const keys = await getLocalKeys();
+  const keys = signingKeys ?? (await getLocalKeys());
   if (!keys) {
     throw new Error('Federation keys not generated');
   }
@@ -268,22 +524,57 @@ async function signChallenge(
     .sign(privateKey);
 }
 
+/**
+ * Verify a peer's challenge signature over `payload`.
+ *
+ * `publicKeys` is the peer's pinned key, or the list from
+ * `getPeerVerificationKeys` (current first, then the previous key inside
+ * the rotation grace). Keys are tried in order; only a signature that
+ * verifies reaches the digest and replay checks, so a wrong first key
+ * never consumes the jti.
+ */
 async function verifyChallenge(
   signature: string,
   payload: unknown,
   expectedIssuer: string,
-  publicKeyStr: string
+  publicKeys: string | string[]
 ): Promise<boolean> {
-  try {
-    const publicKey = await importJWK(
-      JSON.parse(publicKeyStr) as JWK,
-      'EdDSA'
-    );
+  const candidates = Array.isArray(publicKeys) ? publicKeys : [publicKeys];
+  if (candidates.length === 0) return false;
 
-    const { payload: claims } = await jwtVerify(signature, publicKey, {
-      audience: config.federation.domain,
-      issuer: expectedIssuer
-    });
+  try {
+    let claims: Awaited<ReturnType<typeof jwtVerify>>['payload'] | null = null;
+    for (const publicKeyStr of candidates) {
+      const publicKey = await importJWK(
+        JSON.parse(publicKeyStr) as JWK,
+        'EdDSA'
+      );
+      try {
+        const verified = await jwtVerify(signature, publicKey, {
+          audience: config.federation.domain,
+          issuer: expectedIssuer,
+          clockTolerance: CLOCK_TOLERANCE_S
+        });
+        claims = verified.payload;
+        break;
+      } catch (error) {
+        if (error instanceof joseErrors.JWTExpired) {
+          // Distinct from a key problem: the sender's clock or a stale
+          // outbox entry, not a mismatched pinning.
+          logger.warn(
+            '[verifyChallenge] signature from %s expired (exp=%s, tolerance %ds)',
+            sanitizeForLog(expectedIssuer),
+            sanitizeForLog(String(error.payload.exp)),
+            CLOCK_TOLERANCE_S
+          );
+          return false;
+        }
+        if (!(error instanceof joseErrors.JWSSignatureVerificationFailed)) {
+          throw error;
+        }
+      }
+    }
+    if (!claims) return false;
 
     // Body-hash binding: re-canonicalize the received body and compare.
     // Without this, a peer signature is reusable against any other body
@@ -294,18 +585,11 @@ async function verifyChallenge(
       return false;
     }
 
-    // Replay protection: jti must be unique within the retention window.
+    // Replay protection: jti must be unique for as long as the signature
+    // can still verify — claims.exp is seconds, we store ms.
     if (typeof claims.jti !== 'string' || !claims.exp) return false;
 
-    const now = Date.now();
-    pruneExpiredJtis(now);
-    if (seenJtis.has(claims.jti)) return false;
-
-    // Retain past the signature's exp so a replay arriving right at the
-    // edge still gets caught — claims.exp is seconds, we store ms.
-    seenJtis.set(claims.jti, now + JTI_RETENTION_MS);
-
-    return true;
+    return claimJti(claims.jti, claims.exp * 1000 + CLOCK_TOLERANCE_MS);
   } catch {
     return false;
   }
@@ -316,7 +600,8 @@ async function verifyChallenge(
 export const _challengeInternals = {
   canonicalize,
   payloadDigest,
-  CHALLENGE_TTL_MS
+  CHALLENGE_TTL_MS,
+  CLOCK_TOLERANCE_MS
 };
 
 /**
@@ -417,7 +702,7 @@ async function signedJsonResponse(
 /**
  * Verify a signed federation response body. Strips `signature` from
  * the wire body, runs `verifyChallenge` against the responder's stored
- * public key, and returns the verified payload (without `signature`)
+ * public key(s), and returns the verified payload (without `signature`)
  * or null on any failure.
  *
  * Pulled out of `queryInstance` so the verification path is unit-
@@ -426,7 +711,7 @@ async function signedJsonResponse(
 async function verifyFederationResponse(
   responseBody: Record<string, unknown>,
   expectedPeerDomain: string,
-  peerPublicKeyStr: string
+  peerPublicKeys: string | string[]
 ): Promise<Record<string, unknown> | null> {
   const { signature, ...payload } = responseBody;
   if (typeof signature !== 'string') return null;
@@ -435,7 +720,7 @@ async function verifyFederationResponse(
     signature,
     payload,
     expectedPeerDomain,
-    peerPublicKeyStr
+    peerPublicKeys
   );
   return isValid ? payload : null;
 }
@@ -448,8 +733,8 @@ async function verifyFederationResponse(
  * Behaviour:
  * 1. Sign the request body (audience = remote instance).
  * 2. POST it.
- * 3. Read the response JSON.
- * 4. Look up the remote instance's stored federation public key.
+ * 3. Read the response JSON (bounded by federationFetch's body cap).
+ * 4. Look up the remote instance's stored federation public key(s).
  * 5. Verify the response body's `signature` against that key, with
  *    issuer = the remote instance and audience = our own domain (the
  *    audience check is enforced inside `verifyChallenge` against
@@ -514,20 +799,11 @@ async function queryInstance<T extends Record<string, unknown>>(
       durationMs
     );
 
-    const responseJson = (await response.json()) as Record<string, unknown>;
+    const responseJson = await response.json<Record<string, unknown>>();
 
-    const [instance] = await db
-      .select({ publicKey: federationInstances.publicKey })
-      .from(federationInstances)
-      .where(
-        and(
-          eq(federationInstances.domain, instanceDomain),
-          eq(federationInstances.status, 'active')
-        )
-      )
-      .limit(1);
+    const peerKeys = await getPeerVerificationKeys(instanceDomain);
 
-    if (!instance?.publicKey) {
+    if (peerKeys.length === 0) {
       logger.warn(
         '[queryInstance] no public key on file for %s — cannot verify response',
         instanceDomain
@@ -538,7 +814,7 @@ async function queryInstance<T extends Record<string, unknown>>(
     const verified = await verifyFederationResponse(
       responseJson,
       instanceDomain,
-      instance.publicKey
+      peerKeys
     );
 
     if (!verified) {
@@ -562,11 +838,92 @@ async function queryInstance<T extends Record<string, unknown>>(
   }
 }
 
-async function relayToInstance(
+// ─── Relays ──────────────────────────────────────────────────────────────
+
+/**
+ * Outcome of one relay attempt. `unsupported` is a 404: the peer runs
+ * a version without that route, so retrying is pointless (the outbox
+ * dead-letters such rows at once). `error` is the short reason stored
+ * on the instance row for the operator's panel.
+ */
+type RelayOutcome = {
+  ok: boolean;
+  status?: number;
+  unsupported?: boolean;
+  /** Either our own outbound per-host limiter refused the call (nothing
+   *  was sent) or the peer answered 429: retry after the budget refills
+   *  and do not count it as a delivery failure of the peer. */
+  rateLimited?: boolean;
+  /** The peer's `Retry-After` on a 429, in ms (bounded). */
+  retryAfterMs?: number;
+  error?: string;
+};
+
+/** Longest a peer's Retry-After is honoured; beyond it the outbox backs off on its own. */
+const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
+
+type RelayOptions = {
+  /** Sign with this pair instead of the live key (key-rotation push). */
+  signingKeys?: LocalKeys;
+};
+
+/** Longest `last_error` stored on an instance row. */
+const MAX_LAST_ERROR_LENGTH = 200;
+
+/**
+ * Mirror the outcome onto federation_instances.last_error so a peer
+ * that keeps failing — or that answers 404 because it is behind on the
+ * protocol — is visible to the instance owner instead of only in the
+ * log. Cleared on the next success. Best effort: a DB hiccup here must
+ * not turn a delivered relay into a reported failure.
+ */
+async function recordRelayOutcome(
+  instanceDomain: string,
+  outcome: RelayOutcome
+): Promise<void> {
+  try {
+    if (outcome.ok) {
+      await db
+        .update(federationInstances)
+        .set({ lastError: null, lastErrorAt: null })
+        .where(
+          and(
+            eq(federationInstances.domain, instanceDomain),
+            isNotNull(federationInstances.lastError)
+          )
+        );
+      return;
+    }
+
+    await db
+      .update(federationInstances)
+      .set({
+        lastError: (outcome.error ?? 'failed').slice(0, MAX_LAST_ERROR_LENGTH),
+        lastErrorAt: Date.now()
+      })
+      .where(eq(federationInstances.domain, instanceDomain));
+  } catch (error) {
+    logger.debug(
+      '[relayToInstance] could not record outcome for %s: %o',
+      instanceDomain,
+      error
+    );
+  }
+}
+
+/**
+ * POST a signed relay body to a peer and report what happened. The
+ * outbox and the key-rotation push need the kind of failure (a 404 is
+ * terminal, a timeout is retryable); `relayToInstance` below keeps the
+ * boolean surface every existing dispatcher was written against.
+ */
+async function relayToInstanceDetailed(
   instanceDomain: string,
   path: string,
-  payload: Record<string, unknown>
-): Promise<boolean> {
+  payload: Record<string, unknown>,
+  options: RelayOptions = {}
+): Promise<RelayOutcome> {
+  let outcome: RelayOutcome;
   try {
     const protocol = getFederationProtocol(instanceDomain);
 
@@ -580,7 +937,11 @@ async function relayToInstance(
       ...payload,
       fromDomain: config.federation.domain
     };
-    const signature = await signChallenge(bodyToSign, instanceDomain);
+    const signature = await signChallenge(
+      bodyToSign,
+      instanceDomain,
+      options.signingKeys
+    );
 
     const body = {
       ...bodyToSign,
@@ -614,34 +975,77 @@ async function relayToInstance(
         response.status,
         durationMs
       );
-      return false;
+      const unsupported = response.status === 404;
+      outcome = {
+        ok: false,
+        status: response.status,
+        unsupported,
+        error: unsupported ? `unsupported:${path}` : `http:${response.status}`
+      };
+      if (response.status === 429) {
+        // The peer's per-peer budget: not a failure of the peer, and it
+        // says when to come back.
+        outcome.rateLimited = true;
+        const retryAfterSec = Number.parseInt(
+          response.headers.get('retry-after') ?? '',
+          10
+        );
+        if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+          outcome.retryAfterMs = Math.min(retryAfterSec * 1000, MAX_RETRY_AFTER_MS);
+        }
+      }
+    } else {
+      logger.debug(
+        '[relayToInstance] < %s%s %d %sms',
+        instanceDomain,
+        path,
+        response.status,
+        durationMs
+      );
+      outcome = { ok: true, status: response.status };
     }
-
-    logger.debug(
-      '[relayToInstance] < %s%s %d %sms',
-      instanceDomain,
-      path,
-      response.status,
-      durationMs
-    );
-    return true;
   } catch (error) {
     logger.error('[relayToInstance] failed to relay to %s%s: %o', instanceDomain, path, error);
-    return false;
+    const message =
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    outcome = { ok: false, error: message };
+    if (error instanceof FederationRateLimitError) outcome.rateLimited = true;
   }
+
+  await recordRelayOutcome(instanceDomain, outcome);
+  return outcome;
+}
+
+async function relayToInstance(
+  instanceDomain: string,
+  path: string,
+  payload: Record<string, unknown>
+): Promise<boolean> {
+  const outcome = await relayToInstanceDetailed(instanceDomain, path, payload);
+  return outcome.ok;
 }
 
 export {
+  FEDERATION_KEY_GRACE_MS,
   generateFederationKeys,
   generateFederationToken,
   getFederationConfig,
   getLocalKeys,
+  getPeerVerificationKeys,
+  getRetiredSigningKeys,
+  peerVerificationKeys,
   queryInstance,
   relayToInstance,
+  relayToInstanceDetailed,
+  rotateLocalFederationKeys,
   signChallenge,
   signFederationResponse,
   signedJsonResponse,
   verifyChallenge,
   verifyFederationResponse,
-  verifyFederationToken
+  verifyFederationToken,
+  verifyFederationTokenDetailed,
+  type FederationTokenResult,
+  type LocalKeys,
+  type RelayOutcome
 };

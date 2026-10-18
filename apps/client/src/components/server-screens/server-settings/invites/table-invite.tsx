@@ -12,7 +12,7 @@ import { getUrlFromServer } from '@/helpers/get-file-url';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
-import type { TInvite } from '@pulse/shared';
+import type { TInvite } from '@pulse/server/types';
 import { datePlusTime } from '@/helpers/time-format';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Copy, Monitor, MoreVertical, Trash2 } from 'lucide-react';
@@ -110,7 +110,7 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
   return (
     <div
       key={invite.id}
-      className="grid grid-cols-[180px_60px_80px_100px_140px_80px_80px] gap-4 px-4 py-3 text-sm hover:bg-muted/30 transition-colors"
+      className="grid grid-cols-[minmax(7rem,1fr)_2.5rem_3.5rem_5.5rem_5.5rem_4rem_2.5rem] gap-4 px-4 py-3 text-sm hover:bg-muted/30 transition-colors"
     >
       <div className="flex items-center min-w-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -119,9 +119,9 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
           </code>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-6 w-6 flex-shrink-0"
+            size="icon-xs"
             onClick={handleCopyCode}
+            aria-label="Copy invite code"
           >
             <Copy className="h-3 w-3" />
           </Button>
@@ -162,8 +162,9 @@ const TableInvite = memo(({ invite, refetch }: TTableInviteProps) => {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Invite actions"
             >
               <MoreVertical className="h-4 w-4" />
             </Button>

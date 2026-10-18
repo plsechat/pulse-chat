@@ -4,7 +4,7 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { uploadFile } from '@/helpers/upload-file';
 import { useFilePicker } from '@/hooks/use-file-picker';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TFile } from '@pulse/shared';
+import type { TFile } from '@pulse/server/types';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 

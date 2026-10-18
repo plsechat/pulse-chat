@@ -6,7 +6,14 @@ import {
 } from '@playwright/test';
 import { psql } from '../../helpers/db';
 import { authedPage, CORE_OWNER, CORE_USER_B } from '../../helpers/fixtures';
-import { channelButton, selectChannel } from '../../helpers/ui';
+import {
+  channelButton,
+  channelComposer,
+  isDeckLayout,
+  openMemberList,
+  openTrayPanel,
+  selectChannel
+} from '../../helpers/ui';
 
 /**
  * Message navigation: message-link jump (including to messages far
@@ -79,13 +86,16 @@ test.describe('message jump + scroll memory', () => {
     );
 
     // One dedicated channel: a target message buried under 150 newer
-    // fillers (far outside the latest-page window).
+    // fillers (far outside the latest-page window). The target sits 151 s
+    // in the past and the fillers one second apart after it, so the
+    // newest filler is still older than anything a test posts live —
+    // a live message must sort to the bottom for the follow tests.
     bulkChanName = `js-bulk-${RUN}`;
     bulkChanId = createChannel(bulkChanName);
     psql(
       'core',
       `INSERT INTO messages (content, user_id, channel_id, created_at)
-       VALUES ('jump target ${RUN}', ${ownerId}, ${bulkChanId}, extract(epoch from now())*1000)`
+       VALUES ('jump target ${RUN}', ${ownerId}, ${bulkChanId}, extract(epoch from now())*1000 - 151000)`
     );
     targetId = psql(
       'core',
@@ -200,6 +210,17 @@ test.describe('message jump + scroll memory', () => {
     await expect(pane.locator('[id^="msg-"]').first()).toBeVisible({
       timeout: 15_000
     });
+    // The pane's entry fade is one-shot (B9): once it has run — or its
+    // fallback timer has fired — the class is gone and the list is fully
+    // opaque. A fade left applied for the life of the mount is what
+    // showed as "every message greyed out" after a channel switch.
+    await expect
+      .poll(
+        () => pane.evaluate((el) => getComputedStyle(el).opacity),
+        { timeout: 5_000 }
+      )
+      .toBe('1');
+    await expect(pane).not.toHaveClass(/animate-in/);
     await expect
       .poll(
         () =>
@@ -262,6 +283,147 @@ test.describe('message jump + scroll memory', () => {
       await expect(
         pageB.getByText(`unseen ${RUN} 1`, { exact: true })
       ).toBeInViewport();
+    } finally {
+      await ctxB.close();
+    }
+  });
+
+  /**
+   * Bottom-follow. A reader at the bottom must stay at the bottom when
+   * someone else posts — including a message taller than the old
+   * post-render "near bottom" threshold (an author header plus four
+   * lines in the narrowest pane the layout offers) and one that grows
+   * after it rendered (a link whose preview resolves late). A reader who
+   * scrolled up must NOT be yanked and gets the Jump to Present pill.
+   */
+  async function openBulkChannelAtBottom(page: Page) {
+    await page.reload();
+    await expect(channelButton(page, bulkChanName)).toBeVisible({
+      timeout: 20_000
+    });
+    await selectChannel(page, bulkChanName);
+    await expect(
+      page
+        .locator('[id^="msg-"]')
+        .filter({ hasText: `filler ${RUN} 150` })
+        .first()
+    ).toBeVisible({ timeout: 15_000 });
+    await waitForScrollSettle(page);
+    // The scroll-memory test above parked this channel mid-history for
+    // this context; the pill is the user's way back to the bottom.
+    const pill = page.getByRole('button', { name: 'Jump to Present' });
+    if ((await pill.count()) > 0) {
+      await pill.click();
+      await waitForScrollSettle(page);
+    }
+    await expect(pill).toHaveCount(0);
+  }
+
+  /** B posts a four-line message ending in a link; returns its marker. */
+  async function postTallMessage(pageB: Page, marker: string) {
+    await pageB.reload();
+    await selectChannel(pageB, bulkChanName);
+    const composer = channelComposer(pageB);
+    await expect(composer).toBeVisible({ timeout: 15_000 });
+    await composer.click();
+    await pageB.keyboard.type(`${marker} line one`);
+    for (const line of ['line two', 'line three', 'https://example.com/']) {
+      await pageB.keyboard.press('Shift+Enter');
+      await pageB.keyboard.type(line);
+    }
+    await pageB.keyboard.press('Enter');
+    await expect(
+      pageB.locator('[id^="msg-"]').filter({ hasText: marker }).first()
+    ).toBeVisible({ timeout: 15_000 });
+  }
+
+  test('at the bottom, a tall message from someone else lands in view', async ({
+    browser
+  }) => {
+    await openBulkChannelAtBottom(ownerPage);
+    // The narrowest pane: the tab layout's side panel plus the member
+    // list, so the four lines wrap and the group is well over 100 px.
+    if (await isDeckLayout(ownerPage)) {
+      await openTrayPanel(ownerPage, 'Inbox');
+    }
+    await openMemberList(ownerPage);
+    await waitForScrollSettle(ownerPage);
+
+    const { context: ctxB, page: pageB } = await authedPage(
+      browser,
+      BASE,
+      CORE_USER_B
+    );
+    try {
+      const marker = `tall-${RUN}`;
+      await postTallMessage(pageB, marker);
+
+      const row = ownerPage
+        .locator('[id^="msg-"]')
+        .filter({ hasText: marker })
+        .first();
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await expect(row).toBeInViewport({ ratio: 0.9 });
+      await expect(
+        ownerPage.getByRole('button', { name: 'Jump to Present' })
+      ).toHaveCount(0);
+
+      // Late growth (preview, content-visibility sizing) must keep the
+      // bottom pinned, not push the row out from under the reader.
+      await ownerPage.waitForTimeout(1_500);
+      await expect(row).toBeInViewport({ ratio: 0.9 });
+      await expect(
+        ownerPage.getByRole('button', { name: 'Jump to Present' })
+      ).toHaveCount(0);
+    } finally {
+      await ctxB.close();
+    }
+  });
+
+  test('scrolled up, a new message shows the Jump to Present pill instead of yanking', async ({
+    browser
+  }) => {
+    await openBulkChannelAtBottom(ownerPage);
+
+    // A real scroll up (drives onScroll) to a mid-page row.
+    const anchor = ownerPage
+      .locator('[id^="msg-"]')
+      .filter({ hasText: `filler ${RUN} 90` })
+      .first();
+    await anchor.scrollIntoViewIfNeeded();
+    await expect(anchor).toBeInViewport();
+    await waitForScrollSettle(ownerPage);
+    const parkedTop = await messagePane(ownerPage).evaluate(
+      (el) => el.scrollTop
+    );
+
+    const { context: ctxB, page: pageB } = await authedPage(
+      browser,
+      BASE,
+      CORE_USER_B
+    );
+    try {
+      const marker = `pill-${RUN}`;
+      await postTallMessage(pageB, marker);
+
+      const pill = ownerPage.getByRole('button', { name: 'Jump to Present' });
+      await expect(pill).toBeVisible({ timeout: 15_000 });
+      await expect(anchor).toBeInViewport();
+      expect(
+        Math.abs(
+          (await messagePane(ownerPage).evaluate((el) => el.scrollTop)) -
+            parkedTop
+        )
+      ).toBeLessThan(50);
+
+      // The pill is the way down, and it goes away once there.
+      await pill.click();
+      const row = ownerPage
+        .locator('[id^="msg-"]')
+        .filter({ hasText: marker })
+        .first();
+      await expect(row).toBeInViewport({ ratio: 0.9 });
+      await expect(pill).toHaveCount(0);
     } finally {
       await ctxB.close();
     }

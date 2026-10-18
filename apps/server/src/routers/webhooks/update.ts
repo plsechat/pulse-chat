@@ -4,20 +4,19 @@ import { z } from 'zod';
 import { db } from '../../db';
 import { channels, webhooks } from '../../db/schema';
 import { invariant } from '../../utils/invariant';
-import { protectedProcedure } from '../../utils/trpc';
+import { serverProcedure } from '../../utils/procedures';
+import { assertWebhookAvatarFile } from './create';
 
-const updateWebhookRoute = protectedProcedure
+const updateWebhookRoute = serverProcedure(Permission.MANAGE_WEBHOOKS)
   .input(
     z.object({
-      webhookId: z.number(),
+      webhookId: z.number().int().positive(),
       name: z.string().min(1).max(80).optional(),
-      channelId: z.number().optional(),
-      avatarFileId: z.number().nullable().optional()
+      channelId: z.number().int().positive().optional(),
+      avatarFileId: z.number().int().positive().nullable().optional()
     })
   )
   .mutation(async ({ input, ctx }) => {
-    await ctx.needsPermission(Permission.MANAGE_WEBHOOKS);
-
     // If the caller is moving the webhook to a different channel, verify
     // that channel belongs to the active server. The outer where-clause
     // already scopes the webhook itself, but the destination channelId
@@ -29,7 +28,7 @@ const updateWebhookRoute = protectedProcedure
         .where(
           and(
             eq(channels.id, input.channelId),
-            eq(channels.serverId, ctx.activeServerId!)
+            eq(channels.serverId, ctx.activeServerId)
           )
         )
         .limit(1);
@@ -38,6 +37,11 @@ const updateWebhookRoute = protectedProcedure
         code: 'NOT_FOUND',
         message: 'Channel not found'
       });
+    }
+
+    // `null` clears the avatar; a number must be the caller's own image.
+    if (typeof input.avatarFileId === 'number') {
+      await assertWebhookAvatarFile(input.avatarFileId, ctx.userId);
     }
 
     const updates: Record<string, unknown> = { updatedAt: Date.now() };
@@ -52,7 +56,7 @@ const updateWebhookRoute = protectedProcedure
       .where(
         and(
           eq(webhooks.id, input.webhookId),
-          eq(webhooks.serverId, ctx.activeServerId!)
+          eq(webhooks.serverId, ctx.activeServerId)
         )
       )
       .returning();

@@ -65,6 +65,18 @@ services:
       TRUST_PROXY: "true"
     volumes:
       - ./data/pulse:/root/.config/pulse
+    # The server drains its queues, unloads plugins and closes mediasoup
+    # on SIGTERM with a 10 s hard cap; compose's default 10 s grace would
+    # SIGKILL it at the same instant that cap fires.
+    stop_grace_period: 15s
+    # Mirrors the image's HEALTHCHECK so `docker compose ps` / orchestrators
+    # see a wedged server; /healthz is the server's liveness route.
+    healthcheck:
+      test: ["CMD", "bun", "/healthcheck.ts"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # Bundled Postgres for local-mode installs that don't have an external
   # database. Opt in with the `local` profile:

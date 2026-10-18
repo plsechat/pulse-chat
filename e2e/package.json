@@ -9,8 +9,11 @@
     "env:logs": "docker compose -f docker/compose.yml logs -f",
     "test": "playwright test",
     "test:core": "playwright test --project=core",
+    "test:core-mobile": "playwright test --project=core-mobile",
     "test:sso": "playwright test --project=sso",
     "test:federation": "playwright test --project=federation",
+    "upgrade:smoke": "bash docker/upgrade-smoke.sh",
+    "upgrade:down": "PULSE_IMAGE=unused docker compose -f docker/compose.upgrade.yml down -v",
     "report": "playwright show-report"
   },
   "devDependencies": {

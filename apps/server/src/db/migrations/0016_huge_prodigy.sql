@@ -8,9 +8,10 @@
 -- by db/index.ts at boot (mirrors the users.publicId pattern), and
 -- new channels populate it on creation in the channel-create routes.
 --
--- Idempotent: db/index.ts wipes drizzle's migration tracking on every
--- boot (pulse-issue-migration-pipeline), so each statement guards
--- against re-execution.
+-- Idempotent: drizzle tracking makes this run once; each statement
+-- still guards against re-execution as the safety net for a replay
+-- (CI applies every migration twice — see
+-- scripts/check-migrations-idempotent.ts).
 
 DO $$ BEGIN
 	ALTER TABLE "channels" ADD COLUMN IF NOT EXISTS "public_id" text;

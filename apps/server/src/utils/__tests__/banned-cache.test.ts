@@ -25,6 +25,9 @@ afterEach(() => {
 
 describe('banned-cache', () => {
   test('isBanned returns false for unknown users before load', () => {
+    // The shared test setup reloads the cache after every reseed, so start
+    // from an explicitly empty cache to exercise the pre-load path.
+    _resetBannedCacheForTest();
     expect(_isBannedCacheLoaded()).toBe(false);
     expect(isBanned(999)).toBe(false);
   });

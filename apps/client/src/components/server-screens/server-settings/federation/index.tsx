@@ -13,12 +13,15 @@ import { Switch } from '@/components/ui/switch';
 import { getHomeTRPCClient } from '@/lib/trpc';
 import type {
   TFederationConfig,
+  TFederationDeadOutboxRow,
   TFederationInstanceSummary
 } from '@pulse/shared';
 import {
+  AlertTriangle,
   Globe,
   Key,
   Link,
+  RotateCcw,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -34,6 +37,57 @@ const statusColors: Record<string, string> = {
   pending: 'text-yellow-500',
   blocked: 'text-red-500'
 };
+
+const formatTime = (ts: number | null) =>
+  ts ? new Date(ts).toLocaleString() : '';
+
+/**
+ * Dead-lettered relays for one peer: what we could not deliver and why
+ * (`unsupported:<path>` means the peer runs a version without that
+ * route). Loaded on demand — the list is only interesting once the
+ * owner looks.
+ */
+const DeadOutboxList = memo(({ instanceId }: { instanceId: number }) => {
+  const [rows, setRows] = useState<TFederationDeadOutboxRow[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const trpc = getHomeTRPCClient();
+    if (!trpc) return;
+    trpc.federation.listDeadOutbox
+      .query({ instanceId })
+      .then((result) => {
+        if (!cancelled) setRows(result);
+      })
+      .catch((error) => {
+        console.error('Failed to load dead outbox rows:', error);
+        if (!cancelled) setRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [instanceId]);
+
+  if (rows === null) {
+    return <p className="text-xs text-muted-foreground">Loading…</p>;
+  }
+  if (rows.length === 0) {
+    return <p className="text-xs text-muted-foreground">Nothing undelivered.</p>;
+  }
+  return (
+    <ul className="space-y-1">
+      {rows.map((row) => (
+        <li key={row.id} className="text-xs font-mono text-muted-foreground">
+          <span className="text-foreground">{row.path}</span>
+          {' · '}
+          {row.attempts} attempt{row.attempts === 1 ? '' : 's'}
+          {row.lastError ? ` · ${row.lastError}` : ''}
+          {row.deadAt ? ` · ${formatTime(row.deadAt)}` : ''}
+        </li>
+      ))}
+    </ul>
+  );
+});
 
 const StatusBadge = ({ status }: { status: string }) => (
   <span
@@ -56,6 +110,7 @@ const Federation = memo(() => {
     useState(false);
   const [addUrl, setAddUrl] = useState('');
   const [adding, setAdding] = useState(false);
+  const [expandedDead, setExpandedDead] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -181,6 +236,30 @@ const Federation = memo(() => {
     [fetchData]
   );
 
+  const handleRetryOutbox = useCallback(
+    async (instanceId: number) => {
+      try {
+        const trpc = getHomeTRPCClient();
+        if (!trpc) return;
+        const { revived } = await trpc.federation.retryOutbox.mutate({
+          instanceId
+        });
+        toast.success(
+          revived === 0
+            ? 'Nothing to retry'
+            : `Retrying ${revived} undelivered relay${revived === 1 ? '' : 's'}`
+        );
+        // The drain runs right after; give it a moment before refreshing
+        // so the counts reflect the first attempts.
+        setTimeout(fetchData, 1500);
+      } catch (error) {
+        console.error('Failed to retry outbox:', error);
+        toast.error('Failed to retry');
+      }
+    },
+    [fetchData]
+  );
+
   if (loading) {
     return <LoadingCard className="h-[400px]" />;
   }
@@ -281,61 +360,128 @@ const Federation = memo(() => {
               </p>
             ) : (
               <div className="space-y-2">
-                {instances.map((instance) => (
-                  <div
-                    key={instance.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Shield className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">
-                            {instance.name || instance.domain}
-                          </span>
-                          <StatusBadge status={instance.status} />
-                          <span className="text-xs text-muted-foreground">
-                            {instance.direction}
-                          </span>
+                {instances.map((instance) => {
+                  const degraded =
+                    instance.lastError !== null || instance.deadOutbox > 0;
+                  return (
+                    <div
+                      key={instance.id}
+                      className="rounded-lg border p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Shield className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">
+                                {instance.name || instance.domain}
+                              </span>
+                              <StatusBadge status={instance.status} />
+                              <span className="text-xs text-muted-foreground">
+                                {instance.direction}
+                              </span>
+                              {instance.peerVersion && (
+                                <span
+                                  className="text-xs text-muted-foreground"
+                                  title="Peer version"
+                                >
+                                  v{instance.peerVersion}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {instance.domain}
+                              {instance.pendingOutbox > 0 &&
+                                ` · ${instance.pendingOutbox} relay${instance.pendingOutbox === 1 ? '' : 's'} retrying`}
+                              {instance.deadOutbox > 0 &&
+                                ` · ${instance.deadOutbox} undelivered`}
+                            </span>
+                          </div>
                         </div>
-                        <span className="text-xs text-muted-foreground">
-                          {instance.domain}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {instance.status === 'pending' &&
-                        instance.direction === 'incoming' && (
+                        <div className="flex items-center gap-1">
+                          {instance.status === 'pending' &&
+                            instance.direction === 'incoming' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleAccept(instance.id)}
+                              >
+                                Accept
+                              </Button>
+                            )}
+                          {instance.status !== 'blocked' && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleBlock(instance.id)}
+                              title="Block"
+                            >
+                              <ShieldAlert className="h-4 w-4" />
+                              Block
+                            </Button>
+                          )}
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => handleAccept(instance.id)}
+                            variant="ghost"
+                            onClick={() => handleRemove(instance.id)}
+                            title="Remove"
                           >
-                            Accept
+                            <Trash2 className="h-4 w-4" />
                           </Button>
-                        )}
-                      {instance.status !== 'blocked' && (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleBlock(instance.id)}
-                          title="Block"
-                        >
-                          <ShieldAlert className="h-4 w-4" />
-                          Block
-                        </Button>
+                        </div>
+                      </div>
+
+                      {degraded && (
+                        <div className="flex items-center justify-between gap-2 rounded-md bg-amber-500/10 px-2 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">
+                              degraded:{' '}
+                              {instance.lastError ??
+                                `${instance.deadOutbox} relay${instance.deadOutbox === 1 ? '' : 's'} could not be delivered`}
+                              {instance.lastErrorAt &&
+                                ` (${formatTime(instance.lastErrorAt)})`}
+                            </span>
+                          </span>
+                          <span className="flex items-center gap-1 shrink-0">
+                            {instance.deadOutbox > 0 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setExpandedDead(
+                                    expandedDead === instance.id
+                                      ? null
+                                      : instance.id
+                                  )
+                                }
+                              >
+                                {expandedDead === instance.id
+                                  ? 'Hide'
+                                  : 'Details'}
+                              </Button>
+                            )}
+                            {instance.deadOutbox > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleRetryOutbox(instance.id)}
+                                title="Retry undelivered relays"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                Retry
+                              </Button>
+                            )}
+                          </span>
+                        </div>
                       )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleRemove(instance.id)}
-                        title="Remove"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+
+                      {expandedDead === instance.id && (
+                        <DeadOutboxList instanceId={instance.id} />
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

@@ -1,6 +1,7 @@
 import { ActivityLogType, DisconnectCode } from '@pulse/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
+import { rotateFileAccessTokensForUser } from '../db/mutations/channels';
 import { publishUser } from '../db/publishers';
 import { users } from '../db/schema';
 import { enqueueActivityLog } from '../queues/activity-log';
@@ -36,6 +37,9 @@ const applyInstanceBan = async (opts: {
     .where(eq(users.id, opts.targetUserId));
 
   markBanned(opts.targetUserId);
+  // The attachment links they hold from every server they belong to
+  // must stop resolving.
+  await rotateFileAccessTokensForUser(opts.targetUserId);
   publishUser(opts.targetUserId, 'update');
 
   enqueueActivityLog({

@@ -1,110 +1,95 @@
 import { useOwnVoiceUser } from '@/features/server/hooks';
-import { useEffect, useRef, useState } from 'react';
-
-// speaking intensity level (0 = silent, 1 = quiet, 2 = normal, 3 = loud)
-// this might need to be optimized
-
-enum SpeakingIntensity {
-  Silent = 0,
-  Quiet = 1,
-  Normal = 2,
-  Loud = 3
-}
+import { useEffect, useState } from 'react';
+import {
+  acquireAnalyserContext,
+  levelFromFrequencyData,
+  quantizeSpeakingLevel,
+  releaseAnalyserContext,
+  SpeakingIntensity
+} from './speaking-level';
 
 const ANALYZER_FFT_SIZE = 512;
 const ANALYZER_MIN_DECIBELS = -90;
 const ANALYZER_MAX_DECIBELS = -10;
 const ANALYZER_SMOOTHING_TIME_CONSTANT = 0.85;
-const SPEAKING_THRESHOLD = 8;
+// The ring only has four states, so sampling the analyser at ~20 Hz is
+// plenty; the frame loop skips frames in between.
+const SAMPLE_INTERVAL_MS = 50;
 
+/**
+ * Speaking indicator for one audio stream. State changes only when the
+ * quantized intensity does — the analyser loop itself never commits to
+ * React, so a quiet call renders nothing per frame.
+ */
 const useAudioLevel = (audioStream: MediaStream | undefined) => {
-  const [audioLevel, setAudioLevel] = useState(0);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const [speakingIntensity, setSpeakingIntensity] = useState(
+    SpeakingIntensity.Silent
+  );
   const ownVoiceUser = useOwnVoiceUser();
+  const soundMuted = ownVoiceUser?.state.soundMuted === true;
 
   useEffect(() => {
-    if (!audioStream || ownVoiceUser?.state.soundMuted) {
-      setAudioLevel(0);
-      setIsSpeaking(false);
+    if (!audioStream || soundMuted) {
+      setSpeakingIntensity(SpeakingIntensity.Silent);
       return;
     }
 
+    let analyser: AnalyserNode;
+    let source: MediaStreamAudioSourceNode;
+    let acquired = false;
+
     try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-
-      const audioContext = new AudioContextClass();
-      const analyser = audioContext.createAnalyser();
-      const source = audioContext.createMediaStreamSource(audioStream);
-
+      const audioContext = acquireAnalyserContext();
+      acquired = true;
+      analyser = audioContext.createAnalyser();
       analyser.fftSize = ANALYZER_FFT_SIZE;
       analyser.minDecibels = ANALYZER_MIN_DECIBELS;
       analyser.maxDecibels = ANALYZER_MAX_DECIBELS;
       analyser.smoothingTimeConstant = ANALYZER_SMOOTHING_TIME_CONSTANT;
-
+      source = audioContext.createMediaStreamSource(audioStream);
       source.connect(analyser);
-
-      audioContextRef.current = audioContext;
-      analyserRef.current = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const checkAudioLevel = () => {
-        if (!analyserRef.current) return;
-
-        analyserRef.current.getByteFrequencyData(dataArray);
-
-        // calculate rms (root mean square) of the frequency data
-        let sum = 0;
-
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i] * dataArray[i];
-        }
-
-        const rms = Math.sqrt(sum / dataArray.length);
-        const normalizedLevel = Math.min(100, (rms / 255) * 100);
-
-        setAudioLevel(normalizedLevel);
-        setIsSpeaking(normalizedLevel > SPEAKING_THRESHOLD);
-
-        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
-      };
-
-      checkAudioLevel();
     } catch (error) {
-      console.warn('Audio level detection not supported:', error);
+      // No Web Audio, or the stream cannot be analysed: the card simply
+      // shows no ring. Surfaced in development only.
+      if (acquired) releaseAnalyserContext({ failed: true });
+      if (import.meta.env.DEV) {
+        console.warn('Speaking indicator unavailable:', error);
+      }
+      setSpeakingIntensity(SpeakingIntensity.Silent);
+      return;
     }
 
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let frame: number | null = null;
+    let lastSampleAt = 0;
+    let last = SpeakingIntensity.Silent;
 
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
+      lastSampleAt = now;
 
-      setAudioLevel(0);
-      setIsSpeaking(false);
+      analyser.getByteFrequencyData(data);
+      const next = quantizeSpeakingLevel(levelFromFrequencyData(data));
+      if (next !== last) {
+        last = next;
+        setSpeakingIntensity(next);
+      }
     };
-  }, [audioStream, ownVoiceUser?.state.soundMuted]);
 
-  const speakingIntensity = isSpeaking
-    ? audioLevel < 15
-      ? SpeakingIntensity.Quiet
-      : audioLevel < 30
-        ? SpeakingIntensity.Normal
-        : SpeakingIntensity.Loud
-    : SpeakingIntensity.Silent;
+    frame = requestAnimationFrame(tick);
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      source.disconnect();
+      analyser.disconnect();
+      releaseAnalyserContext();
+      setSpeakingIntensity(SpeakingIntensity.Silent);
+    };
+  }, [audioStream, soundMuted]);
 
   return {
-    audioLevel,
-    isSpeaking,
+    isSpeaking: speakingIntensity !== SpeakingIntensity.Silent,
     speakingIntensity
   };
 };

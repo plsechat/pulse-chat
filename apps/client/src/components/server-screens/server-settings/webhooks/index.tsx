@@ -10,7 +10,7 @@ import {
 import { useChannels } from '@/features/server/channels/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
-import type { TWebhook } from '@pulse/shared';
+import type { TWebhook } from '@pulse/server/types';
 import { Copy, Plus, Trash, Webhook } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -126,8 +126,7 @@ const Webhooks = memo(() => {
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
+                  size="icon-sm"
                   onClick={() => handleCopyUrl(webhook)}
                   title="Copy Webhook URL"
                 >
@@ -135,8 +134,8 @@ const Webhooks = memo(() => {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  size="icon-sm"
+                  className="text-destructive hover:text-destructive"
                   onClick={() => handleDelete(webhook.id)}
                   title="Delete Webhook"
                 >

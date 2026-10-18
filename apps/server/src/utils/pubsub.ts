@@ -1,23 +1,32 @@
 import type {
   ServerEvents,
   StreamKind,
-  TCategory,
-  TChannel,
   TChannelUserPermissionsMap,
   TCommandsMapByPlugin,
   TExternalStream,
+  TLogEntry,
+  TThreadInfo,
+  TVoiceKind,
+  TVoiceUserState
+} from '@pulse/shared';
+import type {
+  TCategory,
+  TChannel,
+  TEvent,
+  TEventRosterCounts,
+  TImportJobView,
   TJoinedDmMessage,
   TJoinedEmoji,
   TJoinedFriendRequest,
   TJoinedMessage,
   TJoinedPublicUser,
   TJoinedRole,
-  TLogEntry,
+  TPollUpdate,
   TPublicServerSettings,
   TServerSummary,
-  TThreadInfo,
-  TVoiceUserState
-} from '@pulse/shared';
+  TSoundPlayEvent,
+  TJoinedServerSound
+} from '../types';
 import type { Unsubscribable } from '@trpc/server/observable';
 import { observable, type Observable } from '@trpc/server/observable';
 import { EventEmitter } from 'events';
@@ -29,14 +38,24 @@ const PUBSUB_LOG_RECIPIENT_CAP = 100;
 type Events = {
   [ServerEvents.NEW_MESSAGE]: TJoinedMessage;
   [ServerEvents.MESSAGE_UPDATE]: TJoinedMessage;
+  // A deletion leaves a tombstone: the client marks the row (content
+  // cleared, "Message deleted") instead of dropping it. `deletedBy` is
+  // null when the deleter is not a local account (a follower copy whose
+  // source was deleted on a peer).
   [ServerEvents.MESSAGE_DELETE]: {
     messageId: number;
     channelId: number;
+    deletedAt: number;
+    deletedBy: number | null;
   };
   [ServerEvents.MESSAGE_BULK_DELETE]: {
     messageIds: number[];
     channelId: number;
+    // A purge is the one hard wipe (admin "clear channel"): no
+    // tombstones, no deletedAt/deletedBy.
     purged?: boolean;
+    deletedAt?: number;
+    deletedBy?: number | null;
   };
   [ServerEvents.MESSAGE_TYPING]: {
     channelId: number;
@@ -46,7 +65,10 @@ type Events = {
   // serverPublicId is the globally-unique id of the server. Numeric ids are
   // instance-local and collide across federated instances, so clients prefer
   // the publicId for scoping when present (optional for older servers).
-  [ServerEvents.USER_JOIN]: {
+  // Published by the session bootstrap (others.openSession) to the
+  // server's members: the user is now connected. Membership changes are
+  // SERVER_MEMBER_JOIN / SERVER_MEMBER_LEAVE.
+  [ServerEvents.USER_CONNECTED]: {
     serverId: number;
     serverPublicId?: string;
     user: TJoinedPublicUser;
@@ -73,19 +95,25 @@ type Events = {
     mentionCount: number;
   };
 
+  // Roster events carry `kind` next to the numeric channelId: a server
+  // voice channel and a DM call can share one id (independent serial
+  // sequences), and the client keys its voice map by `${kind}:${id}`.
   [ServerEvents.USER_JOIN_VOICE]: {
     channelId: number;
+    kind: TVoiceKind;
     userId: number;
     state: TVoiceUserState;
     startedAt: number;
   };
   [ServerEvents.USER_LEAVE_VOICE]: {
     channelId: number;
+    kind: TVoiceKind;
     userId: number;
     startedAt?: number;
   };
   [ServerEvents.USER_VOICE_STATE_UPDATE]: {
     channelId: number;
+    kind: TVoiceKind;
     userId: number;
     state: TVoiceUserState;
   };
@@ -142,6 +170,8 @@ type Events = {
   [ServerEvents.DM_MESSAGE_DELETE]: {
     dmMessageId: number;
     dmChannelId: number;
+    deletedAt: number;
+    deletedBy: number | null;
   };
   [ServerEvents.DM_CHANNEL_UPDATE]: {
     dmChannelId: number;
@@ -150,6 +180,14 @@ type Events = {
   };
   [ServerEvents.DM_CHANNEL_DELETE]: {
     dmChannelId: number;
+  };
+  /**
+   * Self-scoped: published to the reader only, so their other
+   * devices/tabs drop the unread badge without a channel refetch.
+   */
+  [ServerEvents.DM_READ_STATE_UPDATE]: {
+    dmChannelId: number;
+    lastReadMessageId: number;
   };
   [ServerEvents.DM_MEMBER_ADD]: {
     dmChannelId: number;
@@ -185,10 +223,16 @@ type Events = {
     userId: number;
   };
 
+  // Fanned out to EVERY member of the server (the joiner included): the
+  // joiner's clients add `server` to their rail, the others add `user` to
+  // their roster. `user` / `serverPublicId` are optional only for the
+  // payload older servers (joiner-only publish) emitted.
   [ServerEvents.SERVER_MEMBER_JOIN]: {
     serverId: number;
+    serverPublicId?: string;
     userId: number;
     server: TServerSummary;
+    user?: TJoinedPublicUser;
   };
   [ServerEvents.SERVER_MEMBER_LEAVE]: {
     serverId: number;
@@ -257,6 +301,13 @@ type Events = {
 
   [ServerEvents.E2EE_IDENTITY_RESET]: {
     userId: number;
+    // The E2EE channels the recipient shares with the resetter, so it
+    // re-distributes its sender keys on exactly those instead of
+    // listing and re-keying every E2EE channel it has. Empty for a
+    // DM-only peer (DM chains re-send lazily) and for a federated
+    // rotation (DM scope only); the resetter's own tabs get the full
+    // list.
+    channelIds: number[];
     // Phase D / D3 — only set on federated rotations. The receiving
     // client uses this directly so it doesn't have to round-trip
     // back through federation just to learn the new key. Same-
@@ -297,6 +348,42 @@ type Events = {
     blockedUserId: number;
     blocked: boolean;
   };
+
+  // Scheduled community events: rows and roster counts go to every
+  // member of the server; a reminder goes only to the signed-up members.
+  [ServerEvents.EVENT_CREATE]: TEvent;
+  [ServerEvents.EVENT_UPDATE]: TEvent;
+  [ServerEvents.EVENT_DELETE]: { eventId: number; serverId: number };
+  [ServerEvents.EVENT_SIGNUPS_UPDATE]: {
+    eventId: number;
+    serverId: number;
+    counts: TEventRosterCounts;
+  };
+  [ServerEvents.EVENT_REMINDER]: {
+    eventId: number;
+    serverId: number;
+    title: string;
+    startsAt: number;
+    stage: 1 | 2 | 3;
+  };
+
+  // Community import: the owner who started the job gets the full view
+  // after every persisted page.
+  [ServerEvents.IMPORT_PROGRESS]: TImportJobView;
+
+  // Poll counts to every viewer of the channel (own votes travel only
+  // through the vote routes' return values).
+  [ServerEvents.POLL_UPDATE]: TPollUpdate;
+  // "Refetch" pings for the Scheduled list and the Follows tab.
+  [ServerEvents.SCHEDULED_POST_UPDATE]: { channelId: number };
+  [ServerEvents.CHANNEL_FOLLOWS_UPDATE]: { channelId: number };
+
+  // Soundboard: the clip list of a server (members) and a trigger to
+  // the voice ROOM (runtime-key topic, publishForChannel).
+  [ServerEvents.SOUND_CREATE]: TJoinedServerSound;
+  [ServerEvents.SOUND_UPDATE]: TJoinedServerSound;
+  [ServerEvents.SOUND_DELETE]: { soundId: number; serverId: number };
+  [ServerEvents.VOICE_SOUND_PLAY]: TSoundPlayEvent;
 };
 
 class PubSub {
@@ -305,8 +392,12 @@ class PubSub {
     number,
     Map<string, Set<(data: Events[keyof Events]) => void>>
   > = new Map();
+  // Keyed by the voice runtime key ("channel:5" / "dm:5"), never by the
+  // bare numeric id: a DM call and a server voice channel with the same
+  // id are different rooms, and sharing a topic leaked one room's
+  // producer events (and participant ids) into the other.
   private channelListeners: Map<
-    number,
+    string,
     Map<string, Set<(data: Events[keyof Events]) => void>>
   > = new Map();
 
@@ -427,11 +518,11 @@ class PubSub {
   }
 
   public publishForChannel<TTopic extends keyof Events>(
-    channelId: number,
+    runtimeKey: string,
     topic: TTopic,
     payload: Events[TTopic]
   ): void {
-    const channelTopics = this.channelListeners.get(channelId);
+    const channelTopics = this.channelListeners.get(runtimeKey);
 
     if (!channelTopics) return;
 
@@ -445,7 +536,7 @@ class PubSub {
   }
 
   public subscribeForChannel<TTopic extends keyof Events>(
-    channelId: number,
+    runtimeKey: string,
     topic: TTopic
   ): Observable<Events[TTopic], unknown> {
     return observable((observer) => {
@@ -453,11 +544,11 @@ class PubSub {
         observer.next(data);
       };
 
-      if (!this.channelListeners.has(channelId)) {
-        this.channelListeners.set(channelId, new Map());
+      if (!this.channelListeners.has(runtimeKey)) {
+        this.channelListeners.set(runtimeKey, new Map());
       }
 
-      const channelTopics = this.channelListeners.get(channelId)!;
+      const channelTopics = this.channelListeners.get(runtimeKey)!;
 
       if (!channelTopics.has(topic)) {
         channelTopics.set(topic, new Set());
@@ -469,7 +560,7 @@ class PubSub {
 
       const unsubscribable: Unsubscribable = {
         unsubscribe: () => {
-          const channelTopics = this.channelListeners.get(channelId);
+          const channelTopics = this.channelListeners.get(runtimeKey);
 
           if (!channelTopics) return;
 
@@ -484,7 +575,7 @@ class PubSub {
           }
 
           if (channelTopics.size === 0) {
-            this.channelListeners.delete(channelId);
+            this.channelListeners.delete(runtimeKey);
           }
         }
       };

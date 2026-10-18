@@ -8,6 +8,19 @@ import { seedDatabase } from './seed';
 
 let db: PostgresJsDatabase;
 
+/**
+ * A second, small pool reserved for advisory-lock transactions
+ * (crons/advisory-lock.ts). A lock transaction pins its connection for
+ * the whole job while the job's own statements draw from `db` — so on
+ * the main pool, N locked jobs starting together (every cron fires at
+ * boot) would hold N of its connections while their statements queued
+ * for one more: with the twelfth locked cron that became a deadlock
+ * that stalled the whole server at start. Here they can only ever
+ * queue among themselves.
+ */
+let lockDb: PostgresJsDatabase;
+const LOCK_POOL_SIZE = 4;
+
 const loadDb = async () => {
   const databaseUrl = process.env.DATABASE_URL;
 
@@ -16,6 +29,7 @@ const loadDb = async () => {
   }
 
   const client = postgres(databaseUrl);
+  lockDb = drizzle({ client: postgres(databaseUrl, { max: LOCK_POOL_SIZE }) });
 
   db = drizzle({
     client,
@@ -44,8 +58,9 @@ const loadDb = async () => {
       : false
   });
 
-  // Serialize migration across concurrently-booting instances so two
-  // replicas don't race `migrate()` against the same database.
+  // Serialize migration across concurrently-booting processes so an
+  // accidental second process (unsupported — one process per database,
+  // see README "Deployment model") cannot race `migrate()`.
   const MIGRATION_LOCK_ID = 827394827;
 
   await client`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID})`;
@@ -61,9 +76,10 @@ const loadDb = async () => {
     // it defeated the exact bookkeeping that makes migrations run once,
     // and made one-shot data migrations (backfills, NOT NULL enforcement)
     // silently re-execute forever. Migrations now run once, in order.
-    // Idempotency (docker/patch-migrations.ts) is retained only as a
-    // safety net for the rare case of an existing DB with an emptied
-    // tracking table — not as the primary mechanism.
+    // Migrations are still hand-written idempotent (IF NOT EXISTS /
+    // exception guards) and CI applies every one twice
+    // (scripts/check-migrations-idempotent.ts) — a safety net for a DB
+    // whose tracking table was emptied, not the primary mechanism.
     await migrate(db, { migrationsFolder: DRIZZLE_PATH });
     await seedDatabase();
   } finally {
@@ -76,4 +92,4 @@ const loadDb = async () => {
   // at this point can no longer find NULL rows and were removed.
 };
 
-export { db, loadDb };
+export { db, loadDb, lockDb };

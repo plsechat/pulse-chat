@@ -5,6 +5,7 @@ import { getFirstServer } from '../db/queries/servers';
 import { channels, servers } from '../db/schema';
 import { VoiceRuntime } from '../runtimes/voice';
 import { invariant } from './invariant';
+import { evictRuntime } from './voice-cleanup';
 
 /**
  * Server-deletion core shared by the owner route (servers.delete) and
@@ -34,10 +35,12 @@ const deleteServerCore = async (serverId: number): Promise<void> => {
       )
     );
 
+  // Occupants are evicted (USER_LEAVE_VOICE to the server) before the
+  // cascade takes the channel rows the fan-out resolves through.
   for (const vc of voiceChannels) {
     const runtime = VoiceRuntime.findById(vc.id);
     if (runtime) {
-      await runtime.destroy();
+      await evictRuntime(runtime);
     }
   }
 

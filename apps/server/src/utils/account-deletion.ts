@@ -1,21 +1,30 @@
 import { ActivityLogType, DisconnectCode } from '@pulse/shared';
 import { eq, or } from 'drizzle-orm';
 import { db } from '../db';
+import { rotateFileAccessTokensForUser } from '../db/mutations/channels';
 import { publishUser } from '../db/publishers';
 import {
+  activityLog,
   channelNotificationSettings,
   channelReadStates,
+  channelUserPermissions,
   dmE2eeSenderKeys,
   dmReadStates,
   e2eeSenderKeys,
   friendRequests,
   friendships,
   invites,
+  logins,
   serverMembers,
   servers,
+  threadFollowers,
+  userBlocks,
   userFederatedServers,
   userIdentityKeys,
+  userKeyBackups,
+  userNotes,
   userOneTimePreKeys,
+  userPreferences,
   userRoles,
   users,
   userSignedPreKeys
@@ -87,6 +96,10 @@ const executeAccountDeletion = async (
   const tombstoneAuthId = `deleted:${user.publicId}`;
   const tombstoneName = `Deleted User ${user.publicId.slice(0, 6)}`;
 
+  // Before the memberships go (the lookup runs on them): the attachment
+  // links this account still holds must stop resolving.
+  await rotateFileAccessTokensForUser(targetUserId);
+
   await db.transaction(async (tx) => {
     await tx
       .update(users)
@@ -145,6 +158,42 @@ const executeAccountDeletion = async (
     await tx
       .delete(userFederatedServers)
       .where(eq(userFederatedServers.userId, targetUserId));
+    await tx
+      .delete(channelUserPermissions)
+      .where(eq(channelUserPermissions.userId, targetUserId));
+    await tx
+      .delete(threadFollowers)
+      .where(eq(threadFollowers.userId, targetUserId));
+    await tx
+      .delete(userBlocks)
+      .where(
+        or(
+          eq(userBlocks.blockerId, targetUserId),
+          eq(userBlocks.blockedUserId, targetUserId)
+        )
+      );
+    // Notes written BY the user and notes other users keep ABOUT them —
+    // the latter would otherwise stay visible as state on the tombstone.
+    await tx
+      .delete(userNotes)
+      .where(
+        or(
+          eq(userNotes.authorId, targetUserId),
+          eq(userNotes.targetUserId, targetUserId)
+        )
+      );
+    await tx
+      .delete(userPreferences)
+      .where(eq(userPreferences.userId, targetUserId));
+
+    // PII: the login history carries ip + geo + user agent per session,
+    // and the activity log stamps an ip per entry. The activity rows
+    // themselves stay (audit trail of what the account did), ip-less.
+    await tx.delete(logins).where(eq(logins.userId, targetUserId));
+    await tx
+      .update(activityLog)
+      .set({ ip: null })
+      .where(eq(activityLog.userId, targetUserId));
 
     // E2EE material: identity, prekeys, and every sender-key chain
     // from OR to this user — nobody should be able to fetch bundles
@@ -158,6 +207,11 @@ const executeAccountDeletion = async (
     await tx
       .delete(userOneTimePreKeys)
       .where(eq(userOneTimePreKeys.userId, targetUserId));
+    // The encrypted key backup is the user's own secret material; it has
+    // no owner to restore it once the account is gone.
+    await tx
+      .delete(userKeyBackups)
+      .where(eq(userKeyBackups.userId, targetUserId));
     await tx
       .delete(e2eeSenderKeys)
       .where(

@@ -1,16 +1,26 @@
-import type { TRemoteServerSummary } from '@pulse/shared';
+import type { TRemoteServerSummary } from '../../types';
 import z from 'zod';
 import { protectedProcedure } from '../../utils/trpc';
 import { config } from '../../config';
 import { getFederationInstanceById } from '../../db/queries/federation';
-import { federationFetch } from '../../utils/federation-fetch';
-import { getFederationProtocol } from '../../utils/validate-url';
+import { queryInstance } from '../../utils/federation';
 import { logger } from '../../logger';
+
+type TRemoteServersResponse = {
+  servers?: Array<{
+    publicId: string;
+    name: string;
+    description: string | null;
+    logo: unknown;
+    memberCount: number;
+    hasPassword?: boolean;
+  }>;
+};
 
 const discoverRemoteRoute = protectedProcedure
   .input(
     z.object({
-      instanceId: z.number()
+      instanceId: z.number().int().positive()
     })
   )
   .query(async ({ ctx, input }) => {
@@ -27,45 +37,35 @@ const discoverRemoteRoute = protectedProcedure
       );
     }
 
-    const protocol = getFederationProtocol(instance!.domain);
+    // Signed request, signed response: the peer only lists its
+    // federatable servers to a peer it has pinned, and we only trust a
+    // list the peer signed for us.
+    const data = await queryInstance<TRemoteServersResponse>(
+      instance!.domain,
+      '/federation/servers',
+      {}
+    );
 
-    try {
-      const res = await federationFetch(
-        `${protocol}://${instance!.domain}/federation/servers?requesterDomain=${encodeURIComponent(config.federation.domain)}`,
-        { signal: AbortSignal.timeout(10_000) }
+    if (!data || !Array.isArray(data.servers)) {
+      logger.warn(
+        '[federation/discoverRemote] no server list from %s',
+        instance!.domain
       );
-
-      if (!res.ok) {
-        return { servers: [] };
-      }
-
-      const data = (await res.json()) as {
-        servers: Array<{
-          publicId: string;
-          name: string;
-          description: string | null;
-          logo: unknown;
-          memberCount: number;
-          hasPassword?: boolean;
-        }>;
-      };
-
-      const servers: TRemoteServerSummary[] = data.servers.map((s) => ({
-        publicId: s.publicId,
-        name: s.name,
-        description: s.description,
-        logo: s.logo as TRemoteServerSummary['logo'],
-        memberCount: s.memberCount,
-        instanceDomain: instance!.domain,
-        instanceName: instance!.name || instance!.domain,
-        hasPassword: s.hasPassword ?? false
-      }));
-
-      return { servers };
-    } catch (error) {
-      logger.error('Failed to discover remote servers:', error);
       return { servers: [] };
     }
+
+    const servers: TRemoteServerSummary[] = data.servers.map((s) => ({
+      publicId: s.publicId,
+      name: s.name,
+      description: s.description,
+      logo: s.logo as TRemoteServerSummary['logo'],
+      memberCount: s.memberCount,
+      instanceDomain: instance!.domain,
+      instanceName: instance!.name || instance!.domain,
+      hasPassword: s.hasPassword ?? false
+    }));
+
+    return { servers };
   });
 
 export { discoverRemoteRoute };

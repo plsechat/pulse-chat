@@ -6,7 +6,7 @@
  * etc. don't have to know which backend they're talking to.
  *
  * Loaded only when `AUTH_BACKEND=supabase` (or unset, when SUPABASE_URL
- * is present). The dispatcher in `utils/supabase.ts` decides.
+ * is present). The dispatcher in `utils/auth/index.ts` decides.
  */
 
 // `@supabase/supabase-js` is loaded lazily — only when this backend is
