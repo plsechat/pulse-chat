@@ -1,14 +1,15 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import fs from 'node:fs/promises';
 import path from 'path';
-import { Permission } from '@pulse/shared';
+import { Permission, ServerEvents } from '@pulse/shared';
 import { createTestRole, grantTestUserRole, insertMemberUser } from '../../__tests__/fixtures';
-import { initTest } from '../../__tests__/helpers';
+import { initTest, waitUntil } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import { messages, servers } from '../../db/schema';
 import { PLUGINS_PATH } from '../../helpers/paths';
 import { pluginManager } from '../../plugins';
+import { pubsub } from '../../utils/pubsub';
 
 /**
  * A slash command typed into the composer that names a registered
@@ -43,6 +44,41 @@ const messageCount = async () =>
   (await getTestDb().select({ id: messages.id }).from(messages).where(eq(messages.channelId, 1))).length;
 
 describe('slash commands in the composer', () => {
+  test("the command line's state update never overtakes the row it belongs to", async () => {
+    // `/watch pause` with nothing playing is refused by the plugin at
+    // once, so its failed state used to be published before the pending
+    // row had reached the viewers — who drop an update for a message they
+    // do not have and keep showing "Running".
+    const cleanup = await installRealPlugin();
+    const spy = spyOn(pubsub, 'publishFor');
+    try {
+      await pluginManager.togglePlugin(PLUGIN_ID, true);
+      await getTestDb().update(servers).set({ enablePlugins: true }).where(eq(servers.id, 1));
+      const { caller: owner } = await initTest(1);
+      await owner.messages.send({ channelId: 1, content: '/watch pause' });
+
+      const isCommandRow = (payload: unknown) =>
+        typeof (payload as { content?: unknown })?.content === 'string' &&
+        (payload as { content: string }).content.includes('data-subcommand="pause"');
+      const indexOf = (event: ServerEvents, status: string) =>
+        spy.mock.calls.findIndex(
+          ([, name, payload]) =>
+            name === event &&
+            isCommandRow(payload) &&
+            (payload as { content: string }).content.includes(`data-status='${status}'`)
+        );
+
+      await waitUntil(async () => indexOf(ServerEvents.MESSAGE_UPDATE, 'failed') !== -1);
+      const created = indexOf(ServerEvents.NEW_MESSAGE, 'pending');
+      const failed = indexOf(ServerEvents.MESSAGE_UPDATE, 'failed');
+      expect(created).not.toBe(-1);
+      expect(created).toBeLessThan(failed);
+    } finally {
+      spy.mockRestore();
+      await cleanup();
+    }
+  });
+
   test('a known command is refused with the reason when the community has plugins off or the member lacks the permission; unknown slash text posts', async () => {
     const cleanup = await installRealPlugin();
     try {

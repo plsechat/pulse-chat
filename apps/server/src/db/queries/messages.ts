@@ -7,7 +7,7 @@ import type {
   TMessageReaction,
   TReactionUser
 } from '../../types';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '..';
 import { generateFileToken } from '../../helpers/files-crypto';
@@ -54,7 +54,10 @@ const getReactionsForMessageIds = async (
     .leftJoin(files, eq(messageReactions.fileId, files.id))
     .leftJoin(users, eq(messageReactions.userId, users.id))
     .leftJoin(reactorAvatar, eq(users.avatarId, reactorAvatar.id))
-    .where(inArray(messageReactions.messageId, messageIds));
+    .where(inArray(messageReactions.messageId, messageIds))
+    // Reaction pills keep first-seen order; two reactions in the same
+    // millisecond would otherwise come back in arbitrary row order.
+    .orderBy(asc(messageReactions.createdAt), asc(messageReactions.emoji));
 
   return rows.reduce<Record<number, TJoinedMessageReaction[]>>((acc, r) => {
     // Null (not falsy) — users.name is notNull but '' passes it; an

@@ -387,8 +387,6 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
       })
       .returning();
 
-    commandExecutor?.(message!.id);
-
     const attachments: { name: string; url: string; size: number }[] = [];
     if (input.files && input.files.length > 0) {
       for (const tempFileId of input.files) {
@@ -407,7 +405,14 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
       }
     }
 
-    publishMessage(message!.id, input.channelId, 'create');
+    // The command runs only once the create fan-out is on the wire: a
+    // plugin that answers at once (a refusal such as "Nothing is playing")
+    // would otherwise publish the command line's failed/completed state
+    // before the pending row reached the viewers, who drop an update for
+    // a message they do not have yet and keep showing "Running".
+    publishMessage(message!.id, input.channelId, 'create').then(() => {
+      commandExecutor?.(message!.id);
+    });
     // Follower channels (local rows, federated relays) get their copy;
     // a no-op for every channel that is not an announcement channel.
     if (channel.announcement) void relayAnnouncement(message!.id, 'create');
