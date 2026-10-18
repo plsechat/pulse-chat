@@ -247,7 +247,7 @@ Subsystem deep-dives for contributors live in [docs/](docs/):
 [voice lifecycle](docs/voice.md) ·
 [desktop integration](docs/desktop-integration.md)
 
-The notes for the current release live at the repository root: [RELEASE-NOTES-v0.4.0.md](RELEASE-NOTES-v0.4.0.md). Contributor setup, the test loop and the pre-push gate are in [CONTRIBUTING.md](CONTRIBUTING.md).
+The notes for the current release live at the repository root: [RELEASE-NOTES-v0.4.1.md](RELEASE-NOTES-v0.4.1.md). Contributor setup, the test loop and the pre-push gate are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Built with
 

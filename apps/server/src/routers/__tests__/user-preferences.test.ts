@@ -229,6 +229,25 @@ describe('user preferences', () => {
     });
   });
 
+  test('an appearance row written before `layout` existed reads with the tab layout', async () => {
+    const { caller } = await initTest();
+    const { layout: _layout, ...appearanceWithoutLayout } = DEFAULT_USER_PREFERENCES.appearance;
+    const legacy = {
+      ...DEFAULT_USER_PREFERENCES,
+      appearance: { ...appearanceWithoutLayout, fontScale: 120 }
+    };
+    await getTestDb()
+      .insert(userPreferences)
+      .values({ userId: 1, data: legacy as never, updatedAt: Date.now() });
+
+    const prefs = await caller.users.getPreferences();
+    expect(prefs.appearance).toEqual({
+      ...DEFAULT_USER_PREFERENCES.appearance,
+      fontScale: 120
+    });
+    expect(prefs.appearance.layout).toBe('deck');
+  });
+
   test('rejects invalid fontScale values', async () => {
     const { caller } = await initTest();
 
