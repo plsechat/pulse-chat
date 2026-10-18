@@ -92,6 +92,12 @@ describe('watch-together plugin through the real loader', () => {
       expect((await pluginManager.getPluginInfo(PLUGIN_ID)).loadError).toBeUndefined();
       expect(pluginManager.hasCommand(PLUGIN_ID, 'watch')).toBe(true);
       expect(pluginHttp.routeCount(PLUGIN_ID)).toBe(2);
+      // The plugin's log buffer outlives a reload, so another file's
+      // refusals in the same process would otherwise count against this
+      // test; only the entries from here on are its own.
+      const errorsBefore = pluginManager
+        .getLogs(PLUGIN_ID)
+        .filter((l) => l.type === 'error').length;
 
       const settings = await pluginManager.getPluginSettings(PLUGIN_ID);
       expect(settings.values).toEqual({ verifyUrls: true });
@@ -232,7 +238,10 @@ describe('watch-together plugin through the real loader', () => {
       expect(removed === undefined || removed.streamId === replaced.streamId).toBe(true);
       // The loader logs every refused command under the plugin; only the
       // two refusals this test provoked may be there.
-      const errors = pluginManager.getLogs(PLUGIN_ID).filter((l) => l.type === 'error');
+      const errors = pluginManager
+        .getLogs(PLUGIN_ID)
+        .filter((l) => l.type === 'error')
+        .slice(errorsBefore);
       expect(errors.map((l) => l.message)).toEqual([
         "Error executing command 'watch': Run /watch in a text channel to post a card there, or join a voice channel to play for the room.",
         "Error executing command 'watch': Only the host or a moderator can control playback."
