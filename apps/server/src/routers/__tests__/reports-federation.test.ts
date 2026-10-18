@@ -81,7 +81,11 @@ describe('reports.create federated target', () => {
       reason: 'harassment',
       details: 'keeps pinging me'
     });
-    await waitUntil(async () => (await db.select().from(federationOutbox)).length >= 1);
+    // The row is inserted with attempts 0 and the first delivery runs
+    // right after; wait for that attempt, not just for the row.
+    await waitUntil(async () =>
+      (await db.select().from(federationOutbox)).some((r) => r.attempts >= 1)
+    );
 
     // Local row still created.
     const [local] = await db
