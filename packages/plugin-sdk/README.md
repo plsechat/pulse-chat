@@ -285,7 +285,7 @@ await ctx.actions.messages.post({ channelId, content: "", attachments: [{ fileId
 
 ### `actions.events`
 
-Scheduled events (the raid planner). `UNAVAILABLE` on a server without the scheduler.
+Scheduled events (the Planner). `UNAVAILABLE` on a server without the scheduler; `FORBIDDEN` when the community has the Planner switched off.
 
 `create({ serverId, title, description?, gameTag?, startsAt, endsAt, hostId?, roles, maxParticipants?, announceChannelId? })` → `TPluginEvent` · `update(eventId, patch)` → `TPluginEvent` · `cancel(eventId)`
 

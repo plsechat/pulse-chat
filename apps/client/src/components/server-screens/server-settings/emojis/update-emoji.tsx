@@ -56,6 +56,7 @@ const UpdateEmoji = memo(
         refetch();
       } catch (error) {
         setErrors(parseTrpcErrors(error));
+        toast.error(getTrpcError(error, 'Failed to update emoji'));
       }
     }, [name, selectedEmoji.id, refetch]);
 

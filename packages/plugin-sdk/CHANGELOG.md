@@ -56,7 +56,7 @@ Nothing removed. A plugin that declares `"sdk": "^0.1"` keeps loading on a 0.2 s
 - `actions.channels.list(serverId)`, `.create({ serverId, name, type, categoryId?, topic? })`, `.createThread({ channelId, parentMessageId?, name })`.
 - `actions.members.list(serverId)` → `{ id, publicId, name, nickname?, avatarUrl?, roles: { id, name }[] }[]` (≤ 5000; no e-mail, no identities).
 - `actions.files.upload({ bytes | url, filename, mime?, serverId? })` → `TPluginFileRef`; URLs are fetched through the hardened client under the instance upload limits.
-- `actions.events.create / update / cancel` — scheduled events (raid planner); `UNAVAILABLE` on a server without the scheduler.
+- `actions.events.create / update / cancel` — scheduled events (the Planner); `UNAVAILABLE` on a server without the scheduler.
 - `fetch(url, init?)` — outbound HTTP through the hardened client (SSRF checks, DNS pinning, no redirects, per-host rate limit, bounded body).
 - `http.register(path, handler)` — `GET`/`POST /plugins/<pluginId>/<path>`, guarded by the per-plugin secret header `x-pulse-plugin-secret`, 1 MiB body cap, rate limited.
 

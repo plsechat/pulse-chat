@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import {
   directoryEntryKey,
   directoryLogoSrc,
+  displayTag,
   formatDirectoryCounts,
   formatFetchedAgo
 } from './directory-helpers';
@@ -116,7 +117,7 @@ const DirectoryCard = memo(
                   key={tag}
                   className="rounded-full bg-input px-2 py-0.5 text-xs text-muted-foreground"
                 >
-                  {tag}
+                  {displayTag(tag)}
                 </li>
               ))}
             </ul>

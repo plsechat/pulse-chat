@@ -225,7 +225,8 @@ describe('/watch', () => {
         ['stop', false, []],
         ['status', false, []],
         ['watching', true, ['channel']],
-        ['left', true, ['channel']]
+        ['left', true, ['channel']],
+        ['ended', true, ['duration', 'channel']]
       ]);
       expect(fake.command!.subcommands![0]!.args![0]!.placeholder).toBe('YouTube link, .mp4, .m3u8');
 
@@ -439,7 +440,8 @@ describe('/watch from a text channel', () => {
       expect(await fake.run(typed({ subcommand: 'seek' }), { seconds: 75 })).toBe('Jumped to 1:15.');
       await new Promise((r) => setTimeout(r, 1_050));
       expect(await fake.run(typed({ subcommand: 'play' }), {})).toBe('Playing from 1:15.');
-      expect(await fake.run(typed({ subcommand: 'status' }), {})).toMatchObject({ channelId: 12, playing: true, position: 75 });
+      // The real clock: a millisecond may pass between the play and the status.
+      expect(await fake.run(typed({ subcommand: 'status' }), {})).toMatchObject({ channelId: 12, playing: true, position: expect.closeTo(75, 1) });
 
       // Presence as the hidden verbs, naming the channel (no composer).
       expect(await fake.run(invoker({ userId: 8, currentVoiceChannelId: undefined, subcommand: 'watching' }), { channel: 12 })).toMatchObject({ viewers: 1 });
@@ -472,6 +474,44 @@ describe('/watch from a text channel', () => {
 
       await fake.run(invoker(), { url: MP4 });
       expect(await fake.run(invoker(), { url: 'watching' })).toBe('Presence is only reported for a card.');
+    } finally {
+      await onUnload(fake.ctx);
+    }
+  });
+
+  test('a player reporting the end — either spelling — ends a card at the length and pauses a room there', async () => {
+    const fake = await loaded();
+    try {
+      fake.settings.verifyUrls = false;
+      await fake.run(typed(), { url: MP4 });
+      // The declared hidden sub-command lists next to the presence reports.
+      expect(fake.command!.subcommands!.find((s) => s.name === 'ended')).toMatchObject({
+        hidden: true,
+        args: [expect.objectContaining({ name: 'duration', required: true }), expect.objectContaining({ name: 'channel' })]
+      });
+
+      // Too early for this card: nothing changes (the card just started).
+      const card = getCards()!.get(12)!;
+      expect(await fake.run(invoker({ userId: 8, currentVoiceChannelId: undefined }), { action: 'ended', position: 300, channelId: 12 })).toMatchObject({ playing: true });
+      // Move the card's clock to the end of a 0.5 s media and report through the declared spelling.
+      card.card = { ...card.card, position: 0.5, updatedAt: Date.now() };
+      expect(
+        await fake.run(invoker({ userId: 8, currentVoiceChannelId: undefined, subcommand: 'ended' }), { duration: 0.5, channel: 12 })
+      ).toMatchObject({ playing: false, position: 0.5, endedAt: expect.any(Number) });
+      await settle();
+      expect(cardOf(fake)).toMatchObject({ playing: false, position: 0.5, endedAt: expect.any(Number) });
+      expect(fake.messages[0]!.content).toBe('Watched together: intro');
+      expect(getCards()!.list()).toHaveLength(0);
+      // Without the length the report is refused.
+      await expect(fake.run(invoker({ userId: 8, currentVoiceChannelId: undefined, subcommand: 'ended' }), { channel: 12 })).rejects.toThrow('Nothing is playing');
+
+      // A voice room: the same report pauses the stream at the length.
+      await fake.run(invoker(), { url: MP4 });
+      const session = getSessions()!.get(42)!;
+      session.media = { ...session.media, position: 1, updatedAt: Date.now() };
+      expect(await fake.run(invoker({ userId: 8 }), { url: 'ended', position: 1 })).toMatchObject({ playing: false, position: 1 });
+      expect(fake.streams.at(-1)!.media).toMatchObject({ playing: false, position: 1 });
+      await expect(fake.run(invoker({ userId: 8 }), { url: 'ended' })).rejects.toThrow('Say how long the media is');
     } finally {
       await onUnload(fake.ctx);
     }

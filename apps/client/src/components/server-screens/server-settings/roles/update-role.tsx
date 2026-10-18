@@ -77,6 +77,7 @@ const UpdateRole = memo(
         refetch();
       } catch (error) {
         setTrpcErrors(error);
+        toast.error(getTrpcError(error, 'Failed to update role'));
       }
     }, [selectedRole.id, values, refetch, setTrpcErrors]);
 

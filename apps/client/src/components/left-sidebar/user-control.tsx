@@ -475,8 +475,8 @@ const UserControl = memo(({ stacked = false }: TUserControlProps) => {
 
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground hover:bg-muted/50"
           onClick={handleSettingsClick}
           title="User settings"
         >

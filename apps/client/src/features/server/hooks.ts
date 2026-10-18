@@ -16,6 +16,7 @@ import {
   isOwnUserOwnerSelector,
   ownUserRolesSelector,
   ownVoiceUserSelector,
+  plannerEnabledSelector,
   pluginsEnabledSelector,
   publicServerSettingsSelector,
   reconnectAttemptSelector,
@@ -81,8 +82,13 @@ export const useIsOwnUserOwner = () => useSelector(isOwnUserOwnerSelector);
 /** Whether the active server lets members run plugin commands. */
 export const usePluginsEnabled = () => useSelector(pluginsEnabledSelector);
 
+/** Whether the active server has the Planner switched on (General settings). */
+export const usePlannerEnabled = () => useSelector(plannerEnabledSelector);
+
 export const useCan = () => {
   const ownUserRoles = useOwnUserRoles();
+  // The owner of the connected server (servers.ownerId, or the bootstrap
+  // Owner role) holds every permission, exactly as the server decides.
   const isOwner = useIsOwnUserOwner();
 
   // TODO: maybe this can can recieve both Permission and ChannelPermission?
@@ -171,3 +177,20 @@ export const useMentionCount = (channelId: number) =>
   );
 
 export const useHasAnyVoiceUsers = () => useSelector(hasAnyVoiceUsersSelector);
+
+/**
+ * Instance domain of the CONNECTED community; undefined for a home
+ * community. Resolved from the connected server's publicId against the
+ * federated-server list, so it flips exactly when setInitialData lands.
+ * useActiveInstanceDomain flips optimistically before the remote data
+ * does, which would point the header logo at the new instance while
+ * the previous community's settings are still on screen.
+ */
+export const useConnectedInstanceDomain = () =>
+  useSelector((state: IRootState) => {
+    const publicId = state.server.serverId;
+    if (!publicId) return undefined;
+    return state.app.federatedServers.find(
+      (entry) => entry.server.publicId === publicId
+    )?.instanceDomain;
+  });

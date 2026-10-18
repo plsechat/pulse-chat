@@ -1,5 +1,5 @@
 /**
- * Raid planner slice: the visible window, live upserts/deletes, roster
+ * Planner slice: the visible window, live upserts/deletes, roster
  * counts, the viewer's own signup derived from a roster, and reminder
  * dedupe.
  *

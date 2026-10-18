@@ -1,4 +1,4 @@
-import { renderEmbedsAsText } from '@pulse/shared';
+import { isUnicodeEmoji, normalizeReaction, renderEmbedsAsText, shortcodeToUnicode } from '@pulse/shared';
 import type { TRemoteEmoji, TRemoteMember, TRemoteMessage, TRemoteUser } from './types';
 
 /**
@@ -102,10 +102,13 @@ export const mapInboundContent = (message: TRemoteMessage, lookup: TInboundLooku
   return Array.from(content).slice(0, MAX_LOCAL_CONTENT).join('');
 };
 
-/** `{id: null, name: '👍'}` → `👍`; a custom emoji → `:name:` (our token form). */
+/**
+ * `{id: null, name: '👍'}` → `+1` (our stored shortcode); a custom emoji
+ * → its bare `name`, which is how a custom reaction is stored here.
+ */
 export const mapInboundEmoji = (emoji: TRemoteEmoji): string | null => {
   if (!emoji.name) return null;
-  return emoji.id ? `:${emoji.name}:` : emoji.name;
+  return normalizeReaction(emoji.id ? `:${emoji.name}:` : emoji.name);
 };
 
 // ─── here → remote ────────────────────────────────────────────────────
@@ -178,21 +181,25 @@ export const quoteLine = (authorName: string, content: string): string => {
 };
 
 /**
- * Our reaction token → the path segment the reactions endpoint takes:
- * a unicode emoji percent-encoded, a custom `:name:` as `name:id` when
- * the guild has one by that name (undefined otherwise — the remote
- * side has no such emoji, so there is nothing to mirror).
+ * Our stored reaction → the path segment the reactions endpoint takes.
+ * Reactions are stored by shortcode: a name the table knows (`fire`,
+ * `+1`, an alias such as `thumbsup`) goes out as its glyph,
+ * percent-encoded; any other name is a custom emoji and goes as
+ * `name:id` when the guild has one by that name (undefined otherwise —
+ * the remote side has no such emoji, so there is nothing to mirror).
+ * A `:name:` token and a raw glyph (rows written before the stored
+ * form was settled) are read the same way.
  */
 export const mapOutboundEmoji = (
   emoji: string,
   customEmojiId: (name: string) => string | undefined
 ): string | undefined => {
-  const custom = emoji.match(/^:(\w+):$/);
+  const name = normalizeReaction(emoji);
+  const glyph = shortcodeToUnicode(name);
+  if (glyph !== null) return encodeURIComponent(glyph);
 
-  if (custom) {
-    const id = customEmojiId(custom[1]!);
-    return id ? `${custom[1]}:${id}` : undefined;
-  }
+  if (isUnicodeEmoji(name)) return encodeURIComponent(name);
 
-  return encodeURIComponent(emoji);
+  const id = customEmojiId(name);
+  return id ? `${name}:${id}` : undefined;
 };

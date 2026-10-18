@@ -1,6 +1,7 @@
 import {
   ChannelPermission,
   ChannelType,
+  MAX_FILES_PER_POST,
   MAX_MESSAGE_CONTENT_LENGTH,
   Permission,
   ServerEvents
@@ -27,7 +28,6 @@ import { pubsub } from '../../utils/pubsub';
 import {
   copyParentOverrides,
   getThreadViewerIds,
-  MAX_FILES_PER_POST,
   MAX_TAGS_PER_POST,
   MAX_TEMP_FILE_ID_LENGTH,
   publishPrivateThreadPermissions,

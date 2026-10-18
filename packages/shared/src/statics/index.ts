@@ -163,3 +163,4 @@ export enum DisconnectCode {
 }
 export * from "./directory";
 export * from "./soundboard";
+export * from "./files";

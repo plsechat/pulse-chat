@@ -15,8 +15,7 @@ import { invalidatePermissionCacheForUser } from '../../utils/permission-cache-r
 /** Tags per post — a post carries a handful of labels, not a taxonomy. */
 const MAX_TAGS_PER_POST = 20;
 
-/** Same bounds as messages.send: each id is a `saveFile`. */
-const MAX_FILES_PER_POST = 10;
+/** Temp ids are UUIDs, never longer (the count cap lives in @pulse/shared). */
 const MAX_TEMP_FILE_ID_LENGTH = 64;
 
 type TThreadParent = typeof channels.$inferSelect;
@@ -145,7 +144,6 @@ export {
   assertThreadableParent,
   copyParentOverrides,
   getThreadViewerIds,
-  MAX_FILES_PER_POST,
   MAX_TAGS_PER_POST,
   MAX_TEMP_FILE_ID_LENGTH,
   publishPrivateThreadPermissions,

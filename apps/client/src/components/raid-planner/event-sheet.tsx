@@ -34,7 +34,11 @@ import {
   useChannelById,
   useCurrentVoiceChannelPublicId
 } from '@/features/server/channels/hooks';
-import { useCan, useChannelCan } from '@/features/server/hooks';
+import {
+  useCan,
+  useChannelCan,
+  usePlannerEnabled
+} from '@/features/server/hooks';
 import { useOwnUserId, useUserById } from '@/features/server/users/hooks';
 import { joinVoice } from '@/features/server/voice/actions';
 import { useVoice } from '@/features/server/voice/hooks';
@@ -208,12 +212,14 @@ const YourSpot = memo(({ detail }: { detail: TEventDetail }) => {
   const [picked, setPicked] = useState<string | undefined>(own?.roleKey);
   const closed = !eventIsOpen(detail.event);
   const signedUp = isSignedUp(own);
+  // Planner off: the roster is frozen, so no signup controls.
+  const plannerEnabled = usePlannerEnabled();
 
   useEffect(() => {
     if (own?.roleKey) setPicked(own.roleKey);
   }, [own?.roleKey]);
 
-  if (closed) return null;
+  if (closed || !plannerEnabled) return null;
 
   const eventId = detail.event.id;
   const pickedRole = picked ? roleByKey(detail.event.roles, picked) : undefined;
@@ -304,7 +310,8 @@ const YourSpot = memo(({ detail }: { detail: TEventDetail }) => {
 const HostControls = memo(({ detail }: { detail: TEventDetail }) => {
   const { busy, run } = useBusy();
   const closed = !eventIsOpen(detail.event);
-  if (closed) return null;
+  const plannerEnabled = usePlannerEnabled();
+  if (closed || !plannerEnabled) return null;
 
   const onCancel = async () => {
     const confirmed = await requestConfirmation({
@@ -369,17 +376,23 @@ const Host = memo(({ detail }: { detail: TEventDetail }) => {
 const EventSheetBody = memo(({ eventId }: { eventId: number }) => {
   const detail = useEventDetail(eventId);
   const canManage = useCanManageEvent(detail?.event);
+  const plannerEnabled = usePlannerEnabled();
   const [settled, setSettled] = useState(false);
 
   useEffect(() => {
+    // The detail route refuses while the Planner is off; a cached
+    // detail (loaded before the switch) is shown read-only instead.
+    if (!plannerEnabled) return;
     setSettled(false);
     void fetchEventDetail(eventId).finally(() => setSettled(true));
-  }, [eventId]);
+  }, [eventId, plannerEnabled]);
 
   if (!detail) {
-    return settled ? (
+    return settled || !plannerEnabled ? (
       <div className="p-6 text-center text-sm text-muted-foreground">
-        This event is no longer available.
+        {plannerEnabled
+          ? 'This event is no longer available.'
+          : 'The Planner is turned off in this community.'}
       </div>
     ) : (
       <LazyFallback />
@@ -515,7 +528,7 @@ const EventSheetHost = memo(() => {
             }
             closeEvent();
           }}
-          className="max-h-[calc(100dvh-2rem)] overflow-y-auto p-0 sm:max-w-2xl"
+          className="max-h-[calc(var(--vvh)-2rem)] overflow-y-auto p-0 sm:max-w-2xl"
         >
           <DialogTitle className="sr-only">Event</DialogTitle>
           <EventSheetBody eventId={eventId} />

@@ -28,7 +28,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 import { onAppEvent } from '@/lib/events';
-import { parseTagsInput } from '@/screens/discover-view/directory-helpers';
 
 /**
  * Calls `refetch` whenever the watched Redux selector value changes,
@@ -111,13 +110,15 @@ type TGeneralSettings = {
   password: string;
   allowNewUsers: boolean;
   enablePlugins: boolean;
+  /** The Planner switch (servers.enableEvents). */
+  enableEvents: boolean;
   discoverable: boolean;
   federatable: boolean;
-  // Public directory card. Tags are edited as comma-separated text and
-  // parsed on save (parseTagsInput).
+  // Public directory card. Tags are edited as chips and stored bare
+  // (shown with a # everywhere).
   directoryListed: boolean;
   directoryDescription: string;
-  directoryTagsText: string;
+  directoryTags: string[];
   directoryGame: string;
   storageUploadEnabled: boolean;
   storageUploadMaxFileSize: number;
@@ -125,96 +126,155 @@ type TGeneralSettings = {
   storageOverflowAction: StorageOverflowAction;
 };
 
+const EMPTY_GENERAL: TGeneralSettings = {
+  name: '',
+  description: '',
+  password: '',
+  allowNewUsers: false,
+  enablePlugins: false,
+  enableEvents: true,
+  discoverable: false,
+  federatable: false,
+  directoryListed: false,
+  directoryDescription: '',
+  directoryTags: [],
+  directoryGame: '',
+  storageUploadEnabled: true,
+  storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+  storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
+  storageOverflowAction: STORAGE_OVERFLOW_ACTION
+};
+
+type TGeneralSettingsWire = Awaited<
+  ReturnType<
+    NonNullable<ReturnType<typeof getTRPCClient>>['others']['getSettings']['query']
+  >
+>;
+
+const generalFromServer = (result: TGeneralSettingsWire): TGeneralSettings => ({
+  name: result.name,
+  description: result.description ?? '',
+  password: result.password ?? '',
+  allowNewUsers: result.allowNewUsers ?? false,
+  enablePlugins: result.enablePlugins ?? false,
+  enableEvents: result.enableEvents ?? true,
+  discoverable: result.discoverable ?? false,
+  federatable: result.federatable ?? false,
+  directoryListed: result.directoryListed ?? false,
+  directoryDescription: result.directoryDescription ?? '',
+  directoryTags: result.directoryTags ?? [],
+  directoryGame: result.directoryGame ?? '',
+  storageUploadEnabled: result.storageUploadEnabled ?? true,
+  storageUploadMaxFileSize:
+    result.storageUploadMaxFileSize ?? STORAGE_MAX_FILE_SIZE,
+  storageSpaceQuotaByUser:
+    result.storageSpaceQuotaByUser ?? STORAGE_MAX_QUOTA_PER_USER,
+  storageOverflowAction:
+    (result.storageOverflowAction as StorageOverflowAction | null) ??
+    STORAGE_OVERFLOW_ACTION
+});
+
+type TGeneralPatch = Partial<Omit<TGeneralSettings, 'password'>> & {
+  password?: string | null;
+};
+
+const sameValue = (a: unknown, b: unknown) =>
+  Array.isArray(a) && Array.isArray(b)
+    ? a.length === b.length && a.every((item, i) => item === b[i])
+    : a === b;
+
+/**
+ * Only what differs from the last loaded copy goes on the wire. The
+ * route checks "may this caller change X" per field (federatable is
+ * owner-only, a listing needs an open join path), so resending an
+ * untouched value could refuse an edit to an unrelated field. Clearing
+ * the password sends null: the route reads an omitted key as "keep".
+ */
+const diffGeneral = (
+  saved: TGeneralSettings | null,
+  current: TGeneralSettings
+): TGeneralPatch => {
+  const patch: TGeneralPatch = {};
+  for (const key of Object.keys(current) as (keyof TGeneralSettings)[]) {
+    if (saved && sameValue(saved[key], current[key])) continue;
+    if (key === 'password') {
+      patch.password = current.password === '' ? null : current.password;
+    } else {
+      (patch as Record<string, unknown>)[key] = current[key];
+    }
+  }
+  // A fresh form with no password never sends "clear it".
+  if (!saved && patch.password === null) delete patch.password;
+  return patch;
+};
+
 export const useAdminGeneral = (serverId: number | undefined) => {
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<TTrpcErrors>({});
-  const [settings, setSettings] = useState<TGeneralSettings>({
-    name: '',
-    description: '',
-    password: '',
-    allowNewUsers: false,
-    enablePlugins: false,
-    discoverable: false,
-    federatable: false,
-    directoryListed: false,
-    directoryDescription: '',
-    directoryTagsText: '',
-    directoryGame: '',
-    storageUploadEnabled: true,
-    storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
-    storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
-    storageOverflowAction: STORAGE_OVERFLOW_ACTION
-  });
+  const [settings, setSettings] = useState<TGeneralSettings>(EMPTY_GENERAL);
+  // The copy the server last handed us; Save sends only what differs.
+  const [saved, setSaved] = useState<TGeneralSettings | null>(null);
   const [logo, setLogo] = useState<TFile | null>(null);
 
   const fetchSettings = useCallback(async () => {
     if (!serverId) return;
+    const trpc = getTRPCClient();
+    if (!trpc) {
+      setLoading(false);
+      toast.error('Not connected: the server settings could not be loaded');
+      return;
+    }
     setLoading(true);
 
-    const trpc = getTRPCClient();
-    if (!trpc) return;
-    const result = await trpc.others.getSettings.query({ serverId });
-
-    setSettings({
-      name: result.name,
-      description: result.description ?? '',
-      password: result.password ?? '',
-      allowNewUsers: result.allowNewUsers ?? false,
-      enablePlugins: result.enablePlugins ?? false,
-      discoverable: result.discoverable ?? false,
-      federatable: result.federatable ?? false,
-      directoryListed: result.directoryListed ?? false,
-      directoryDescription: result.directoryDescription ?? '',
-      directoryTagsText: (result.directoryTags ?? []).join(', '),
-      directoryGame: result.directoryGame ?? '',
-      storageUploadEnabled: result.storageUploadEnabled ?? true,
-      storageUploadMaxFileSize:
-        result.storageUploadMaxFileSize ?? STORAGE_MAX_FILE_SIZE,
-      storageSpaceQuotaByUser:
-        result.storageSpaceQuotaByUser ?? STORAGE_MAX_QUOTA_PER_USER,
-      storageOverflowAction:
-        (result.storageOverflowAction as StorageOverflowAction | null) ??
-        STORAGE_OVERFLOW_ACTION
-    });
-    setLoading(false);
-    setLogo(result.logo);
+    try {
+      const result = await trpc.others.getSettings.query({ serverId });
+      const next = generalFromServer(result);
+      setSettings(next);
+      setSaved(next);
+      setLogo(result.logo);
+      setErrors({});
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      toast.error(getTrpcError(error, 'Failed to load the server settings'));
+    } finally {
+      setLoading(false);
+    }
   }, [serverId]);
 
   const submit = useCallback(async () => {
     if (!serverId) return;
     const trpc = getTRPCClient();
-    if (!trpc) return;
+    if (!trpc) {
+      toast.error('Not connected: the settings were not saved');
+      return;
+    }
 
+    const patch = diffGeneral(saved, settings);
+    if (Object.keys(patch).length === 0) {
+      toast.info('Nothing to save');
+      return;
+    }
+
+    setSaving(true);
     try {
-      await trpc.others.updateSettings.mutate({
-        serverId,
-        name: settings.name,
-        description: settings.description,
-        password: settings.password || undefined,
-        allowNewUsers: settings.allowNewUsers,
-        enablePlugins: settings.enablePlugins,
-        discoverable: settings.discoverable,
-        federatable: settings.federatable,
-        directoryListed: settings.directoryListed,
-        directoryDescription: settings.directoryDescription,
-        directoryTags: parseTagsInput(settings.directoryTagsText),
-        directoryGame: settings.directoryGame,
-        storageUploadEnabled: settings.storageUploadEnabled,
-        storageUploadMaxFileSize: settings.storageUploadMaxFileSize,
-        storageSpaceQuotaByUser: settings.storageSpaceQuotaByUser,
-        storageOverflowAction: settings.storageOverflowAction
-      });
+      await trpc.others.updateSettings.mutate({ serverId, ...patch });
+      setSaved(settings);
+      setErrors({});
       toast.success('Settings updated');
     } catch (error) {
       console.error('Error updating settings:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to save the settings'));
+    } finally {
+      setSaving(false);
     }
-  }, [settings, serverId]);
+  }, [settings, saved, serverId]);
 
   const onChange = useCallback(
     <K extends keyof TGeneralSettings>(field: K, value: TGeneralSettings[K]) => {
       setSettings((s) => ({ ...s, [field]: value }));
-      setErrors((e) => ({ ...e, [field]: undefined }));
+      setErrors((e) => ({ ...e, [field]: undefined, _general: undefined }));
     },
     []
   );
@@ -229,6 +289,7 @@ export const useAdminGeneral = (serverId: number | undefined) => {
     settings,
     refetch: fetchSettings,
     loading,
+    saving,
     submit,
     errors,
     onChange,
@@ -266,6 +327,7 @@ export const useAdminPlugins = () => {
     } catch (error) {
       console.error('Error fetching plugins:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to load plugins'));
     }
 
     setLoading(false);
@@ -317,6 +379,7 @@ export const useAdminChannelGeneral = (channelId: number) => {
     } catch (error) {
       console.error('Error updating channel:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to update the channel'));
     }
   }, [channel, channelId]);
 
@@ -375,6 +438,7 @@ export const useAdminCategoryGeneral = (categoryId: number) => {
     } catch (error) {
       console.error('Error updating category:', error);
       setErrors(parseTrpcErrors(error));
+      toast.error(getTrpcError(error, 'Failed to update the category'));
     }
   }, [category, categoryId]);
 

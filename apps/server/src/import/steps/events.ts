@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { createEvent, DEFAULT_ROSTER_TEMPLATES } from '../../db/queries/events';
 import { findExternalIdentity } from '../../db/queries/import-jobs';
+import { isEventsEnabled } from '../../db/queries/server';
 import { eventRosterTemplates } from '../../db/schema';
 import { invalidateFeedCache } from '../../http/events-ics';
 import type { TDiscordScheduledEvent } from '../discord/types';
@@ -48,6 +49,15 @@ const runEventsStep = async (run: ImportRun): Promise<void> => {
 
   const upcoming = list.slice(0, MAX_EVENTS);
   counts.total = upcoming.length;
+
+  // A community with the Planner switched off gets no events: they
+  // would land in a planner nobody can open. Counted as skipped so the
+  // summary says where they went.
+  if (!(await isEventsEnabled(run.serverId))) {
+    counts.skipped = upcoming.length;
+    return;
+  }
+
   const imported = new Set(run.state.cursor.events ?? []);
   const roster = await rosterFor(run.serverId);
 

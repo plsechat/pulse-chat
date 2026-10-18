@@ -6,10 +6,14 @@ import {
   type Page
 } from '@playwright/test';
 import { authedPage, CORE_OWNER, CORE_USER_B } from '../../helpers/fixtures';
-import { selectChannel, toast } from '../../helpers/ui';
+import {
+  expectNoClippedControls,
+  selectChannel,
+  toast
+} from '../../helpers/ui';
 
 /**
- * Raid Planner, end to end: the owner creates an event from a roster
+ * Planner, end to end: the owner creates an event from a roster
  * template with an announcement, the RSVP card lands in the channel,
  * user B signs up as DPS from the card, the owner's event sheet shows
  * them under DPS, B withdraws, the owner cancels.
@@ -43,7 +47,7 @@ function rsvpCard(page: Page): Locator {
     .first();
 }
 
-test.describe('raid planner', () => {
+test.describe('planner', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async ({ browser }) => {
@@ -65,16 +69,19 @@ test.describe('raid planner', () => {
   });
 
   test('owner creates an event from a template, announced in General Text', async () => {
-    await ownerPage.getByRole('button', { name: 'Raid Planner' }).click();
+    await ownerPage.getByRole('button', { name: 'Planner' }).click();
     await expect(
-      ownerPage.getByRole('heading', { name: 'Raid Planner' })
+      ownerPage.getByRole('heading', { name: 'Planner' })
     ).toBeVisible();
 
     await ownerPage.getByRole('button', { name: 'New event' }).click();
     const dialog = eventSheet(ownerPage);
     await expect(dialog.getByText('New event')).toBeVisible();
+    // Finding #8: the editor's date / start / duration row must hold its
+    // inputs whole in the panel and in the dialog.
+    await expectNoClippedControls(dialog);
 
-    await dialog.getByPlaceholder('Raid night').fill(TITLE);
+    await dialog.getByPlaceholder('Guild night').fill(TITLE);
 
     // The seeded "Classic raid" template (Tank 2 / Healer 4 / DPS 14).
     await dialog.getByRole('combobox', { name: 'Roster template' }).click();

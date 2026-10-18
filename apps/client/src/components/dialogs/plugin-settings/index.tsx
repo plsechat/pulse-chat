@@ -320,7 +320,7 @@ const PluginSettingsDialog = memo(
 
     return (
       <Dialog open={isOpen} onOpenChange={close}>
-        <DialogContent className="flex flex-col min-w-[90vw] h-[85vh] p-0 gap-0">
+        <DialogContent className="flex flex-col min-w-[calc(90vw/var(--app-zoom))] h-[calc(var(--vvh)*0.85)] p-0 gap-0">
           <DialogHeader className="px-6 py-4 border-b">
             <DialogTitle>Settings for {pluginName}</DialogTitle>
           </DialogHeader>

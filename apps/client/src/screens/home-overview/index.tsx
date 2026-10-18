@@ -400,7 +400,9 @@ const CommunitiesCard = memo(() => {
       return {
         key: `fed:${countKey}`,
         name: e.server.name,
-        logoUrl: e.server.logo ? getFileUrl(e.server.logo) : null,
+        logoUrl: e.server.logo
+          ? getFileUrl(e.server.logo, e.instanceDomain)
+          : null,
         instanceName: e.instanceName,
         unread: federatedUnread[countKey] ?? 0,
         mentions: federatedMentions[countKey] ?? 0
@@ -642,7 +644,7 @@ const UpcomingCard = memo(() => {
         <EmptyState
           size="sm"
           title="Nothing scheduled this week"
-          description="Events your communities plan in the Raid Planner show up here."
+          description="Events your communities plan in the Planner show up here."
         />
       ) : (
         <div className="space-y-2">

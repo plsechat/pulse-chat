@@ -26,6 +26,8 @@ export type TInboxCommunityRow = {
   key: string;
   name: string;
   logo?: TServerSummary['logo'];
+  /** The instance that serves `logo`; omitted for a home community. */
+  instanceDomain?: string;
   instanceName?: string;
   count: number;
   mention: boolean;
@@ -88,6 +90,7 @@ export const useInboxSummary = (): TInboxSummary => {
         key: `fed:${countKey}`,
         name: e.server.name,
         logo: e.server.logo,
+        instanceDomain: e.instanceDomain,
         instanceName: e.instanceName,
         count: m > 0 ? m : u,
         mention: m > 0,

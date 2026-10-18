@@ -1,25 +1,44 @@
 import { TextChannel } from '@/components/channel-view/text';
 import { ForumThreadContext } from '@/components/channel-view/forum/forum-thread-context';
 import { Button } from '@/components/ui/button';
-import { Protect } from '@/components/protect';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { useActiveThread } from '@/features/server/channels/hooks';
+import { useCan } from '@/features/server/hooks';
+import { windowOrDefault } from '@/features/message-window';
 import { useMessagesByChannelId } from '@/features/server/messages/hooks';
+import { messageWindowByChannelIdSelector } from '@/features/server/messages/selectors';
+import { useOwnUserId } from '@/features/server/users/hooks';
+import type { IRootState } from '@/features/store';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import { requestConfirmation } from '@/features/dialogs/actions';
 import { useHistoryOverlay } from '@/hooks/use-history-overlay';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { Archive, ArrowLeft, MessageCircle, MoreHorizontal, Trash2, X } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  MoreHorizontal,
+  Trash2,
+  X
+} from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
 
 const ForumThreadView = memo(() => {
   const thread = useActiveThread();
-  const messages = useMessagesByChannelId(thread?.id ?? 0);
+  const threadId = thread?.id ?? 0;
+  const messages = useMessagesByChannelId(threadId);
+  const messageWindow = useSelector((state: IRootState) =>
+    messageWindowByChannelIdSelector(state, threadId)
+  );
+  const { hasOlder } = windowOrDefault(messageWindow);
   const [showMenu, setShowMenu] = useState(false);
   const isMobile = useIsMobile();
+  const can = useCan();
+  const ownUserId = useOwnUserId();
 
   const onClose = useCallback(() => {
     setActiveThreadId(undefined);
@@ -76,19 +95,28 @@ const ForumThreadView = memo(() => {
     }
   }, [thread]);
 
-  // The OP is the author of the first (oldest) message in the thread
-  // Messages are stored in chronological ascending order (oldest first)
-  const creatorUserId = useMemo(() => {
-    if (messages.length === 0) return null;
-    return messages[0].userId;
-  }, [messages]);
+  // The post is the thread's oldest message. The store keeps messages
+  // oldest-first, but only once no older page is left is messages[0]
+  // really the post (and not merely the oldest loaded reply).
+  const postMessage = useMemo(
+    () => (!hasOlder && messages.length > 0 ? messages[0] : null),
+    [hasOlder, messages]
+  );
+  const creatorUserId = postMessage?.userId ?? null;
 
   const contextValue = useMemo(
-    () => ({ creatorUserId }),
-    [creatorUserId]
+    () => ({ creatorUserId, postMessageId: postMessage?.id ?? null }),
+    [creatorUserId, postMessage?.id]
   );
 
   if (!thread) return null;
+
+  const canManage = can(Permission.MANAGE_CHANNELS);
+  // Archiving is a moderation action; reopening one's own post is not
+  // (the server allows the author to unarchive, see archive-thread.ts).
+  const isCreator = creatorUserId !== null && creatorUserId === ownUserId;
+  const canToggleArchive = canManage || (thread.archived && isCreator);
+  const showMenuButton = canManage || canToggleArchive;
 
   return (
     <ForumThreadContext.Provider value={contextValue}>
@@ -98,9 +126,15 @@ const ForumThreadView = memo(() => {
           <span className="text-sm font-semibold truncate flex-1">
             {thread.name}
           </span>
+          {thread.archived && (
+            <span className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider bg-muted text-muted-foreground">
+              <Archive className="w-3 h-3" />
+              Archived
+            </span>
+          )}
 
           {/* Menu button */}
-          <Protect permission={Permission.MANAGE_CHANNELS}>
+          {showMenuButton && (
             <div className="relative">
               <Button
                 variant="ghost"
@@ -108,6 +142,7 @@ const ForumThreadView = memo(() => {
                 className="h-7 w-7 p-0"
                 onClick={() => setShowMenu(!showMenu)}
                 title="Thread options"
+                aria-label="Thread options"
               >
                 <MoreHorizontal className="w-4 h-4" />
               </Button>
@@ -118,27 +153,35 @@ const ForumThreadView = memo(() => {
                     onClick={() => setShowMenu(false)}
                   />
                   <div className="absolute right-0 top-full mt-1 w-44 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
-                    <button
-                      type="button"
-                      onClick={onArchive}
-                      className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent/50 flex items-center gap-2"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                      {thread.archived ? 'Unarchive' : 'Archive'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onDelete}
-                      className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent/50 flex items-center gap-2 text-destructive"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Delete
-                    </button>
+                    {canToggleArchive && (
+                      <button
+                        type="button"
+                        onClick={onArchive}
+                        className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent/50 flex items-center gap-2"
+                      >
+                        {thread.archived ? (
+                          <ArchiveRestore className="w-3.5 h-3.5" />
+                        ) : (
+                          <Archive className="w-3.5 h-3.5" />
+                        )}
+                        {thread.archived ? 'Unarchive' : 'Archive'}
+                      </button>
+                    )}
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={onDelete}
+                        className="w-full px-3 py-1.5 text-sm text-left hover:bg-accent/50 flex items-center gap-2 text-destructive"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </>
               )}
             </div>
-          </Protect>
+          )}
 
           {/* Close button — on phones it reads as "back to the posts" */}
           <Button
@@ -147,6 +190,7 @@ const ForumThreadView = memo(() => {
             className="h-7 w-7 p-0"
             onClick={onClose}
             title={isMobile ? 'Back' : 'Close thread'}
+            aria-label={isMobile ? 'Back' : 'Close thread'}
           >
             {isMobile ? (
               <ArrowLeft className="w-4 h-4" />
@@ -156,13 +200,9 @@ const ForumThreadView = memo(() => {
           </Button>
         </div>
 
-        {/* Thread title display area */}
-        <div className="flex flex-col items-center justify-center py-8 px-4 border-b border-border/30">
-          <MessageCircle className="w-10 h-10 text-muted-foreground/40 mb-2" />
-          <h1 className="text-xl font-bold text-center">{thread.name}</h1>
-        </div>
-
-        {/* Thread messages */}
+        {/* Post body + replies: the opening message renders as the post
+            (title, author, content, gallery) inside the message list,
+            see ForumPostBody; the rows after it are the replies. */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <TextChannel channelId={thread.id} />
         </div>

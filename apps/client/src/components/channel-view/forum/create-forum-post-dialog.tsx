@@ -3,9 +3,11 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { setActiveThreadId } from '@/features/server/channels/actions';
 import { uploadFiles } from '@/helpers/upload-file';
+import { MAX_FILES_PER_POST } from '@pulse/shared';
 import { Image, Plus, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { splitByRemainingSlots } from './forum-post-limits';
 
 type TCreateForumPostDialogProps = {
   channelId: number;
@@ -55,8 +57,8 @@ const CreateForumPostDialog = memo(
         try {
           const result = await trpc.threads.getForumTags.query({ channelId });
           setTags(result);
-        } catch {
-          // ignore
+        } catch (err) {
+          toast.error(getTrpcError(err, 'Failed to load tags'));
         }
       };
 
@@ -73,8 +75,26 @@ const CreateForumPostDialog = memo(
 
     const onFileInputChange = useCallback(
       async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const selectedFiles = Array.from(e.target.files ?? []);
-        if (selectedFiles.length === 0) return;
+        const picked = Array.from(e.target.files ?? []);
+        if (picked.length === 0) return;
+
+        // Only what still fits is uploaded; the server rejects a longer
+        // list outright, which used to surface as a raw error on submit.
+        const { accepted: selectedFiles, dropped } = splitByRemainingSlots(
+          picked,
+          uploadedFiles.length
+        );
+        if (dropped > 0) {
+          toast.error(
+            `A post can have up to ${MAX_FILES_PER_POST} images — ${dropped} ${
+              dropped === 1 ? 'file was' : 'files were'
+            } not added`
+          );
+        }
+        if (selectedFiles.length === 0) {
+          e.target.value = '';
+          return;
+        }
 
         setUploading(true);
 
@@ -105,8 +125,10 @@ const CreateForumPostDialog = memo(
           e.target.value = '';
         }
       },
-      []
+      [uploadedFiles.length]
     );
+
+    const atFileLimit = uploadedFiles.length >= MAX_FILES_PER_POST;
 
     const removeFile = useCallback((id: string) => {
       setUploadedFiles((prev) => {
@@ -159,7 +181,7 @@ const CreateForumPostDialog = memo(
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-popover border border-border rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <div className="bg-popover border border-border rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[calc(var(--vvh)-2rem)] overflow-y-auto">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
             <h2 className="text-sm font-semibold">New Post</h2>
             <button
@@ -268,12 +290,29 @@ const CreateForumPostDialog = memo(
               variant="ghost"
               size="sm"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
+              disabled={uploading || atFileLimit}
+              title={
+                atFileLimit
+                  ? `Up to ${MAX_FILES_PER_POST} images per post`
+                  : undefined
+              }
               className="gap-1"
             >
               <Image className="w-4 h-4" />
               {uploading ? 'Uploading...' : 'Add Image'}
             </Button>
+            <span
+              className={
+                atFileLimit
+                  ? 'text-xs text-muted-foreground'
+                  : 'text-xs text-muted-foreground/70'
+              }
+              aria-live="polite"
+            >
+              {uploadedFiles.length > 0
+                ? `${uploadedFiles.length}/${MAX_FILES_PER_POST}`
+                : `Up to ${MAX_FILES_PER_POST} images`}
+            </span>
 
             <div className="flex gap-2 ml-auto">
               <Button variant="ghost" size="sm" onClick={onClose}>

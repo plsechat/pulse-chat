@@ -74,7 +74,7 @@ const STATUS_DOT: Record<string, string> = {
   disconnected: 'bg-red-500'
 };
 
-const VOICE_BTN = 'h-8 w-8 rounded-md';
+const VOICE_BTN = 'rounded-md';
 
 /**
  * The in-call strip under the mobile header. On phones the voice
@@ -122,7 +122,7 @@ const MobileVoiceBar = memo(() => {
       </span>
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         className={cn(VOICE_BTN, ownVoiceState.micMuted && 'text-red-400')}
         onClick={toggleMic}
         disabled={!can(ChannelPermission.SPEAK)}
@@ -136,7 +136,7 @@ const MobileVoiceBar = memo(() => {
       </Button>
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         className={cn(VOICE_BTN, ownVoiceState.soundMuted && 'text-red-400')}
         onClick={toggleSound}
         title={ownVoiceState.soundMuted ? 'Undeafen' : 'Deafen'}
@@ -151,7 +151,7 @@ const MobileVoiceBar = memo(() => {
       <WatchTogetherButton buttonClassName="bg-transparent" side="bottom" />
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         className={cn(VOICE_BTN, ownVoiceState.webcamEnabled && 'text-green-400')}
         onClick={toggleWebcam}
         disabled={!can(ChannelPermission.WEBCAM)}
@@ -166,7 +166,7 @@ const MobileVoiceBar = memo(() => {
       {canShareScreen() && (
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           className={cn(VOICE_BTN, ownVoiceState.sharingScreen && 'text-blue-400')}
           onClick={toggleScreenShare}
           disabled={!can(ChannelPermission.SHARE_SCREEN)}
@@ -175,15 +175,15 @@ const MobileVoiceBar = memo(() => {
           }
         >
           {ownVoiceState.sharingScreen ? (
-            <Monitor className="h-4 w-4" />
-          ) : (
             <MonitorOff className="h-4 w-4" />
+          ) : (
+            <Monitor className="h-4 w-4" />
           )}
         </Button>
       )}
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         className={cn(VOICE_BTN, 'text-red-400 hover:text-red-300')}
         onClick={() => void leaveCurrentVoice()}
         title="Disconnect"
@@ -250,7 +250,6 @@ const MobileHeader = memo(
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 flex-shrink-0"
             title="Open channels"
             onClick={onToggleLeftDrawer}
           >
@@ -291,7 +290,6 @@ const MobileHeader = memo(
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 flex-shrink-0"
                 onClick={onToggleRightDrawer}
                 title="Open members"
               >
@@ -302,7 +300,6 @@ const MobileHeader = memo(
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 flex-shrink-0"
                 onClick={() => setSheet('menu')}
                 title="More"
               >
@@ -412,7 +409,7 @@ const MobileHeader = memo(
               <SheetContent
                 side="bottom"
                 close={closeSheet}
-                className="h-[85dvh] gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)] [&>button:last-of-type]:hidden"
+                className="h-[calc(var(--vvh)*0.85)] gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)] [&>button:last-of-type]:hidden"
               >
                 <SheetTitle className="sr-only">
                   {sheet === 'search'

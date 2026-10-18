@@ -335,7 +335,7 @@ const Connect = memo(() => {
         }
       `}</style>
 
-      <div className="flex min-h-screen w-full bg-background">
+      <div className="flex min-h-(--vvh) w-full bg-background">
         {/* Insecure connection banner */}
         {!window.isSecureContext && (
           <div className="fixed top-0 left-0 right-0 z-50 p-3">

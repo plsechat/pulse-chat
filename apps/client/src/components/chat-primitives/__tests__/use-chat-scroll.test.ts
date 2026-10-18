@@ -401,3 +401,243 @@ describe('useChatScroll load-more compensation', () => {
     }
   });
 });
+
+// --- bottom-follow -----------------------------------------------------
+
+/**
+ * Following new arrivals is decided by the anchor the reader HAD (the
+ * sticky flag), not by measuring after the new row is in the DOM: a
+ * group taller than the near-bottom threshold used to measure as
+ * "scrolled up" and the list stopped following. The follow is keyed on
+ * the newest message id so it survives the 300-message window cap, and
+ * a ResizeObserver re-pins the bottom when content grows late.
+ *
+ * This harness clamps scrollTop like a real scroll container (the
+ * geometry above never clamps, which is what hid the bug) and lets a
+ * test change the content height and re-render with a new tail.
+ */
+type TMessage = { id: number };
+
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  readonly observed = new Set<Element>();
+  constructor(private readonly callback: ResizeObserverCallback) {
+    FakeResizeObserver.instances.push(this);
+  }
+  observe(el: Element) {
+    this.observed.add(el);
+  }
+  unobserve(el: Element) {
+    this.observed.delete(el);
+  }
+  disconnect() {
+    this.observed.clear();
+  }
+  fire() {
+    this.callback([], this as unknown as ResizeObserver);
+  }
+}
+
+async function mountFollowHook(
+  initial: TMessage[],
+  props: Partial<Parameters<typeof useChatScroll>[0]> = {}
+) {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const geometry = { scrollHeight: SCROLL_HEIGHT, clientHeight: CLIENT_HEIGHT };
+  let scrollTop = 0;
+  let latest: HookApi | null = null;
+  let container: HTMLDivElement | null = null;
+
+  const Harness = ({ messages }: { messages: TMessage[] }) => {
+    latest = useChatScroll({
+      posKey: POS,
+      storageKey: KEY,
+      messages,
+      fetching: false,
+      hasMore: false,
+      loadMore: async () => undefined,
+      ...props
+    });
+    return createElement(
+      'div',
+      {
+        ref: (el: HTMLDivElement | null) => {
+          if (el && el !== container) {
+            Object.defineProperty(el, 'scrollHeight', { get: () => geometry.scrollHeight, configurable: true });
+            Object.defineProperty(el, 'clientHeight', { get: () => geometry.clientHeight, configurable: true });
+            Object.defineProperty(el, 'scrollTop', {
+              get: () => scrollTop,
+              set: (value: number) => {
+                scrollTop = Math.max(0, Math.min(value, geometry.scrollHeight - geometry.clientHeight));
+              },
+              configurable: true
+            });
+            container = el;
+          }
+          latest!.containerRef.current = el;
+        }
+      },
+      createElement('div', { id: 'content' })
+    );
+  };
+
+  const root = createRoot(host);
+  const render = (messages: TMessage[]) =>
+    act(async () => {
+      root.render(createElement(Harness, { messages }));
+    });
+  await render(initial);
+  await act(async () => {
+    await sleep(260);
+  });
+
+  return { container: container!, api: () => latest!, geometry, render, root, host };
+}
+
+/** The reader scrolls up to `top` (a real scroll drives onScroll). */
+async function scrollUpTo(container: HTMLDivElement, api: () => HookApi, top: number) {
+  container.scrollTop = top;
+  await act(async () => {
+    api().onScroll();
+  });
+}
+
+describe('useChatScroll bottom-follow', () => {
+  const ORIGINAL_RESIZE_OBSERVER = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  const BOTTOM = SCROLL_HEIGHT - CLIENT_HEIGHT;
+  const THREE: TMessage[] = [{ id: 1 }, { id: 2 }, { id: 3 }];
+
+  beforeEach(() => {
+    FakeResizeObserver.instances = [];
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver;
+  });
+
+  afterEach(() => {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ORIGINAL_RESIZE_OBSERVER;
+  });
+
+  test('a new group taller than the near-bottom threshold still follows', async () => {
+    const { container, api, geometry, render, root, host } = await mountFollowHook(THREE);
+    try {
+      expect(container.scrollTop).toBe(BOTTOM);
+
+      // 150 px of new content: measured after the fact, the reader is now
+      // 150 px from the bottom — past the 100 px threshold.
+      geometry.scrollHeight += 150;
+      await render([...THREE, { id: 4 }]);
+
+      expect(container.scrollTop).toBe(geometry.scrollHeight - CLIENT_HEIGHT);
+      expect(api().isAtBottom).toBe(true);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+
+  test('a new tail at a constant length (the window cap) follows', async () => {
+    const { container, geometry, render, root, host } = await mountFollowHook(THREE);
+    try {
+      geometry.scrollHeight += 150;
+      // The oldest row was trimmed as the newest arrived: same length.
+      await render([{ id: 2 }, { id: 3 }, { id: 4 }]);
+      expect(container.scrollTop).toBe(geometry.scrollHeight - CLIENT_HEIGHT);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+
+  test('reactions and edits (same tail id) do not move the reader', async () => {
+    const { container, api, render, root, host } = await mountFollowHook(THREE);
+    try {
+      await scrollUpTo(container, api, 300);
+      // A new array ref with the same ids, as a reaction toggle emits.
+      await render(THREE.map((m) => ({ ...m })));
+      expect(container.scrollTop).toBe(300);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+
+  test('scrolled up, a new arrival does not follow and the pill state says so', async () => {
+    const { container, api, geometry, render, root, host } = await mountFollowHook(THREE);
+    try {
+      await scrollUpTo(container, api, 300);
+      expect(api().isAtBottom).toBe(false);
+
+      geometry.scrollHeight += 150;
+      await render([...THREE, { id: 4 }]);
+
+      expect(container.scrollTop).toBe(300);
+      expect(api().isAtBottom).toBe(false);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+
+  test('late growth re-pins the bottom while anchored, never while scrolled up', async () => {
+    const { container, api, geometry, root, host } = await mountFollowHook(THREE);
+    try {
+      const [observer] = FakeResizeObserver.instances;
+      expect(observer).toBeDefined();
+      // The pane (composer-height changes) and its content are watched.
+      expect(observer!.observed.has(container)).toBe(true);
+      expect(observer!.observed.has(container.querySelector('#content')!)).toBe(true);
+
+      // A link preview / image expands an existing row: no new message,
+      // no scroll event — only the observer sees it.
+      geometry.scrollHeight += 300;
+      await act(async () => {
+        observer!.fire();
+      });
+      expect(container.scrollTop).toBe(geometry.scrollHeight - CLIENT_HEIGHT);
+
+      await scrollUpTo(container, api, 300);
+      geometry.scrollHeight += 300;
+      await act(async () => {
+        observer!.fire();
+      });
+      expect(container.scrollTop).toBe(300);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+
+  test('followNext follows the next arrival even when scrolled up', async () => {
+    const { container, api, geometry, render, root, host } = await mountFollowHook(THREE);
+    try {
+      await scrollUpTo(container, api, 300);
+
+      api().followNext();
+      geometry.scrollHeight += 150;
+      await render([...THREE, { id: 4 }]);
+
+      expect(container.scrollTop).toBe(geometry.scrollHeight - CLIENT_HEIGHT);
+      expect(api().isAtBottom).toBe(true);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+
+  test('detached from the tail nothing follows or re-pins', async () => {
+    const { container, api, geometry, render, root, host } = await mountFollowHook(THREE, {
+      detached: true
+    });
+    try {
+      await scrollUpTo(container, api, 300);
+      api().followNext();
+      geometry.scrollHeight += 150;
+      await render([...THREE, { id: 4 }]);
+      expect(container.scrollTop).toBe(300);
+
+      await scrollUpTo(container, api, BOTTOM + 150);
+      const [observer] = FakeResizeObserver.instances;
+      geometry.scrollHeight += 300;
+      await act(async () => {
+        observer!.fire();
+      });
+      expect(container.scrollTop).toBe(BOTTOM + 150);
+    } finally {
+      await unmountHook(root, host);
+    }
+  });
+});

@@ -8,6 +8,7 @@ import {
 } from '@/features/events/hooks';
 import {
   useConnectedServerPublicId,
+  usePlannerEnabled,
   usePreviewMode
 } from '@/features/server/hooks';
 import { cn } from '@/lib/utils';
@@ -16,7 +17,7 @@ import { memo, useEffect, useState } from 'react';
 
 /**
  * The Apps block at the top of the channel list: first-party apps of
- * the community, each a row styled like a channel. Raid Planner is the
+ * the community, each a row styled like a channel. The Planner is the
  * first; the row carries a dot while an event the viewer signed up for
  * is live or starts within the hour.
  */
@@ -25,21 +26,24 @@ const AppsSection = memo(() => {
   const selected = usePlannerOpen();
   const attention = useEventsNeedAttention();
   const previewMode = usePreviewMode();
+  const plannerEnabled = usePlannerEnabled();
   const serverKey = useConnectedServerPublicId();
   const windowLoaded = useEventWindow() !== null;
 
   // The dot needs the next hour's events even when the planner was
   // never opened: load a day around now once per server. The planner
-  // widens this to its month when it opens.
+  // widens this to its month when it opens. With the Planner switched
+  // off the list route refuses, so nothing is asked for.
   useEffect(() => {
-    if (previewMode || !serverKey || windowLoaded) return;
+    if (previewMode || !plannerEnabled || !serverKey || windowLoaded) return;
     const now = Date.now();
     void fetchEventsWindow(now - 12 * HOUR_MS, now + 36 * HOUR_MS);
-  }, [previewMode, serverKey, windowLoaded]);
+  }, [previewMode, plannerEnabled, serverKey, windowLoaded]);
 
   // A preview is a read-only snapshot of a server the viewer has not
-  // joined; its events are members-only.
-  if (previewMode) return null;
+  // joined; its events are members-only. A community that switched the
+  // Planner off has no row to show.
+  if (previewMode || !plannerEnabled) return null;
 
   const ChevronIcon = expanded ? ChevronDown : ChevronRight;
 
@@ -72,7 +76,7 @@ const AppsSection = memo(() => {
             <span className="channel-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
               <CalendarDays className="h-4 w-4" />
             </span>
-            <span className="min-w-0 flex-1 truncate">Raid Planner</span>
+            <span className="min-w-0 flex-1 truncate">Planner</span>
             {attention && (
               <span className="badge-pop ml-auto flex h-5 items-center">
                 <span aria-hidden className="h-2 w-2 rounded-full bg-live" />

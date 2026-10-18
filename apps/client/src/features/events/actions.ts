@@ -379,6 +379,15 @@ export const navigateToEvent = async (serverId: number, eventId: number) => {
  * reminder; a repeat of the same stage is ignored.
  */
 export const handleEventReminder = (payload: TReminderPayload) => {
+  // The cron already skips a community with the Planner off; a reminder
+  // that was in flight when the switch flipped is dropped here too.
+  const { publicSettings } = store.getState().server;
+  if (
+    publicSettings?.id === payload.serverId &&
+    publicSettings.enableEvents === false
+  ) {
+    return;
+  }
   const key = reminderKey(payload);
   if (store.getState().events.remindersSeen.includes(key)) return;
   store.dispatch(eventsSliceActions.noteReminder(key));
@@ -393,7 +402,7 @@ export const handleEventReminder = (payload: TReminderPayload) => {
       }
     }
   });
-  sendDesktopNotification('Raid Planner', text, () => {
+  sendDesktopNotification('Planner', text, () => {
     void navigateToEvent(payload.serverId, payload.eventId);
   });
 };

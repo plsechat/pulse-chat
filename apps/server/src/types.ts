@@ -364,6 +364,7 @@ export type TPublicServerSettings = Pick<
   | 'storageSpaceQuotaByUser'
   | 'storageOverflowAction'
   | 'enablePlugins'
+  | 'enableEvents'
 > & {
   /** Current server logo, so clients can live-update the server rail on
    *  SERVER_SETTINGS_UPDATE without a refetch. Optional — older servers

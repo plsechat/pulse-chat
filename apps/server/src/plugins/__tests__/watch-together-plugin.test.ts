@@ -369,9 +369,34 @@ describe('watch-together plugin from a text channel', () => {
       expect(seekRow!.content).toContain('{"name":"seconds","value":"30","status":"completed"}');
       expect(seekRow!.content).toContain('Jumped to 0:30.');
 
-      // Stop from the card's channel: ended, text and card alike; the session is gone.
-      await owner.messages.send({ channelId: channel.id, content: '/watch stop' });
+      // A viewer's player running off the end reports the media length through the hidden
+      // sub-command: too early for the card (paused at 0:30) the report changes nothing...
+      const early = (await member.plugins.executeCommand({
+        pluginId: PLUGIN_ID,
+        commandName: 'watch',
+        subcommand: 'ended',
+        args: { duration: 600, channel: channel.id }
+      })) as { playing: boolean; position: number; endedAt?: number };
+      expect(early).toMatchObject({ playing: false, position: 30 });
+      expect(early.endedAt).toBeUndefined();
+      // ...and once the card's clock has reached the length, it ends the card AT that length
+      // for everyone (the late reader sees "Ended", never "Playing" past the end).
+      expect(
+        await member.plugins.executeCommand({
+          pluginId: PLUGIN_ID,
+          commandName: 'watch',
+          args: { action: 'ended', position: 30, channelId: channel.id }
+        })
+      ).toMatchObject({ playing: false, position: 30, endedAt: expect.any(Number) });
       await waitUntil(async () => cardOn((await cardRows())[0]!.metadata)?.endedAt !== undefined);
+      expect(cardOn((await cardRows())[0]!.metadata)).toMatchObject({ playing: false, position: 30, endedAt: expect.any(Number), viewers: 0 });
+      expect((await cardRows())[0]!.content).toBe('Watched together: intro');
+      // The watch is over: a stop finds nothing (the loader rethrows the plugin's words).
+      const stopMessageId = await owner.messages.send({ channelId: channel.id, content: '/watch stop' });
+      await waitUntil(async () => {
+        const [row] = await tdb.select({ content: messages.content }).from(messages).where(eq(messages.id, stopMessageId));
+        return row?.content?.includes('Nothing is playing in this channel') === true;
+      });
       const [ended] = await cardRows();
       expect(ended!.content).toBe('Watched together: intro');
       expect(cardOn(ended!.metadata)).toMatchObject({ playing: false, endedAt: expect.any(Number), viewers: 0 });

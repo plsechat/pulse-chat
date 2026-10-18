@@ -53,3 +53,33 @@ describe('applyAppearanceToDOM', () => {
     expect(root.style.getPropertyValue('zoom')).toBe('');
   });
 });
+
+/**
+ * --app-zoom mirrors the zoom as a bare factor. index.css derives
+ * `--vvh: calc(100dvh / var(--app-zoom))` from it, because inside a
+ * zoomed root every viewport unit is multiplied by the zoom: an
+ * uncorrected 100dvh shell covered 80 % of the window at 80 % and
+ * overflowed it at 120 % (finding #5).
+ */
+describe('applyAppearanceToDOM --app-zoom', () => {
+  test('is the zoom as a factor, set at every level including 100 %', () => {
+    const root = fresh();
+    applyAppearanceToDOM({ fontScale: 100, zoomLevel: 80 }, root);
+    expect(root.style.getPropertyValue('--app-zoom')).toBe('0.8');
+    applyAppearanceToDOM({ fontScale: 100, zoomLevel: 120 }, root);
+    expect(root.style.getPropertyValue('--app-zoom')).toBe('1.2');
+    applyAppearanceToDOM({ fontScale: 100, zoomLevel: 100 }, root);
+    expect(root.style.getPropertyValue('--app-zoom')).toBe('1');
+  });
+
+  test('follows the clamped zoom, so the shell and the zoom never disagree', () => {
+    const root = fresh();
+    applyAppearanceToDOM({ fontScale: 100, zoomLevel: 10 }, root);
+    expect(root.style.getPropertyValue('zoom')).toBe(`${ZOOM_LEVEL_RANGE.min}%`);
+    expect(root.style.getPropertyValue('--app-zoom')).toBe(
+      `${ZOOM_LEVEL_RANGE.min / 100}`
+    );
+    applyAppearanceToDOM({ fontScale: 100, zoomLevel: Number.NaN }, root);
+    expect(root.style.getPropertyValue('--app-zoom')).toBe('1');
+  });
+});

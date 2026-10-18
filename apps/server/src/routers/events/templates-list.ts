@@ -1,7 +1,7 @@
 import { listRosterTemplates } from '../../db/queries/events';
-import { serverProcedure } from '../../utils/procedures';
+import { eventsProcedure } from './_shared';
 
-const listTemplatesRoute = serverProcedure().query(({ ctx }) =>
+const listTemplatesRoute = eventsProcedure().query(({ ctx }) =>
   listRosterTemplates(ctx.activeServerId)
 );
 

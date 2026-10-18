@@ -31,6 +31,28 @@
     @slot;
   }
 }
+/*
+  Per-row reveals (message action bar, gutter timestamp, add-reaction
+  pill): on hover where hovering exists, and on any device while the
+  row is the tapped-active one (`data-actions-open`, set by
+  components/channel-view/text/active-message-store). Unlike
+  group-hover-or-touch this never shows on every row at once on a
+  phone.
+*/
+@custom-variant group-hover-or-active {
+  @media (hover: hover) {
+    &:is(:where(.group):hover *) {
+      @slot;
+    }
+  }
+  /* Not :where() here: the active rule has to outrank a same-layer
+     media-query utility on the same element (the touch toolbar is
+     `hidden` under (hover: none) and `flex` only while active), and
+     equal specificity would leave it to source order. */
+  &:is(.group[data-actions-open] *) {
+    @slot;
+  }
+}
 
 /*
   The app shell's height. `dvh` shrinks for the soft keyboard only where
@@ -39,9 +61,17 @@
   viewport and only shrinks the VISUAL viewport, so
   hooks/use-visual-viewport keeps this variable at visualViewport.height
   while the keyboard is up. Mobile shells size with `h-(--vvh)`.
+
+  --app-zoom mirrors the CSS `zoom` the appearance setting puts on
+  <html> (hooks/use-appearance-settings). Inside a zoomed root every
+  viewport unit and px is multiplied by the factor, so a 100dvh shell
+  at 80 % covers 80 % of the window and at 120 % overflows it; dividing
+  by the factor makes --vvh the real viewport again. Dialog height caps
+  use it for the same reason.
 */
 :root {
-  --vvh: 100dvh;
+  --app-zoom: 1;
+  --vvh: calc(100dvh / var(--app-zoom));
 }
 
 @theme inline {
@@ -215,6 +245,15 @@
     cursor: pointer;
   }
   /*
+   * Form controls default to a fixed intrinsic width (an <input> is
+   * ~20ch wide and refuses to shrink below it), which is what pushes a
+   * flex row past its container when the host gets narrow. Zero-weight
+   * selector so any explicit width still wins.
+   */
+  :where(input, select, textarea) {
+    min-width: 0;
+  }
+  /*
    * Default keyboard-focus ring for any interactive element that opted
    * out of the browser's chunky blue outline (via `outline-none`) but
    * never set its own focus-visible style. The Button primitive in
@@ -248,7 +287,7 @@ body,
 #root {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: var(--vvh);
   height: 100%;
 }
 

@@ -30,6 +30,7 @@ import { Pin } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { toast } from 'sonner';
+import { handleRowTap, useActiveMessageRow } from './active-message-store';
 import { MessageContextMenu } from './message-context-menu';
 import { MessageEditInline } from './message-edit-inline';
 import { MessageRenderer } from './renderer';
@@ -72,6 +73,9 @@ const Message = memo(
     const isHighlighted = highlightedId === message.id;
     const isSelected = selectedIds.has(message.id);
     const previewMode = usePreviewMode();
+    // Touch: the tapped row shows its toolbar in flow (active-message-store).
+    const rowKey = `msg-${message.id}`;
+    const actionsOpen = useActiveMessageRow(rowKey);
 
     // A deleted message keeps its row as a tombstone: "Message deleted"
     // in place, with the deleter and time for MANAGE_MESSAGES holders
@@ -228,7 +232,7 @@ const Message = memo(
             )}
           >
             {!isFirstInGroup && !compact && (
-              <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover-or-touch:opacity-100 transition-opacity duration-100 select-none">
+              <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover-or-active:opacity-100 transition-opacity duration-100 select-none">
                 {format(new Date(message.createdAt), timeOnly())}
               </time>
             )}
@@ -267,10 +271,17 @@ const Message = memo(
             isSelected && 'bg-primary/10',
             mentionsMe && 'mention-row'
           )}
-          onClick={selectionMode ? onSelectionClick : undefined}
+          data-actions-open={actionsOpen || undefined}
+          onClick={(e) => {
+            if (selectionMode) {
+              onSelectionClick(e);
+              return;
+            }
+            handleRowTap(e, rowKey);
+          }}
         >
           {!isFirstInGroup && !compact && (
-            <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover-or-touch:opacity-100 transition-opacity duration-100 select-none">
+            <time className="absolute left-0 top-0 w-[56px] pr-2 text-right text-[10px] leading-[1.375rem] text-muted-foreground/60 opacity-0 group-hover-or-active:opacity-100 transition-opacity duration-100 select-none">
               {format(new Date(message.createdAt), timeOnly())}
             </time>
           )}

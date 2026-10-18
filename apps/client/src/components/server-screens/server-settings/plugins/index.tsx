@@ -60,9 +60,10 @@ const PluginItem = memo(({ plugin, onToggle }: TPluginItemProps) => {
 
   const handleViewCommands = useCallback(() => {
     openDialog(Dialog.PLUGIN_COMMANDS, {
-      pluginId: plugin.id
+      pluginId: plugin.id,
+      commands: plugin.commands
     });
-  }, [plugin.id]);
+  }, [plugin.id, plugin.commands]);
 
   const handleViewSettings = useCallback(() => {
     openDialog(Dialog.PLUGIN_SETTINGS, {

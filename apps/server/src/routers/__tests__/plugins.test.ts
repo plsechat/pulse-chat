@@ -164,6 +164,38 @@ describe('plugins router — instance-owner surface', () => {
     expect(typeof stream.subscribe).toBe('function');
   });
 
+  test('plugins.get lists each plugin\'s commands even while the active server has plugins off', async () => {
+    const { caller } = await initTest(1);
+    // The instance panel is opened from whatever community is active;
+    // its Plugins switch gates running commands there, never what the
+    // instance owner gets to see about a plugin.
+    await setServerPlugins(1, false);
+    const id = 'instance-listing';
+    const cleanup = await writeSubcommandPlugin(id);
+
+    try {
+      await pluginManager.togglePlugin(id, true);
+      expect(pluginManager.isPluginLoaded(id)).toBe(true);
+
+      await expect(caller.plugins.getCommands({ pluginId: id })).rejects.toThrow(
+        'Plugin commands are not enabled on this server'
+      );
+
+      const { plugins } = await caller.plugins.get();
+      const listed = plugins.find((p) => p.id === id);
+      expect(listed?.commands.map((c) => c.name)).toEqual(['deploy']);
+      // The hidden sub-command stays hidden here too.
+      expect(listed?.commands[0]?.subcommands?.map((s) => s.name)).toEqual(['ship', 'halt']);
+      // A plugin that is not loaded has nothing registered.
+      await pluginManager.unload(id);
+      const after = (await caller.plugins.get()).plugins.find((p) => p.id === id);
+      expect(after?.commands).toEqual([]);
+    } finally {
+      await pluginManager.unload(id);
+      await cleanup();
+    }
+  });
+
   test('plugin ids are bounded', async () => {
     const { caller } = await initTest(1);
 

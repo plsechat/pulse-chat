@@ -14,7 +14,17 @@ export type TUserPreferences = {
     messageSoundsEnabled: boolean;
     voiceSoundsEnabled: boolean;
     actionSoundsEnabled: boolean;
+    /** The incoming-call ring; its own switch, apart from the voice sounds. */
+    callSoundsEnabled: boolean;
+    /**
+     * The sound played when the user's own message goes out. Opt-in:
+     * off by default, and a settings object saved before the flag
+     * existed reads as off (`=== true` gates it).
+     */
+    messageSentSoundEnabled: boolean;
     desktopNotificationsEnabled: boolean;
+    /** Per-event chosen sound variant id; a missing key is the event's default. */
+    soundVariants: Partial<Record<string, string>>;
   };
   theme: 'dark' | 'light' | 'onyx' | 'midnight' | 'sunset' | 'rose' | 'forest' | 'dracula' | 'nord' | 'sand' | 'system';
   serverChannelMap: Record<string, number>;
@@ -47,7 +57,10 @@ export const DEFAULT_USER_PREFERENCES: TUserPreferences = {
     messageSoundsEnabled: true,
     voiceSoundsEnabled: true,
     actionSoundsEnabled: true,
-    desktopNotificationsEnabled: false
+    callSoundsEnabled: true,
+    messageSentSoundEnabled: false,
+    desktopNotificationsEnabled: false,
+    soundVariants: {}
   },
   theme: 'dark',
   serverChannelMap: {},

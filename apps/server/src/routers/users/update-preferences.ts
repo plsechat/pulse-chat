@@ -16,6 +16,10 @@ import { protectedProcedure } from '../../utils/trpc';
  */
 const MAX_SERVER_CHANNEL_MAP_ENTRIES = 200;
 
+/** Sound variant ids are short identifiers; one per event with a choice. */
+const MAX_SOUND_VARIANT_ENTRIES = 32;
+const MAX_SOUND_VARIANT_KEY_LENGTH = 64;
+
 const pruneServerChannelMap = (
   map: Record<string, number>
 ): Record<string, number> => {
@@ -43,7 +47,21 @@ const preferencesSchema = z.object({
       messageSoundsEnabled: z.boolean(),
       voiceSoundsEnabled: z.boolean(),
       actionSoundsEnabled: z.boolean(),
-      desktopNotificationsEnabled: z.boolean()
+      callSoundsEnabled: z.boolean(),
+      messageSentSoundEnabled: z.boolean(),
+      desktopNotificationsEnabled: z.boolean(),
+      // zod strips what it does not know: without these two the call
+      // ring switch and every chosen sound variant were dropped on the
+      // way in and then overwritten locally by the server copy on the
+      // next load.
+      soundVariants: z
+        .record(
+          z.string().max(MAX_SOUND_VARIANT_KEY_LENGTH),
+          z.string().max(MAX_SOUND_VARIANT_KEY_LENGTH)
+        )
+        .refine((map) => Object.keys(map).length <= MAX_SOUND_VARIANT_ENTRIES, {
+          message: `soundVariants may hold at most ${MAX_SOUND_VARIANT_ENTRIES} entries`
+        })
     })
     .partial()
     .optional(),
@@ -90,7 +108,10 @@ const updatePreferencesRoute = protectedProcedure
 
     const merged: TUserPreferences = {
       appearance: { ...current.appearance, ...input.appearance },
+      // Rows written before a sound flag existed lack it; the defaults
+      // fill it so the stored object is never partial.
       soundNotification: {
+        ...DEFAULT_USER_PREFERENCES.soundNotification,
         ...current.soundNotification,
         ...input.soundNotification
       },

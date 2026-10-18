@@ -51,8 +51,8 @@ test('a listed server appears in the Directory, is searchable and joinable from 
     const card = page.getByRole('article', { name: 'Pulse Server' });
     await expect(card).toBeVisible({ timeout: 20_000 });
     await expect(card.getByText('Chess', { exact: true })).toBeVisible();
-    await expect(card.getByText('casual', { exact: true })).toBeVisible();
-    await expect(card.getByText('weekends', { exact: true })).toBeVisible();
+    await expect(card.getByText('#casual', { exact: true })).toBeVisible();
+    await expect(card.getByText('#weekends', { exact: true })).toBeVisible();
     await expect(card.getByText('Evening games for everyone')).toBeVisible();
     await expect(card.getByText(/\d+ members? · \d+ online/)).toBeVisible();
     await expect(card.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();

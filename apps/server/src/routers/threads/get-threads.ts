@@ -13,6 +13,7 @@ import {
   messages,
   users
 } from '../../db/schema';
+import { generateFileToken } from '../../helpers/files-crypto';
 import { getPlainTextFromHtml } from '../../helpers/get-plain-text-from-html';
 import { channelProcedure } from '../../utils/procedures';
 
@@ -47,6 +48,10 @@ const getThreadsRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
         archived: channels.archived,
         parentChannelId: channels.parentChannelId,
         createdAt: channels.createdAt,
+        // a private post's thumbnail needs a token salted with the
+        // thread's own file token (the file hangs off a message in it)
+        private: channels.private,
+        fileAccessToken: channels.fileAccessToken,
         messageCount: count(messages.id),
         lastMessageAt: max(messages.createdAt),
         sourceMessageId: min(sourceMessages.id)
@@ -120,21 +125,26 @@ const getThreadsRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
         ? await db
             .select({
               messageId: messageFiles.messageId,
+              fileId: files.id,
               fileName: files.name,
               mimeType: files.mimeType
             })
             .from(messageFiles)
             .innerJoin(files, eq(messageFiles.fileId, files.id))
             .where(inArray(messageFiles.messageId, firstMessageIds))
+            .orderBy(asc(messageFiles.createdAt), asc(files.id))
         : [];
 
-    const firstImageByMessage = new Map<string, string>();
+    const firstImageByMessage = new Map<
+      number,
+      { id: number; name: string }
+    >();
     for (const f of imageFiles) {
       if (
         f.mimeType.startsWith('image/') &&
-        !firstImageByMessage.has(String(f.messageId))
+        !firstImageByMessage.has(f.messageId)
       ) {
-        firstImageByMessage.set(String(f.messageId), f.fileName);
+        firstImageByMessage.set(f.messageId, { id: f.fileId, name: f.fileName });
       }
     }
 
@@ -192,8 +202,18 @@ const getThreadsRoute = channelProcedure(ChannelPermission.VIEW_CHANNEL, {
     return threads.map((t) => {
       const firstMsg = firstMessageByThread.get(t.id);
       const creator = firstMsg ? creatorMap.get(firstMsg.userId) : undefined;
-      const firstImage = firstMsg
-        ? firstImageByMessage.get(String(firstMsg.id))
+      const firstImageFile = firstMsg
+        ? firstImageByMessage.get(firstMsg.id)
+        : undefined;
+      // Same gating as get-messages: a private thread's file is only
+      // served with a token, so the card thumbnail carries one too.
+      const firstImage = firstImageFile
+        ? {
+            name: firstImageFile.name,
+            _accessToken: t.private
+              ? generateFileToken(firstImageFile.id, t.fileAccessToken)
+              : undefined
+          }
         : undefined;
 
       const contentPreview = firstMsg?.content

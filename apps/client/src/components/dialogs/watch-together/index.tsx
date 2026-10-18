@@ -19,7 +19,7 @@ export type TWatchTogetherDialogProps = TDialogBaseProps & TWatchTarget;
  */
 const WatchTogetherDialog = memo(({ isOpen, close, ...target }: TWatchTogetherDialogProps) => (
   <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
-    <DialogContent className="flex max-h-[90vh] w-[min(56rem,calc(100vw-2rem))] max-w-none flex-col gap-0 p-0 sm:max-w-none">
+    <DialogContent className="flex max-h-[calc(var(--vvh)*0.9)] w-[min(56rem,calc(100vw/var(--app-zoom)-2rem))] max-w-none flex-col gap-0 p-0 sm:max-w-none">
       <DialogHeader className="px-4 pt-4">
         <DialogTitle>Watch together</DialogTitle>
         <DialogDescription className="sr-only">{target.card.title}</DialogDescription>

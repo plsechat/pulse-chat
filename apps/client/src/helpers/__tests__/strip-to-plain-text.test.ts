@@ -46,13 +46,59 @@ describe('stripToPlainText — token format', () => {
     );
   });
 
-  test('formatting markers are removed', () => {
-    expect(stripToPlainText('**b** *i* ~~s~~ __u__ `c`')).toBe('b i s u c');
-    expect(stripToPlainText('```js\ncode\n```')).toBe('js\ncode');
+  test('paired formatting markers are removed and the text kept', () => {
+    expect(stripToPlainText('**b** *i* ~~s~~ __u__ `c` ||sp|| _e_')).toBe('b i s u c sp e');
+    expect(stripToPlainText('***both***')).toBe('both');
   });
 
-  test('@everyone and links are left as readable text', () => {
+  test('fenced blocks keep the code and drop the fences and language', () => {
+    expect(stripToPlainText('```js\ncode\n```')).toBe('code');
+    expect(stripToPlainText('```one```')).toBe('one');
+    expect(stripToPlainText('```\nunclosed')).toBe('unclosed');
+  });
+
+  test('code spans shield their contents from the markdown pass', () => {
+    expect(stripToPlainText('`**not bold** _x_`')).toBe('**not bold** _x_');
+  });
+
+  test('a forum post body reads as plain text', () => {
+    expect(stripToPlainText('# Title\n**bold** [link](http://x)')).toBe('Title\nbold link');
+  });
+
+  test('headings, quotes, list markers and rules go', () => {
+    expect(stripToPlainText('# H1\n## H2\nbody')).toBe('H1\nH2\nbody');
+    expect(stripToPlainText('#topic')).toBe('#topic');
+    expect(stripToPlainText('> quoted\n> > nested\nplain')).toBe('quoted\nnested\nplain');
+    expect(stripToPlainText('- a\n* b\n+ c\n1. d\n2) e\n  - nested\n- [ ] f\n- [x] g')).toBe(
+      'a\nb\nc\nd\ne\nnested\nf\ng'
+    );
+    expect(stripToPlainText('above\n---\nbelow\n***\n___')).toBe('above\nbelow');
+  });
+
+  test('links and images collapse to their text', () => {
+    expect(stripToPlainText('[docs](https://x.y/a_b) and ![alt](https://x/y.png)')).toBe(
+      'docs and alt'
+    );
+    expect(stripToPlainText('[t](https://u "title")')).toBe('t');
+  });
+
+  test('@everyone and bare URLs are left as readable text', () => {
     expect(stripToPlainText('@everyone see https://x.y')).toBe('@everyone see https://x.y');
+    const url = 'https://www.youtube.com/watch?v=_ab_cd_&x=__y__*z*';
+    expect(stripToPlainText(`see ${url} now`)).toBe(`see ${url} now`);
+  });
+
+  test('snake_case, lone asterisks and spaced operators are plain text', () => {
+    expect(stripToPlainText('snake_case_name stays')).toBe('snake_case_name stays');
+    expect(stripToPlainText('5 * 3 = 15 and a * b')).toBe('5 * 3 = 15 and a * b');
+    expect(stripToPlainText('* lone star line')).toBe('lone star line');
+    expect(stripToPlainText('-5 degrees and 2024. A year')).toBe('-5 degrees and 2024. A year');
+    expect(stripToPlainText('unterminated **bold')).toBe('unterminated **bold');
+    expect(stripToPlainText('a || b')).toBe('a || b');
+  });
+
+  test('mention placeholders survive the markdown pass', () => {
+    expect(stripToPlainText('**<@1>** said _<#3>_')).toBe('@user said #channel');
   });
 
   test('null, undefined and empty are empty', () => {

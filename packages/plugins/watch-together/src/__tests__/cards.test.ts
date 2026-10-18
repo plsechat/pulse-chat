@@ -197,6 +197,35 @@ describe('CardSessionManager', () => {
     expect(h.manager.end(12)).toBe(false);
   });
 
+  test('a player reporting the end ends the card at the media length; a report from before the end is ignored', async () => {
+    const h = build();
+    await start(h);
+
+    // The card is at 10 s: a 300 s media has not ended for this card — ignored.
+    h.tick(10_000);
+    expect(h.manager.ended(12, 300)).toMatchObject({ playing: true, position: 10 });
+    await h.settle();
+    expect(h.edits).toHaveLength(0);
+    expect(h.manager.list()).toHaveLength(1);
+
+    // The card's clock ran past the end; the first player to notice ends it AT the length, at once.
+    h.tick(310_000);
+    const view = h.manager.ended(12, 300);
+    expect(view).toMatchObject({ playing: false, position: 300, endedAt: h.now() });
+    await h.settle();
+    expect(h.edits).toHaveLength(1);
+    expect(h.edits[0]).toMatchObject({ messageId: 500, content: 'Watched together: A' });
+    expect(h.edits[0]!.metadata.watch).toMatchObject({ playing: false, position: 300, endedAt: h.now(), viewers: 0 });
+    expect(h.manager.list()).toHaveLength(0);
+    // A second player's report finds nothing to end.
+    expect(() => h.manager.ended(12, 300)).toThrow('Nothing is playing in this channel.');
+
+    expect(() => h.manager.ended(12, 0)).toThrow('Nothing is playing in this channel.');
+    await start(h, 13);
+    expect(() => h.manager.ended(13, 0)).toThrow('positive number of seconds');
+    expect(() => h.manager.ended(13, Number.NaN)).toThrow('must be a number');
+  });
+
   test('who may control: the starter and moderators; a stranger is refused, including a replace', async () => {
     const h = build();
     await start(h);

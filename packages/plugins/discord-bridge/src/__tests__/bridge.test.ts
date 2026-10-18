@@ -341,10 +341,12 @@ describe('inbound (remote → here)', () => {
     await h.dispatch(h.gateway.reactionRemove);
     await h.dispatch(h.gateway.reactionAddByBot);
 
+    // Reactions reach the server as shortcodes: the glyph maps to its
+    // primary name and a custom emoji to its bare name.
     expect(h.fake.actions.slice(1)).toEqual([
-      { name: 'messages.react', input: { messageId: 1001, emoji: '👍', remove: false } },
-      { name: 'messages.react', input: { messageId: 1001, emoji: ':pogchamp:', remove: false } },
-      { name: 'messages.react', input: { messageId: 1001, emoji: '👍', remove: true } }
+      { name: 'messages.react', input: { messageId: 1001, emoji: '+1', remove: false } },
+      { name: 'messages.react', input: { messageId: 1001, emoji: 'pogchamp', remove: false } },
+      { name: 'messages.react', input: { messageId: 1001, emoji: '+1', remove: true } }
     ]);
   });
 

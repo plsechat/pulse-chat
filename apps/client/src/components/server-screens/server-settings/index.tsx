@@ -15,7 +15,11 @@ import {
   useActiveServerId,
   useJoinedServers
 } from '@/features/app/hooks';
-import { useCan, useIsInstanceOwner } from '@/features/server/hooks';
+import {
+  useCan,
+  useIsInstanceOwner,
+  usePlannerEnabled
+} from '@/features/server/hooks';
 import { useOwnUserId } from '@/features/server/users/hooks';
 import {
   AudioLines,
@@ -141,7 +145,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   sounds: 'Short clips members play into voice rooms from the soundboard.',
   webhooks: 'Post messages from external services.',
   automod: 'Automatic moderation rules.',
-  events: 'Roster templates for the Raid Planner.',
+  events: 'Roster templates for the Planner.',
   bridge: 'Mirror this whole community with a server on another chat service.',
   import:
     'Bring a community over from another chat service: channels, roles, emoji, members and history.',
@@ -215,6 +219,9 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
   );
 
   const isOwner = ownUserId != null && activeServer?.ownerId === ownUserId;
+  // The Events section manages roster templates; with the Planner
+  // switched off (General) there is nothing to manage.
+  const plannerEnabled = usePlannerEnabled();
 
   const navSections = useMemo(() => {
     const categories: { heading: string; items: NavItem[] }[] = [
@@ -255,7 +262,7 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
             id: 'events',
             label: 'Events',
             icon: <CalendarDays className="h-4 w-4" />,
-            allowed: can(SECTION_PERMISSIONS['events'])
+            allowed: plannerEnabled && can(SECTION_PERMISSIONS['events'])
           }
         ]
       },
@@ -396,7 +403,7 @@ const ServerSettings = memo(({ close, initialSection }: TServerSettingsProps) =>
         items: cat.items.filter((item) => item.allowed)
       }))
       .filter((cat) => cat.items.length > 0);
-  }, [can, activeInstanceDomain, isInstanceOwner, isOwner, bridgeAvailable]);
+  }, [can, activeInstanceDomain, isInstanceOwner, isOwner, bridgeAvailable, plannerEnabled]);
 
   const firstAllowed = navSections[0]?.items[0]?.id ?? 'general';
   const isAllowed = useCallback(

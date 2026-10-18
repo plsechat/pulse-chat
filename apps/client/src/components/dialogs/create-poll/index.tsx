@@ -97,7 +97,7 @@ const CreatePollDialog = memo(({ isOpen, close, channelId }: TCreatePollDialogPr
 
   return (
     <Dialog open={isOpen}>
-      <DialogContent onInteractOutside={close} close={close} className="max-h-[90dvh] overflow-y-auto">
+      <DialogContent onInteractOutside={close} close={close} className="max-h-[calc(var(--vvh)*0.9)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create poll</DialogTitle>
           <DialogDescription>
@@ -139,7 +139,6 @@ const CreatePollDialog = memo(({ isOpen, close, channelId }: TCreatePollDialogPr
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="h-9 w-9 shrink-0"
                     onClick={() => removeOption(index)}
                     disabled={options.length <= MIN_OPTIONS}
                     aria-label={`Remove option ${index + 1}`}

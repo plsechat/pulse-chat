@@ -663,6 +663,27 @@ export const switchToFederatedServer = async (
         ownUserId: data.ownUserId
       })
     );
+    // The entry's logo only ever lived in localStorage (getJoined
+    // carries none), so a fresh browser showed a letter on the tab until
+    // something else refetched it. The open-session payload carries the
+    // community's current name, description and logo — take them as the
+    // truth for the tab, the Home cards and the header.
+    if (data.publicSettings) {
+      const { name, description, logo } = data.publicSettings;
+      store.dispatch(
+        appSliceActions.updateFederatedServerInfo({
+          instanceDomain,
+          serverId,
+          server: {
+            ...entry.server,
+            name,
+            description,
+            // An older peer sends no logo field at all; keep what we had.
+            logo: logo === undefined ? entry.server.logo : logo
+          }
+        })
+      );
+    }
     saveFederatedServers();
 
     // Fetch deferred data (members, emojis, voice state) from the remote instance
@@ -676,8 +697,9 @@ export const switchToFederatedServer = async (
       console.error('[E2EE] Federation E2EE init failed:', err)
     );
 
-    // Self-heal: fetch full server info if logo is missing
-    if (!entry.server.logo) {
+    // Self-heal for peers whose open-session predates the logo field:
+    // fetch the full server summary when the logo is still unknown.
+    if (!entry.server.logo && data.publicSettings?.logo === undefined) {
       remoteTrpc.servers.getAll.query().then((servers) => {
         const match = servers.find((s) => s.id === serverId);
         if (match) {

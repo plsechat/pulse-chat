@@ -52,6 +52,11 @@ export const applyAppearanceToDOM = (
   const zoomLevel = clamp(settings.zoomLevel, ZOOM_LEVEL_RANGE);
   root.style.setProperty('--font-scale', `${fontScale / 100}`);
   root.style.setProperty('zoom', zoomLevel !== 100 ? `${zoomLevel}%` : '');
+  // Mirrors the zoom for CSS: inside a zoomed root, viewport units and px
+  // are multiplied by the factor, so index.css derives --vvh (the real
+  // viewport height) by dividing by this. Always set, so 100 % after a
+  // change also resets it.
+  root.style.setProperty('--app-zoom', `${zoomLevel / 100}`);
 };
 
 const applySettingsToDOM = (settings: AppearanceSettings) =>

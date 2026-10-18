@@ -1306,13 +1306,26 @@ const deleteRosterTemplate = async (
 // ─── scheduler support ────────────────────────────────────────────────
 
 /** Open events, soonest first; the scheduler walks these every minute. */
+/**
+ * The scheduler's work list. A community with the Planner switched off
+ * is left out entirely: no reminders, no room, no status change — its
+ * events freeze where they are and the tick picks them up again (stale
+ * reminders marked, not sent) once the switch is back on.
+ */
 const listOpenEvents = (limit: number): Promise<TEvent[]> =>
   db
-    .select()
+    .select({ event: events })
     .from(events)
-    .where(inArray(events.status, ['scheduled', 'live']))
+    .innerJoin(servers, eq(servers.id, events.serverId))
+    .where(
+      and(
+        inArray(events.status, ['scheduled', 'live']),
+        eq(servers.enableEvents, true)
+      )
+    )
     .orderBy(asc(events.startsAt), asc(events.id))
-    .limit(limit);
+    .limit(limit)
+    .then((rows) => rows.map((row) => row.event));
 
 /** Everyone a reminder goes to: confirmed and benched signups. */
 const getReminderRecipientIds = async (eventId: number): Promise<number[]> => {
@@ -1403,6 +1416,8 @@ const listUpcomingEventsForUser = async (
     .where(
       and(
         eq(events.status, 'scheduled'),
+        // a community with the Planner off keeps its rows but shows none
+        eq(servers.enableEvents, true),
         gte(events.startsAt, now),
         lte(events.startsAt, now + withinMs)
       )

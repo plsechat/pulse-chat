@@ -22,6 +22,8 @@ export type TSession = {
   media: TExternalStreamMedia;
   handle: TExternalStreamHandle;
   startedAt: number;
+  /** The media length in seconds, once a player reported running off its end. */
+  duration?: number;
 };
 
 export type TSessionView = {
@@ -71,6 +73,15 @@ export class SessionError extends Error {
 }
 
 const MAX_POSITION_SECONDS = 24 * 60 * 60;
+
+/**
+ * How close to the reported media length the shared position must be
+ * for an end report to count (the clients' sync tolerance). A player
+ * that ends while the room is still well before that length is not
+ * the room's business — a different cut, or a report meant to pause
+ * everyone — and is ignored.
+ */
+export const END_TOLERANCE_S = 1;
 
 /** The position a `media` descriptor describes at `now`. */
 export const livePosition = (media: TExternalStreamMedia, now: number): number => {
@@ -159,12 +170,19 @@ export class SessionManager {
 
     const now = this.deps.now();
     const current = livePosition(session.media, now);
-    const requested = position === undefined ? current : clampPosition(position);
+    const requested = clampToMedia(position === undefined ? current : clampPosition(position), session.duration);
 
     let next: TExternalStreamMedia;
     switch (action) {
       case 'play':
-        next = { ...session.media, playing: true, position: requested, updatedAt: now };
+        // Play at the end of a media that has run out starts it over:
+        // playing from its last second would end it again at once.
+        next = {
+          ...session.media,
+          playing: true,
+          position: atTheEnd(requested, session.duration) ? 0 : requested,
+          updatedAt: now
+        };
         break;
       case 'pause':
         next = { ...session.media, playing: false, position: requested, updatedAt: now };
@@ -177,6 +195,36 @@ export class SessionManager {
 
     session.media = next;
     session.handle.update({ media: next });
+
+    return this.view(session);
+  };
+
+  /**
+   * A player reports the media ran off its end at `duration` seconds.
+   * Any viewer may say so (it is a fact about the media, not a
+   * control); once the shared position has reached that length the
+   * room is paused there, so nobody's player is told to play past the
+   * end and a late joiner lands on the last frame rather than a
+   * position that does not exist. A report from before the end is
+   * ignored. Nothing is reported for a live stream (no finite length).
+   */
+  public ended = (channelId: number, duration: number): TSessionView => {
+    const session = this.sessions.get(channelId);
+    if (!session) throw new SessionError('Nothing is playing in this voice channel.');
+
+    const length = clampPosition(duration);
+    if (length <= 0) throw new SessionError('The duration must be a positive number of seconds.');
+
+    const now = this.deps.now();
+    if (livePosition(session.media, now) < length - END_TOLERANCE_S) return this.view(session);
+
+    session.duration = length;
+    if (!session.media.playing && session.media.position === length) return this.view(session);
+
+    const next: TExternalStreamMedia = { ...session.media, playing: false, position: length, updatedAt: now };
+    session.media = next;
+    session.handle.update({ media: next });
+    this.deps.log(`"${session.title}" in channel ${channelId} reached its end at ${length}s`);
 
     return this.view(session);
   };
@@ -211,3 +259,10 @@ const clampPosition = (position: number): number => {
   if (!Number.isFinite(position)) throw new SessionError('The position must be a number of seconds.');
   return Math.min(MAX_POSITION_SECONDS, Math.max(0, position));
 };
+
+/** Once the media length is known no position goes past it. */
+export const clampToMedia = (position: number, duration: number | undefined): number =>
+  duration === undefined ? position : Math.min(position, duration);
+
+export const atTheEnd = (position: number, duration: number | undefined): boolean =>
+  duration !== undefined && position >= duration - END_TOLERANCE_S;

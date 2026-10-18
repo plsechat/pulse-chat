@@ -90,20 +90,30 @@ const VoiceControl = memo(() => {
         </div>
       </StatsPopover>
 
-      <div className="flex items-center justify-between px-2 py-2">
-        <Button variant="outline" size="sm" onClick={() => void leaveCurrentVoice()}>
-          <PhoneOff className="h-3.5 w-3.5 mr-1.5" />
-          Disconnect
+      {/* Five 32 px controls and four 4 px gaps: 176 px, inside the
+          208 px the deck card offers. The labelled Disconnect of before
+          (122 px on its own) pushed the share button under the card's
+          overflow-hidden edge. Icon-only, like the phone in-call bar. */}
+      <div className="flex items-center gap-1 px-2 py-2">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="bg-secondary text-red-400 hover:bg-red-500/15 hover:text-red-300"
+          onClick={() => void leaveCurrentVoice()}
+          aria-label="Disconnect"
+          title="Disconnect"
+        >
+          <PhoneOff className="h-4 w-4" />
         </Button>
 
-        <div className="flex gap-1">
+        <div className="ml-auto flex items-center gap-1">
           <SoundboardPopover />
           <WatchTogetherButton />
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             className={cn(
-              'h-8 w-8 rounded-md transition-all duration-200',
+              'rounded-md transition-all duration-200',
               ownVoiceState.webcamEnabled
                 ? 'bg-green-500/15 hover:bg-green-500/25 text-green-400 hover:text-green-300'
                 : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
@@ -126,9 +136,9 @@ const VoiceControl = memo(() => {
           {canShareScreen() && (
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               className={cn(
-                'h-8 w-8 rounded-md transition-all duration-200',
+                'rounded-md transition-all duration-200',
                 ownVoiceState.sharingScreen
                   ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
                   : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
@@ -141,10 +151,12 @@ const VoiceControl = memo(() => {
               }
               disabled={!can(ChannelPermission.SHARE_SCREEN)}
             >
+              {/* Share is an action, not a device state: a plain monitor
+                  offers to start, the struck one to stop. */}
               {ownVoiceState.sharingScreen ? (
-                <Monitor className="h-4 w-4" />
-              ) : (
                 <MonitorOff className="h-4 w-4" />
+              ) : (
+                <Monitor className="h-4 w-4" />
               )}
             </Button>
           )}

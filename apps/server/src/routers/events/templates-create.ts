@@ -5,9 +5,9 @@ import {
   eventRolesSchema,
   templateNameSchema
 } from '../../db/queries/events';
-import { serverProcedure } from '../../utils/procedures';
+import { eventsProcedure } from './_shared';
 
-const createTemplateRoute = serverProcedure(Permission.MANAGE_EVENTS)
+const createTemplateRoute = eventsProcedure(Permission.MANAGE_EVENTS)
   .input(z.object({ name: templateNameSchema, roles: eventRolesSchema }))
   .mutation(({ ctx, input }) =>
     createRosterTemplate(ctx.activeServerId, input.name, input.roles)

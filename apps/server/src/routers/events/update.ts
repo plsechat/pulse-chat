@@ -7,10 +7,9 @@ import {
 } from '../../db/queries/events';
 import { invalidateFeedCache } from '../../http/events-ics';
 import { invariant } from '../../utils/invariant';
-import { serverProcedure } from '../../utils/procedures';
-import { eventIdInput, requireEvent, requireHostOrManager } from './_shared';
+import { eventsProcedure, eventIdInput, requireEvent, requireHostOrManager } from './_shared';
 
-const updateEventRoute = serverProcedure()
+const updateEventRoute = eventsProcedure()
   .input(
     eventIdInput.extend(
       eventFieldsSchema.partial().extend({

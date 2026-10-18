@@ -14,8 +14,10 @@ import {
   decideSync,
   formatPlaybackTime,
   livePosition,
+  mediaEnd,
   needsCatchUp,
   needsResync,
+  seatTarget,
   watchCardOf,
   youtubeThumbnailUrl,
   youtubeVideoIdOf,
@@ -61,6 +63,7 @@ const observed = (overrides: Partial<TSyncObservation> = {}): TSyncObservation =
   ended: false,
   unstarted: false,
   duration: 300,
+  seekableEnd: null,
   target: 30,
   wantPlaying: true,
   ...overrides
@@ -90,12 +93,54 @@ describe('decideSync', () => {
   test('a player that ended while the room ran past the end stays ended', () => {
     expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 320 }))).toEqual({});
     expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 299.5 }))).toEqual({});
+    // A couple of seconds of clock skew is not "the room went back".
+    expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 297.5 }))).toEqual({});
     // The room went back: seek and play again.
     expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 120 }))).toEqual({ seekTo: 120, transport: 'play' });
-    // Without a known duration an ended player is re-seated like any other.
-    expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 320, duration: null }))).toEqual({ seekTo: 320, transport: 'play' });
     // Paused room, ended player: left alone.
     expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 120, wantPlaying: false }))).toEqual({});
+  });
+
+  test('an ended player with no known length is the end itself: never re-seated past where it stands', () => {
+    // This was the loop: duration unknown → seek to 320 and play, every tick.
+    expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 320, duration: null }))).toEqual({});
+    // With a live edge known instead of a length, the same holds.
+    expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 320, duration: null, seekableEnd: 300 }))).toEqual({});
+    // The room clearly before the end still restarts it.
+    expect(decideSync(observed({ ended: true, playing: false, currentTime: 300, target: 100, duration: null }))).toEqual({ seekTo: 100, transport: 'play' });
+  });
+
+  test('a player stalled short of the end is seated on the end at most once, never past it', () => {
+    // Not ended, stalled at 299.5 with the room at 320: play on, no seek (the end is within tolerance).
+    expect(decideSync(observed({ playing: false, currentTime: 299.5, target: 320 }))).toEqual({ transport: 'play' });
+    // Stalled further back: one seek to the end, not to 320.
+    expect(decideSync(observed({ playing: false, currentTime: 290, target: 320 }))).toEqual({ seekTo: 300, transport: 'play' });
+    // Still playing the last second: nothing to do.
+    expect(decideSync(observed({ currentTime: 299.6, target: 320 }))).toEqual({});
+    // A live stream: the room's clock past the live edge seats the player on the edge.
+    expect(decideSync(observed({ currentTime: 500, target: 620, duration: null, seekableEnd: 600 }))).toEqual({ seekTo: 600 });
+    expect(decideSync(observed({ currentTime: 599.5, target: 620, duration: null, seekableEnd: 600 }))).toEqual({});
+    // Paused room past the end: the seat is the end, not the room's figure.
+    expect(decideSync(observed({ playing: false, wantPlaying: false, currentTime: 100, target: 320 }))).toEqual({ seekTo: 300 });
+  });
+
+  test('the ENDED edge: the first tick after the player ends does not start it again', () => {
+    // The embedded player reports ENDED with the room's clock a hair short of the length (skew).
+    expect(decideSync(observed({ ended: true, playing: false, currentTime: 212, duration: 212, target: 211.2 }))).toEqual({});
+    // And exactly at it.
+    expect(decideSync(observed({ ended: true, playing: false, currentTime: 212, duration: 212, target: 212 }))).toEqual({});
+  });
+});
+
+describe('mediaEnd / seatTarget', () => {
+  test('the length, else the live edge, else where an ended player stands', () => {
+    expect(mediaEnd({ duration: 300, seekableEnd: 280, ended: false, currentTime: 10 })).toBe(300);
+    expect(mediaEnd({ duration: null, seekableEnd: 280, ended: false, currentTime: 10 })).toBe(280);
+    expect(mediaEnd({ duration: null, seekableEnd: null, ended: true, currentTime: 212 })).toBe(212);
+    expect(mediaEnd({ duration: null, seekableEnd: null, ended: false, currentTime: 10 })).toBeNull();
+    expect(seatTarget(320, 300)).toBe(300);
+    expect(seatTarget(30, 300)).toBe(30);
+    expect(seatTarget(320, null)).toBe(320);
   });
 });
 
@@ -208,5 +253,11 @@ describe('youtubeThumbnailUrl / needsCatchUp', () => {
     expect(needsCatchUp(40, 30)).toBe(false);
     // Same rule as the loop's resync in the behind direction.
     expect(needsCatchUp(0, 5)).toBe(needsResync(0, 5));
+    // At the end of the media with the card's clock past it: nothing to catch up to.
+    expect(needsCatchUp(300, 320, 300)).toBe(false);
+    expect(needsCatchUp(299.5, 320, 300)).toBe(false);
+    // Short of the end it is still offered — to the end, not to the card's figure.
+    expect(needsCatchUp(100, 320, 300)).toBe(true);
+    expect(needsCatchUp(100, 320, null)).toBe(true);
   });
 });

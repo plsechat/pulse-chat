@@ -2,6 +2,7 @@ import {
   ActivityLogType,
   ChannelPermission,
   ChannelType,
+  MAX_FILES_PER_MESSAGE,
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_MESSAGE_WIRE_LENGTH,
   Permission,
@@ -39,10 +40,10 @@ import { invariant } from '../../utils/invariant';
 import { channelProcedure } from '../../utils/procedures';
 
 /**
- * Bounds on the attachment list: each id is a `saveFile` (disk + DB
- * work), so the array is capped; temp ids are UUIDs, never longer.
+ * Bounds on the attachment list: the count cap (MAX_FILES_PER_MESSAGE,
+ * shared with the composer) exists because each id is a `saveFile`
+ * (disk + DB work); temp ids are UUIDs, never longer.
  */
-const MAX_FILES_PER_MESSAGE = 10;
 const MAX_TEMP_FILE_ID_LENGTH = 64;
 
 // Preview 'permit': a preview session holds no SEND_MESSAGES anywhere,
@@ -93,6 +94,13 @@ const sendMessageRoute = channelProcedure(ChannelPermission.SEND_MESSAGES, {
     invariant(channel.type !== ChannelType.VOICE, {
       code: 'BAD_REQUEST',
       message: 'Voice channels do not support text messages'
+    });
+
+    // An archived thread is closed until a moderator (or the post's
+    // author) unarchives it; a reply must not silently reopen it.
+    invariant(!channel.archived, {
+      code: 'BAD_REQUEST',
+      message: 'This thread is archived. Unarchive it to reply.'
     });
 
     // The channel flag is authoritative in BOTH directions: plaintext

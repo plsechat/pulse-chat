@@ -48,8 +48,8 @@ const Security = memo(({ channelId }: TSecurityProps) => {
       try {
         const channel = await trpc.channels.get.query({ channelId });
         setE2ee(channel.e2ee);
-      } catch {
-        // ignore
+      } catch (err) {
+        toast.error(getTrpcError(err, 'Failed to load the channel security settings'));
       } finally {
         setLoadingE2ee(false);
       }

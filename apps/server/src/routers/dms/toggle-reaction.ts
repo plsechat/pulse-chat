@@ -1,4 +1,4 @@
-import { ServerEvents } from '@pulse/shared';
+import { normalizeReaction, ServerEvents } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -39,18 +39,22 @@ const toggleDmReactionRoute = protectedProcedure
       message: 'This message was deleted'
     });
 
-    const reaction = await getDmReaction(
-      input.dmMessageId,
-      input.emoji,
-      ctx.userId
-    );
+    // Same stored spelling as channel reactions: a glyph becomes its
+    // shortcode, a `:name:` token its bare name.
+    const emoji = normalizeReaction(input.emoji);
+    invariant(emoji.length > 0, {
+      code: 'BAD_REQUEST',
+      message: 'Invalid reaction'
+    });
+
+    const reaction = await getDmReaction(input.dmMessageId, emoji, ctx.userId);
 
     if (!reaction) {
-      const emojiFileId = await getEmojiFileIdByEmojiName(input.emoji);
+      const emojiFileId = await getEmojiFileIdByEmojiName(emoji);
 
       await db.insert(dmMessageReactions).values({
         dmMessageId: input.dmMessageId,
-        emoji: input.emoji,
+        emoji,
         userId: ctx.userId,
         fileId: emojiFileId,
         createdAt: Date.now()
@@ -61,7 +65,7 @@ const toggleDmReactionRoute = protectedProcedure
         .where(
           and(
             eq(dmMessageReactions.dmMessageId, input.dmMessageId),
-            eq(dmMessageReactions.emoji, input.emoji),
+            eq(dmMessageReactions.emoji, emoji),
             eq(dmMessageReactions.userId, ctx.userId)
           )
         );

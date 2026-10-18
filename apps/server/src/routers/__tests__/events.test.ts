@@ -14,7 +14,8 @@ import {
   eventRosterTemplates,
   eventSignups,
   events,
-  messages
+  messages,
+  servers
 } from '../../db/schema';
 import { pubsub } from '../../utils/pubsub';
 
@@ -384,6 +385,109 @@ describe('events router', () => {
       await expect(
         caller.events.update({ eventId: event.id, description: 'late' })
       ).rejects.toThrow('closed');
+    });
+
+    test('moving the start into the past is refused; an unchanged past start stays editable', async () => {
+      const { caller } = await initTest(1);
+      const event = await caller.events.create(draft());
+
+      await expect(
+        caller.events.update({
+          eventId: event.id,
+          startsAt: Date.now() - 10 * MINUTE_MS,
+          endsAt: Date.now() + HOUR_MS
+        })
+      ).rejects.toThrow('cannot start in the past');
+      // Only the start is checked: the end alone may move while the
+      // start stays where it was.
+      const stretched = await caller.events.update({
+        eventId: event.id,
+        endsAt: event.startsAt + 3 * HOUR_MS
+      });
+      expect(stretched.endsAt).toBe(event.startsAt + 3 * HOUR_MS);
+
+      // A live event started an hour ago: its start is in the past by
+      // nature, and edits that leave it alone must still go through.
+      const startedAt = Date.now() - HOUR_MS;
+      await getTestDb()
+        .update(events)
+        .set({ status: 'live', startsAt: startedAt, endsAt: startedAt + 3 * HOUR_MS })
+        .where(eq(events.id, event.id));
+      const live = await caller.events.update({
+        eventId: event.id,
+        title: 'Still on',
+        startsAt: startedAt,
+        endsAt: startedAt + 4 * HOUR_MS
+      });
+      expect(live.title).toBe('Still on');
+      expect(live.startsAt).toBe(startedAt);
+      // … but pushing that start further back is a change into the past.
+      await expect(
+        caller.events.update({
+          eventId: event.id,
+          startsAt: startedAt - HOUR_MS,
+          endsAt: startedAt + 3 * HOUR_MS
+        })
+      ).rejects.toThrow('cannot start in the past');
+    });
+  });
+
+  describe('planner switch', () => {
+    const setPlanner = (serverId: number, on: boolean) =>
+      getTestDb().update(servers).set({ enableEvents: on }).where(eq(servers.id, serverId));
+
+    test('every route refuses while the community has the Planner off; the events come back unchanged', async () => {
+      const { caller: owner } = await initTest(1);
+      const { caller: member } = await initTest(2);
+      const event = await owner.events.create(draft());
+      await member.events.signup({ eventId: event.id, roleKey: 'tank' });
+      const template = await owner.events.templates.create({ name: 'Ten man', roles: roles() });
+
+      await setPlanner(1, false);
+
+      const off = 'The Planner is turned off in this community';
+      const window = { from: event.startsAt - HOUR_MS, to: event.startsAt + HOUR_MS };
+      await expect(owner.events.create(draft())).rejects.toThrow(off);
+      await expect(owner.events.update({ eventId: event.id, title: 'x' })).rejects.toThrow(off);
+      await expect(owner.events.cancel({ eventId: event.id })).rejects.toThrow(off);
+      await expect(member.events.list(window)).rejects.toThrow(off);
+      await expect(member.events.get({ eventId: event.id })).rejects.toThrow(off);
+      await expect(member.events.signup({ eventId: event.id, roleKey: 'dps' })).rejects.toThrow(off);
+      await expect(member.events.decline({ eventId: event.id })).rejects.toThrow(off);
+      await expect(member.events.withdraw({ eventId: event.id })).rejects.toThrow(off);
+      await expect(
+        owner.events.setSignupStatus({ eventId: event.id, userId: 2, status: 'bench' })
+      ).rejects.toThrow(off);
+      await expect(member.events.getCalendarUrl()).rejects.toThrow(off);
+      await expect(member.events.templates.list()).rejects.toThrow(off);
+      await expect(owner.events.templates.create({ name: 'No', roles: roles() })).rejects.toThrow(off);
+      await expect(
+        owner.events.templates.update({ templateId: template.id, name: 'No' })
+      ).rejects.toThrow(off);
+      await expect(owner.events.templates.delete({ templateId: template.id })).rejects.toThrow(off);
+
+      // Nothing was cancelled or touched: the rows wait for the switch.
+      const [row] = await getTestDb().select().from(events).where(eq(events.id, event.id));
+      expect(row!.status).toBe('scheduled');
+      expect((await signupOf(event.id, 2))!.status).toBe('confirmed');
+
+      await setPlanner(1, true);
+
+      const listed = await member.events.list(window);
+      expect(listed.map((e) => e.id)).toEqual([event.id]);
+      expect(listed[0]!.ownSignup).toEqual({ roleKey: 'tank', status: 'confirmed', position: 1 });
+      expect((await member.events.templates.list()).map((t) => t.id)).toEqual([template.id]);
+      const renamed = await owner.events.update({ eventId: event.id, title: 'Back on' });
+      expect(renamed.title).toBe('Back on');
+    });
+
+    test('the switch is per community: another server stays on', async () => {
+      const { caller } = await initTest(1);
+      const other = await insertOtherServer();
+      await setPlanner(other.id, false);
+
+      const event = await caller.events.create(draft());
+      expect((await caller.events.get({ eventId: event.id })).event.id).toBe(event.id);
     });
   });
 

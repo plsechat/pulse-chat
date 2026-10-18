@@ -1,4 +1,8 @@
-import { useForumThreadCreator } from '@/components/channel-view/forum/forum-thread-context';
+import { ForumPostBody } from '@/components/channel-view/forum/forum-post-body';
+import {
+  useForumPostMessageId,
+  useForumThreadCreator
+} from '@/components/channel-view/forum/forum-thread-context';
 import { MessageErrorBoundary } from '@/components/chat-primitives/message-error-boundary';
 import { UserContextMenu } from '@/components/context-menus/user';
 import { UserAvatar } from '@/components/user-avatar';
@@ -49,6 +53,27 @@ const WebhookAvatar = ({
 );
 
 const MessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
+  const forumPostMessageId = useForumPostMessageId();
+  const firstMessage = group[0];
+
+  // Inside a forum thread the opening message is the post, not a chat
+  // row. Any same-author messages grouped behind it are replies and
+  // start a group of their own (which no longer matches the post id).
+  if (forumPostMessageId !== null && firstMessage.id === forumPostMessageId) {
+    return (
+      <>
+        <ForumPostBody message={firstMessage} onReply={onReply} />
+        {group.length > 1 && (
+          <MessagesGroup group={group.slice(1)} onReply={onReply} />
+        )}
+      </>
+    );
+  }
+
+  return <ChatMessagesGroup group={group} onReply={onReply} />;
+});
+
+const ChatMessagesGroup = memo(({ group, onReply }: TMessagesGroupProps) => {
   // Shared minute tick so relative header times stay current.
   const now = useNow();
   const firstMessage = group[0];

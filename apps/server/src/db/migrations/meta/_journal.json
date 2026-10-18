@@ -302,6 +302,13 @@
       "when": 1792229205033,
       "tag": "0042_message_tombstones",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792297839206,
+      "tag": "0043_planner_switch_owner_permissions",
+      "breakpoints": true
     }
   ]
 }

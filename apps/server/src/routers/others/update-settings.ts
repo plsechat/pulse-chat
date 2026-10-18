@@ -3,6 +3,7 @@ import {
   DIRECTORY_DESCRIPTION_MAX_LENGTH,
   DIRECTORY_GAME_MAX_LENGTH,
   DIRECTORY_TAG_MAX_LENGTH,
+  DIRECTORY_TAG_PATTERN,
   DIRECTORY_TAGS_MAX,
   Permission,
   ServerEvents,
@@ -37,6 +38,9 @@ const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
       storageSpaceQuotaByUser: z.number().min(0).optional(),
       storageOverflowAction: z.enum(StorageOverflowAction).optional(),
       enablePlugins: z.boolean().optional(),
+      // The Planner switch: off hides the planner and refuses its routes,
+      // feed and reminders; the events themselves are kept.
+      enableEvents: z.boolean().optional(),
       discoverable: z.boolean().optional(),
       federatable: z.boolean().optional(),
       // Public directory opt-in (card copy). Tags are trimmed and
@@ -50,7 +54,16 @@ const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
         .optional()
         .nullable(),
       directoryTags: z
-        .array(z.string().trim().min(1).max(DIRECTORY_TAG_MAX_LENGTH))
+        .array(
+          z
+            .string()
+            .trim()
+            .min(1)
+            .max(DIRECTORY_TAG_MAX_LENGTH)
+            .regex(DIRECTORY_TAG_PATTERN, {
+              message: 'Tags may contain letters, numbers, spaces, _ and -'
+            })
+        )
         .max(DIRECTORY_TAGS_MAX)
         .optional(),
       directoryGame: z.string().trim().max(DIRECTORY_GAME_MAX_LENGTH).optional().nullable()
@@ -161,10 +174,20 @@ const updateSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS)
       );
     }
 
+    // The join password is a secret: the audit row records that it
+    // changed, never its value.
+    const { password, ...loggedValues } = input;
     enqueueActivityLog({
       type: ActivityLogType.EDIT_SERVER_SETTINGS,
       userId: ctx.userId,
-      details: { values: input }
+      details: {
+        values: {
+          ...loggedValues,
+          ...(password === undefined
+            ? {}
+            : { password: password === null ? null : '[redacted]' })
+        }
+      }
     });
   });
 

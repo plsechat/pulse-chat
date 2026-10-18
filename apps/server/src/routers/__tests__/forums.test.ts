@@ -1,16 +1,19 @@
 import {
   ChannelPermission,
   ChannelType,
-  MAX_MESSAGE_CONTENT_LENGTH
+  MAX_FILES_PER_POST,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  ServerEvents,
+  type TTempFile
 } from '@pulse/shared';
 import { randomUUIDv7 } from 'bun';
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 import {
   createEmptyTextChannel,
   createTestChannel
 } from '../../__tests__/fixtures';
-import { initTest } from '../../__tests__/helpers';
+import { initTest, login, uploadFile } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
 import {
   channelUserPermissions,
@@ -18,6 +21,20 @@ import {
   forumPostTags,
   threadFollowers
 } from '../../db/schema';
+import { pubsub } from '../../utils/pubsub';
+
+/** Upload a (fake) PNG as the owner; called inside the test, not beforeEach. */
+const uploadTempImage = async (): Promise<TTempFile> => {
+  const response = await login('testowner', 'password123');
+  const data = (await response.json()) as { accessToken: string };
+  const res = await uploadFile(
+    new File(['png'], `img-${randomUUIDv7().slice(0, 8)}.png`, {
+      type: 'image/png'
+    }),
+    data.accessToken
+  );
+  return (await res.json()) as TTempFile;
+};
 
 /** A private channel of `type` in the bootstrap server, no override rows. */
 const insertPrivateChannel = async (name: string, type: ChannelType) => {
@@ -380,6 +397,183 @@ describe('forums', () => {
     await expect(
       caller.threads.archive({ threadId: 99999, archived: true })
     ).rejects.toThrow();
+  });
+
+  test('the author may unarchive their own post but not archive it; others may do neither', async () => {
+    const { caller: admin } = await initTest(1);
+    const { caller: author } = await initTest(2);
+    const { caller: other } = await initTest(3);
+
+    const forumId = await admin.channels.add({
+      type: ChannelType.FORUM,
+      name: 'author-unarchive',
+      categoryId: 1,
+      serverId: 1
+    });
+    const { threadId } = await author.threads.createForumPost({
+      channelId: forumId,
+      title: 'Mine',
+      content: 'my post'
+    });
+
+    await expect(
+      author.threads.archive({ threadId, archived: true })
+    ).rejects.toThrow('Insufficient permissions');
+
+    await admin.threads.archive({ threadId, archived: true });
+    await expect(
+      other.threads.archive({ threadId, archived: false })
+    ).rejects.toThrow('Insufficient permissions');
+
+    await author.threads.archive({ threadId, archived: false });
+    const [post] = await author.threads.getAll({ channelId: forumId });
+    expect(post!.id).toBe(threadId);
+    expect(post!.archived).toBe(false);
+  });
+
+  test('replies to an archived post are refused until it is unarchived', async () => {
+    const { caller: admin } = await initTest(1);
+    const { caller: member } = await initTest(2);
+
+    const forumId = await admin.channels.add({
+      type: ChannelType.FORUM,
+      name: 'closed-replies',
+      categoryId: 1,
+      serverId: 1
+    });
+    const { threadId } = await admin.threads.createForumPost({
+      channelId: forumId,
+      title: 'Closed',
+      content: 'no more replies'
+    });
+    await admin.threads.archive({ threadId, archived: true });
+
+    await expect(
+      member.messages.send({ channelId: threadId, content: 'late reply' })
+    ).rejects.toThrow('This thread is archived');
+    await expect(
+      admin.messages.send({ channelId: threadId, content: 'even for mods' })
+    ).rejects.toThrow('This thread is archived');
+
+    await admin.threads.archive({ threadId, archived: false });
+    const messageId = await member.messages.send({
+      channelId: threadId,
+      content: 'reopened'
+    });
+    expect(typeof messageId).toBe('number');
+  });
+
+  test('updatePostTags publishes the post\'s real archived flag', async () => {
+    const { caller } = await initTest(1);
+
+    const forumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'tags-archived',
+      categoryId: 1,
+      serverId: 1
+    });
+    const tag = await caller.threads.createForumTag({
+      channelId: forumId,
+      name: 'keep'
+    });
+    const { threadId } = await caller.threads.createForumPost({
+      channelId: forumId,
+      title: 'Archived with tags',
+      content: 'x'
+    });
+    await caller.threads.archive({ threadId, archived: true });
+
+    const publishFor = spyOn(pubsub, 'publishFor');
+    try {
+      await caller.threads.updatePostTags({ threadId, tagIds: [tag!.id] });
+
+      const update = publishFor.mock.calls.find(
+        (c) =>
+          c[1] === ServerEvents.THREAD_UPDATE &&
+          (c[2] as { id: number }).id === threadId
+      );
+      expect(update).toBeDefined();
+      expect((update![2] as { archived: boolean }).archived).toBe(true);
+    } finally {
+      publishFor.mockRestore();
+    }
+  });
+
+  // ── Attachments ───────────────────────────────────────────────────
+
+  test('post attachments are capped at MAX_FILES_PER_POST', async () => {
+    const { caller } = await initTest(1);
+
+    const forumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'too-many-files',
+      categoryId: 1,
+      serverId: 1
+    });
+
+    await expect(
+      caller.threads.createForumPost({
+        channelId: forumId,
+        title: 'album',
+        content: 'x',
+        files: Array.from({ length: MAX_FILES_PER_POST + 1 }, () => 'temp-id')
+      })
+    ).rejects.toThrow();
+  });
+
+  test('firstImage of a private post carries an access token; a public one does not', async () => {
+    const { caller } = await initTest(1);
+
+    const privateForum = await insertPrivateChannel(
+      'private-images',
+      ChannelType.FORUM
+    );
+    const publicForumId = await caller.channels.add({
+      type: ChannelType.FORUM,
+      name: 'public-images',
+      categoryId: 1,
+      serverId: 1
+    });
+
+    const privateImage = await uploadTempImage();
+    const { threadId: privateThreadId } = await caller.threads.createForumPost({
+      channelId: privateForum.id,
+      title: 'private pic',
+      content: 'look',
+      files: [privateImage.id]
+    });
+    const publicImage = await uploadTempImage();
+    const { threadId: publicThreadId } = await caller.threads.createForumPost({
+      channelId: publicForumId,
+      title: 'public pic',
+      content: 'look',
+      files: [publicImage.id]
+    });
+
+    const [privatePost] = await caller.threads.getAll({
+      channelId: privateForum.id
+    });
+    expect(privatePost!.id).toBe(privateThreadId);
+    expect(privatePost!.firstImage?.name).toBeTruthy();
+    expect(privatePost!.firstImage?._accessToken).toBeTruthy();
+
+    const [publicPost] = await caller.threads.getAll({
+      channelId: publicForumId
+    });
+    expect(publicPost!.id).toBe(publicThreadId);
+    expect(publicPost!.firstImage?.name).toBeTruthy();
+    expect(publicPost!.firstImage?._accessToken).toBeUndefined();
+
+    // A post without an image reports none.
+    const { threadId: plainId } = await caller.threads.createForumPost({
+      channelId: publicForumId,
+      title: 'no pic',
+      content: 'text only'
+    });
+    const plain = (
+      await caller.threads.getAll({ channelId: publicForumId })
+    ).find((t) => t.id === plainId);
+    expect(plain!.firstImage).toBeUndefined();
   });
 
   // ── Forum tags ────────────────────────────────────────────────────

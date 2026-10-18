@@ -34,6 +34,7 @@ const getSettingsRoute = serverProcedureFor(Permission.MANAGE_SETTINGS).query(
       password: server.password,
       allowNewUsers: server.allowNewUsers,
       enablePlugins: server.enablePlugins,
+      enableEvents: server.enableEvents,
       storageUploadEnabled: server.storageUploadEnabled,
       storageQuota: server.storageQuota,
       storageUploadMaxFileSize: server.storageUploadMaxFileSize,

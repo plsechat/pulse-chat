@@ -18,6 +18,7 @@ import {
 } from '@/features/server/channels/hooks';
 import {
   useConnectedServerPublicId,
+  usePlannerEnabled,
   useServerName
 } from '@/features/server/hooks';
 import { useIsMobile } from '@/hooks/use-is-mobile';
@@ -51,6 +52,7 @@ const ContentWrapper = memo(() => {
   const connectedServerPublicId = useConnectedServerPublicId();
   const isMobile = useIsMobile();
   const plannerOpen = usePlannerOpen();
+  const plannerEnabled = usePlannerEnabled();
 
   // Content components remount via `key` when the channel changes.
   // Numeric channel ids COLLIDE across federated instances (a remote
@@ -112,7 +114,9 @@ const ContentWrapper = memo(() => {
 
   // The planner row clears the channel selection, so the two never
   // compete for the pane (features/events/selectors plannerOpenSelector).
-  if (plannerOpen) {
+  // A community that switches the Planner off while it is open falls
+  // through to the empty pane.
+  if (plannerOpen && plannerEnabled) {
     content = (
       <Suspense fallback={<LazyFallback />}>
         <RaidPlanner key={serverScope} />

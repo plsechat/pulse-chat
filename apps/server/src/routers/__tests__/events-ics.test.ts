@@ -205,6 +205,26 @@ describe('calendar feed', () => {
     expect(await (await fetchFeed(path)).text()).not.toContain('Bot raid');
   });
 
+  test('a community with the Planner off has no feed; the same link works again once it is on', async () => {
+    const { caller } = await initTest(1);
+    clearCalendarCache();
+    await caller.events.create(draft('Raid night', Date.now() + 2 * HOUR_MS));
+    const { path } = await caller.events.getCalendarUrl();
+    expect((await fetchFeed(path)).status).toBe(200);
+
+    await getTestDb().update(servers).set({ enableEvents: false }).where(eq(servers.id, 1));
+    // The cache is bypassed: the switch is read on every request.
+    const off = await fetchFeed(path);
+    expect(off.status).toBe(404);
+    expect(off.headers.get('content-type')).toBe('application/json');
+    await expect(caller.events.getCalendarUrl()).rejects.toThrow('Planner is turned off');
+
+    await getTestDb().update(servers).set({ enableEvents: true }).where(eq(servers.id, 1));
+    const on = await fetchFeed(path);
+    expect(on.status).toBe(200);
+    expect(await on.text()).toContain('SUMMARY:Raid night');
+  });
+
   test('If-None-Match with the current ETag answers 304 and no body', async () => {
     const { caller } = await initTest(1);
     clearCalendarCache();

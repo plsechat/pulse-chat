@@ -152,6 +152,7 @@ const ChangePassword = memo(() => {
       toast.success('Password updated!');
     } catch (error) {
       setTrpcErrors(error);
+      toast.error(getTrpcError(error, 'Failed to update password'));
     }
   }, [values, setTrpcErrors]);
 
@@ -229,6 +230,7 @@ const Profile = memo(() => {
       toast.success('Profile updated');
     } catch (error) {
       setTrpcErrors(error);
+      toast.error(getTrpcError(error, 'Failed to update profile'));
     }
   }, [values, ownPublicUser, setTrpcErrors]);
 

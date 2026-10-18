@@ -1,11 +1,20 @@
-import type { TTempFile } from '@pulse/shared';
-import { describe, expect, test } from 'bun:test';
+import {
+  Permission,
+  ServerEvents,
+  STORAGE_MAX_FILE_SIZE,
+  STORAGE_MAX_QUOTA_PER_USER,
+  STORAGE_OVERFLOW_ACTION,
+  type TTempFile
+} from '@pulse/shared';
+import { describe, expect, spyOn, test } from 'bun:test';
+import { createTestRole, grantTestUserRole } from '../../__tests__/fixtures';
 import {
   getCaller,
   initTest,
   login,
   uploadFile
 } from '../../__tests__/helpers';
+import { pubsub } from '../../utils/pubsub';
 
 describe('others router', () => {
   test('should throw when user tries to join with no handshake', async () => {
@@ -92,6 +101,80 @@ describe('others router', () => {
     expect(settings.storageUploadEnabled).toBe(
       newSettings.storageUploadEnabled
     );
+  });
+
+  test('the whole General form saves for a non-owner admin holding MANAGE_SETTINGS', async () => {
+    await initTest(1);
+    const { caller: admin } = await initTest(2);
+    const roleId = await createTestRole({
+      serverId: 1,
+      name: 'Admin',
+      permissions: [Permission.MANAGE_SETTINGS]
+    });
+    await grantTestUserRole(2, roleId);
+
+    // Every field the General screen sends on Save, with the values the
+    // form holds after a plain load (federatable unchanged, no card).
+    const form = {
+      serverId: 1,
+      name: 'Renamed by admin',
+      description: 'x'.repeat(128),
+      allowNewUsers: true,
+      enablePlugins: false,
+      enableEvents: true,
+      discoverable: false,
+      federatable: false,
+      directoryListed: false,
+      directoryDescription: '',
+      directoryTags: [] as string[],
+      directoryGame: '',
+      storageUploadEnabled: true,
+      storageUploadMaxFileSize: STORAGE_MAX_FILE_SIZE,
+      storageSpaceQuotaByUser: STORAGE_MAX_QUOTA_PER_USER,
+      storageOverflowAction: STORAGE_OVERFLOW_ACTION
+    };
+    await admin.others.updateSettings(form);
+    const saved = await admin.others.getSettings({ serverId: 1 });
+    expect(saved.name).toBe('Renamed by admin');
+    expect(saved.description).toHaveLength(128);
+
+    // What such an admin can still trip on: the bounds the form must
+    // surface instead of swallowing.
+    await expect(
+      admin.others.updateSettings({ ...form, description: 'x'.repeat(129) })
+    ).rejects.toThrow();
+    await expect(admin.others.updateSettings({ ...form, name: 'x' })).rejects.toThrow();
+    await expect(
+      admin.others.updateSettings({ ...form, federatable: true })
+    ).rejects.toThrow('Only the server owner');
+    await expect(
+      admin.others.updateSettings({ ...form, directoryListed: true })
+    ).rejects.toThrow('must be discoverable');
+  });
+
+  test('the Planner switch round-trips and reaches members live', async () => {
+    const { caller } = await initTest(1);
+    const { caller: member } = await initTest(2);
+    expect((await caller.others.getSettings({ serverId: 1 })).enableEvents).toBe(true);
+
+    const spy = spyOn(pubsub, 'publishFor');
+    try {
+      await caller.others.updateSettings({ serverId: 1, enableEvents: false });
+      const settings = spy.mock.calls.filter(
+        ([, topic]) => topic === ServerEvents.SERVER_SETTINGS_UPDATE
+      );
+      expect(settings).toHaveLength(1);
+      expect([...(settings[0]![0] as number[])].sort()).toEqual([1, 2, 3]);
+      expect(settings[0]![2]).toMatchObject({ id: 1, enableEvents: false });
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await caller.others.getSettings({ serverId: 1 })).enableEvents).toBe(false);
+    await expect(member.events.templates.list()).rejects.toThrow('Planner is turned off');
+
+    await caller.others.updateSettings({ serverId: 1, enableEvents: true });
+    expect((await caller.others.getSettings({ serverId: 1 })).enableEvents).toBe(true);
+    expect(await member.events.templates.list()).toEqual([]);
   });
 
   test('should change logo', async () => {

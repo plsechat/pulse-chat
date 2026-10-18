@@ -126,8 +126,7 @@ const Webhooks = memo(() => {
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
+                  size="icon-sm"
                   onClick={() => handleCopyUrl(webhook)}
                   title="Copy Webhook URL"
                 >
@@ -135,8 +134,8 @@ const Webhooks = memo(() => {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  size="icon-sm"
+                  className="text-destructive hover:text-destructive"
                   onClick={() => handleDelete(webhook.id)}
                   title="Delete Webhook"
                 >

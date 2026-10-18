@@ -167,6 +167,28 @@ describe('directory opt-in (others.updateSettings)', () => {
     expect(settings.directoryTags).toHaveLength(5);
     expect(settings.directoryGame).toHaveLength(60);
   });
+
+  test('tags are letters, digits, spaces, _ and - in any script; stored without the #', async () => {
+    const { caller } = await initTest(1);
+
+    await caller.others.updateSettings({
+      serverId: 1,
+      directoryTags: ['casual', 'late night', 'pvp_2', 'co-op', 'Überzahl']
+    });
+    expect((await caller.others.getSettings({ serverId: 1 })).directoryTags).toEqual([
+      'casual',
+      'late night',
+      'pvp_2',
+      'co-op',
+      'Überzahl'
+    ]);
+
+    for (const bad of ['#casual', 'a,b', 'nope!', '<b>x</b>', 'tag/slash']) {
+      await expect(
+        caller.others.updateSettings({ serverId: 1, directoryTags: [bad] })
+      ).rejects.toThrow('letters, numbers, spaces');
+    }
+  });
 });
 
 describe('servers.directory', () => {

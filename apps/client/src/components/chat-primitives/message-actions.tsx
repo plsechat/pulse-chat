@@ -1,6 +1,7 @@
 import { EmojiPicker } from '@/components/emoji-picker';
 import type { TEmojiItem } from '@/components/tiptap-input/types';
 import { IconButton } from '@/components/ui/icon-button';
+import { cn } from '@/lib/utils';
 import { MessageSquare, Pencil, Pin, PinOff, Reply, Smile, Trash } from 'lucide-react';
 import { memo } from 'react';
 
@@ -64,13 +65,28 @@ const MessageActions = memo(
   }: TMessageActionsProps) => {
     const showThreadButton = canCreateThread && !hasThread && !!onCreateThread;
 
-    // Visibility uses opacity + pointer-events instead of `hidden`/`flex` so
-    // the bar's flex layout — and the emoji-picker trigger's bounding box —
-    // is always present. With `display:none` on close, the trigger had a
-    // zero rect and Radix snapped the popover to (0,0) for one paint frame
-    // before unmount.
+    // Hover devices: visibility uses opacity + pointer-events instead of
+    // `hidden`/`flex` so the bar's flex layout — and the emoji-picker
+    // trigger's bounding box — is always present. With `display:none` on
+    // close, the trigger had a zero rect and Radix snapped the popover to
+    // (0,0) for one paint frame before unmount.
+    //
+    // Touch (hover: none): there is no hover, so the bar is shown for the
+    // ONE tapped row only (`data-actions-open`, active-message-store) and
+    // rendered IN FLOW under the message instead of floating over the
+    // row above — a floating bar on every row covered the text. The row
+    // stays active while the picker is open, so the anchor never vanishes
+    // under an open popover.
     return (
-      <div className="gap-0.5 absolute right-4 -top-4 z-10 flex opacity-0 pointer-events-none group-hover-or-touch:opacity-100 group-hover-or-touch:pointer-events-auto [&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto items-center rounded-lg shadow-md border border-border/60 bg-popover/95 backdrop-blur-sm p-0.5 transition-opacity duration-150 h-8 [&_button[data-slot=icon-button]]:rounded-md [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60">
+      <div
+        data-testid="message-actions"
+        className={cn(
+          'absolute right-4 -top-4 z-10 flex h-8 items-center gap-0.5 rounded-lg border border-border/60 bg-popover/95 p-0.5 shadow-md backdrop-blur-sm transition-opacity duration-150',
+          'opacity-0 pointer-events-none group-hover-or-active:opacity-100 group-hover-or-active:pointer-events-auto [&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto',
+          '[@media(hover:none)]:static [@media(hover:none)]:mt-1 [@media(hover:none)]:ml-auto [@media(hover:none)]:w-fit [@media(hover:none)]:hidden group-hover-or-active:flex',
+          '[&_button[data-slot=icon-button]]:rounded-md [&_button[data-slot=icon-button]]:p-1 [&_button[data-slot=icon-button]]:transition-colors [&_button[data-slot=icon-button]:hover]:bg-accent/60'
+        )}
+      >
         {canEdit && (
           <IconButton
             size="sm"

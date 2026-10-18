@@ -8,7 +8,9 @@ import {
   decideSync,
   formatPlaybackTime,
   livePosition,
+  mediaEnd,
   needsCatchUp,
+  seatTarget,
   youtubeVideoIdOf,
   type TSyncObservation
 } from '@/features/server/voice/watch-together';
@@ -58,12 +60,27 @@ import { toast } from 'sonner';
  * surface plays; a card viewer whose player trails the card gets
  * "Catch up" (the loop seats them anyway; the button is for a player
  * that cannot start on its own).
+ *
+ * The room's position is a clock, so it keeps counting past the end
+ * of the media until the plugin hears that it ended: the first player
+ * to run off the end reports the media's length through the hidden
+ * `ended` sub-command, and the plugin stops the room there (a card
+ * ends, a room pauses at the end). Until that lands, nothing here
+ * seeks or plays past the end — see `decideSync`.
  */
 
 const SYNC_INTERVAL_MS = 1_000;
 
 /** How long the YouTube player may take to answer `playVideo` before it counts as held. */
 const YOUTUBE_PLAY_WAIT_MS = 1_500;
+
+/** The live edge of a `<video>`, when the element knows one (a live stream has no duration). */
+const seekableEndOf = (video: HTMLVideoElement): number | null => {
+  const ranges = video.seekable;
+  if (ranges.length === 0) return null;
+  const end = ranges.end(ranges.length - 1);
+  return Number.isFinite(end) && end > 0 ? end : null;
+};
 
 /** What the sync loop and the controls need from whatever plays. */
 type TPlaybackSurface = {
@@ -165,7 +182,8 @@ const VideoSurface = memo(({ media, volume, muted, onAttach }: TSurfaceProps) =>
         playing: !video.paused && !video.ended,
         ended: video.ended,
         unstarted: false,
-        duration: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
+        duration: Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null,
+        seekableEnd: seekableEndOf(video)
       }),
       seek: (seconds) => {
         video.currentTime = seconds;
@@ -298,14 +316,18 @@ const YouTubeSurface = memo(({ media, videoId, volume, muted, onAttach }: TYouTu
               onAttach({
                 observe: () => {
                   const state = target.getPlayerState();
-                  const duration = target.getDuration();
+                  const reported = target.getDuration();
+                  // The embedded player's one figure is both: for a
+                  // live broadcast it is the live edge.
+                  const duration = Number.isFinite(reported) && reported > 0 ? reported : null;
                   return {
                     currentTime: target.getCurrentTime() || 0,
                     playing: isAdvancing(state),
                     ended: state === YOUTUBE_PLAYER_STATE.ENDED,
                     unstarted:
                       state === YOUTUBE_PLAYER_STATE.UNSTARTED || state === YOUTUBE_PLAYER_STATE.CUED,
-                    duration: Number.isFinite(duration) && duration > 0 ? duration : null
+                    duration,
+                    seekableEnd: duration
                   };
                 },
                 seek: (seconds) => target.seekTo(seconds, true),
@@ -360,6 +382,10 @@ const WatchTogetherPlayer = memo(
     const surfaceRef = useRef<TPlaybackSurface | null>(null);
     const mediaRef = useRef(media);
     const behindTicks = useRef(0);
+    /** Where the media ends as last observed; clamps every seat and the clock shown. */
+    const endRef = useRef<number | null>(null);
+    /** Whether the surface was ended on the previous tick: the report goes on the edge. */
+    const wasEnded = useRef(false);
     const ownVoiceState = useOwnVoiceState();
     const ownUserId = useOwnUserId();
     const can = useCan();
@@ -400,11 +426,35 @@ const WatchTogetherPlayer = memo(
     const catchUp = useCallback(() => {
       const surface = surfaceRef.current;
       if (!surface) return;
-      surface.seek(livePosition(mediaRef.current, Date.now()));
+      surface.seek(seatTarget(livePosition(mediaRef.current, Date.now()), endRef.current));
       if (mediaRef.current.playing) startPlayback();
       behindTicks.current = 0;
       setBehind(false);
     }, [startPlayback]);
+
+    /**
+     * Tell the plugin the media ran out, with its length. Silent on
+     * purpose (a viewer without the command permission still watches;
+     * a second report after the first ended the watch is refused).
+     */
+    const reportEnded = useCallback(
+      (duration: number) => {
+        const trpc = source.kind === 'card' ? getTRPCClient() : getVoiceTRPCClient();
+        if (!trpc) return;
+        trpc.plugins.executeCommand
+          .mutate({
+            pluginId,
+            commandName: 'watch',
+            args: {
+              action: 'ended',
+              position: duration,
+              ...(source.kind === 'card' ? { channelId: source.channelId } : {})
+            }
+          })
+          .catch(() => {});
+      },
+      [pluginId, source]
+    );
 
     // The sync loop: follow the shared transport state, correct drift.
     // The surface may attach after the loop starts (the YouTube player
@@ -413,18 +463,32 @@ const WatchTogetherPlayer = memo(
       const sync = () => {
         const current = mediaRef.current;
         const target = livePosition(current, Date.now());
-        setShown(target);
 
         const surface = surfaceRef.current;
-        if (!surface) return;
+        if (!surface) {
+          setShown(seatTarget(target, endRef.current));
+          return;
+        }
 
         const observed = surface.observe();
         if (observed.duration !== null) setDuration(observed.duration);
+        const end = mediaEnd(observed);
+        endRef.current = end;
+        // The clock shown never runs past the media either.
+        setShown(seatTarget(target, end));
+
+        // The first tick that finds the player run off the end tells
+        // the plugin how long the media is; a live stream has no
+        // finite length and is never reported, so a stall cannot end it.
+        if (observed.ended && !wasEnded.current && observed.duration !== null) {
+          reportEnded(observed.duration);
+        }
+        wasEnded.current = observed.ended;
 
         // Trailing the card tick after tick means the loop's seek is
         // not taking (a player that cannot start without a gesture):
         // offer the viewer the catch-up button.
-        if (source.kind === 'card' && current.playing && needsCatchUp(observed.currentTime, target)) {
+        if (source.kind === 'card' && current.playing && needsCatchUp(observed.currentTime, target, end)) {
           behindTicks.current += 1;
         } else {
           behindTicks.current = 0;
@@ -440,7 +504,7 @@ const WatchTogetherPlayer = memo(
       sync();
       const interval = window.setInterval(sync, SYNC_INTERVAL_MS);
       return () => window.clearInterval(interval);
-    }, [media, startPlayback, source.kind]);
+    }, [media, startPlayback, reportEnded, source.kind]);
 
     const runControl = useCallback(
       async (action: 'play' | 'pause' | 'seek' | 'stop', position?: number) => {
@@ -522,8 +586,8 @@ const WatchTogetherPlayer = memo(
               <>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-white hover:text-white hover:bg-white/15"
+                  size="icon-xs"
+                  className="text-white hover:text-white hover:bg-white/15"
                   title={media.playing ? 'Pause for everyone' : 'Play for everyone'}
                   disabled={busy}
                   onClick={() =>
@@ -537,8 +601,8 @@ const WatchTogetherPlayer = memo(
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-white hover:text-white hover:bg-white/15"
+                  size="icon-xs"
+                  className="text-white hover:text-white hover:bg-white/15"
                   title="Stop for everyone"
                   disabled={busy}
                   onClick={() => void runControl('stop')}

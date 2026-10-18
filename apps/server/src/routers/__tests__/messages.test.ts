@@ -439,7 +439,8 @@ describe('messages router', () => {
 
     expect(messageWithReaction!.reactions).toBeDefined();
     expect(messageWithReaction!.reactions.length).toBe(1);
-    expect(messageWithReaction!.reactions[0]!.emoji).toBe('👍');
+    // Stored by shortcode, whatever spelling the client sent.
+    expect(messageWithReaction!.reactions[0]!.emoji).toBe('+1');
     expect(messageWithReaction!.reactions[0]!.userId).toBe(1);
 
     await caller.messages.toggleReaction({
@@ -501,8 +502,8 @@ describe('messages router', () => {
 
     const emojis = messageWithReactions!.reactions.map((r) => r.emoji);
 
-    expect(emojis).toContain('👍');
-    expect(emojis).toContain('❤️');
+    expect(emojis).toContain('+1');
+    expect(emojis).toContain('heart');
   });
 
   test('should allow multiple different reactions on the same message', async () => {
@@ -551,9 +552,35 @@ describe('messages router', () => {
 
     const emojis = messageWithReactions!.reactions.map((r) => r.emoji);
 
-    expect(emojis).toContain('👍');
-    expect(emojis).toContain('❤️');
-    expect(emojis).toContain('😂');
+    expect(emojis).toContain('+1');
+    expect(emojis).toContain('heart');
+    expect(emojis).toContain('joy');
+  });
+
+  test('every spelling of a reaction lands on one stored row: glyph, :token:, name; custom names stay bare', async () => {
+    const { caller } = await initTest();
+
+    await caller.messages.send({ channelId: 1, content: 'Spellings', files: [] });
+    const messageId = (await caller.messages.get({ channelId: 1, cursor: null, limit: 1 })).messages[0]!.id;
+    const reactionsOf = async () =>
+      (await caller.messages.get({ channelId: 1, cursor: null, limit: 1 })).messages[0]!.reactions.map((r) => r.emoji);
+
+    // The glyph adds `+1`; the token form toggles the SAME row off; the name adds it back.
+    await caller.messages.toggleReaction({ messageId, emoji: '👍' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    await caller.messages.toggleReaction({ messageId, emoji: ':+1:' });
+    expect(await reactionsOf()).toEqual([]);
+    await caller.messages.toggleReaction({ messageId, emoji: '+1' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    // The variation selector does not make a different heart.
+    await caller.messages.toggleReaction({ messageId, emoji: '❤️' });
+    await caller.messages.toggleReaction({ messageId, emoji: '❤' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    // A custom emoji token is stored by its bare name (the emoji table is keyed on it).
+    await caller.messages.toggleReaction({ messageId, emoji: ':pogchamp:' });
+    expect(await reactionsOf()).toEqual(['+1', 'pogchamp']);
+    // What is left after normalizing must still be something.
+    await expect(caller.messages.toggleReaction({ messageId, emoji: '   ' })).rejects.toThrow();
   });
 
   test('should send multiple messages', async () => {

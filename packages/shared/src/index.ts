@@ -9,3 +9,4 @@ export * from "./plugins";
 export * from "./preferences";
 export * from "./name-style";
 export * from "./embeds";
+export * from "./emoji-shortcodes";

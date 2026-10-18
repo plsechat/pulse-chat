@@ -172,7 +172,7 @@ const PluginLogsDialog = memo(
 
     return (
       <Dialog open={isOpen} onOpenChange={close}>
-        <DialogContent className="flex flex-col min-w-[64vw] h-[80vh]">
+        <DialogContent className="flex flex-col min-w-[calc(64vw/var(--app-zoom))] h-[calc(var(--vvh)*0.8)]">
           <DialogHeader>
             <DialogTitle>{pluginId}</DialogTitle>
           </DialogHeader>

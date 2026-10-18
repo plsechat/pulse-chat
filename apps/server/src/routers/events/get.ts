@@ -1,9 +1,8 @@
 import { getEventDetail } from '../../db/queries/events';
 import { invariant } from '../../utils/invariant';
-import { serverProcedure } from '../../utils/procedures';
-import { eventIdInput } from './_shared';
+import { eventsProcedure, eventIdInput } from './_shared';
 
-const getEventRoute = serverProcedure()
+const getEventRoute = eventsProcedure()
   .input(eventIdInput)
   .query(async ({ ctx, input }) => {
     const detail = await getEventDetail(input.eventId, ctx.activeServerId);

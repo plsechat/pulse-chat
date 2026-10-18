@@ -5,9 +5,9 @@ import {
   templateNameSchema,
   updateRosterTemplate
 } from '../../db/queries/events';
-import { serverProcedure } from '../../utils/procedures';
+import { eventsProcedure } from './_shared';
 
-const updateTemplateRoute = serverProcedure(Permission.MANAGE_EVENTS)
+const updateTemplateRoute = eventsProcedure(Permission.MANAGE_EVENTS)
   .input(
     z.object({
       templateId: z.number().int().positive(),

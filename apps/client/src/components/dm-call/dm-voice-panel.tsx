@@ -92,7 +92,7 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
       {/* Phones: 40vh of a 915px screen plus the soft keyboard left no
           room for the conversation; the grid takes a bounded share of
           the VISIBLE height (--vvh, use-visual-viewport) there. */}
-      <div className="h-[clamp(160px,30*var(--vvh)/100,320px)] md:h-[40vh] md:min-h-[200px] relative overflow-hidden">
+      <div className="h-[clamp(160px,30*var(--vvh)/100,320px)] md:h-[calc(var(--vvh)*0.4)] md:min-h-[200px] relative overflow-hidden">
         <VoiceGrid pinnedCardId={pinnedCard?.id} className="h-full">
           {cards}
         </VoiceGrid>
@@ -103,7 +103,7 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
           variant="ghost"
           size="icon"
           className={cn(
-            'h-9 w-9 rounded-lg transition-all duration-200',
+            'rounded-lg transition-all duration-200',
             ownVoiceState.webcamEnabled
               ? 'bg-green-500/15 hover:bg-green-500/25 text-green-400 hover:text-green-300'
               : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
@@ -127,7 +127,7 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
             variant="ghost"
             size="icon"
             className={cn(
-              'h-9 w-9 rounded-lg transition-all duration-200',
+              'rounded-lg transition-all duration-200',
               ownVoiceState.sharingScreen
                 ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-blue-300'
                 : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
@@ -140,9 +140,9 @@ const DmVoicePanel = memo(({ dmChannelId }: TDmVoicePanelProps) => {
             }
           >
             {ownVoiceState.sharingScreen ? (
-              <Monitor className="h-4 w-4" />
-            ) : (
               <MonitorOff className="h-4 w-4" />
+            ) : (
+              <Monitor className="h-4 w-4" />
             )}
           </Button>
         )}

@@ -123,9 +123,9 @@ const SoundboardPopover = memo(
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             className={cn(
-              'h-8 w-8 rounded-md transition-all duration-200',
+              'rounded-md transition-all duration-200',
               open
                 ? 'bg-amber-500/15 text-amber-400'
                 : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground',

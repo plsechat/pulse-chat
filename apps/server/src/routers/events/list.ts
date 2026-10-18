@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { listEvents } from '../../db/queries/events';
 import { invariant } from '../../utils/invariant';
-import { serverProcedure } from '../../utils/procedures';
+import { eventsProcedure } from './_shared';
 
 /** Widest window one call may ask for: two months, so the month view fits with padding. */
 const MAX_WINDOW_MS = 62 * 24 * 60 * 60 * 1000;
@@ -15,7 +15,7 @@ const defaultWindow = (now: number) => {
   return { from, to };
 };
 
-const listEventsRoute = serverProcedure()
+const listEventsRoute = eventsProcedure()
   .input(
     z
       .object({

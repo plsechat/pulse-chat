@@ -22,6 +22,7 @@ import {
   roleLabel
 } from '@/features/events/roster';
 import type { TEventSystemRow } from '@/features/events/system-rows';
+import { usePlannerEnabled } from '@/features/server/hooks';
 import { useUserById } from '@/features/server/users/hooks';
 import { getDisplayName } from '@/helpers/get-display-name';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
@@ -153,17 +154,20 @@ type TEventCardProps = { row: TEventSystemRow; date: Date };
  */
 const EventCard = memo(({ row, date }: TEventCardProps) => {
   const item = useEventItem(row.eventId);
+  // Planner off: the card stays in the channel but is read-only — no
+  // RSVP, no detail fetch (the route refuses), no sheet.
+  const plannerEnabled = usePlannerEnabled();
   const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    if (item) return;
+    if (item || !plannerEnabled) return;
     setSettled(false);
     ensureEventDetail(row.eventId);
     // A row that never resolves is a cancelled/removed event: show the
     // fallback after the fetch had a fair chance.
     const timer = setTimeout(() => setSettled(true), 4000);
     return () => clearTimeout(timer);
-  }, [row.eventId, item]);
+  }, [row.eventId, item, plannerEnabled]);
 
   const timestamp = format(date, fullDateTime());
 
@@ -176,14 +180,18 @@ const EventCard = memo(({ row, date }: TEventCardProps) => {
             <span>
               <strong>{item?.title ?? 'The event'}</strong> ended ·{' '}
               {row.attended} attended
-              {' · '}
-              <button
-                type="button"
-                className="underline underline-offset-2 hover:text-foreground"
-                onClick={() => openEvent(row.eventId)}
-              >
-                View event
-              </button>
+              {plannerEnabled && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 hover:text-foreground"
+                    onClick={() => openEvent(row.eventId)}
+                  >
+                    View event
+                  </button>
+                </>
+              )}
             </span>
           </div>
         </Tooltip>
@@ -218,7 +226,8 @@ const EventCard = memo(({ row, date }: TEventCardProps) => {
                 <button
                   type="button"
                   onClick={() => openEvent(item.id)}
-                  className="text-left text-base font-semibold leading-tight text-foreground hover:underline"
+                  disabled={!plannerEnabled}
+                  className="text-left text-base font-semibold leading-tight text-foreground enabled:hover:underline disabled:cursor-default"
                 >
                   {item.title}
                 </button>
@@ -235,14 +244,21 @@ const EventCard = memo(({ row, date }: TEventCardProps) => {
               </>
             ) : (
               <span className="text-sm text-muted-foreground">
-                {settled
-                  ? 'This event is no longer available.'
-                  : 'Loading event…'}
+                {!plannerEnabled
+                  ? 'The Planner is turned off in this community.'
+                  : settled
+                    ? 'This event is no longer available.'
+                    : 'Loading event…'}
               </span>
             )}
           </div>
         </div>
-        {item && <CardRsvp item={item} />}
+        {item && plannerEnabled && <CardRsvp item={item} />}
+        {item && !plannerEnabled && (
+          <span className="text-xs text-muted-foreground">
+            The Planner is turned off in this community; signups are paused.
+          </span>
+        )}
         {item && isSignedUp(item.ownSignup) && item.ownSignup && (
           <span className="sr-only">
             You are signed up as {roleLabel(item.roles, item.ownSignup.roleKey)}

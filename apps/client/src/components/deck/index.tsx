@@ -136,6 +136,8 @@ type TTabProps = {
    *  community, its description. */
   title?: string;
   icon?: TServerSummary['logo'];
+  /** The instance that serves `icon`; omitted for a home community. */
+  instanceDomain?: string;
   fallback: React.ReactNode;
   isActive: boolean;
   unread: boolean;
@@ -152,6 +154,7 @@ const DeckTab = memo(
     label,
     title,
     icon,
+    instanceDomain,
     fallback,
     isActive,
     unread,
@@ -206,7 +209,7 @@ const DeckTab = memo(
         <span className="squircle relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden bg-secondary text-[11px] font-semibold text-muted-foreground ring-1 ring-white/10">
           {icon ? (
             <img
-              src={getFileUrl(icon)}
+              src={getFileUrl(icon, instanceDomain)}
               alt=""
               className="h-full w-full object-cover"
             />
@@ -503,6 +506,7 @@ const Deck = memo(() => {
                         entry.server.description
                       )}
                       icon={entry.server.logo}
+                      instanceDomain={entry.instanceDomain}
                       fallback={entry.server.name.charAt(0).toUpperCase()}
                       isActive={activeKey === key}
                       unread={(federatedUnread[countKey] ?? 0) > 0}

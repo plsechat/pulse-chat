@@ -41,7 +41,7 @@ const VARIANT_EVENTS: { type: SoundType; label: string; hint: string }[] = [
   {
     type: SoundType.MESSAGE_SENT,
     label: 'Message sent',
-    hint: 'Plays when your message goes out'
+    hint: 'Plays when your message goes out. Off unless you switch it on.'
   },
   {
     type: SoundType.OWN_USER_JOINED_VOICE_CHANNEL,
@@ -75,6 +75,7 @@ const SoundsNotifications = memo(() => {
     setVoiceSoundsEnabled,
     setActionSoundsEnabled,
     setCallSoundsEnabled,
+    setMessageSentSoundEnabled,
     setDesktopNotificationsEnabled,
     setSoundVariant
   } = useSoundNotificationSettings();
@@ -195,7 +196,7 @@ const SoundsNotifications = memo(() => {
             <SettingRow key={type} label={label} description={hint}>
               <button
                 onClick={() => playSoundForPreview(type, selected)}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 title="Preview sound"
               >
                 <Play className="h-4 w-4" />
@@ -215,6 +216,15 @@ const SoundsNotifications = memo(() => {
                   ))}
                 </SelectContent>
               </Select>
+              {type === SoundType.MESSAGE_SENT && (
+                // The one opt-in event: the picker chooses the sound,
+                // this decides whether it plays at all.
+                <Switch
+                  checked={settings.messageSentSoundEnabled === true}
+                  onCheckedChange={setMessageSentSoundEnabled}
+                  aria-label="Play a sound when your message is sent"
+                />
+              )}
             </SettingRow>
           );
         })}
@@ -234,7 +244,7 @@ const SoundsNotifications = memo(() => {
             <SettingRow key={key} label={cat.label} description={cat.description}>
               <button
                 onClick={() => playSoundForPreview(cat.preview)}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 title="Preview sound"
               >
                 <Play className="h-4 w-4" />

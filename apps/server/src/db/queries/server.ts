@@ -92,8 +92,25 @@ const getServerPublicSettings = async (
     storageSpaceQuotaByUser: server.storageSpaceQuotaByUser,
     storageOverflowAction: server.storageOverflowAction,
     enablePlugins: server.enablePlugins,
+    enableEvents: server.enableEvents,
     logo: logo ?? null
   };
+};
+
+/**
+ * The per-community Planner switch (`servers.enable_events`). Off hides
+ * the planner and makes every events surface refuse; the rows stay so
+ * switching it back on brings them back unchanged. An unknown server
+ * reads as off, so a stale id can never reach an events route.
+ */
+const isEventsEnabled = async (serverId: number): Promise<boolean> => {
+  const [server] = await db
+    .select({ enableEvents: servers.enableEvents })
+    .from(servers)
+    .where(eq(servers.id, serverId))
+    .limit(1);
+
+  return server?.enableEvents === true;
 };
 
 // Per-instance HMAC secret used by files-crypto to mint short-lived file
@@ -131,5 +148,6 @@ export {
   getInstanceServerSettings,
   getServerPublicSettings,
   getSettings,
+  isEventsEnabled,
   warmFileHmacSecret
 };

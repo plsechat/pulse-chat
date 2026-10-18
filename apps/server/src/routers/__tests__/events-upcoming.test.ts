@@ -9,6 +9,7 @@ import { getTestDb } from '../../__tests__/mock-db';
 import {
   events,
   federationInstances,
+  servers,
   userFederatedServers
 } from '../../db/schema';
 
@@ -105,6 +106,23 @@ describe('events.upcomingForUser', () => {
     await insertEvent(local, HOUR_MS, { title: 'remote-looking' });
 
     expect(await caller.events.upcomingForUser()).toEqual([]);
+  });
+
+  test('a community with the Planner off contributes nothing until it is back on', async () => {
+    const { caller } = await initTest(2);
+    const quiet = await createTestServer({ name: 'Quiet' });
+    await createTestServerMember({ serverId: quiet, userId: 2 });
+    const ours = await insertEvent(1, 2 * HOUR_MS, { title: 'ours' });
+    const theirs = await insertEvent(quiet, HOUR_MS, { title: 'theirs' });
+
+    await getTestDb().update(servers).set({ enableEvents: false }).where(eq(servers.id, quiet));
+    expect((await caller.events.upcomingForUser()).map((r) => r.event.id)).toEqual([ours.id]);
+
+    await getTestDb().update(servers).set({ enableEvents: true }).where(eq(servers.id, quiet));
+    expect((await caller.events.upcomingForUser()).map((r) => r.event.id)).toEqual([
+      theirs.id,
+      ours.id
+    ]);
   });
 
   test('the window is now to withinHours ahead, a week by default', async () => {

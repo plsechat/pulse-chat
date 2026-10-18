@@ -110,6 +110,11 @@ const servers = pgTable(
     }).notNull(),
     storageOverflowAction: text('storage_overflow_action').notNull(),
     enablePlugins: boolean('enable_plugins').notNull(),
+    // Per-community Planner switch (MANAGE_SETTINGS). Off = the planner UI,
+    // event routes, ICS feed, reminders, SDK event actions and the import
+    // step all refuse; existing events stay untouched and return when it
+    // is switched on again (nothing is cancelled by the switch).
+    enableEvents: boolean('enable_events').notNull().default(true),
     discoverable: boolean('discoverable').notNull().default(false),
     federatable: boolean('federatable').notNull().default(false),
     // Public directory listing (opt-in, MANAGE_SETTINGS): the card copy

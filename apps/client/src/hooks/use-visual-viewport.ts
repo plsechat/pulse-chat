@@ -31,7 +31,7 @@ const keyboardShowing = (baseline: TBaseline, vv: VisualViewport): boolean =>
 
 /**
  * Keeps `--vvh` on <html> at the visual viewport height (index.css
- * declares it as 100dvh). iOS Safari and Chrome without
+ * declares it as 100dvh over the appearance zoom). iOS Safari and Chrome without
  * `interactive-widget=resizes-content` keep the layout viewport when the
  * soft keyboard opens and shrink only the visual viewport — a `dvh`
  * shell then stays tall, the browser pans it, and the header scrolls
@@ -46,7 +46,12 @@ const useVisualViewportHeight = () => {
 
     const apply = () => {
       if (vv.scale > 1.01) return; // pinch zoom: leave the layout alone
-      root.style.setProperty('--vvh', `${Math.round(vv.height)}px`);
+      // Divided by the appearance zoom: inside the zoomed root a px is
+      // `zoom` real pixels, while visualViewport reports real ones.
+      root.style.setProperty(
+        '--vvh',
+        `calc(${Math.round(vv.height)}px / var(--app-zoom, 1))`
+      );
     };
 
     apply();

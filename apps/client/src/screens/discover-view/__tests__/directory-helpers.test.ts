@@ -6,7 +6,7 @@ import {
   formatDirectoryCounts,
   formatFetchedAgo,
   isInvalidPasswordError,
-  parseTagsInput,
+  displayTag,
   validateDirectoryCard
 } from '../directory-helpers';
 
@@ -63,21 +63,16 @@ describe('directory helpers', () => {
     expect(formatFetchedAgo(now + h, now)).toBeNull();
   });
 
-  test('tags are split, trimmed, deduplicated case-insensitively and capped at five', () => {
-    expect(parseTagsInput('')).toEqual([]);
-    expect(parseTagsInput(' casual, Ranked ,casual\nranked, , pvp')).toEqual([
-      'casual',
-      'Ranked',
-      'pvp'
-    ]);
-    expect(parseTagsInput('a,b,c,d,e,f,g')).toEqual(['a', 'b', 'c', 'd', 'e']);
+  test('tags are shown with a leading #', () => {
+    expect(displayTag('casual')).toBe('#casual');
+    expect(displayTag('late night')).toBe('#late night');
   });
 
   test('the card form mirrors the route bounds', () => {
     const ok = validateDirectoryCard({
       listed: true,
       description: 'x'.repeat(300),
-      tagsText: 'a, b, c, d, e',
+      tags: ['a', 'b', 'c', 'd', 'late night-2_x'],
       game: 'g'.repeat(60),
       discoverable: true,
       allowNewUsers: true
@@ -87,7 +82,7 @@ describe('directory helpers', () => {
     const bad = validateDirectoryCard({
       listed: true,
       description: 'x'.repeat(301),
-      tagsText: 'a, b, c, d, e, f',
+      tags: ['a', 'b', 'c', 'd', 'e', 'f'],
       game: 'g'.repeat(61),
       discoverable: false,
       allowNewUsers: true
@@ -103,12 +98,22 @@ describe('directory helpers', () => {
       validateDirectoryCard({
         listed: false,
         description: '',
-        tagsText: 'x'.repeat(25),
+        tags: ['x'.repeat(25)],
         game: '',
         discoverable: false,
         allowNewUsers: false
       })
     ).toEqual({ directoryTags: 'Each tag can be up to 24 characters' });
+    expect(
+      validateDirectoryCard({
+        listed: false,
+        description: '',
+        tags: ['#casual'],
+        game: '',
+        discoverable: false,
+        allowNewUsers: false
+      })
+    ).toEqual({ directoryTags: 'Tags may contain letters, numbers, spaces, _ and -' });
   });
 
   test('recognises the join routes\' password refusal only', () => {

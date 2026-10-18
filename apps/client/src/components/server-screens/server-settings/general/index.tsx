@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Card,
   CardContent,
@@ -18,6 +19,7 @@ import {
 import { SettingsFormFooter } from '@/components/ui/settings-form-footer';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { TagInput } from '@/components/ui/tag-input';
 import { Textarea } from '@/components/ui/textarea';
 import { useActiveServerId, useJoinedServers } from '@/features/app/hooks';
 import { closeServerScreens } from '@/features/server-screens/actions';
@@ -32,6 +34,7 @@ import {
   DIRECTORY_DESCRIPTION_MAX_LENGTH,
   DIRECTORY_GAME_MAX_LENGTH,
   DIRECTORY_TAG_MAX_LENGTH,
+  DIRECTORY_TAG_PATTERN,
   DIRECTORY_TAGS_MAX,
   STORAGE_MAX_FILE_SIZE,
   STORAGE_MAX_QUOTA_PER_USER,
@@ -40,19 +43,39 @@ import {
   STORAGE_OVERFLOW_ACTIONS_DICT,
   StorageOverflowAction
 } from '@pulse/shared';
+import { AlertCircle } from 'lucide-react';
 import { filesize } from 'filesize';
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { LogoManager } from './logo-manager';
 
 const FILE_SIZE_STEP = 5 * 1024 * 1024; // 5 MB
+/** others.updateSettings: description is at most 128 characters. */
+const DESCRIPTION_MAX_LENGTH = 128;
 
 const formatBytes = (bytes: number) =>
   bytes === 0 ? 'Unlimited' : String(filesize(bytes, { standard: 'jedec' }));
 
+/** The inline error slot under a control that has no `error` prop of its own. */
+const FieldError = ({ message }: { message: string | undefined }) =>
+  message ? (
+    <p className="text-sm text-destructive" role="alert">
+      {message}
+    </p>
+  ) : null;
+
 const General = memo(() => {
   const activeServerId = useActiveServerId();
-  const { settings, logo, loading, onChange, submit, errors, refetch } =
+  const { settings, logo, loading, saving, onChange, submit, errors, refetch } =
     useAdminGeneral(activeServerId);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // A refused save marks the field; a long form must bring it on screen.
+  useEffect(() => {
+    if (!Object.values(errors).some(Boolean)) return;
+    cardRef.current
+      ?.querySelector('[role="alert"]')
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [errors]);
 
   // The Federatable toggle is owner-only and gated by the instance policy
   // (see federation/set-config + others/update-settings). Show it only to
@@ -80,7 +103,7 @@ const General = memo(() => {
   const cardErrors = validateDirectoryCard({
     listed: settings.directoryListed,
     description: settings.directoryDescription,
-    tagsText: settings.directoryTagsText,
+    tags: settings.directoryTags,
     game: settings.directoryGame,
     discoverable: settings.discoverable,
     allowNewUsers: settings.allowNewUsers
@@ -91,7 +114,7 @@ const General = memo(() => {
   }
 
   return (
-    <Card>
+    <Card ref={cardRef}>
       <CardHeader>
         <CardTitle>Server Information</CardTitle>
         <CardDescription>
@@ -99,6 +122,13 @@ const General = memo(() => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {errors._general && (
+          <Alert variant="destructive" role="alert">
+            <AlertCircle />
+            <AlertDescription>{errors._general}</AlertDescription>
+          </Alert>
+        )}
+
         <Group label="Name">
           <Input
             value={settings.name}
@@ -108,12 +138,17 @@ const General = memo(() => {
           />
         </Group>
 
-        <Group label="Description">
+        <Group
+          label="Description"
+          description={`${settings.description.length}/${DESCRIPTION_MAX_LENGTH}`}
+        >
           <Textarea
             value={settings.description}
             onChange={(e) => onChange('description', e.target.value)}
             placeholder="Enter server description"
             rows={4}
+            maxLength={DESCRIPTION_MAX_LENGTH}
+            error={errors.description}
           />
         </Group>
 
@@ -139,6 +174,7 @@ const General = memo(() => {
               if (!checked) onChange('directoryListed', false);
             }}
           />
+          <FieldError message={errors.allowNewUsers} />
         </Group>
 
         <Group
@@ -152,6 +188,7 @@ const General = memo(() => {
               if (!checked) onChange('directoryListed', false);
             }}
           />
+          <FieldError message={errors.discoverable} />
         </Group>
 
         <div className="border-t border-border pt-4">
@@ -176,11 +213,9 @@ const General = memo(() => {
             aria-label="List in the directory"
             onCheckedChange={(checked) => onChange('directoryListed', checked)}
           />
-          {cardErrors.directoryListed && (
-            <p className="text-sm text-destructive" role="alert">
-              {cardErrors.directoryListed}
-            </p>
-          )}
+          <FieldError
+            message={cardErrors.directoryListed || errors.directoryListed}
+          />
         </Group>
 
         <Group
@@ -200,11 +235,14 @@ const General = memo(() => {
 
         <Group
           label="Tags"
-          description={`Up to ${DIRECTORY_TAGS_MAX} tags of ${DIRECTORY_TAG_MAX_LENGTH} characters, separated by commas. Searchable.`}
+          description={`Up to ${DIRECTORY_TAGS_MAX} tags of ${DIRECTORY_TAG_MAX_LENGTH} characters; press Enter or comma after each. Shown as #tag on the card and searchable.`}
         >
-          <Input
-            value={settings.directoryTagsText}
-            onChange={(e) => onChange('directoryTagsText', e.target.value)}
+          <TagInput
+            value={settings.directoryTags}
+            onChange={(tags) => onChange('directoryTags', tags)}
+            max={DIRECTORY_TAGS_MAX}
+            maxLength={DIRECTORY_TAG_MAX_LENGTH}
+            pattern={DIRECTORY_TAG_PATTERN}
             placeholder="casual, ranked, weekends"
             aria-label="Directory tags"
             error={cardErrors.directoryTags || errors.directoryTags}
@@ -233,6 +271,19 @@ const General = memo(() => {
             checked={settings.enablePlugins}
             onCheckedChange={(checked) => onChange('enablePlugins', checked)}
           />
+          <FieldError message={errors.enablePlugins} />
+        </Group>
+
+        <Group
+          label="Planner"
+          description="Let members plan events in the Planner: rosters with roles and a bench, reminders, a voice room around each event and a calendar feed. Off hides the Planner and pauses signups and reminders; the events are kept and come back when it is on again."
+        >
+          <Switch
+            checked={settings.enableEvents}
+            aria-label="Planner"
+            onCheckedChange={(checked) => onChange('enableEvents', checked)}
+          />
+          <FieldError message={errors.enableEvents} />
         </Group>
 
         {isServerOwner && (
@@ -249,6 +300,7 @@ const General = memo(() => {
               disabled={!canToggleFederatable}
               onCheckedChange={(checked) => onChange('federatable', checked)}
             />
+            <FieldError message={errors.federatable} />
           </Group>
         )}
 
@@ -269,6 +321,7 @@ const General = memo(() => {
               onChange('storageUploadEnabled', checked)
             }
           />
+          <FieldError message={errors.storageUploadEnabled} />
         </Group>
 
         <Group
@@ -291,6 +344,7 @@ const General = memo(() => {
               </span>
             }
           />
+          <FieldError message={errors.storageUploadMaxFileSize} />
         </Group>
 
         <Group
@@ -313,6 +367,7 @@ const General = memo(() => {
               </span>
             }
           />
+          <FieldError message={errors.storageSpaceQuotaByUser} />
         </Group>
 
         <Group
@@ -337,12 +392,13 @@ const General = memo(() => {
               ))}
             </SelectContent>
           </Select>
+          <FieldError message={errors.storageOverflowAction} />
         </Group>
 
         <SettingsFormFooter
           onCancel={closeServerScreens}
           onSave={submit}
-          saving={loading}
+          saving={saving}
         />
       </CardContent>
     </Card>

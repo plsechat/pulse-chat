@@ -624,6 +624,22 @@ describe('resume, pause, cancel', () => {
   });
 });
 
+describe('planner switch', () => {
+  test('a community with the Planner off imports no events and counts them as skipped', async () => {
+    const { token } = useFixture();
+    const { caller } = await initTest(OWNER_ID);
+    const { job } = await connectAndPreview(caller, token);
+    await tdb().update(servers).set({ enableEvents: false }).where(eq(servers.id, SERVER_ID));
+
+    expect(await runWith(job.id, { ...ALL, attachments: 'skip' })).toBe('done');
+
+    expect(await tdb().select().from(events).where(eq(events.serverId, SERVER_ID))).toHaveLength(0);
+    const state = readImportState((await getImportJob(job.id))!);
+    expect(state.counts.events).toEqual({ done: 0, total: 2, skipped: 2 });
+    expect(state.stepsDone).toContain('events');
+  });
+});
+
 describe('placeholder claim', () => {
   test('signing in with the matching provider id takes the placeholder over, once, atomically', async () => {
     const { token } = useFixture();

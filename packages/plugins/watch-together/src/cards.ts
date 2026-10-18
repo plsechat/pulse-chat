@@ -1,6 +1,6 @@
 import type { TPluginMessageData } from '@pulse/plugin-sdk';
 import type { TWatchCard } from '@pulse/shared';
-import { SessionError, type TActor, type TControlAction } from './sessions';
+import { END_TOLERANCE_S, SessionError, type TActor, type TControlAction } from './sessions';
 import type { TMediaKind } from './url';
 
 /**
@@ -326,6 +326,30 @@ export class CardSessionManager {
   };
 
   /**
+   * A player reports the media ran off its end at `duration` seconds.
+   * Any viewer may say so — it is a fact about the media, not a
+   * control. Once the card's position has reached that length the
+   * watch is over: the card ends AT the length (never "Playing" past
+   * it), so everyone, late readers included, sees it ended rather
+   * than a position the media does not have. A report from before the
+   * end is ignored; a live stream (no finite length) is never
+   * reported.
+   */
+  public ended = (channelId: number, duration: number): TCardView => {
+    const session = this.sessions.get(channelId);
+    if (!session) throw new SessionError('Nothing is playing in this channel.');
+
+    const length = clampPosition(duration);
+    if (length <= 0) throw new SessionError('The duration must be a positive number of seconds.');
+
+    if (cardLivePosition(session.card, this.deps.now()) < length - END_TOLERANCE_S) return this.view(session);
+
+    this.deps.log(`"${session.card.title}" in channel ${channelId} reached its end at ${length}s`);
+    this.end(channelId, length);
+    return this.view(session);
+  };
+
+  /**
    * The periodic sweep: forget viewers that stopped reporting, end
    * sessions nobody has watched for IDLE_MS. Public so tests drive it
    * with their own clock.
@@ -352,8 +376,12 @@ export class CardSessionManager {
     if (this.sessions.size === 0) this.stopSweep();
   };
 
-  /** Mark the card ended and drop the session. Idempotent. */
-  public end = (channelId: number): boolean => {
+  /**
+   * Mark the card ended and drop the session. Idempotent. `position`
+   * is where the card stops when it is not simply where it is now
+   * (the media's length when it ran out).
+   */
+  public end = (channelId: number, position?: number): boolean => {
     const session = this.sessions.get(channelId);
     if (!session) return false;
 
@@ -361,7 +389,7 @@ export class CardSessionManager {
     const ended: TWatchCard = {
       ...session.card,
       playing: false,
-      position: cardLivePosition(session.card, now),
+      position: position ?? cardLivePosition(session.card, now),
       updatedAt: now,
       viewers: 0,
       endedAt: now

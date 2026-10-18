@@ -138,8 +138,8 @@ const AutoMod = memo(() => {
               </label>
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive hover:text-destructive"
+                size="icon-sm"
+                className="text-destructive hover:text-destructive"
                 onClick={() => handleDelete(rule.id)}
                 title="Delete Rule"
               >

@@ -119,7 +119,7 @@ const InboxPanel = memo(() => {
               icon={
                 row.logo ? (
                   <img
-                    src={getFileUrl(row.logo)}
+                    src={getFileUrl(row.logo, row.instanceDomain)}
                     alt=""
                     className="h-full w-full object-cover"
                   />

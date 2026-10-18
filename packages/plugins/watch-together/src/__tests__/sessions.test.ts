@@ -133,6 +133,40 @@ describe('SessionManager', () => {
     expect(h.created[0]!.updates).toHaveLength(4);
   });
 
+  test('a player reporting the end pauses the room at the media length; play there starts over; nothing past it', () => {
+    const h = build();
+    start(h);
+
+    // A report from before the end: the room at 10 s, the media 300 s long — ignored.
+    h.tick(10_000);
+    expect(h.manager.ended(42, 300)).toMatchObject({ playing: true, position: 10 });
+    expect(h.created[0]!.updates).toHaveLength(0);
+
+    // The room's clock runs past the end (nobody reported for a while); the report lands: paused AT the length.
+    h.tick(310_000);
+    expect(h.manager.list()[0]!.position).toBe(320);
+    expect(h.manager.ended(42, 300)).toMatchObject({ playing: false, position: 300 });
+    expect(h.created[0]!.updates.at(-1)).toMatchObject({ playing: false, position: 300, updatedAt: h.now() });
+    // Late joiners read the end, not 320 and counting.
+    h.tick(60_000);
+    expect(h.manager.list()[0]!.position).toBe(300);
+    // A second player reporting the same is no further fan-out.
+    expect(h.manager.ended(42, 300)).toMatchObject({ playing: false, position: 300 });
+    expect(h.created[0]!.updates).toHaveLength(1);
+
+    // Play at the end (the card's button sends the player's own position) starts over.
+    expect(h.manager.control(42, 'play', host, 300)).toMatchObject({ playing: true, position: 0 });
+    // Seeks are clamped to the known length.
+    expect(h.manager.control(42, 'seek', host, 900)).toMatchObject({ position: 300 });
+    // ...and a plain play there (no position) is a restart too.
+    expect(h.manager.control(42, 'play', host)).toMatchObject({ playing: true, position: 0 });
+
+    // Bounds.
+    expect(() => h.manager.ended(42, 0)).toThrow('positive number of seconds');
+    expect(() => h.manager.ended(42, Number.NaN)).toThrow('must be a number');
+    expect(() => h.manager.ended(99, 300)).toThrow('Nothing is playing in this voice channel.');
+  });
+
   test('positions are bounded and seek needs one', () => {
     const h = build();
     start(h);

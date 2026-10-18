@@ -252,7 +252,12 @@ const eventsIcsRouteHandler = async (
 
   const [[server], [user]] = await Promise.all([
     db
-      .select({ id: servers.id, publicId: servers.publicId, name: servers.name })
+      .select({
+        id: servers.id,
+        publicId: servers.publicId,
+        name: servers.name,
+        enableEvents: servers.enableEvents
+      })
       .from(servers)
       .where(eq(servers.publicId, serverPublicId))
       .limit(1),
@@ -263,7 +268,9 @@ const eventsIcsRouteHandler = async (
       .limit(1)
   ]);
 
-  if (!server || !user) {
+  // A community with the Planner switched off has no feed; the link
+  // works again, unchanged, once it is back on.
+  if (!server || !user || !server.enableEvents) {
     return sendJson(res, 404, { error: 'Not found' });
   }
 

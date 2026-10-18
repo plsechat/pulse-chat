@@ -18,6 +18,15 @@ export const WATCH_TOGETHER_PLUGIN_ID = 'watch-together';
 /** How far a client's own clock may wander before it is snapped back. */
 export const WATCH_DRIFT_TOLERANCE_S = 1;
 
+/**
+ * How far before the end of the media the room must be for a player
+ * that has ended to be started again. The room's position is the
+ * server's clock read through the viewer's; a couple of seconds of
+ * skew must not read as "the room went back" and replay the video
+ * from the start.
+ */
+export const WATCH_END_SLACK_S = 3;
+
 export const livePosition = (media: TExternalStreamMedia, now: number): number =>
   media.playing
     ? Math.max(0, media.position + (now - media.updatedAt) / 1000)
@@ -41,8 +50,13 @@ export type TSyncObservation = {
    * alone; it is seated on the first play instead.
    */
   unstarted: boolean;
-  /** The media length when known. */
+  /** The media length when known (null for a live stream). */
   duration: number | null;
+  /**
+   * How far the player can seek when the length is unknown — the live
+   * edge of a stream. Null when the player does not know either.
+   */
+  seekableEnd: number | null;
   /** Where the room is right now. */
   target: number;
   /** Whether the room plays. */
@@ -55,24 +69,44 @@ export type TSyncDecision = {
 };
 
 /**
+ * Where this player's media ends, as far as it knows: its length, else
+ * the live edge, else — for a player that has ended — where it stands,
+ * which by definition is the end. Null while nothing is known.
+ */
+export const mediaEnd = (o: Pick<TSyncObservation, 'duration' | 'seekableEnd' | 'ended' | 'currentTime'>): number | null =>
+  o.duration ?? o.seekableEnd ?? (o.ended ? o.currentTime : null);
+
+/** The room's position clamped to what the media has: nobody is seated past the end. */
+export const seatTarget = (target: number, end: number | null): number =>
+  end === null ? target : Math.min(target, end);
+
+/**
  * One tick of the sync loop as a pure decision: seat the player on the
  * room's position when it drifted, then match the room's transport.
- * A player that has ended while the room's position is past the end
- * stays ended — re-seating it would restart it every second.
+ * The room's position keeps counting while it plays, so it runs past
+ * the end of the media until the plugin hears that it ended: nothing
+ * here seeks or starts a player past the end — a player that has
+ * ended there stays ended (re-seating it would restart it every
+ * second), one that stalled short of it is seated on the end at most
+ * once, and the seek target is always within the media.
  */
 export const decideSync = (o: TSyncObservation): TSyncDecision => {
   const decision: TSyncDecision = {};
+  const end = mediaEnd(o);
 
   if (o.wantPlaying) {
-    const pastTheEnd = o.ended && o.duration !== null && o.target >= o.duration - WATCH_DRIFT_TOLERANCE_S;
-    if (pastTheEnd) return decision;
-    if (needsResync(o.currentTime, o.target)) decision.seekTo = o.target;
+    const roomAtTheEnd = end !== null && o.target >= end - WATCH_END_SLACK_S;
+    if (o.ended && roomAtTheEnd) return decision;
+    const goal = seatTarget(o.target, end);
+    if (needsResync(o.currentTime, goal)) decision.seekTo = goal;
     if (!o.playing) decision.transport = 'play';
     return decision;
   }
 
   if (o.playing) decision.transport = 'pause';
-  if (!o.unstarted && !o.ended && needsResync(o.currentTime, o.target)) decision.seekTo = o.target;
+  if (!o.unstarted && !o.ended && needsResync(o.currentTime, seatTarget(o.target, end))) {
+    decision.seekTo = seatTarget(o.target, end);
+  }
   return decision;
 };
 
@@ -174,7 +208,9 @@ export const youtubeThumbnailUrl = (videoId: string): string =>
 /**
  * Whether a viewer's player trails the card by more than the tolerance
  * the sync loop uses: that is when the player offers "Catch up". Ahead
- * is never offered — the loop pulls it back on its own.
+ * is never offered — the loop pulls it back on its own — and neither
+ * is a player standing at the end of its media while the card's clock
+ * has run past it: there is nothing left to catch up to.
  */
-export const needsCatchUp = (currentTime: number, target: number): boolean =>
-  target - currentTime > WATCH_DRIFT_TOLERANCE_S;
+export const needsCatchUp = (currentTime: number, target: number, end: number | null = null): boolean =>
+  seatTarget(target, end) - currentTime > WATCH_DRIFT_TOLERANCE_S;

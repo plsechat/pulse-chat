@@ -3,14 +3,14 @@ import { db } from '../../db';
 import { servers, users } from '../../db/schema';
 import { buildCalendarPath } from '../../http/events-ics';
 import { invariant } from '../../utils/invariant';
-import { serverProcedure } from '../../utils/procedures';
+import { eventsProcedure } from './_shared';
 
 /**
  * The caller's personal subscription URL for the active server's
  * calendar feed. The token is bound to this user and this server, so a
  * shared link only ever exposes a calendar the sharer could read.
  */
-const getCalendarUrlRoute = serverProcedure().query(async ({ ctx }) => {
+const getCalendarUrlRoute = eventsProcedure().query(async ({ ctx }) => {
   const [[server], [user]] = await Promise.all([
     db
       .select({ publicId: servers.publicId })

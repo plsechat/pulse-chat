@@ -1,7 +1,7 @@
 import {
   getMasterVolumeMultiplier,
   getSelectedSoundVariant,
-  isCategoryEnabledForSound
+  isSoundEnabled
 } from '@/hooks/use-sound-notification-settings';
 import { SoundType } from '../types';
 
@@ -1028,7 +1028,7 @@ const resolveVariant = (type: SoundType): TSoundVariant | undefined => {
 };
 
 export const playSound = (type: SoundType) => {
-  if (!isCategoryEnabledForSound(type)) return;
+  if (!isSoundEnabled(type)) return;
 
   // Events with selectable variants play the user's pick.
   const variant = resolveVariant(type);

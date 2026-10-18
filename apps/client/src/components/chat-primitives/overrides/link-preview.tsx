@@ -66,7 +66,7 @@ const LinkPreview = memo(({ metadata }: TLinkPreviewProps) => {
           </span>
         )}
       </div>
-      <div className="flex items-center pr-2 opacity-0 group-hover-or-touch:opacity-100 transition-opacity">
+      <div className="flex items-center pr-2 opacity-0 group-hover-or-active:opacity-100 transition-opacity">
         <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
       </div>
     </a>

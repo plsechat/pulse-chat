@@ -181,8 +181,7 @@ const TemplateRow = memo(({ template }: { template: TEventRosterTemplate }) => {
       <div className="flex shrink-0 items-center gap-1">
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="icon-sm"
           onClick={() => setEditing(true)}
           title={`Edit ${template.name}`}
           disabled={deleting}
@@ -191,8 +190,8 @@ const TemplateRow = memo(({ template }: { template: TEventRosterTemplate }) => {
         </Button>
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-destructive hover:text-destructive"
+          size="icon-sm"
+          className="text-destructive hover:text-destructive"
           onClick={onDelete}
           title={`Delete ${template.name}`}
           disabled={deleting}

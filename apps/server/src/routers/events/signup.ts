@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { signupForEvent } from '../../db/queries/events';
-import { serverProcedure } from '../../utils/procedures';
-import { eventIdInput, requireEvent } from './_shared';
+import { eventsProcedure, eventIdInput, requireEvent } from './_shared';
 
-const signupRoute = serverProcedure()
+const signupRoute = eventsProcedure()
   .input(eventIdInput.extend({ roleKey: z.string().min(1).max(24) }))
   .mutation(async ({ ctx, input }) => {
     const event = await requireEvent(input.eventId, ctx.activeServerId);

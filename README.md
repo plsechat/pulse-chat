@@ -42,7 +42,7 @@ Pulse is a self-hosted alternative to Discord and Slack that puts you in control
 | **Forum channels** | Threaded discussions with tags for long-form topics |
 | **Channels & DMs** | Real-time text with file uploads, reactions, threads, mentions, polls and scheduled posts; deleted messages stay as a placeholder for a configurable time |
 | **Announcement channels** | Channels only announcers post in, which other communities (on this instance or a federated peer) can follow |
-| **Events** | A raid planner per community: rosters with roles and a bench, reminders, an automatic private voice room around the event, and a calendar feed |
+| **Planner** | A community event planner: rosters with roles and a bench, reminders, an automatic private voice room around the event, and a calendar feed |
 | **Soundboard** | Short clips per community that members play into a voice room |
 | **Public directory** | Communities can list themselves; members browse listings from this instance and its federated peers |
 | **Community import** | A wizard that brings channels, roles, emoji, history and attachments over from another chat service, with placeholder authors that merge when the real person signs in |

@@ -11,7 +11,8 @@ import {
 import { sanitizeForLog } from '../helpers/sanitize-for-log';
 import { logger } from '../logger';
 import { newRequestId, withLogContext } from '../utils/log-context';
-import { isAllowedOrigin } from './cors';
+import { getFederationProtocol } from '../utils/validate-url';
+import { getActiveFederationDomains, isAllowedOrigin } from './cors';
 import {
   federationAcceptHandler,
   federationDmRelayHandler,
@@ -102,8 +103,74 @@ const CORS_ALLOW_HEADERS = Array.from(
 // itself (youtube-nocookie.com, youtube.com) is already allowed by
 // frame-src for message embeds, and the watch card's thumbnail
 // (i.ytimg.com) by the `https:` that link previews need in img-src.
-const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self' https://www.youtube.com/iframe_api https://www.youtube.com/s/player/ https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' https: blob:; connect-src 'self' https: wss: ws: blob:; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+const CSP_IMG_SRC = "'self' data: https: blob:";
+const CSP_MEDIA_SRC = "'self' https: blob:";
+const CSP_CONNECT_SRC = "'self' https: wss: ws: blob:";
+
+const buildContentSecurityPolicy = (peerSources: readonly string[]) => {
+  const peers = peerSources.length > 0 ? ` ${peerSources.join(' ')}` : '';
+  return `default-src 'self'; script-src 'self' https://www.youtube.com/iframe_api https://www.youtube.com/s/player/ https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src ${CSP_IMG_SRC}${peers}; media-src ${CSP_MEDIA_SRC}${peers}; connect-src ${CSP_CONNECT_SRC}${peers}; font-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com https://open.spotify.com https://w.soundcloud.com https://platform.twitter.com https://syndication.twitter.com https://www.reddit.com https://embed.reddit.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`;
+};
+
+const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy([]);
+
+/**
+ * CSP source expression for a federation peer this instance talks to
+ * over plain http (LAN / allowlisted-private / bare-hostname peers, see
+ * getFederationProtocol). A browser on a plain-http home instance
+ * otherwise cannot load the peer's logos, avatars and attachments: the
+ * `https:` scheme sources above do not cover `http://peer:4991/public/`.
+ * An https home stays mixed-content blocked whatever the CSP says, so
+ * this only ever helps the plain-http case it is meant for.
+ *
+ * The domain comes from the operator-added federation_instances row;
+ * it is still re-parsed here so a value that is not a clean host[:port]
+ * can never splice a directive. CSP host-sources have no IPv6-literal
+ * form, so a v6 peer falls back to the bare `http:` scheme source.
+ */
+const httpPeerCspSource = (domain: string): string | null => {
+  let url: URL;
+  try {
+    url = new URL(`http://${domain}`);
+  } catch {
+    return null;
+  }
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash ||
+    url.host.toLowerCase() !== domain.toLowerCase()
+  ) {
+    return null;
+  }
+  if (url.hostname.startsWith('[')) return 'http:';
+  return `http://${url.host}`;
+};
+
+// Rebuilt only when the CORS layer hands over a new peer Set (TTL
+// refresh or invalidateCorsCache after a peer change); every request in
+// between reuses the string.
+let cspCache: { domains: Set<string>; value: string } | null = null;
+
+const getContentSecurityPolicy = async (): Promise<string> => {
+  const domains = await getActiveFederationDomains();
+  if (cspCache?.domains === domains) return cspCache.value;
+
+  const sources = new Set<string>();
+  for (const domain of domains) {
+    if (getFederationProtocol(domain) !== 'http') continue;
+    const source = httpPeerCspSource(domain);
+    if (source) sources.add(source);
+  }
+  const value =
+    sources.size > 0
+      ? buildContentSecurityPolicy([...sources].sort())
+      : CONTENT_SECURITY_POLICY;
+  cspCache = { domains, value };
+  return value;
+};
 
 const PERMISSIONS_POLICY =
   'camera=(self), microphone=(self), display-capture=(self), geolocation=()';
@@ -165,7 +232,10 @@ const createHttpServer = async (port: number = config.server.port) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('X-Frame-Options', 'DENY');
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-      res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+      res.setHeader(
+        'Content-Security-Policy',
+        await getContentSecurityPolicy()
+      );
       res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
       if (publicOrigin.proto === 'https') {
         res.setHeader('Strict-Transport-Security', STRICT_TRANSPORT_SECURITY);

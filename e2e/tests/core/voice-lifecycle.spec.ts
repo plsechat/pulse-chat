@@ -6,7 +6,11 @@ import {
   type Page
 } from '@playwright/test';
 import { authedPage, CORE_OWNER, CORE_USER_B } from '../../helpers/fixtures';
-import { channelButton, selectChannel } from '../../helpers/ui';
+import {
+  channelButton,
+  expectNoClippedControls,
+  selectChannel
+} from '../../helpers/ui';
 
 /**
  * Voice lifecycle (Tier 3) — join / state / leave as the OTHER member
@@ -79,6 +83,12 @@ test.describe('voice lifecycle', () => {
       timeout: 15_000
     });
     await expect(disconnectButton(pageA)).toBeVisible();
+    // Finding #4: the voice card holds five controls in the deck's 208 px
+    // row; the sidebar is overflow-hidden, so a row that ran long cut the
+    // share button off without a trace.
+    await expectNoClippedControls(
+      pageA.locator('aside').filter({ has: disconnectButton(pageA) }).first()
+    );
 
     // A joins unmuted (fake mic granted) — B sees the live-mic icon.
     await expect(

@@ -6,6 +6,7 @@ import { useRoles } from '@/features/server/roles/hooks';
 import { useOwnUserId, useUsers } from '@/features/server/users/hooks';
 import { isCoarsePointer } from '@/hooks/use-is-mobile';
 import { onAppEvent } from '@/lib/events';
+import { cn } from '@/lib/utils';
 import type { TCommandInfo } from '@pulse/shared';
 import type { AnyExtension, Editor } from '@tiptap/core';
 import Emoji, { gitHubEmojis } from '@tiptap/extension-emoji';
@@ -14,7 +15,7 @@ import { liftListItem, splitListItem } from '@tiptap/pm/schema-list';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Smile } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CommandHint } from './command-hint';
 import { FormatBar } from './format-bar';
 import { ChannelMentionExtension } from './plugins/channel-mention-extension';
@@ -68,6 +69,15 @@ type TTiptapInputProps = {
   multilineMode?: boolean;
   /** Show the formatting bar under the editor (channel and DM composers). */
   toolbar?: boolean;
+  /**
+   * Controls rendered inside the editor row, before the editor and after
+   * the emoji button. The composers pass their attach / GIF / send
+   * buttons here so every button is a sibling in ONE row centred on the
+   * text; centred against the whole column (editor + format bar) they
+   * sat ~14 px above the emoji button.
+   */
+  leading?: ReactNode;
+  trailing?: ReactNode;
 };
 
 const TiptapInput = memo(
@@ -82,7 +92,9 @@ const TiptapInput = memo(
     disabled,
     commands,
     dmMembers,
-    multilineMode
+    multilineMode,
+    leading,
+    trailing
   }: TTiptapInputProps) => {
     const customEmojis = useCustomEmojis();
     const users = useUsers();
@@ -542,35 +554,45 @@ const TiptapInput = memo(
       return onAppEvent('mention-user', handler);
     }, [editor]);
 
+    // One row for the editor and every button around it. Single line:
+    // all centred on the text. Multiline (the drag-resized composer):
+    // the editor stretches and scrolls on its own, the buttons sit on
+    // its bottom edge, right above the format bar.
     const row = (
       <div
-        className={`flex flex-1 gap-2 ${
-          multilineMode ? 'items-start h-full overflow-y-auto' : 'items-center'
-        } ${disabled ? '' : 'cursor-text'}`}
+        className={cn(
+          'flex min-w-0 flex-1 gap-2',
+          multilineMode ? 'min-h-0 items-end' : 'items-center',
+          !disabled && 'cursor-text'
+        )}
         onClick={(e) => {
           if (disabled) return;
           if ((e.target as HTMLElement).closest('button')) return;
           editor?.chain().focus().run();
         }}
       >
+        {leading}
         <EditorContent
           editor={editor}
-          className={`w-full tiptap ${
-            disabled ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
+          className={cn(
+            'tiptap min-w-0 flex-1',
+            multilineMode && 'min-h-0 self-stretch overflow-y-auto',
+            disabled && 'opacity-50 cursor-not-allowed'
+          )}
         />
 
         <EmojiPicker onEmojiSelect={handleEmojiSelect}>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-primary"
             disabled={disabled}
             aria-label="Add emoji"
           >
             <Smile className="h-5 w-5" />
           </Button>
         </EmojiPicker>
+        {trailing}
       </div>
     );
 
@@ -582,7 +604,12 @@ const TiptapInput = memo(
     if (!toolbar && !hint) return row;
 
     return (
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className={cn(
+          'flex min-w-0 flex-1 flex-col',
+          multilineMode && 'min-h-0 self-stretch'
+        )}
+      >
         {hint}
         {row}
         {toolbar && <FormatBar editor={editor} disabled={disabled} />}

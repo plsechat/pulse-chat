@@ -10,9 +10,11 @@ import {
 import { Group } from '@/components/ui/group';
 import { Input } from '@/components/ui/input';
 import { useActiveServerId } from '@/features/app/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { useForm } from '@/hooks/use-form';
 import { getTRPCClient } from '@/lib/trpc';
 import { memo, useCallback, useState } from 'react';
+import { toast } from 'sonner';
 import type { TDialogBaseProps } from '../types';
 
 export type TCreateCategoryDialogProps = TDialogBaseProps;
@@ -41,6 +43,7 @@ const CreateCategoryDialog = memo(
         close();
       } catch (error) {
         setTrpcErrors(error);
+        toast.error(getTrpcError(error, 'Failed to create category'));
       } finally {
         setLoading(false);
       }

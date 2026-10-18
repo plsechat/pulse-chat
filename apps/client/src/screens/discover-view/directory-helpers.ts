@@ -3,6 +3,7 @@ import {
   DIRECTORY_DESCRIPTION_MAX_LENGTH,
   DIRECTORY_GAME_MAX_LENGTH,
   DIRECTORY_TAG_MAX_LENGTH,
+  DIRECTORY_TAG_PATTERN,
   DIRECTORY_TAGS_MAX
 } from '@pulse/shared';
 import type { TDirectoryEntry } from '@pulse/server/types';
@@ -48,31 +49,13 @@ const formatFetchedAgo = (fetchedAt: number, now = Date.now()): string | null =>
   return `updated ${days} day${days === 1 ? '' : 's'} ago`;
 };
 
-/**
- * The tags field is typed as free text: split on commas or newlines,
- * trim, drop empties and case-insensitive duplicates, keep the first
- * DIRECTORY_TAGS_MAX. Over-long tags are kept so the form can show the
- * limit instead of silently cutting them.
- */
-const parseTagsInput = (text: string): string[] => {
-  const seen = new Set<string>();
-  const tags: string[] = [];
-  for (const raw of text.split(/[,\n]/)) {
-    const tag = raw.trim();
-    if (!tag) continue;
-    const key = tag.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    tags.push(tag);
-    if (tags.length === DIRECTORY_TAGS_MAX) break;
-  }
-  return tags;
-};
+/** Tags are stored bare and shown with a leading # everywhere. */
+const displayTag = (tag: string): string => `#${tag}`;
 
 type TDirectoryCardInput = {
   listed: boolean;
   description: string;
-  tagsText: string;
+  tags: string[];
   game: string;
   discoverable: boolean;
   allowNewUsers: boolean;
@@ -93,13 +76,11 @@ const validateDirectoryCard = (input: TDirectoryCardInput): TDirectoryCardErrors
   if (input.description.trim().length > DIRECTORY_DESCRIPTION_MAX_LENGTH) {
     errors.directoryDescription = `Keep the description to ${DIRECTORY_DESCRIPTION_MAX_LENGTH} characters`;
   }
-  const rawTags = input.tagsText
-    .split(/[,\n]/)
-    .map((t) => t.trim())
-    .filter(Boolean);
-  if (rawTags.some((t) => t.length > DIRECTORY_TAG_MAX_LENGTH)) {
+  if (input.tags.some((t) => t.length > DIRECTORY_TAG_MAX_LENGTH)) {
     errors.directoryTags = `Each tag can be up to ${DIRECTORY_TAG_MAX_LENGTH} characters`;
-  } else if (parseTagsInput(input.tagsText).length < new Set(rawTags.map((t) => t.toLowerCase())).size) {
+  } else if (input.tags.some((t) => !DIRECTORY_TAG_PATTERN.test(t))) {
+    errors.directoryTags = 'Tags may contain letters, numbers, spaces, _ and -';
+  } else if (input.tags.length > DIRECTORY_TAGS_MAX) {
     errors.directoryTags = `Up to ${DIRECTORY_TAGS_MAX} tags`;
   }
   if (input.game.trim().length > DIRECTORY_GAME_MAX_LENGTH) {
@@ -116,10 +97,10 @@ const isInvalidPasswordError = (error: unknown): boolean =>
 export {
   directoryEntryKey,
   directoryLogoSrc,
+  displayTag,
   formatDirectoryCounts,
   formatFetchedAgo,
   isInvalidPasswordError,
-  parseTagsInput,
   validateDirectoryCard,
   type TDirectoryCardErrors
 };

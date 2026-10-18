@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import path from 'node:path';
 import { registerUser, storageStateFor } from '../../helpers/api';
 import { channelButton, disableAnimations, openDiscover, openDmWith, openServerSettings, waitForAppReady } from '../../helpers/ui';
 
@@ -30,6 +31,30 @@ const DM_MSG = `cross-instance dm from A ${RUN_TAG}`;
 
 const A_URL = 'http://127.0.0.1:14994';
 const B_URL = 'http://127.0.0.1:14995';
+// B's community logo, uploaded below so A's federated view has a peer
+// image to render (tab icon, header, avatars all go the same route).
+const FIXTURE_PNG = path.join(__dirname, '..', '..', 'fixtures', 'pixel.png');
+const PEER_PUBLIC_URL = /^http:\/\/pulse-fed-b:4991\/public\//;
+
+/**
+ * The image is requested from the PEER over plain http and must actually
+ * decode: a wrong host (home `/public/<remote-uuid>` → 404) or a CSP
+ * without the peer's origin (img-src had only `https:`) both leave
+ * naturalWidth at 0 while the element itself is "visible".
+ */
+async function expectPeerImageLoads(img: Locator): Promise<void> {
+  await expect(img).toHaveAttribute('src', PEER_PUBLIC_URL, { timeout: 15_000 });
+  await expect
+    .poll(
+      () =>
+        img.evaluate((el) => {
+          const image = el as HTMLImageElement;
+          return image.complete ? image.naturalWidth : 0;
+        }),
+      { timeout: 15_000 }
+    )
+    .toBeGreaterThan(0);
+}
 
 const OWNER_A = {
   email: 'owner-a@e2e.local',
@@ -144,6 +169,21 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     // appears in A's remote discovery.
     await pageB.getByRole('button', { name: 'General', exact: true }).click();
 
+    // Give B's community a logo first (same page). The picker opens a
+    // file chooser from a click; the upload + changeLogo round-trip ends
+    // in the success toast.
+    const logoGroup = pageB
+      .getByText('Logo', { exact: true })
+      .locator('xpath=ancestor::div[contains(@class,"flex-col")][2]');
+    const [chooser] = await Promise.all([
+      pageB.waitForEvent('filechooser'),
+      logoGroup.locator('div.cursor-pointer').first().click()
+    ]);
+    await chooser.setFiles(FIXTURE_PNG);
+    await expect(pageB.getByText('Logo updated successfully!')).toBeVisible({
+      timeout: 15_000
+    });
+
     // Anchor on the "Federatable" label, walk to the nearest ancestor row
     // that owns a switch, and toggle it.
     const federatable = pageB.locator(
@@ -173,6 +213,39 @@ test.describe.serial('federation: peer, join, message, DM', () => {
     await expect(pageA.getByText(/joined/i).first()).toBeVisible({
       timeout: 15_000
     });
+  });
+
+  test('the federated community shows the peer’s logo on its tab and header', async () => {
+    // Joining switched A into the federated community. Its tab (rail
+    // button in the classic layout — both carry the "(pulse-fed-b:4991)"
+    // title) and the channel-list header must show B's logo, fetched
+    // from B over plain http, not the home instance's first community.
+    const tabIcon = pageA.getByTitle(/pulse-fed-b:4991/).locator('img').first();
+    await expectPeerImageLoads(tabIcon);
+
+    const headerLogo = pageA.locator('aside .community-header img').first();
+    await expectPeerImageLoads(headerLogo);
+
+    // A fresh browser: the membership list from the home server carries
+    // no logo, so the tab starts as a letter and must pick the real logo
+    // up from the community itself on connect (not from this browser's
+    // cached copy, which is dropped here).
+    await pageA.evaluate(() => localStorage.removeItem('pulse-federated-servers'));
+    await pageA.reload();
+    await waitForAppReady(pageA);
+    await pageA.getByTitle(/pulse-fed-b:4991/).first().click();
+    await expect(
+      pageA
+        .getByRole('button', { disabled: true })
+        .filter({ has: pageA.getByText('General Text', { exact: true }) })
+        .first()
+    ).toBeVisible({ timeout: 15_000 });
+    await expectPeerImageLoads(
+      pageA.getByTitle(/pulse-fed-b:4991/).locator('img').first()
+    );
+    await expectPeerImageLoads(
+      pageA.locator('aside .community-header img').first()
+    );
   });
 
   test('cross-instance messaging works in both directions', async () => {

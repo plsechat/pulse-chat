@@ -18,6 +18,10 @@ export type SoundNotificationSettings = {
    *  invitation is open and is the one sound people want off at night
    *  while still hearing who joins their channel. */
   callSoundsEnabled: boolean;
+  /** The sound for the user's own message going out. Opt-in: off by
+   *  default, and absent from settings saved before it existed, which
+   *  reads as off too (the gate is `=== true`). */
+  messageSentSoundEnabled: boolean;
   desktopNotificationsEnabled: boolean;
   /** Per-event selected sound variant id (see SOUND_VARIANTS in
    *  sounds/actions.ts). Missing key = that event's default variant. */
@@ -34,7 +38,7 @@ export const SOUND_CATEGORIES: Record<
 > = {
   messages: {
     label: 'Messages',
-    description: 'Sounds for sent and received messages',
+    description: 'Sounds for received messages, and for sent ones when that is switched on',
     types: [SoundType.MESSAGE_RECEIVED, SoundType.MESSAGE_SENT],
     preview: SoundType.MESSAGE_RECEIVED
   },
@@ -101,6 +105,7 @@ const defaultSettings: SoundNotificationSettings = {
   voiceSoundsEnabled: true,
   actionSoundsEnabled: true,
   callSoundsEnabled: true,
+  messageSentSoundEnabled: false,
   desktopNotificationsEnabled: false,
   soundVariants: {}
 };
@@ -123,6 +128,20 @@ export const isCategoryEnabledForSound = (type: SoundType): boolean => {
   // A flag added after the settings were persisted is absent from the
   // stored object: treat it as its default (on) rather than as off.
   return store.getSettings()[key] !== false;
+};
+
+/**
+ * Whether `type` may play now: its category is on and, for the one
+ * opt-in event, its own switch is on. The sent-message sound is off
+ * unless the flag is literally true, so settings persisted before the
+ * flag existed stay silent rather than starting to chirp.
+ */
+export const isSoundEnabled = (type: SoundType): boolean => {
+  if (!isCategoryEnabledForSound(type)) return false;
+  if (type === SoundType.MESSAGE_SENT) {
+    return store.getSettings().messageSentSoundEnabled === true;
+  }
+  return true;
 };
 
 /** Non-React updater (the hook's setters wrap it). */
@@ -164,6 +183,11 @@ export const useSoundNotificationSettings = () => {
     (value: boolean) => store.updateSettings({ callSoundsEnabled: value }),
     []
   );
+  const setMessageSentSoundEnabled = useCallback(
+    (value: boolean) =>
+      store.updateSettings({ messageSentSoundEnabled: value }),
+    []
+  );
   const setDesktopNotificationsEnabled = useCallback(
     (value: boolean) =>
       store.updateSettings({ desktopNotificationsEnabled: value }),
@@ -187,6 +211,7 @@ export const useSoundNotificationSettings = () => {
     setVoiceSoundsEnabled,
     setActionSoundsEnabled,
     setCallSoundsEnabled,
+    setMessageSentSoundEnabled,
     setDesktopNotificationsEnabled,
     setSoundVariant
   };

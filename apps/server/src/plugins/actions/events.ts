@@ -34,14 +34,30 @@ type TEventQueries = {
   cancelEvent: (eventId: number, actor: TEventActor) => Promise<void>;
   /** Optional: lets a cancellation find the server whose feed to refresh. */
   getEventById?: (eventId: number) => Promise<{ serverId: number } | undefined>;
+  /**
+   * Optional: the community's Planner switch. When the loaded module
+   * has it, every action refuses for a server that turned the Planner
+   * off; a module without it (a stub in tests) is treated as always on.
+   */
+  isEventsEnabled?: (serverId: number) => Promise<boolean>;
 };
 
 type TEventQueriesLoader = () => Promise<Partial<TEventQueries>>;
 
-const defaultLoader: TEventQueriesLoader = async () =>
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore — resolves once the scheduler's query module ships; until then the loader reports UNAVAILABLE at runtime
-  (await import('../../db/queries/events')) as Partial<TEventQueries>;
+const defaultLoader: TEventQueriesLoader = async () => {
+  const [queries, server] = await Promise.all([
+    import('../../db/queries/events'),
+    import('../../db/queries/server')
+  ]);
+
+  return {
+    ...(queries as Partial<TEventQueries>),
+    isEventsEnabled: server.isEventsEnabled
+  };
+};
+
+/** The message a plugin sees when the community has the Planner turned off. */
+const PLANNER_OFF_MESSAGE = 'The Planner is turned off in this community';
 
 /** Same bounds as the events router. */
 const MAX_TITLE_LENGTH = 120;
@@ -143,13 +159,28 @@ const createEventActions = (
     }
   };
 
+  // Same gate as the events router: a community that switched the
+  // Planner off refuses plugin-made changes too. Checked after input
+  // validation so a malformed call is still a BAD_REQUEST.
+  const requireEnabled = async (
+    loaded: TEventQueries,
+    serverId: number | undefined
+  ) => {
+    if (serverId === undefined || !loaded.isEventsEnabled) return;
+
+    if (!(await loaded.isEventsEnabled(serverId))) {
+      throw new PluginActionError('FORBIDDEN', PLANNER_OFF_MESSAGE);
+    }
+  };
+
   const create: PluginContext['actions']['events']['create'] = async (
     rawInput
   ) => {
     const input = parseActionInput(createSchema, rawInput);
-    const { createEvent } = await queries();
+    const loaded = await queries();
+    await requireEnabled(loaded, input.serverId);
 
-    const event = await createEvent({ ...input, hostId: input.hostId ?? null, actor });
+    const event = await loaded.createEvent({ ...input, hostId: input.hostId ?? null, actor });
     await refreshFeed(event.serverId);
 
     return event;
@@ -161,9 +192,11 @@ const createEventActions = (
   ) => {
     const eventId = parseActionInput(id, rawEventId);
     const patch = parseActionInput(updateSchema, rawPatch);
-    const { updateEvent } = await queries();
+    const loaded = await queries();
+    const before = await loaded.getEventById?.(eventId);
+    await requireEnabled(loaded, before?.serverId);
 
-    const event = await updateEvent(eventId, patch, actor);
+    const event = await loaded.updateEvent(eventId, patch, actor);
     await refreshFeed(event.serverId);
 
     return event;
@@ -173,10 +206,11 @@ const createEventActions = (
     rawEventId
   ) => {
     const eventId = parseActionInput(id, rawEventId);
-    const { cancelEvent, getEventById } = await queries();
-    const before = await getEventById?.(eventId);
+    const loaded = await queries();
+    const before = await loaded.getEventById?.(eventId);
+    await requireEnabled(loaded, before?.serverId);
 
-    await cancelEvent(eventId, actor);
+    await loaded.cancelEvent(eventId, actor);
     if (before) await refreshFeed(before.serverId);
   };
 

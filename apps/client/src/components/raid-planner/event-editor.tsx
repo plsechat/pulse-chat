@@ -1,4 +1,5 @@
 import { DatePicker } from '@/components/date-picker';
+import { ServerScreen } from '@/components/server-screens/screens';
 import { AutoFocus } from '@/components/ui/auto-focus';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   closeEventEditor,
   createEvent,
+  createRosterTemplate,
   updateEvent,
   type TEventInput
 } from '@/features/events/actions';
@@ -45,8 +47,12 @@ import {
   type TRoleDraft,
   type TRoleDraftErrors
 } from '@/features/events/role-drafts';
+import { openServerScreen } from '@/features/server-screens/actions';
+import { useCan, usePlannerEnabled } from '@/features/server/hooks';
 import { parseTrpcErrors, type TTrpcErrors } from '@/helpers/parse-trpc-errors';
 import type { TEvent, TEventRosterTemplate } from '@pulse/server/types';
+import { Permission } from '@pulse/shared';
+import { LayoutTemplate, Save } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { RolePill } from './bits';
@@ -56,6 +62,8 @@ const DURATION_PRESETS = [30, 60, 90, 120, 180, 240, 360] as const;
 const MAX_DURATION_MIN = 24 * 60;
 /** Server grace for "starts in the past" (PAST_START_GRACE_MS is 5 min); stay inside it. */
 const PAST_GRACE_MS = 4 * 60 * 1000;
+/** templateNameSchema on the server: 1–60 characters. */
+const TEMPLATE_NAME_MAX = 60;
 const CUSTOM = 'custom';
 const NONE = 'none';
 
@@ -124,11 +132,17 @@ type TValidation = {
   ok: boolean;
 };
 
-/** Same bounds as the server's eventFieldsSchema and validateWindow. */
+/**
+ * Same bounds as the server's eventFieldsSchema and validateWindow. The
+ * past-start rule applies to a new event and to an edit that MOVES the
+ * start (the server checks the same way): a live event that started an
+ * hour ago keeps its start and stays editable.
+ */
 const validate = (
   form: TFormState,
   mode: 'create' | 'edit',
-  now: number
+  now: number,
+  event: TEvent | undefined
 ): TValidation => {
   const fields: TTrpcErrors = {};
   const title = form.title.trim();
@@ -140,7 +154,9 @@ const validate = (
   if (!form.day) fields.day = 'Pick a date';
   if (!/^\d{2}:\d{2}$/.test(form.time)) fields.time = 'Pick a time';
   const startsAt = form.day ? combineDayAndTime(form.day, form.time) : 0;
-  if (mode === 'create' && startsAt && startsAt < now - PAST_GRACE_MS) {
+  const startChanged =
+    mode === 'create' || !event || startsAt !== event.startsAt;
+  if (startChanged && startsAt && startsAt < now - PAST_GRACE_MS) {
     fields.time = 'The event cannot start in the past';
   }
   if (form.durationMin < 1 || form.durationMin > MAX_DURATION_MIN) {
@@ -203,6 +219,12 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
   // event holds a snapshot, and re-picking a template re-snapshots.
   const [rosterTouched, setRosterTouched] = useState(mode === 'create');
   const [saving, setSaving] = useState(false);
+  // "Save as template": null = closed, otherwise the name being typed.
+  const [templateName, setTemplateName] = useState<string | null>(null);
+  const [templateNameError, setTemplateNameError] = useState<string>();
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const can = useCan();
+  const canManageTemplates = can(Permission.MANAGE_EVENTS);
 
   const patch = useCallback(
     (changes: Partial<TFormState>) =>
@@ -238,8 +260,55 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
     patch({ roles, templateId: CUSTOM });
   };
 
+  /** Keeps the custom roles as a reusable template and picks it for this event. */
+  const onSaveTemplate = async () => {
+    const trimmed = (templateName ?? '').trim();
+    if (!trimmed) {
+      setTemplateNameError('Give the template a name');
+      return;
+    }
+    if (trimmed.length > TEMPLATE_NAME_MAX) {
+      setTemplateNameError(`At most ${TEMPLATE_NAME_MAX} characters`);
+      return;
+    }
+    const result = validateRoleDrafts(form.roles);
+    setRoleErrors(result.rows);
+    if (!result.ok) {
+      setErrors((prev) => ({ ...prev, roles: result.general }));
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      const template = await createRosterTemplate(
+        trimmed,
+        draftsToRoles(form.roles)
+      );
+      toast.success(`Template "${template.name}" saved`);
+      // The new template is now the event's roster: same roles, and the
+      // next event can pick it from the list.
+      setRosterTouched(true);
+      patch({ templateId: String(template.id) });
+      setTemplateName(null);
+      setTemplateNameError(undefined);
+    } catch (err) {
+      const parsed = parseTrpcErrors(err);
+      setTemplateNameError(
+        parsed.name ?? parsed._general ?? parsed.roles ?? 'Failed to save the template'
+      );
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  // Server Settings → Events is a full-screen overlay beneath this
+  // dialog, so the editor closes first; the draft is dropped.
+  const onManageTemplates = () => {
+    closeEventEditor();
+    openServerScreen(ServerScreen.SERVER_SETTINGS, { initialSection: 'events' });
+  };
+
   const onSubmit = async () => {
-    const result = validate(form, mode, Date.now());
+    const result = validate(form, mode, Date.now(), event);
     setErrors(result.fields);
     setRoleErrors(result.roles);
     if (!result.ok) return;
@@ -266,6 +335,13 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
   const endsAt =
     combineDayAndTime(form.day, form.time) + form.durationMin * 60_000;
   const crossesMidnight = dayStartOf(endsAt) !== form.day;
+  // The native picker will not offer a time already gone today; the
+  // server's grace still allows "a minute ago", so this is a hint, not
+  // the rule (validate() is).
+  const now = Date.now();
+  const startFixed = mode === 'edit' && event !== undefined;
+  const earliestTime =
+    !startFixed && form.day === dayStartOf(now) ? timeInputValue(now) : undefined;
 
   return (
     <>
@@ -274,7 +350,7 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
           <AutoFocus>
             <Input
               name="title"
-              placeholder="Raid night"
+              placeholder="Guild night"
               value={form.title}
               maxLength={120}
               error={errors.title}
@@ -285,7 +361,7 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
           </AutoFocus>
         </Group>
 
-        <div className="grid gap-4 sm:grid-cols-[1fr_7.5rem_9rem]">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)_minmax(9rem,auto)]">
           <Group label="Date" required>
             <DatePicker
               value={form.day}
@@ -303,9 +379,11 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
               name="time"
               type="time"
               value={form.time}
+              min={earliestTime}
               error={errors.time ?? errors.startsAt}
               resetError={setErrors}
               onChange={(e) => patch({ time: e.target.value })}
+              className="min-w-[9rem]"
             />
           </Group>
           <Group label="Duration" required>
@@ -435,6 +513,71 @@ const EditorForm = memo(({ mode, event, startsAt }: TEditorFormProps) => {
               {errors.roles}
             </p>
           )}
+          {canManageTemplates && (
+            <div className="flex flex-wrap items-center gap-2">
+              {form.templateId === CUSTOM && templateName === null && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => setTemplateName('')}
+                >
+                  <Save className="h-4 w-4" />
+                  Save as template
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                title="Opens Server Settings → Events; this editor closes"
+                onClick={onManageTemplates}
+              >
+                <LayoutTemplate className="h-4 w-4" />
+                Manage templates
+              </Button>
+            </div>
+          )}
+          {templateName !== null && (
+            <div className="flex flex-wrap items-start gap-2 rounded-lg border border-border/60 p-2">
+              <div className="min-w-[10rem] flex-1">
+                <Input
+                  aria-label="Template name"
+                  placeholder="Template name"
+                  value={templateName}
+                  maxLength={TEMPLATE_NAME_MAX}
+                  autoFocus
+                  error={templateNameError}
+                  onChange={(e) => {
+                    setTemplateName(e.target.value);
+                    setTemplateNameError(undefined);
+                  }}
+                  onEnter={onSaveTemplate}
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={savingTemplate}
+                onClick={onSaveTemplate}
+              >
+                {savingTemplate ? 'Saving…' : 'Save template'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={savingTemplate}
+                onClick={() => {
+                  setTemplateName(null);
+                  setTemplateNameError(undefined);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
         </Group>
 
         <Group
@@ -491,8 +634,11 @@ const EventEditorHost = memo(() => {
   const editor = useEventEditor();
   const detail = useEventDetail(editor?.mode === 'edit' ? editor.eventId : -1);
   const templates = useRosterTemplates();
+  const plannerEnabled = usePlannerEnabled();
 
-  if (!editor) return null;
+  // Nothing can be saved with the Planner off; an editor left open
+  // when the switch flipped goes away with the pane.
+  if (!editor || !plannerEnabled) return null;
 
   const mode = editor.mode;
   const event = mode === 'edit' ? detail?.event : undefined;

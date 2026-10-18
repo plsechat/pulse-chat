@@ -82,10 +82,13 @@ describe('inbound content', () => {
     expect(avatarUrlOf({ id: '5', username: 'u', avatar: null })).toBeUndefined();
   });
 
-  test('reaction emoji: unicode as is, custom as our :name: token, nameless ignored', () => {
-    expect(mapInboundEmoji({ id: null, name: '👍' })).toBe('👍');
-    expect(mapInboundEmoji({ id: '4', name: 'pogchamp' })).toBe(':pogchamp:');
+  test('reaction emoji: unicode as our stored shortcode, custom as its bare name, nameless ignored', () => {
+    expect(mapInboundEmoji({ id: null, name: '👍' })).toBe('+1');
+    expect(mapInboundEmoji({ id: null, name: '❤️' })).toBe('heart');
+    expect(mapInboundEmoji({ id: '4', name: 'pogchamp' })).toBe('pogchamp');
     expect(mapInboundEmoji({ id: '4', name: null })).toBeNull();
+    // A glyph newer than the table travels as the glyph.
+    expect(mapInboundEmoji({ id: null, name: '\u{1FAFF}' })).toBe('\u{1FAFF}');
   });
 });
 
@@ -122,10 +125,19 @@ describe('outbound content', () => {
     expect(quoteLine('Ali', 'z'.repeat(500)).length).toBeLessThan(140);
   });
 
-  test('reaction emoji: unicode percent-encoded, custom resolved to name:id or dropped', () => {
+  test('reaction emoji: a shortcode goes out as its glyph percent-encoded, custom resolved to name:id or dropped', () => {
     const ids = (name: string) => (name === 'pogchamp' ? '400' : undefined);
+    // The stored forms: shortcode, alias, custom name.
+    expect(mapOutboundEmoji('+1', ids)).toBe('%F0%9F%91%8D');
+    expect(mapOutboundEmoji('thumbsup', ids)).toBe('%F0%9F%91%8D');
+    expect(mapOutboundEmoji('fire', ids)).toBe('%F0%9F%94%A5');
+    expect(mapOutboundEmoji('pogchamp', ids)).toBe('pogchamp:400');
+    expect(mapOutboundEmoji('nope', ids)).toBeUndefined();
+    // Older rows and tokens read the same way.
     expect(mapOutboundEmoji('👍', ids)).toBe('%F0%9F%91%8D');
     expect(mapOutboundEmoji(':pogchamp:', ids)).toBe('pogchamp:400');
     expect(mapOutboundEmoji(':nope:', ids)).toBeUndefined();
+    // A glyph the table lacks still goes out as itself.
+    expect(mapOutboundEmoji('\u{1FAFF}', ids)).toBe(encodeURIComponent('\u{1FAFF}'));
   });
 });

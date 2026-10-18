@@ -7,11 +7,20 @@ import {
 import { useActiveThreadId } from '@/features/server/channels/hooks';
 import { useCan } from '@/features/server/hooks';
 import { useMessagesByChannelId } from '@/features/server/messages/hooks';
+import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { Permission } from '@pulse/shared';
-import { ArrowDownUp, LayoutList, MessageSquareText, Search, Tags } from 'lucide-react';
+import {
+  Archive,
+  ArrowDownUp,
+  LayoutList,
+  MessageSquareText,
+  Search,
+  Tags
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { CreateForumPostDialog } from './create-forum-post-dialog';
 import { EditPostTagsDialog } from './edit-post-tags-dialog';
 import { ForumPostCard } from './forum-post-card';
@@ -35,7 +44,7 @@ type TForumThread = {
   creatorName?: string;
   creatorAvatarId?: number | null;
   contentPreview?: string;
-  firstImage?: string;
+  firstImage?: { name: string; _accessToken?: string };
   tags?: { id: number; name: string; color: string }[];
   reactions?: { emoji: string; count: number }[];
 };
@@ -53,7 +62,7 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [sortBy, setSortBy] = useState<'latest' | 'creation'>('latest');
   const [activeTagFilter, setActiveTagFilter] = useState<number | null>(null);
-  const [showArchived, _setShowArchived] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [showManageTags, setShowManageTags] = useState(false);
   const [editTagsInfo, setEditTagsInfo] = useState<{ threadId: number; currentTagIds: number[] } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,8 +88,8 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
 
       setThreads(threadsResult as TForumThread[]);
       setTags(tagsResult);
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(getTrpcError(err, 'Failed to load posts'));
     } finally {
       setLoading(false);
     }
@@ -176,6 +185,15 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
     fetchData();
   }, [fetchData]);
 
+  const onArchivedChange = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const archivedCount = useMemo(
+    () => threads.filter((t) => t.archived).length,
+    [threads]
+  );
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -226,6 +244,25 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
           >
             <ArrowDownUp className="w-3 h-3" />
             {sortBy === 'latest' ? 'Latest Activity' : 'Creation Date'}
+          </Button>
+
+          {/* Archived posts are hidden by default (the list query skips
+              them); this toggle refetches with includeArchived. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-pressed={showArchived}
+            className={cn(
+              'h-7 px-2 gap-1 text-xs shrink-0 whitespace-nowrap',
+              showArchived && 'bg-primary/15 text-primary hover:text-primary'
+            )}
+            onClick={() => setShowArchived(!showArchived)}
+          >
+            <Archive className="w-3 h-3" />
+            Archived
+            {showArchived && archivedCount > 0 && (
+              <span className="text-[10px] opacity-70">({archivedCount})</span>
+            )}
           </Button>
 
           {tags.length > 0 && (
@@ -303,10 +340,12 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
                   threadId={thread.id}
                   threadName={thread.name}
                   creatorId={thread.creatorId}
+                  archived={thread.archived}
                   currentTagIds={thread.tags?.map((t) => t.id) ?? []}
                   channelId={channelId}
                   onEditTags={onEditTags}
                   onPostDeleted={onPostDeleted}
+                  onArchivedChange={onArchivedChange}
                 >
                   <div className="relative group">
                     <ForumPostCard
@@ -318,10 +357,12 @@ const ForumChannel = memo(({ channelId }: TForumChannelProps) => {
                       threadId={thread.id}
                       threadName={thread.name}
                       creatorId={thread.creatorId}
+                      archived={thread.archived}
                       currentTagIds={thread.tags?.map((t) => t.id) ?? []}
                       channelId={channelId}
                       onEditTags={onEditTags}
                       onPostDeleted={onPostDeleted}
+                      onArchivedChange={onArchivedChange}
                     />
                   </div>
                 </ForumPostContextMenu>

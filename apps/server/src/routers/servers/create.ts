@@ -45,6 +45,7 @@ const createServerRoute = protectedProcedure
           storageSpaceQuotaByUser: 104857600, // 100MB
           storageOverflowAction: 'REJECT',
           enablePlugins: false,
+          enableEvents: true,
           createdAt: now
         })
         .returning();

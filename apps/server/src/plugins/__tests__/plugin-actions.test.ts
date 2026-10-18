@@ -776,9 +776,10 @@ describe('actions.messages.react', () => {
 
       const events = await collect(['message:reaction'], async () => {
         await ctx.actions.messages.react({ messageId, emoji: '👍' });
-        // Replaying "added" must not toggle it off.
-        await ctx.actions.messages.react({ messageId, emoji: '👍' });
-        await ctx.actions.messages.react({ messageId, emoji: '👍', remove: true });
+        // Replaying "added" must not toggle it off — nor does the same
+        // reaction in another spelling add a second row.
+        await ctx.actions.messages.react({ messageId, emoji: ':+1:' });
+        await ctx.actions.messages.react({ messageId, emoji: '+1', remove: true });
         await ctx.actions.messages.react({ messageId, emoji: '👍', remove: true });
       });
 
@@ -791,18 +792,19 @@ describe('actions.messages.react', () => {
       const updates = published(spy, ServerEvents.MESSAGE_UPDATE);
       expect(updates).toHaveLength(2);
       expect((updates[0]!.payload as { reactions: { userId: number; emoji: string }[] }).reactions).toEqual([
-        expect.objectContaining({ userId: actorId, emoji: '👍' })
+        // Stored by shortcode, as the member routes store it.
+        expect.objectContaining({ userId: actorId, emoji: '+1' })
       ]);
       expect((updates[1]!.payload as { reactions: unknown[] }).reactions).toEqual([]);
 
       expect(events).toEqual([
         {
           event: 'message:reaction',
-          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: actorId, emoji: '👍', added: true, pluginId: id }
+          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: actorId, emoji: '+1', added: true, pluginId: id }
         },
         {
           event: 'message:reaction',
-          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: actorId, emoji: '👍', added: false, pluginId: id }
+          payload: { messageId, channelId: TEXT_CHANNEL_ID, userId: actorId, emoji: '+1', added: false, pluginId: id }
         }
       ]);
 
@@ -1467,6 +1469,65 @@ describe('actions.events', () => {
       message: 'Scheduled events are not available on this server'
     });
     expect((await rejection(partial.cancel(1))).code).toBe('UNAVAILABLE');
+  });
+
+  test('a community with the Planner off refuses create, update and cancel with FORBIDDEN', async () => {
+    const { calls, queries } = fakeQueries();
+    const off = new Set<number>([2]);
+    const actions = createEventActions('raid-bot', async () => ({
+      ...queries,
+      getEventById: async (eventId) => ({ serverId: eventId === 7 ? 2 : 1 }),
+      isEventsEnabled: async (serverId) => !off.has(serverId)
+    }));
+    const startsAt = Date.now() + 3_600_000;
+    const input = {
+      title: 'Raid night',
+      startsAt,
+      endsAt: startsAt + 7_200_000,
+      roles: [{ key: 'dps', label: 'DPS', cap: 14, color: '#ff5c6c' }]
+    };
+
+    expect(await rejection(actions.create({ serverId: 2, ...input }))).toEqual({
+      code: 'FORBIDDEN',
+      message: 'The Planner is turned off in this community'
+    });
+    expect((await rejection(actions.update(7, { title: 'x' }))).code).toBe('FORBIDDEN');
+    expect((await rejection(actions.cancel(7))).code).toBe('FORBIDDEN');
+    expect(calls).toHaveLength(0);
+
+    // Another community, and the same one switched back on, work.
+    await actions.create({ serverId: 1, ...input });
+    off.delete(2);
+    await actions.update(7, { title: 'x' });
+    expect(calls.map((c) => c.name)).toEqual(['createEvent', 'updateEvent']);
+  });
+
+  test('through a loaded plugin the real scheduler honours the Planner switch', async () => {
+    const { ctx, cleanup } = await loadPlugin('act-events-switch');
+    const { servers } = await import('../../db/schema');
+
+    try {
+      const startsAt = Date.now() + 3_600_000;
+      const created = await ctx.actions.events.create({
+        serverId: 1,
+        title: 'Before the switch',
+        startsAt,
+        endsAt: startsAt + 3_600_000,
+        roles: [{ key: 'dps', label: 'DPS', cap: null, color: null }]
+      });
+
+      await getTestDb().update(servers).set({ enableEvents: false }).where(eq(servers.id, 1));
+      const refused = await rejection(
+        ctx.actions.events.update(created.id, { title: 'nope' })
+      );
+      expect(refused.code).toBe('FORBIDDEN');
+      expect((await rejection(ctx.actions.events.cancel(created.id))).code).toBe('FORBIDDEN');
+
+      await getTestDb().update(servers).set({ enableEvents: true }).where(eq(servers.id, 1));
+      expect((await ctx.actions.events.update(created.id, { title: 'ok' })).title).toBe('ok');
+    } finally {
+      await cleanup();
+    }
   });
 
   test('through a loaded plugin the real scheduler creates, updates and cancels an event', async () => {

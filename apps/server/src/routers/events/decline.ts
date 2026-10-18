@@ -1,8 +1,7 @@
 import { declineEvent } from '../../db/queries/events';
-import { serverProcedure } from '../../utils/procedures';
-import { eventIdInput, requireEvent } from './_shared';
+import { eventsProcedure, eventIdInput, requireEvent } from './_shared';
 
-const declineRoute = serverProcedure()
+const declineRoute = eventsProcedure()
   .input(eventIdInput)
   .mutation(async ({ ctx, input }) => {
     const event = await requireEvent(input.eventId, ctx.activeServerId);

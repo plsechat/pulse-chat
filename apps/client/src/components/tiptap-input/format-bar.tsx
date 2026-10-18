@@ -112,7 +112,7 @@ const FormatBar = memo(
       <div
         role="toolbar"
         aria-label="Formatting"
-        className="flex items-center gap-0.5 pt-1"
+        className="flex min-w-0 flex-wrap items-center gap-0.5 pt-1"
       >
         {ACTIONS.map((action, i) => (
           <button
@@ -129,7 +129,7 @@ const FormatBar = memo(
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => action.run(editor)}
             className={cn(
-              'flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40',
+              'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40',
               active?.[i] && 'bg-accent text-foreground'
             )}
           >

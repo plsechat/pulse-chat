@@ -4,6 +4,7 @@ import {
   setPlannerFocusDay
 } from '@/features/events/actions';
 import {
+  dayStartOf,
   eventTouchesDay,
   monthGridDays,
   type TGridDay
@@ -57,22 +58,25 @@ type TDayCellProps = {
   day: TGridDay;
   events: TEventListItem[];
   isToday: boolean;
+  /** Before today: nothing new can start here (the server refuses a past start). */
+  isPast: boolean;
   compact: boolean;
   canCreate: boolean;
 };
 
 const DayCell = memo(
-  ({ day, events, isToday, compact, canCreate }: TDayCellProps) => {
+  ({ day, events, isToday, isPast, compact, canCreate }: TDayCellProps) => {
     const label = `${format(day.start, 'EEEE d MMMM')}, ${
       events.length === 0
         ? 'no events'
         : `${events.length} event${events.length === 1 ? '' : 's'}`
     }`;
+    const creatable = events.length === 0 && canCreate && !isPast;
 
     const onPick = () => {
       if (events.length > 0) {
         setPlannerFocusDay(day.start);
-      } else if (canCreate) {
+      } else if (creatable) {
         const start = new Date(day.start);
         start.setHours(DEFAULT_START_HOUR, 0, 0, 0);
         openEventEditor({ mode: 'create', startsAt: start.getTime() });
@@ -92,13 +96,12 @@ const DayCell = memo(
           type="button"
           onClick={onPick}
           aria-label={label}
-          title={
-            events.length === 0 && canCreate
-              ? 'New event on this day'
-              : undefined
-          }
+          aria-disabled={events.length === 0 && !creatable ? true : undefined}
+          title={creatable ? 'New event on this day' : undefined}
           className={cn(
-            'flex h-6 w-6 shrink-0 items-center justify-center self-start rounded-full text-xs tabular-nums hover:bg-accent',
+            'flex h-6 w-6 shrink-0 items-center justify-center self-start rounded-full text-xs tabular-nums',
+            (events.length > 0 || creatable) && 'hover:bg-accent',
+            events.length === 0 && !creatable && 'cursor-default',
             isToday
               ? 'bg-[color:var(--community)] font-semibold text-background'
               : 'text-muted-foreground'
@@ -159,6 +162,7 @@ type TMonthGridProps = {
 const MonthGrid = memo(
   ({ monthStart, items, now, compact, canCreate }: TMonthGridProps) => {
     const days = useMemo(() => monthGridDays(monthStart), [monthStart]);
+    const today = dayStartOf(now);
     const byDay = useMemo(
       () =>
         days.map((day) =>
@@ -203,6 +207,7 @@ const MonthGrid = memo(
                   day={day}
                   events={byDay[index]!}
                   isToday={isSameDay(day.start, now)}
+                  isPast={day.start < today}
                   compact={compact}
                   canCreate={canCreate}
                 />

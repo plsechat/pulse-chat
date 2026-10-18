@@ -453,6 +453,31 @@ describe('dms.toggleReaction bounds', () => {
       page.messages.find((m) => m.id === dmMessageId)!.reactions
     ).toHaveLength(1);
   });
+
+  test('reactions are stored by shortcode: glyph, :token: and name toggle one row', async () => {
+    const { caller: caller1 } = await initTest(1);
+    await initTest(2);
+    const channel = await caller1.dms.getOrCreateChannel({ userId: 2 });
+    const dmMessageId = await caller1.dms.sendMessage({
+      dmChannelId: channel.id,
+      content: 'react'
+    });
+    const reactionsOf = async () =>
+      (await caller1.dms.getMessages({ dmChannelId: channel.id })).messages
+        .find((m) => m.id === dmMessageId)!
+        .reactions.map((r) => r.emoji);
+
+    await caller1.dms.toggleReaction({ dmMessageId, emoji: '👍' });
+    expect(await reactionsOf()).toEqual(['+1']);
+    await caller1.dms.toggleReaction({ dmMessageId, emoji: ':+1:' });
+    expect(await reactionsOf()).toEqual([]);
+    await caller1.dms.toggleReaction({ dmMessageId, emoji: '+1' });
+    await caller1.dms.toggleReaction({ dmMessageId, emoji: ':pogchamp:' });
+    expect(await reactionsOf()).toEqual(['+1', 'pogchamp']);
+    await expect(
+      caller1.dms.toggleReaction({ dmMessageId, emoji: '   ' })
+    ).rejects.toThrow();
+  });
 });
 
 describe('dms.getMessages after (forward paging)', () => {

@@ -256,8 +256,7 @@ const FriendRow = memo(
         <div className="flex gap-1 shrink-0 opacity-0 group-hover-or-touch:opacity-100 transition-opacity">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             onClick={(e) => {
               e.stopPropagation();
               onMessage();
@@ -268,8 +267,8 @@ const FriendRow = memo(
           </Button>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-destructive hover:text-destructive"
+            size="icon-sm"
+            className="text-destructive hover:text-destructive"
             onClick={(e) => {
               e.stopPropagation();
               onRemove();
@@ -376,8 +375,8 @@ const RequestRow = memo(
           {!isOutgoing && (
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-green-500 hover:text-green-400 hover:bg-green-500/10"
+              size="icon-sm"
+              className="text-green-500 hover:text-green-400 hover:bg-green-500/10"
               onClick={onAccept}
               title="Accept"
             >
@@ -386,8 +385,8 @@ const RequestRow = memo(
           )}
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-destructive hover:text-destructive"
+            size="icon-sm"
+            className="text-destructive hover:text-destructive"
             onClick={onReject}
             title={isOutgoing ? 'Cancel' : 'Reject'}
           >
@@ -465,8 +464,7 @@ const AddFriend = memo(() => {
               </div>
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-8 w-8"
+                size="icon-sm"
                 onClick={() => handleSendRequest(user.id)}
                 title="Send Friend Request"
               >

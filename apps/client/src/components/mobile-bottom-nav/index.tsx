@@ -272,7 +272,7 @@ const MobileBottomNav = memo(() => {
         <SheetContent
           side="bottom"
           close={closeServerSheet}
-          className="max-h-[70dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)]"
+          className="max-h-[calc(var(--vvh)*0.7)] rounded-t-2xl pb-[env(safe-area-inset-bottom)]"
         >
           <SheetHeader>
             <SheetTitle>Servers</SheetTitle>

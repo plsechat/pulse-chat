@@ -410,7 +410,7 @@ const UserPopover = memo(
             {!isOwnUser && !isBlocked && (
               <button
                 type="button"
-                className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                className="h-8 w-8 shrink-0 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
                 onClick={isFriend ? handleRemoveFriend : handleAddFriend}
                 title={isFriend ? 'Remove Friend' : 'Add Friend'}
               >
@@ -427,7 +427,7 @@ const UserPopover = memo(
                 <button
                   type="button"
                   aria-label="More options"
-                  className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+                  className="h-8 w-8 shrink-0 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
                 >
                   <Ellipsis className="h-4 w-4" />
                 </button>

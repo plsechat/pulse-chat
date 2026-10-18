@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { setSignupStatus } from '../../db/queries/events';
-import { serverProcedure } from '../../utils/procedures';
-import { eventIdInput, requireEvent, requireHostOrManager } from './_shared';
+import { eventsProcedure, eventIdInput, requireEvent, requireHostOrManager } from './_shared';
 
-const setSignupStatusRoute = serverProcedure()
+const setSignupStatusRoute = eventsProcedure()
   .input(
     eventIdInput.extend({
       userId: z.number().int().positive(),

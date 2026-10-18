@@ -422,3 +422,106 @@ export async function openMemberList(page: Page): Promise<void> {
   }
   await expect(list).toHaveClass(/\bw-60\b/);
 }
+
+/**
+ * Layout guard (v0.4.0 findings #2/#4/#8/#16): every visible control in
+ * `scope` — buttons, inputs, role=button — must lie inside the box of its
+ * nearest ancestor that clips (any overflow other than `visible`), and
+ * inside the viewport. The failure mode this pins down is a single-line
+ * flex row whose items all refuse to shrink: the row grows past its
+ * container and the first `overflow-hidden`/`overflow-y-auto` up the tree
+ * cuts the last control off silently.
+ *
+ * A vertical scroller (`overflow-y: auto|scroll`) legitimately holds
+ * controls below the fold, so only the horizontal axis is checked against
+ * it; a horizontal scroll of a form row is never intended and IS reported.
+ * Hidden controls (display:none, visibility:hidden, zero box, aria-hidden
+ * subtree) are skipped. Failure messages name each offending control.
+ */
+export async function expectNoClippedControls(scope: Locator): Promise<void> {
+  const offenders = await scope.evaluate((root) => {
+    const TOLERANCE = 1.5;
+    const CONTROL = 'button, input, [role="button"]';
+    const round = (n: number) => Math.round(n);
+    const describe = (el: Element) => {
+      const html = el as HTMLElement;
+      const label =
+        el.getAttribute('aria-label') ||
+        el.getAttribute('title') ||
+        el.getAttribute('placeholder') ||
+        (html.innerText || '').trim().slice(0, 40) ||
+        el.id ||
+        el.className.toString().slice(0, 40);
+      return `${el.tagName.toLowerCase()}[${label}]`;
+    };
+    const clipping = (el: Element) => {
+      const style = getComputedStyle(el);
+      return {
+        x: style.overflowX !== 'visible',
+        y: style.overflowY !== 'visible',
+        scrollsY: style.overflowY === 'auto' || style.overflowY === 'scroll'
+      };
+    };
+
+    const controls = Array.from(root.querySelectorAll<HTMLElement>(CONTROL));
+    if (root.matches(CONTROL)) controls.unshift(root as HTMLElement);
+
+    const out: string[] = [];
+    for (const el of controls) {
+      if (el.closest('[aria-hidden="true"]')) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      // an ancestor with display:none leaves no offsetParent (fixed aside)
+      if (el.offsetParent === null && style.position !== 'fixed') continue;
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+
+      // A fixed-position control (or one inside a fixed layer such as a
+      // dialog) is laid out against the viewport, so an overflow-hidden
+      // ancestor in the document flow cannot clip it; only the viewport
+      // check below applies.
+      let ancestor = el.parentElement;
+      let fixedLayer = style.position === 'fixed';
+      while (ancestor && ancestor !== document.body && !fixedLayer) {
+        if (getComputedStyle(ancestor).position === 'fixed') {
+          fixedLayer = true;
+          break;
+        }
+        const clip = clipping(ancestor);
+        if (clip.x || clip.y) {
+          const a = ancestor.getBoundingClientRect();
+          const problems: string[] = [];
+          if (clip.x && (box.left < a.left - TOLERANCE || box.right > a.right + TOLERANCE)) {
+            problems.push(
+              `x ${round(box.left)}–${round(box.right)} outside ${round(a.left)}–${round(a.right)}`
+            );
+          }
+          if (
+            clip.y &&
+            !clip.scrollsY &&
+            (box.top < a.top - TOLERANCE || box.bottom > a.bottom + TOLERANCE)
+          ) {
+            problems.push(
+              `y ${round(box.top)}–${round(box.bottom)} outside ${round(a.top)}–${round(a.bottom)}`
+            );
+          }
+          if (problems.length) {
+            out.push(
+              `${describe(el)}: ${problems.join('; ')} — clipped by ${describe(ancestor)}`
+            );
+          }
+          break; // the nearest clipping ancestor decides
+        }
+        ancestor = ancestor.parentElement;
+      }
+
+      if (box.left < -TOLERANCE || box.right > window.innerWidth + TOLERANCE) {
+        out.push(
+          `${describe(el)}: x ${round(box.left)}–${round(box.right)} outside the ${window.innerWidth}px viewport`
+        );
+      }
+    }
+    return out;
+  });
+  expect(offenders, `clipped controls:\n${offenders.join('\n')}`).toEqual([]);
+}

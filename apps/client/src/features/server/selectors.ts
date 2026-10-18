@@ -41,6 +41,14 @@ export const publicServerSettingsSelector = (state: IRootState) =>
 export const pluginsEnabledSelector = (state: IRootState) =>
   !!state.server.publicSettings?.enablePlugins;
 
+/**
+ * The community's Planner switch. Missing (a peer or home that predates
+ * the switch) reads as on: the default of the column, and what every
+ * server behaved like before it existed.
+ */
+export const plannerEnabledSelector = (state: IRootState) =>
+  state.server.publicSettings?.enableEvents !== false;
+
 export const infoSelector = (state: IRootState) => state.server.info;
 
 export const ownUserRolesSelector = createSelector(
@@ -51,9 +59,29 @@ export const ownUserRolesSelector = createSelector(
   }
 );
 
+/**
+ * Who owns the connected server, by `servers.ownerId`. Known for a home
+ * community (the joined list carries it); a federated connection's
+ * active id lives in the peer's id space, so nothing is matched there
+ * and the role check below decides alone.
+ */
+const connectedServerOwnerIdSelector = (state: IRootState) => {
+  if (state.app.activeInstanceDomain) return undefined;
+  return state.app.joinedServers.find((s) => s.id === state.app.activeServerId)
+    ?.ownerId;
+};
+
+/**
+ * Owner as the server sees it (utils/wss.ts): the row's `ownerId`, or
+ * the bootstrap Owner role. The role alone missed every community
+ * created later — its owner role has a fresh id — so the owner of such
+ * a community saw no "New event" and no Events settings tab.
+ */
 export const isOwnUserOwnerSelector = createSelector(
-  [ownUserRolesSelector],
-  (ownUserRoles) => ownUserRoles.some((role) => role.id === OWNER_ROLE_ID)
+  [ownUserRolesSelector, connectedServerOwnerIdSelector, ownUserIdSelector],
+  (ownUserRoles, ownerId, ownUserId) =>
+    (ownerId !== undefined && ownerId !== null && ownerId === ownUserId) ||
+    ownUserRoles.some((role) => role.id === OWNER_ROLE_ID)
 );
 
 // Keyed by id: a plain createSelector memoises only the LAST (state, id)

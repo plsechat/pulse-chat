@@ -9,7 +9,7 @@ import type {
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 /**
- * Raid planner state. Everything the planner shows is keyed by the
+ * Planner state. Everything the planner shows is keyed by the
  * server's globally-unique publicId (`state.server.serverId`), never by
  * the numeric id: events are per server, federated servers included,
  * and two instances can both hold an event (or a server) with id 1.

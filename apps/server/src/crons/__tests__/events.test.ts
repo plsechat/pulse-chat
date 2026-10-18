@@ -10,7 +10,8 @@ import {
   channels,
   channelUserPermissions,
   events,
-  messages
+  messages,
+  servers
 } from '../../db/schema';
 import { eventBus } from '../../plugins/event-bus';
 import { VoiceRuntime } from '../../runtimes/voice';
@@ -265,6 +266,36 @@ describe('events cron', () => {
       const leftover = VoiceRuntime.findById((await eventRow(event.id)).voiceChannelId ?? -1);
       if (leftover) await leftover.destroy();
     }
+  });
+
+  test('a community with the Planner off is not walked; its events resume where they were', async () => {
+    const { caller } = await initTest(1);
+    const startsAt = Date.now() + 10 * MINUTE_MS;
+    const event = await caller.events.create({
+      title: 'Frozen',
+      startsAt,
+      endsAt: startsAt + HOUR_MS,
+      roles
+    });
+    await getTestDb().update(servers).set({ enableEvents: false }).where(eq(servers.id, 1));
+
+    // Inside the room lead and past the start: an enabled community
+    // would get a room and go live. Nothing happens here.
+    expect(await eventsTick(startsAt + MINUTE_MS)).toBe(0);
+    let row = await eventRow(event.id);
+    expect(row.status).toBe('scheduled');
+    expect(row.voiceChannelId).toBeNull();
+    // created ten minutes out, so the 24 h and 1 h stages were already
+    // marked stale at creation; the T reminder is still ahead
+    expect(row.reminderStage).toBe(event.reminderStage);
+    expect(row.reminderStage).toBeLessThan(3);
+
+    await getTestDb().update(servers).set({ enableEvents: true }).where(eq(servers.id, 1));
+    expect(await eventsTick(startsAt + MINUTE_MS)).toBe(1);
+    row = await eventRow(event.id);
+    expect(row.status).toBe('live');
+    expect(row.voiceChannelId).not.toBeNull();
+    expect(row.reminderStage).toBe(3);
   });
 
   test('a stage first seen more than ten minutes late is marked, not sent', async () => {

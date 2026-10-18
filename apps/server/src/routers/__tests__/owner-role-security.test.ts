@@ -1,8 +1,31 @@
+import { Permission } from '@pulse/shared';
 import { describe, expect, test } from 'bun:test';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import path from 'node:path';
+import { createTestRole } from '../../__tests__/fixtures';
 import { initTest } from '../../__tests__/helpers';
 import { getTestDb } from '../../__tests__/mock-db';
-import { channels, roles, userRoles } from '../../db/schema';
+import { channels, rolePermissions, roles, userRoles } from '../../db/schema';
+
+/** The backfill statement exactly as migration 0043 ships it. */
+const ownerBackfillSql = async () => {
+  const file = path.join(
+    import.meta.dir,
+    '../../db/migrations/0043_planner_switch_owner_permissions.sql'
+  );
+  const statements = (await Bun.file(file).text()).split('--> statement-breakpoint');
+  const insert = statements.find((s) => s.includes('INSERT INTO "role_permissions"'));
+  if (!insert) throw new Error('migration 0043 lost its owner backfill');
+  return insert;
+};
+
+const permissionsOf = async (roleId: number) =>
+  (
+    await getTestDb()
+      .select({ permission: rolePermissions.permission })
+      .from(rolePermissions)
+      .where(eq(rolePermissions.roleId, roleId))
+  ).map((row) => row.permission);
 
 /**
  * Owner-role lockdown + mod-view cross-server scoping. Seeded user 1 owns
@@ -22,6 +45,54 @@ describe('owner role security', () => {
     await expect(
       caller.users.removeRole({ userId: 1, roleId: 1 })
     ).rejects.toThrow('ownership transfer');
+  });
+
+  test('migration 0043 gives every owner role the permissions added after it was created', async () => {
+    const tdb = getTestDb();
+    const { caller: owner } = await initTest(1);
+    const created = await owner.servers.create({ name: 'Old guild' });
+    const [guildOwnerRole] = await tdb
+      .select()
+      .from(roles)
+      .where(
+        and(eq(roles.serverId, created.id), eq(roles.isPersistent, true), eq(roles.isDefault, false))
+      );
+    const [guildMemberRole] = await tdb
+      .select()
+      .from(roles)
+      .where(and(eq(roles.serverId, created.id), eq(roles.isDefault, true)));
+    const customRole = await createTestRole({
+      serverId: created.id,
+      name: 'Raider',
+      permissions: [Permission.SEND_MESSAGES]
+    });
+
+    // A community created before MANAGE_EVENTS / MANAGE_SOUNDS existed:
+    // its owner role never got them and update-role refuses to add them.
+    const added = [Permission.MANAGE_EVENTS, Permission.MANAGE_SOUNDS, Permission.USE_SOUNDBOARD];
+    for (const roleId of [1, guildOwnerRole!.id]) {
+      await tdb
+        .delete(rolePermissions)
+        .where(and(eq(rolePermissions.roleId, roleId), inArray(rolePermissions.permission, added)));
+      expect(await permissionsOf(roleId)).not.toContain(Permission.MANAGE_EVENTS);
+    }
+
+    const statement = await ownerBackfillSql();
+    await tdb.execute(sql.raw(statement));
+    // Replay-safe: CI applies every migration twice.
+    await tdb.execute(sql.raw(statement));
+
+    const all = Object.values(Permission).sort();
+    expect((await permissionsOf(1)).sort()).toEqual(all);
+    expect((await permissionsOf(guildOwnerRole!.id)).sort()).toEqual(all);
+    // Only owner roles: the default role and a custom role are left alone.
+    expect(await permissionsOf(guildMemberRole!.id)).not.toContain(Permission.MANAGE_EVENTS);
+    expect(await permissionsOf(customRole)).toEqual([Permission.SEND_MESSAGES]);
+
+    // Hand-check that the migration's list is the full enum, so the next
+    // permission added without extending it fails here, not in the field.
+    const listed = [...statement.matchAll(/\('([A-Z_]+)'\)/g)].map((m) => m[1]).sort();
+    expect(listed).toEqual(all);
   });
 
   test('transferOwner moves the owner ROLE to the new owner', async () => {

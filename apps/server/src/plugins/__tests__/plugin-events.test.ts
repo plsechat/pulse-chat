@@ -51,11 +51,11 @@ describe('message:reaction', () => {
     expect(received).toEqual([
       {
         event: 'message:reaction',
-        payload: { messageId: SEEDED_MESSAGE_ID, channelId: 1, userId: 1, emoji: '👍', added: true }
+        payload: { messageId: SEEDED_MESSAGE_ID, channelId: 1, userId: 1, emoji: '+1', added: true }
       },
       {
         event: 'message:reaction',
-        payload: { messageId: SEEDED_MESSAGE_ID, channelId: 1, userId: 1, emoji: '👍', added: false }
+        payload: { messageId: SEEDED_MESSAGE_ID, channelId: 1, userId: 1, emoji: '+1', added: false }
       }
     ]);
   });

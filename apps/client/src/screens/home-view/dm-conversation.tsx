@@ -10,6 +10,7 @@ import { FileCard } from '@/components/chat-primitives/file-card';
 import { FormattingHints } from '@/components/chat-primitives/formatting-hints';
 import { ForwardedFromHeader } from '@/components/chat-primitives/forwarded-from-header';
 import { InlineMessageEditor } from '@/components/chat-primitives/inline-message-editor';
+import { handleRowTap, useActiveMessageRow } from '@/components/channel-view/text/active-message-store';
 import { MessageActions } from '@/components/chat-primitives/message-actions';
 import { MessageTombstone } from '@/components/chat-primitives/message-tombstone';
 import { ChatMessageBody } from '@/components/chat-primitives/message-body';
@@ -156,7 +157,7 @@ const DmConversation = memo(
     } = useDmMessages(dmChannelId);
     const [newMessage, setNewMessage] = useState('');
     const [replyingTo, setReplyingTo] = useState<TJoinedDmMessage | null>(null);
-    const { containerRef, onScroll, scrollToBottom } = useChatScroll({
+    const { containerRef, onScroll, scrollToBottom, followNext } = useChatScroll({
       posKey: `dm:${dmChannelId}`,
       storageKey: LocalStorageKey.DM_SCROLL_POSITIONS,
       messages,
@@ -240,9 +241,11 @@ const DmConversation = memo(
     // user's reply preview vanished).
     const sendGif = useCallback(
       async (gifUrl: string) => {
+        // The author's own echo lands in view wherever they were reading.
+        followNext();
         await sendDmMessage(dmChannelId, gifUrl, undefined, replyingTo?.id);
       },
-      [dmChannelId, replyingTo]
+      [dmChannelId, replyingTo, followNext]
     );
 
     // Shared composer plumbing (see chat-primitives/use-composer-helpers):
@@ -360,6 +363,11 @@ const DmConversation = memo(
           ...(txtUpload ? [txtUpload.tempFile.id] : [])
         ];
 
+        // Armed before the request: the echo can arrive over the socket
+        // before the mutation resolves, and it must land in view
+        // wherever the author was reading.
+        followNext();
+
         await sendDmMessage(
           dmChannelId,
           sendContent,
@@ -379,7 +387,7 @@ const DmConversation = memo(
       if (detached) {
         // Sent from deep in history: the echo lands beyond the detached
         // window and is not stored there, so rejoin the live tail to
-        // show it.
+        // show it. (Attached, followNext above already covers the echo.)
         await reattach();
         requestAnimationFrame(scrollToBottom);
       }
@@ -394,7 +402,8 @@ const DmConversation = memo(
       fileKeyMapRef,
       detached,
       reattach,
-      scrollToBottom
+      scrollToBottom,
+      followNext
     ]);
 
     if (loading) {
@@ -575,11 +584,10 @@ const DmConversation = memo(
             // of the chat surface.
             className={cn(
               'flex gap-2 rounded-xl bg-secondary border border-transparent shadow-sm px-4 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden focus-within:border-primary/50 focus-within:shadow-[0_0_0_2px_oklch(from_var(--primary)_l_c_h/0.15)]',
-              // Match channel composer: single-line centers icons with
-              // the input baseline; multiline anchors them to the TOP
-              // so they line up with the first line of typed text and
-              // the emoji button rendered inside TiptapInput.
-              multilineMode ? 'items-start' : 'items-center'
+              // Match channel composer: every button renders inside
+              // TiptapInput's editor row (leading / trailing) so they
+              // share one centred line; multiline stretches the column.
+              multilineMode ? 'items-stretch' : 'items-center'
             )}
             style={multilineMode ? { height: composerHeight } : undefined}
             onClick={(e) => {
@@ -595,16 +603,6 @@ const DmConversation = memo(
               className="hidden"
               onChange={onFileInputChange}
             />
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              aria-label="Attach files"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
             <TiptapInput
               toolbar
               value={newMessage}
@@ -615,33 +613,50 @@ const DmConversation = memo(
               disabled={uploading}
               dmMembers={dmMembers}
               multilineMode={multilineMode}
-            />
-            {isGiphyEnabled() && (
-              <GifPicker onSelect={onGifSelect}>
+              leading={
                 <Button
-                  size="icon"
+                  size="icon-sm"
                   variant="ghost"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+                  className="text-muted-foreground hover:text-primary"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  aria-label="Attach files"
                 >
-                  <span className="text-[10px] font-bold">GIF</span>
+                  <Plus className="h-5 w-5" />
                 </Button>
-              </GifPicker>
-            )}
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn(
-                'h-8 w-8 shrink-0 transition-colors',
-                isHtmlEmpty(newMessage) && !files.length
-                  ? 'text-muted-foreground'
-                  : 'text-primary hover:text-primary/80'
-              )}
-              onClick={onSendMessage}
-              disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
-              aria-label="Send message"
-            >
-              <Send className="h-5 w-5" />
-            </Button>
+              }
+              trailing={
+                <>
+                  {isGiphyEnabled() && (
+                    <GifPicker onSelect={onGifSelect}>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-primary"
+                        aria-label="Add GIF"
+                      >
+                        <span className="text-[10px] font-bold">GIF</span>
+                      </Button>
+                    </GifPicker>
+                  )}
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className={cn(
+                      'transition-colors',
+                      isHtmlEmpty(newMessage) && !files.length
+                        ? 'text-muted-foreground'
+                        : 'text-primary hover:text-primary/80'
+                    )}
+                    onClick={onSendMessage}
+                    disabled={uploading || (isHtmlEmpty(newMessage) && !files.length)}
+                    aria-label="Send message"
+                  >
+                    <Send className="h-5 w-5" />
+                  </Button>
+                </>
+              }
+            />
           </div>
         </div>
       </ChatScopeProvider>
@@ -764,8 +779,7 @@ const DmHeader = memo(
         </span>
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="icon-sm"
           onClick={() => {
             setShowSearch(!showSearch);
             setShowPinned(false);
@@ -776,8 +790,7 @@ const DmHeader = memo(
         </Button>
         <Button
           variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+          size="icon-sm"
           onClick={() => {
             setShowPinned(!showPinned);
             setShowSearch(false);
@@ -789,8 +802,8 @@ const DmHeader = memo(
         {isInThisCall ? (
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-destructive hover:text-destructive"
+            size="icon-sm"
+            className="text-destructive hover:text-destructive"
             onClick={handleEndCall}
             title="Leave Call"
           >
@@ -799,8 +812,7 @@ const DmHeader = memo(
         ) : (
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             onClick={handleStartCall}
             disabled={!!ownDmCallChannelId}
             title={hasActiveCall ? 'Join Call' : 'Start Call'}
@@ -811,9 +823,8 @@ const DmHeader = memo(
         {onToggleProfilePanel && (
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             className={cn(
-              'h-8 w-8',
               !profilePanelAvailable && 'opacity-50 cursor-not-allowed'
             )}
             onClick={profilePanelAvailable ? onToggleProfilePanel : undefined}
@@ -1218,6 +1229,9 @@ const DmMessage = memo(
     }, [message.content]);
 
     const { linkHref, copyLink, triggerProps } = useLinkContextMenu();
+    // Touch: the tapped row shows its toolbar in flow (active-message-store).
+    const rowKey = `dm-msg-${message.id}`;
+    const actionsOpen = useActiveMessageRow(rowKey);
 
     // A deleted message keeps its row as a tombstone. In a DM only the
     // author deletes and nobody moderates, so there is no audit line and
@@ -1245,6 +1259,8 @@ const DmMessage = memo(
               <div
                 id={`dm-msg-${message.id}`}
                 className="min-w-0 flex-1 relative -mx-2 px-2 py-0.5 rounded-md hover:bg-accent/50 transition-colors duration-100 group"
+                data-actions-open={actionsOpen || undefined}
+                onClick={(e) => handleRowTap(e, rowKey)}
               >
                 <ForwardedFromHeader
                   forwardedFromUserId={message.forwardedFromUserId}

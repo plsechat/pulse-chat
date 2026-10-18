@@ -89,7 +89,7 @@ const SubscribeButton = memo(() => {
 });
 
 /**
- * The Raid Planner app: a month grid or an agenda over the server's
+ * The Planner app: a month grid or an agenda over the server's
  * events, with the event sheet and editor mounted by the content
  * wrapper so they also open from a chat card.
  */
@@ -145,7 +145,7 @@ const RaidPlanner = memo(() => {
           <CalendarDays className="h-4 w-4" />
         </span>
         <h2 className="text-base font-semibold tracking-tight text-foreground">
-          Raid Planner
+          Planner
         </h2>
 
         {view === 'month' && (

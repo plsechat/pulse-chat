@@ -25,7 +25,8 @@ const updatePostTagsRoute = serverProcedure()
         type: channels.type,
         name: channels.name,
         serverId: channels.serverId,
-        parentChannelId: channels.parentChannelId
+        parentChannelId: channels.parentChannelId,
+        archived: channels.archived
       })
       .from(channels)
       .where(
@@ -98,7 +99,9 @@ const updatePostTagsRoute = serverProcedure()
       name: thread.name,
       messageCount: stats?.messageCount ?? 0,
       lastMessageAt: stats?.lastMessageAt ? Number(stats.lastMessageAt) : null,
-      archived: false,
+      // the row's real flag: a hard-coded false made every tag edit on an
+      // archived post look like it had been reopened
+      archived: thread.archived,
       parentChannelId: thread.parentChannelId,
       creatorId: firstMsg?.userId ?? 0
     });

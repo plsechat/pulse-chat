@@ -1,5 +1,5 @@
 import { ChannelType, Permission, ServerEvents } from '@pulse/shared';
-import { and, count, eq, max } from 'drizzle-orm';
+import { and, asc, count, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
 import { publishChannel } from '../../db/publishers';
@@ -34,7 +34,24 @@ const archiveThreadRoute = serverProcedure()
       return ctx.throwValidationError('threadId', 'Thread not found');
     }
 
-    await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+    // The post's author is the author of the oldest message in it.
+    const [firstMsg] = await db
+      .select({ userId: messages.userId })
+      .from(messages)
+      .where(eq(messages.channelId, thread.id))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .limit(1);
+
+    const isCreator = firstMsg?.userId === ctx.userId;
+
+    // Archiving is a moderation action. Reopening is too, except for the
+    // author's own post: imported posts arrive archived and the author
+    // should not need a moderator to continue their own thread.
+    if (!input.archived && isCreator) {
+      await ctx.needsPermission(Permission.SEND_MESSAGES, thread.serverId);
+    } else {
+      await ctx.needsPermission(Permission.MANAGE_CHANNELS, thread.serverId);
+    }
 
     await db
       .update(channels)
@@ -60,7 +77,7 @@ const archiveThreadRoute = serverProcedure()
       lastMessageAt: stats?.lastMessageAt ? Number(stats.lastMessageAt) : null,
       archived: input.archived,
       parentChannelId: thread.parentChannelId!,
-      creatorId: 0
+      creatorId: firstMsg?.userId ?? 0
     });
   });
 

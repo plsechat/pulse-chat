@@ -181,7 +181,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
   const ownUserId = useOwnUserId();
   const lastReadMessageId = useLastReadMessageId(channelId);
   const allPluginCommands = useFlatPluginCommands();
-  const { containerRef, onScroll, scrollToBottom, isAtBottom } =
+  const { containerRef, onScroll, scrollToBottom, followNext, isAtBottom } =
     useScrollController({
       channelId,
       messages,
@@ -269,6 +269,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       // Thread reply context — picking a GIF while replying should
       // attach to the parent message, not start a new top-level msg.
       const replyToId = replyingTo?.id;
+      // The author's own echo lands in view wherever they were reading.
+      followNext();
 
       if (isE2ee && ownUserId) {
         await ensureActiveChannelSenderKey(channelId);
@@ -293,7 +295,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
       }
       playSound(SoundType.MESSAGE_SENT);
     },
-    [channelId, isE2ee, ownUserId, replyingTo]
+    [channelId, isE2ee, ownUserId, replyingTo, followNext]
   );
 
   // Shared composer plumbing (see chat-primitives/use-composer-helpers):
@@ -418,6 +420,11 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
         ...(txtUpload ? [txtUpload.tempFile.id] : [])
       ];
 
+      // Armed before the request: the echo can arrive over the socket
+      // before the mutation resolves, and it must land in view wherever
+      // the author was reading.
+      followNext();
+
       if (isE2ee && ownUserId) {
         // Ensure we have a sender key and distribute to members
         await ensureActiveChannelSenderKey(channelId);
@@ -490,7 +497,7 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     if (detached) {
       // Sent from deep in history: the echo lands beyond the detached
       // window and is not stored there, so rejoin the live tail to
-      // show it.
+      // show it. (Attached, followNext above already covers the echo.)
       await reattach();
       requestAnimationFrame(scrollToBottom);
     }
@@ -508,7 +515,8 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
     fileKeyMapRef,
     detached,
     reattach,
-    scrollToBottom
+    scrollToBottom,
+    followNext
   ]);
 
   if (!channelCan(ChannelPermission.VIEW_CHANNEL) || loading) {
@@ -677,14 +685,12 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
             // height instant while the focus glow still fades smoothly.
             className={cn(
               'composer-box flex gap-2 rounded-2xl bg-card border border-border/70 px-3 py-2 transition-[border-color,box-shadow] duration-150 cursor-text overflow-hidden shadow-[0_10px_30px_-24px_rgb(0_0_0/0.8)]',
-              // Single-line: vertically center icons relative to the
-              // input baseline. Multiline: anchor icons to the TOP so
-              // they line up with the first line of typed text and the
-              // emoji button rendered inside TiptapInput (which sits
-              // at the top of the editor area). Anchoring to the
-              // bottom would split the icons across the composer
-              // height and look disconnected.
-              multilineMode ? 'items-start' : 'items-center'
+              // Every button is rendered INSIDE TiptapInput's editor
+              // row (leading / trailing) so Plus, Emoji, GIF and Send
+              // are siblings centred on the same line; the format bar
+              // sits full-width beneath. Multiline: the input column
+              // stretches to the drag-set height and scrolls itself.
+              multilineMode ? 'items-stretch' : 'items-center'
             )}
             style={multilineMode ? { height: composerHeight } : undefined}
             onClick={(e) => {
@@ -700,45 +706,6 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
               className="hidden"
               onChange={onFileInputChange}
             />
-            {/* "+" menu: attachments, a poll, or scheduling the draft.
-                Polls and scheduling need plaintext (the server tallies
-                and sends), so an encrypted channel offers files only. */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                  disabled={uploading || !canSendMessages}
-                  aria-label="Add to message"
-                >
-                  <Plus className="h-5 w-5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top">
-                {can(Permission.UPLOAD_FILES) && (
-                  <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
-                    <Paperclip className="h-4 w-4" />
-                    Attach files
-                  </DropdownMenuItem>
-                )}
-                {!isE2ee && (
-                  <DropdownMenuItem onSelect={openPollDialog}>
-                    <BarChart3 className="h-4 w-4" />
-                    Create poll
-                  </DropdownMenuItem>
-                )}
-                {!isE2ee && (
-                  <DropdownMenuItem
-                    onSelect={openScheduleDialog}
-                    disabled={isHtmlEmpty(newMessage) && files.length === 0}
-                  >
-                    <CalendarClock className="h-4 w-4" />
-                    Schedule message
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
             <TiptapInput
               toolbar
               value={newMessage}
@@ -749,39 +716,85 @@ const TextChannelInner = memo(({ channelId }: TChannelProps) => {
               disabled={uploading || !canSendMessages || slowModeRemaining > 0}
               commands={pluginCommands}
               multilineMode={multilineMode}
-            />
-            {isGiphyEnabled() && (
-              <GifPicker onSelect={onGifSelect}>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-                  disabled={!canSendMessages}
-                >
-                  <span className="text-[10px] font-bold">GIF</span>
-                </Button>
-              </GifPicker>
-            )}
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn(
-                'h-8 w-8 shrink-0 transition-colors',
-                isHtmlEmpty(newMessage) || !canSendMessages
-                  ? 'text-muted-foreground'
-                  : 'text-primary hover:text-primary/80'
-              )}
-              onClick={onSendMessage}
-              disabled={
-                uploading ||
-                isHtmlEmpty(newMessage) ||
-                !canSendMessages ||
-                slowModeRemaining > 0
+              leading={
+                /* "+" menu: attachments, a poll, or scheduling the draft.
+                   Polls and scheduling need plaintext (the server tallies
+                   and sends), so an encrypted channel offers files only. */
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-primary"
+                      disabled={uploading || !canSendMessages}
+                      aria-label="Add to message"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top">
+                    {can(Permission.UPLOAD_FILES) && (
+                      <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                        <Paperclip className="h-4 w-4" />
+                        Attach files
+                      </DropdownMenuItem>
+                    )}
+                    {!isE2ee && (
+                      <DropdownMenuItem onSelect={openPollDialog}>
+                        <BarChart3 className="h-4 w-4" />
+                        Create poll
+                      </DropdownMenuItem>
+                    )}
+                    {!isE2ee && (
+                      <DropdownMenuItem
+                        onSelect={openScheduleDialog}
+                        disabled={isHtmlEmpty(newMessage) && files.length === 0}
+                      >
+                        <CalendarClock className="h-4 w-4" />
+                        Schedule message
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               }
-              aria-label="Send message"
-            >
-              <Send className="h-5 w-5" />
-            </Button>
+              trailing={
+                <>
+                  {isGiphyEnabled() && (
+                    <GifPicker onSelect={onGifSelect}>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-primary"
+                        disabled={!canSendMessages}
+                        aria-label="Add GIF"
+                      >
+                        <span className="text-[10px] font-bold">GIF</span>
+                      </Button>
+                    </GifPicker>
+                  )}
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className={cn(
+                      'transition-colors',
+                      isHtmlEmpty(newMessage) || !canSendMessages
+                        ? 'text-muted-foreground'
+                        : 'text-primary hover:text-primary/80'
+                    )}
+                    onClick={onSendMessage}
+                    disabled={
+                      uploading ||
+                      isHtmlEmpty(newMessage) ||
+                      !canSendMessages ||
+                      slowModeRemaining > 0
+                    }
+                    aria-label="Send message"
+                  >
+                    <Send className="h-5 w-5" />
+                  </Button>
+                </>
+              }
+            />
           </div>
         </div>
       )}

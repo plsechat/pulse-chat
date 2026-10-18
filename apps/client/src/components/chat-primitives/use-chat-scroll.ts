@@ -3,15 +3,22 @@ import {
   LocalStorageKey,
   setLocalStorageItemAsJSON
 } from '@/helpers/storage';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react';
 
 /**
  * Shared scroll controller for both the channel and DM message lists —
- * position memory, load-more prepend compensation, near-bottom
- * auto-follow, the four-attempt restore ladder, and (channel-only)
- * detached-window paging + jump ownership + new-messages-divider
- * landing. Deduplicated from channel-view/text/use-scroll-controller.ts
- * and the inline DM copy.
+ * position memory, load-more prepend compensation, bottom-follow (a
+ * sticky "the user was at the bottom" flag plus a ResizeObserver that
+ * keeps the bottom pinned through late growth), the four-attempt
+ * restore ladder, and (channel-only) detached-window paging + jump
+ * ownership + new-messages-divider landing. Deduplicated from
+ * channel-view/text/use-scroll-controller.ts and the inline DM copy.
  *
  * The caller supplies:
  * - `posKey`: the fully-qualified storage key for this list — channel
@@ -134,6 +141,30 @@ function offsetWithin(el: HTMLElement, container: HTMLElement): number {
   );
 }
 
+/**
+ * Identity of the newest loaded message. The follow effect keys on this
+ * rather than on `messages.length`: at the 300-message window cap every
+ * arrival also trims the oldest row, so the length never changes there
+ * and a length-keyed effect stopped following exactly in the busiest
+ * channels. Reactions, edits and pin toggles keep the id, so they still
+ * do not snap a reader who is scrolled up.
+ */
+function tailKeyOf(messages: readonly unknown[]): unknown {
+  const last = messages[messages.length - 1];
+  if (last && typeof last === 'object' && 'id' in last) {
+    return (last as { id: unknown }).id;
+  }
+  return last ?? messages.length;
+}
+
+/**
+ * How long a `followNext()` request stays armed. The composer arms it
+ * right before the send request; the echo normally lands within a
+ * round-trip, and a send that failed must not leave the next unrelated
+ * arrival pulling the reader down minutes later.
+ */
+const FOLLOW_NEXT_WINDOW_MS = 5_000;
+
 type TUseChatScrollProps = {
   posKey: string;
   storageKey: LocalStorageKey;
@@ -151,6 +182,12 @@ type TUseChatScrollReturn = {
   containerRef: React.RefObject<HTMLDivElement | null>;
   onScroll: () => void;
   scrollToBottom: () => void;
+  /**
+   * Follow the next arrival even if the reader is scrolled up — called
+   * by the composer's send paths so the author's own echo always lands
+   * in view.
+   */
+  followNext: () => void;
   isAtBottom: boolean;
 };
 
@@ -170,6 +207,21 @@ const useChatScroll = ({
   const hasInitialScroll = useRef(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
 
+  // Whether the reader is anchored at the bottom, recorded at the moments
+  // that decide it (their own scroll, a programmatic scroll-to-bottom,
+  // the restore ladder) instead of measured after new content is in the
+  // DOM. A post-render measurement failed whenever the new group was
+  // taller than the near-bottom threshold — an author header plus a few
+  // wrapped lines in the narrow deck pane, an attachment, a card — and
+  // the list silently stopped following.
+  const stickRef = useRef(true);
+  const followUntilRef = useRef(0);
+  // Latest values for the ResizeObserver callback, which outlives renders.
+  const detachedRef = useRef(detached);
+  detachedRef.current = detached;
+  const isJumpPendingRef = useRef(isJumpPending);
+  isJumpPendingRef.current = isJumpPending;
+
   const checkIsAtBottom = useCallback(() => {
     const container = containerRef.current;
     if (!container) return true;
@@ -181,6 +233,7 @@ const useChatScroll = ({
     if (!container) return;
 
     container.scrollTop = container.scrollHeight;
+    stickRef.current = true;
     rememberPosition(storageKey, posKey, {
       scrollTop: container.scrollTop,
       atBottom: true
@@ -188,6 +241,10 @@ const useChatScroll = ({
     schedulePersist(storageKey);
     setIsAtBottom(true);
   }, [posKey, storageKey]);
+
+  const followNext = useCallback(() => {
+    followUntilRef.current = Date.now() + FOLLOW_NEXT_WINDOW_MS;
+  }, []);
 
   const onScroll = useCallback(() => {
     const container = containerRef.current;
@@ -198,6 +255,7 @@ const useChatScroll = ({
     // meaningless once scrollHeight grows, but atBottom stays correct
     // because it's relative.
     const atBottom = checkIsAtBottom();
+    stickRef.current = atBottom;
     rememberPosition(storageKey, posKey, {
       scrollTop: container.scrollTop,
       atBottom
@@ -250,12 +308,61 @@ const useChatScroll = ({
     loadNewer
   ]);
 
+  // Content that grows after it rendered — link previews, images
+  // decoding, command/watch cards updating, content-visibility
+  // placeholders taking their real size — pushes the bottom away without
+  // a scroll event or a new message. While the reader is anchored at the
+  // bottom, every size change of the pane or of its content re-pins the
+  // bottom edge. Observing the pane itself covers composer-height
+  // changes (multiline input, attachment strip) that shrink the viewport
+  // from below. One observer per container element, created lazily: the
+  // pane mounts after the skeleton, not with the hook.
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const observedContainerRef = useRef<HTMLElement | null>(null);
+
+  const observeContent = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+
+    if (observedContainerRef.current !== container) {
+      resizeObserverRef.current?.disconnect();
+      const observer = new ResizeObserver(() => {
+        const current = containerRef.current;
+        if (!current || !stickRef.current) return;
+        if (detachedRef.current || isJumpPendingRef.current?.()) return;
+        current.scrollTop = current.scrollHeight;
+      });
+      observer.observe(container);
+      resizeObserverRef.current = observer;
+      observedContainerRef.current = container;
+    }
+
+    // Message groups are the pane's direct children (the DM pane has one
+    // wrapper child); observing an element twice is a no-op, removed
+    // children drop out on their own.
+    const observer = resizeObserverRef.current!;
+    for (const child of Array.from(container.children)) {
+      observer.observe(child);
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      observedContainerRef.current = null;
+    },
+    []
+  );
+
   // Reset the "did we restore yet?" flag when the list changes. Without
   // this, switching A→B→A keeps the flag true from the A visit and the
   // restore branch below is skipped, leaving the user wherever the
-  // browser placed scrollTop (typically 0 = top).
+  // browser placed scrollTop (typically 0 = top). A fresh list opens
+  // anchored until the restore says otherwise.
   useEffect(() => {
     hasInitialScroll.current = false;
+    stickRef.current = true;
   }, [posKey]);
 
   // Save scroll position on unmount.
@@ -287,6 +394,9 @@ const useChatScroll = ({
     // off-screen. Latch as soon as the jump is seen.
     if (!hasInitialScroll.current && isJumpPending?.()) {
       hasInitialScroll.current = true;
+      // The target sits mid-history; nothing may pin the bottom until
+      // the reader scrolls there.
+      stickRef.current = false;
       return;
     }
 
@@ -308,19 +418,27 @@ const useChatScroll = ({
             : null;
           if (divider) {
             divider.scrollIntoView({ block: 'center' });
-            setIsAtBottom(checkIsAtBottom());
+            const atBottom = checkIsAtBottom();
+            stickRef.current = atBottom;
+            setIsAtBottom(atBottom);
           } else {
             scrollToBottom();
           }
         } else {
           container.scrollTop = saved.scrollTop;
-          setIsAtBottom(checkIsAtBottom());
+          const atBottom = checkIsAtBottom();
+          stickRef.current = atBottom;
+          setIsAtBottom(atBottom);
         }
         hasInitialScroll.current = true;
       };
 
       // Ladder: immediate, next frame, then two timeouts for async media.
       performScroll();
+      // Observe only once the first rung has decided the anchor: the
+      // observer's initial notification would otherwise pin the bottom
+      // before a saved mid-history position is restored.
+      observeContent();
       requestAnimationFrame(performScroll);
       setTimeout(performScroll, 50);
       setTimeout(performScroll, 200);
@@ -333,40 +451,50 @@ const useChatScroll = ({
     storageKey,
     checkIsAtBottom,
     isJumpPending,
-    landOnNewMessagesDivider
+    landOnNewMessagesDivider,
+    observeContent
   ]);
 
-  // Auto-scroll on new messages if near bottom. Depend on
-  // `messages.length`, NOT the whole array ref — reactions, edits, and
-  // pin toggles mutate a message in place, which still emits a new array
-  // ref through Redux Toolkit. Keying on length ignores those so
-  // reacting to an older message while scrolled up doesn't snap to the
-  // bottom. Real triggers (new message, deletion) change length.
-  useEffect(() => {
+  // Follow new arrivals while anchored at the bottom (or when the
+  // composer asked to follow its own echo). A layout effect, so the pin
+  // lands before the frame paints — no flash of the old bottom, and no
+  // window for a late measurement to disagree with the anchor the
+  // reader actually had.
+  const tailKey = tailKeyOf(messages);
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || !hasInitialScroll.current || messages.length === 0)
       return;
+
+    // New groups mean new children to watch for late growth.
+    observeContent();
 
     // Detached from the tail: never yank — the bottom of the loaded
     // window is mid-history, not the present.
     if (detached) return;
 
     // A jump owns the scroll while it settles. The around-fetch changes
-    // messages.length here, but the detached flag it also sets
-    // propagates a beat later (Redux insert vs. local state) — without
-    // this guard the auto-follow fires in that gap and scrolls the
-    // highlighted target to the bottom.
+    // the tail here, but the detached flag it also sets propagates a
+    // beat later (Redux insert vs. local state) — without this guard the
+    // auto-follow fires in that gap and scrolls the highlighted target
+    // to the bottom.
     if (isJumpPending?.()) return;
 
-    if (checkIsAtBottom()) {
-      setTimeout(scrollToBottom, 10);
+    const armed = followUntilRef.current > Date.now();
+    if (armed || stickRef.current) {
+      followUntilRef.current = 0;
+      scrollToBottom();
     }
-  }, [messages.length, scrollToBottom, checkIsAtBottom, detached, isJumpPending]);
+    // `messages.length` is only an emptiness guard; the tail id is what
+    // identifies an arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tailKey, scrollToBottom, detached, isJumpPending, observeContent]);
 
   return {
     containerRef,
     onScroll,
     scrollToBottom,
+    followNext,
     isAtBottom
   };
 };

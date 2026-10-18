@@ -121,7 +121,7 @@ const SystemMessage = memo(({ message }: SystemMessageProps) => {
     return <AutomodAlert alert={alert} date={date} />;
   }
 
-  // Raid planner rows: the RSVP card and the "ended" summary.
+  // Planner rows: the RSVP card and the "ended" summary.
   const eventRow = parseEventSystemRow(message.content);
   if (eventRow) {
     return <EventCard row={eventRow} date={date} />;

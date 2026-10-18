@@ -26,8 +26,6 @@ import {
   useServerName
 } from '@/features/server/hooks';
 import { usersSelector } from '@/features/server/users/selectors';
-import type { IRootState } from '@/features/store';
-import { getFileUrl } from '@/helpers/get-file-url';
 import { useLayoutMode } from '@/hooks/use-appearance-settings';
 import { getTRPCClient } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
@@ -41,6 +39,7 @@ import { Protect } from '../protect';
 import { ServerScreen } from '../server-screens/screens';
 import { canOpenServerSettings } from '../server-screens/server-settings/permissions';
 import { Categories } from './categories';
+import { CommunityLogo } from './community-logo';
 import { UserControl } from './user-control';
 import { VoiceControl } from './voice-control';
 
@@ -59,9 +58,6 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
   const onlineCount = users.filter(
     (u) => u.status && u.status !== UserStatus.OFFLINE
   ).length;
-  const serverLogo = useSelector(
-    (state: IRootState) => state.server.info?.logo ?? null
-  );
 
   const handleDeleteServer = useCallback(async () => {
     if (!activeServerId) return;
@@ -149,17 +145,7 @@ const LeftSidebar = memo(({ className }: TLeftSidebarProps) => {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="community-header flex w-full h-16 items-center gap-3 px-3 hover:brightness-110 transition-[filter] cursor-pointer">
-            <span className="squircle flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden bg-background/60 text-sm font-bold text-foreground ring-1 ring-white/10">
-              {serverLogo ? (
-                <img
-                  src={getFileUrl(serverLogo)}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                (serverName ?? '?').charAt(0).toUpperCase()
-              )}
-            </span>
+            <CommunityLogo />
             <span className="min-w-0 flex-1 text-left">
               <h2 className="text-[15px] font-semibold text-foreground tracking-tight truncate leading-5">
                 {serverName}

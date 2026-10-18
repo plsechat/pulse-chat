@@ -7,9 +7,9 @@ import {
 } from '../../db/queries/events';
 import { invalidateFeedCache } from '../../http/events-ics';
 import { invariant } from '../../utils/invariant';
-import { serverProcedure } from '../../utils/procedures';
+import { eventsProcedure } from './_shared';
 
-const createEventRoute = serverProcedure(Permission.MANAGE_EVENTS)
+const createEventRoute = eventsProcedure(Permission.MANAGE_EVENTS)
   .input(
     eventFieldsSchema.extend({
       templateId: z.number().int().positive().optional(),

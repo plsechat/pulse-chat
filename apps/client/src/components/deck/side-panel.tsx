@@ -225,7 +225,7 @@ const DeckSidePanel = memo(() => {
             type="button"
             aria-label="Back to conversations"
             onClick={() => setMessagesView('list')}
-            className="-ml-1 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="-ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -238,7 +238,7 @@ const DeckSidePanel = memo(() => {
             type="button"
             aria-label={panelExpanded ? 'Shrink panel' : 'Expand panel'}
             onClick={togglePanelExpanded}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {panelExpanded ? (
               <Minimize2 className="h-4 w-4" />
@@ -251,7 +251,7 @@ const DeckSidePanel = memo(() => {
           type="button"
           aria-label="Close panel"
           onClick={() => setPanel(null)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <X className="h-4 w-4" />
         </button>

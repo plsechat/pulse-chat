@@ -1,4 +1,4 @@
-import { ChannelPermission, Permission } from '@pulse/shared';
+import { ChannelPermission, normalizeReaction, Permission } from '@pulse/shared';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db';
@@ -47,18 +47,22 @@ const toggleMessageReactionRoute = serverProcedure(
       ChannelPermission.VIEW_CHANNEL
     );
 
-    const reaction = await getReaction(
-      input.messageId,
-      input.emoji,
-      ctx.user.id
-    );
+    // One stored spelling per reaction: `👍`, `:+1:` and `+1` are the
+    // same row, and a custom emoji is looked up by its bare name.
+    const emoji = normalizeReaction(input.emoji);
+    invariant(emoji.length > 0, {
+      code: 'BAD_REQUEST',
+      message: 'Invalid reaction'
+    });
+
+    const reaction = await getReaction(input.messageId, emoji, ctx.user.id);
 
     if (!reaction) {
-      const emojiFileId = await getEmojiFileIdByEmojiName(input.emoji);
+      const emojiFileId = await getEmojiFileIdByEmojiName(emoji);
 
       await db.insert(messageReactions).values({
         messageId: input.messageId,
-        emoji: input.emoji,
+        emoji,
         userId: ctx.user.id,
         fileId: emojiFileId,
         createdAt: Date.now()
@@ -69,7 +73,7 @@ const toggleMessageReactionRoute = serverProcedure(
         .where(
           and(
             eq(messageReactions.messageId, input.messageId),
-            eq(messageReactions.emoji, input.emoji),
+            eq(messageReactions.emoji, emoji),
             eq(messageReactions.userId, ctx.user.id)
           )
         );
@@ -81,7 +85,7 @@ const toggleMessageReactionRoute = serverProcedure(
       messageId: input.messageId,
       channelId: message.channelId,
       userId: ctx.user.id,
-      emoji: input.emoji,
+      emoji,
       added: !reaction
     });
   });

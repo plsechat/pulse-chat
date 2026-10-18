@@ -5,6 +5,7 @@ import {
   withdrawFromEvent
 } from '@/features/events/actions';
 import { eventIsOpen, isSignedUp, roleLabel } from '@/features/events/roster';
+import { usePlannerEnabled } from '@/features/server/hooks';
 import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import type { TEventListItem } from '@pulse/server/types';
 import { memo, useCallback, useState } from 'react';
@@ -25,6 +26,8 @@ const QuickSignup = memo(
   }) => {
     const [busy, setBusy] = useState(false);
     const signedUp = isSignedUp(item.ownSignup);
+    // Planner off: the event stays visible, the roster is frozen.
+    const plannerEnabled = usePlannerEnabled();
 
     const run = useCallback(
       async (task: () => Promise<unknown>, fallback: string) => {
@@ -40,7 +43,7 @@ const QuickSignup = memo(
       []
     );
 
-    if (!eventIsOpen(item)) return null;
+    if (!plannerEnabled || !eventIsOpen(item)) return null;
 
     if (signedUp) {
       return (

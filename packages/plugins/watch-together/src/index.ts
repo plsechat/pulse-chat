@@ -78,11 +78,15 @@ type TWatchArgs = {
   link?: string | null;
   /** `seek <seconds>` as declared. */
   seconds?: number | null;
+  /** `ended <duration>` as declared: the media length the player ran off. */
+  duration?: number | null;
 };
 
 const CONTROL_ACTIONS = new Set<string>(['play', 'pause', 'seek', 'stop', 'status']);
 const PRESENCE_ACTIONS = new Set<string>(['watching', 'left']);
-const ACTIONS = new Set<string>([...CONTROL_ACTIONS, ...PRESENCE_ACTIONS]);
+/** A player saying the media ran out: `ended` with the length in the position slot. */
+const END_ACTION = 'ended';
+const ACTIONS = new Set<string>([...CONTROL_ACTIONS, ...PRESENCE_ACTIONS, END_ACTION]);
 
 const DESCRIPTION = 'Watch a video together — play, pause and seek in step';
 const LINK_PLACEHOLDER = 'YouTube link, .mp4, .m3u8';
@@ -307,6 +311,10 @@ const controlRoom = (invoker: TInvokerContext, channelId: number, action: string
   }
   if (PRESENCE_ACTIONS.has(action)) return 'Presence is only reported for a card.';
   try {
+    if (action === END_ACTION) {
+      if (position === undefined) throw new SessionError('Say how long the media is, in seconds.');
+      return sessions.ended(channelId, position);
+    }
     return sessions.control(channelId, action as TControlAction, actorOf(invoker), position) ?? 'Stopped.';
   } catch (error) {
     return rethrow(error);
@@ -332,6 +340,10 @@ const controlCard = (invoker: TInvokerContext, target: Extract<TTarget, { mode: 
   try {
     if (PRESENCE_ACTIONS.has(action)) {
       return cards.presence(session.channelId, action as TPresenceAction, invoker.userId);
+    }
+    if (action === END_ACTION) {
+      if (position === undefined) throw new SessionError('Say how long the media is, in seconds.');
+      return cards.ended(session.channelId, position);
     }
     const view = cards.control(session.channelId, action as TControlAction, actorOf(invoker), position);
     return describeControl(action as TControlAction, view);
@@ -368,6 +380,10 @@ const readRequest = (invoker: TInvokerContext, args: TWatchArgs): TRequest => {
       const seconds = typeof args.seconds === 'number' ? args.seconds : position;
       return { address: '', action: 'seek', position: seconds };
     }
+    if (sub === END_ACTION) {
+      const duration = typeof args.duration === 'number' ? args.duration : position;
+      return { address: '', action: END_ACTION, position: duration };
+    }
     return { address: '', action: sub, position };
   }
 
@@ -391,8 +407,9 @@ const readRequest = (invoker: TInvokerContext, args: TWatchArgs): TRequest => {
 /**
  * One command carries everything: `/watch play <link>` (or the bare
  * `/watch <address>`) starts, `/watch <action> [seconds]` controls,
- * `/watch watching|left` reports a viewer. See `readRequest` for the
- * two spellings.
+ * `/watch watching|left` reports a viewer and `/watch ended <seconds>`
+ * reports the media running out. See `readRequest` for the two
+ * spellings.
  */
 const runWatch = async (ctx: PluginContext, invoker: TInvokerContext, args: TWatchArgs) => {
   const { address: first, action, position: resolvedPosition } = readRequest(invoker, args);
@@ -517,6 +534,15 @@ const onLoad = async (ctx: PluginContext) => {
         hidden: true,
         description: 'A viewer closed the player (the client sends it)',
         args: [{ name: 'channel', type: 'number', description: 'The card\'s channel id' }]
+      },
+      {
+        name: 'ended',
+        hidden: true,
+        description: 'A player ran off the end of the media (the client sends it)',
+        args: [
+          { name: 'duration', type: 'number', required: true, description: 'The media length in seconds' },
+          { name: 'channel', type: 'number', description: 'The card\'s channel id; leave out for a voice room' }
+        ]
       }
     ],
     executes: (invoker, args) => runWatch(ctx, invoker, args ?? {})

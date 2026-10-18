@@ -20,6 +20,8 @@ import { getTrpcError } from '@/helpers/parse-trpc-errors';
 import { getTRPCClient } from '@/lib/trpc';
 import { Permission } from '@pulse/shared';
 import {
+  Archive,
+  ArchiveRestore,
   Bell,
   BellOff,
   ClipboardCopy,
@@ -35,10 +37,13 @@ type TForumPostMenuProps = {
   threadId: number;
   threadName: string;
   creatorId?: number;
+  archived: boolean;
   currentTagIds: number[];
   channelId: number;
   onEditTags: (threadId: number, currentTagIds: number[]) => void;
   onPostDeleted: () => void;
+  /** The post was archived or unarchived; the list refetches. */
+  onArchivedChange: () => void;
 };
 
 /**
@@ -47,14 +52,25 @@ type TForumPostMenuProps = {
  * the follow status twice.
  */
 const useForumPostActions = (props: TForumPostMenuProps) => {
-  const { threadId, threadName, channelId, onPostDeleted } = props;
+  const {
+    threadId,
+    threadName,
+    channelId,
+    archived,
+    onPostDeleted,
+    onArchivedChange
+  } = props;
   const can = useCan();
   const ownUserId = useOwnUserId();
   const [following, setFollowing] = useState(false);
 
   const isCreator = props.creatorId === ownUserId;
-  const canEditTags = isCreator || can(Permission.MANAGE_CHANNELS);
-  const canDelete = isCreator || can(Permission.MANAGE_CHANNELS);
+  const canManage = can(Permission.MANAGE_CHANNELS);
+  const canEditTags = isCreator || canManage;
+  const canDelete = isCreator || canManage;
+  // Archiving is a moderation action; reopening one's own post is not
+  // (the server lets the author unarchive, see archive-thread.ts).
+  const canToggleArchive = canManage || (archived && isCreator);
 
   const fetchFollowStatus = useCallback(() => {
     const trpc = getTRPCClient();
@@ -94,6 +110,23 @@ const useForumPostActions = (props: TForumPostMenuProps) => {
     toast.success('Post link copied');
   }, [channelId, threadId]);
 
+  const onToggleArchive = useCallback(async () => {
+    const trpc = getTRPCClient();
+    if (!trpc) return;
+    try {
+      await trpc.threads.archive.mutate({ threadId, archived: !archived });
+      toast.success(archived ? 'Post unarchived' : 'Post archived');
+      onArchivedChange();
+    } catch (err) {
+      toast.error(
+        getTrpcError(
+          err,
+          archived ? 'Failed to unarchive post' : 'Failed to archive post'
+        )
+      );
+    }
+  }, [threadId, archived, onArchivedChange]);
+
   const onDelete = useCallback(async () => {
     const choice = await requestConfirmation({
       title: 'Delete Post',
@@ -117,24 +150,28 @@ const useForumPostActions = (props: TForumPostMenuProps) => {
     following,
     canEditTags,
     canDelete,
+    canToggleArchive,
     fetchFollowStatus,
     onOpenPost,
     onToggleFollow,
+    onToggleArchive,
     onCopyLink,
     onDelete
   };
 };
 
 const ForumPostMenu = memo((props: TForumPostMenuProps) => {
-  const { threadId, currentTagIds, onEditTags } = props;
+  const { threadId, archived, currentTagIds, onEditTags } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const {
     following,
     canEditTags,
     canDelete,
+    canToggleArchive,
     fetchFollowStatus,
     onOpenPost,
     onToggleFollow,
+    onToggleArchive,
     onCopyLink,
     onDelete
   } = useForumPostActions(props);
@@ -177,6 +214,16 @@ const ForumPostMenu = memo((props: TForumPostMenuProps) => {
             Edit Tags
           </DropdownMenuItem>
         )}
+        {canToggleArchive && (
+          <DropdownMenuItem onClick={onToggleArchive}>
+            {archived ? (
+              <ArchiveRestore className="h-4 w-4" />
+            ) : (
+              <Archive className="h-4 w-4" />
+            )}
+            {archived ? 'Unarchive Post' : 'Archive Post'}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onCopyLink}>
           <ClipboardCopy className="h-4 w-4" />
@@ -206,15 +253,17 @@ const ForumPostContextMenu = memo(
     children,
     ...props
   }: TForumPostMenuProps & { children: React.ReactNode }) => {
-    const { threadId, currentTagIds, onEditTags } = props;
+    const { threadId, archived, currentTagIds, onEditTags } = props;
     const [menuOpen, setMenuOpen] = useState(false);
     const {
       following,
       canEditTags,
       canDelete,
+      canToggleArchive,
       fetchFollowStatus,
       onOpenPost,
       onToggleFollow,
+      onToggleArchive,
       onCopyLink,
       onDelete
     } = useForumPostActions(props);
@@ -245,6 +294,16 @@ const ForumPostContextMenu = memo(
             >
               <Tags className="h-4 w-4" />
               Edit Tags
+            </ContextMenuItem>
+          )}
+          {canToggleArchive && (
+            <ContextMenuItem onClick={onToggleArchive}>
+              {archived ? (
+                <ArchiveRestore className="h-4 w-4" />
+              ) : (
+                <Archive className="h-4 w-4" />
+              )}
+              {archived ? 'Unarchive Post' : 'Archive Post'}
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />

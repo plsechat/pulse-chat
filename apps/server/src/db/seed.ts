@@ -84,6 +84,7 @@ const seedDatabase = async () => {
         storageSpaceQuotaByUser: initialSettings.storageSpaceQuotaByUser,
         storageOverflowAction: initialSettings.storageOverflowAction,
         enablePlugins: initialSettings.enablePlugins,
+        enableEvents: true,
         discoverable: true,
         createdAt: firstStart
       })

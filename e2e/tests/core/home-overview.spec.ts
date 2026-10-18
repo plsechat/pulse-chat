@@ -131,13 +131,13 @@ test.describe('home overview', () => {
   test('a scheduled event appears under Upcoming events', async () => {
     // Created from the planner (the editor defaults to an hour from now).
     await ownerPage.getByRole('tab', { name: /^Pulse Server/ }).click();
-    await ownerPage.getByRole('button', { name: 'Raid Planner' }).click();
+    await ownerPage.getByRole('button', { name: 'Planner' }).click();
     await ownerPage.getByRole('button', { name: 'New event' }).click();
     const sheet = ownerPage
       .getByRole('dialog')
       .or(ownerPage.getByRole('complementary', { name: 'Event' }))
       .first();
-    await sheet.getByPlaceholder('Raid night').fill(EVENT_TITLE);
+    await sheet.getByPlaceholder('Guild night').fill(EVENT_TITLE);
     await sheet.getByRole('button', { name: 'Create event' }).click();
     await expect(toast(ownerPage, 'Event created')).toBeVisible({ timeout: 15_000 });
 

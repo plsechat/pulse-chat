@@ -8,6 +8,7 @@ import type { TMessageMetadata } from '@pulse/shared';
 import {
   ChannelType,
   MAX_MESSAGE_CONTENT_LENGTH,
+  normalizeReaction,
   PERSONA_MEDIA_TYPE,
   PLUGIN_DATA_MEDIA_TYPE,
   pluginDataEntry
@@ -650,10 +651,16 @@ const createMessageActions = ({
     rawInput
   ) => {
     const { message, channel } = await resolve(rawInput);
-    const { emoji, remove: removeReaction } = parseActionInput(
+    const { emoji: rawEmoji, remove: removeReaction } = parseActionInput(
       reactSchema,
       rawInput
     );
+    // The stored spelling the member routes use: a bridge relaying `👍`
+    // and a member pressing the picker's +1 land on the same row.
+    const emoji = normalizeReaction(rawEmoji);
+    if (emoji.length === 0) {
+      throw new PluginActionError('BAD_REQUEST', 'Invalid reaction');
+    }
     const actorUserId = await actorIn(channel.serverId);
 
     const existing = await getReaction(message.id, emoji, actorUserId);
