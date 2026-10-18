@@ -1,6 +1,6 @@
 # Pulse Chat v0.4.0
 
-Released: TBD
+Released: 2026-10-18
 
 ## Client layout
 
