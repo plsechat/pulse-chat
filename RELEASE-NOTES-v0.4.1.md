@@ -1,6 +1,6 @@
 # Pulse Chat v0.4.1
 
-Released: TBD
+Released: 2026-10-18
 
 ## Fixes
 
