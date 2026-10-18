@@ -171,7 +171,11 @@ describe('watch-together plugin through the real loader', () => {
         body: { channelId: channel.id, action: 'play', position: 5 }
       });
       expect(answer.status).toBe(200);
-      expect(answer.body).toMatchObject({ session: { channelId: channel.id, playing: true, position: 5 } });
+      // The view's position is live (5 s plus whatever has elapsed since
+      // the play), so a slow runner reads 5.001 — compare with a tolerance.
+      expect(answer.body).toMatchObject({
+        session: { channelId: channel.id, playing: true, position: expect.closeTo(5, 1) }
+      });
       expect(runtime.getState().externalStreams[added.streamId]!.media).toMatchObject({ playing: true, position: 5 });
 
       // A YouTube link from the host replaces the session: the old stream
