@@ -34,14 +34,17 @@ export const mergePendingPreferences = (
  */
 export const applyServerPreferences = (serverPrefs: TUserPreferences) => {
   const prefs = mergePendingPreferences(serverPrefs, getPendingPreferences());
-  setLocalStorageItemAsJSON(
-    LocalStorageKey.APPEARANCE_SETTINGS,
-    prefs.appearance
-  );
-  setLocalStorageItemAsJSON(
-    LocalStorageKey.SOUND_NOTIFICATION_SETTINGS,
-    prefs.soundNotification
-  );
+  // Each section is laid over its defaults: a server copy written before
+  // a key existed (appearance before `layout`, sounds before the newer
+  // switches) must not overwrite the local copy with a partial object.
+  setLocalStorageItemAsJSON(LocalStorageKey.APPEARANCE_SETTINGS, {
+    ...DEFAULT_USER_PREFERENCES.appearance,
+    ...prefs.appearance
+  });
+  setLocalStorageItemAsJSON(LocalStorageKey.SOUND_NOTIFICATION_SETTINGS, {
+    ...DEFAULT_USER_PREFERENCES.soundNotification,
+    ...prefs.soundNotification
+  });
   setLocalStorageItem(LocalStorageKey.VITE_UI_THEME, prefs.theme);
   setLocalStorageItemAsJSON(
     LocalStorageKey.SERVER_CHANNEL_MAP,
@@ -51,8 +54,6 @@ export const applyServerPreferences = (serverPrefs: TUserPreferences) => {
     LocalStorageKey.RIGHT_SIDEBAR_STATE,
     prefs.rightSidebarOpen ? 'true' : 'false'
   );
-  // A server copy written before the preference existed has no
-  // `presence`; the default (sharing off) fills it.
   setLocalStorageItemAsJSON(LocalStorageKey.PRESENCE_SETTINGS, {
     ...DEFAULT_USER_PREFERENCES.presence,
     ...prefs.presence

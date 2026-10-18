@@ -35,6 +35,18 @@ describe('createPreferenceStore', () => {
     expect(store.getSettings()).toEqual(defaults);
   });
 
+  test('a stored object missing a key reads the default for that key', () => {
+    // An appearance object saved before `layout` existed must not pin
+    // the user to the pre-upgrade behaviour until they toggle the setting.
+    localStorage.setItem(KEY, JSON.stringify({ a: 5 }));
+    const store = createPreferenceStore<Prefs>({ storageKey: KEY, defaults, syncKey: 'volume' });
+    expect(store.getSettings()).toEqual({ a: 5, b: 'x' });
+    // A stored key still wins over the default.
+    localStorage.setItem(KEY, JSON.stringify({ a: 5, b: 'y' }));
+    emitAppEvent('preferences-loaded');
+    expect(store.getSettings()).toEqual({ a: 5, b: 'y' });
+  });
+
   test('updateSettings merges, persists, fires onChange before listeners, queues the sync', () => {
     const order: string[] = [];
     const store = createPreferenceStore<Prefs>({

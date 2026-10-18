@@ -12,11 +12,16 @@ const getPreferencesRoute = protectedProcedure.query(async ({ ctx }) => {
 
   if (!row) return DEFAULT_USER_PREFERENCES;
 
-  // Rows written before `presence` or a sound flag existed read with
-  // the defaults, so the client never sees a partial preference object.
+  // Rows written before a key existed (`appearance.layout`, `presence`,
+  // the newer sound switches) read with the defaults, so the client never
+  // sees a partial preference object.
   const data = row.data as TUserPreferences;
   return {
     ...data,
+    appearance: {
+      ...DEFAULT_USER_PREFERENCES.appearance,
+      ...data.appearance
+    },
     soundNotification: {
       ...DEFAULT_USER_PREFERENCES.soundNotification,
       ...data.soundNotification

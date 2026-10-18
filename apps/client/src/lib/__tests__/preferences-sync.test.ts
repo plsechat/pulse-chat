@@ -132,6 +132,25 @@ describe('applyServerPreferences', () => {
     expect(sent).toEqual([{ theme: 'light', appearance: { fontScale: 120 } }]);
   });
 
+  test('a server copy from before a key existed is laid over the defaults', () => {
+    const { layout: _layout, ...appearanceWithoutLayout } = DEFAULT_USER_PREFERENCES.appearance;
+    const { messageSentSoundEnabled: _sent, ...soundsWithoutSentFlag } =
+      DEFAULT_USER_PREFERENCES.soundNotification;
+    applyServerPreferences({
+      ...DEFAULT_USER_PREFERENCES,
+      appearance: { ...appearanceWithoutLayout, fontScale: 120 } as never,
+      soundNotification: { ...soundsWithoutSentFlag, masterVolume: 30 } as never
+    });
+    expect(JSON.parse(localStorage.getItem(LocalStorageKey.APPEARANCE_SETTINGS)!)).toEqual({
+      ...DEFAULT_USER_PREFERENCES.appearance,
+      fontScale: 120
+    });
+    expect(JSON.parse(localStorage.getItem(LocalStorageKey.SOUND_NOTIFICATION_SETTINGS)!)).toEqual({
+      ...DEFAULT_USER_PREFERENCES.soundNotification,
+      masterVolume: 30
+    });
+  });
+
   test('mergePendingPreferences is a no-op with nothing queued', () => {
     expect(mergePendingPreferences(DEFAULT_USER_PREFERENCES, {})).toEqual(
       DEFAULT_USER_PREFERENCES

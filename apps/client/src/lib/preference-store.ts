@@ -37,6 +37,15 @@ type CreatePreferenceStoreOpts<T> = {
   onChange?: (settings: T) => void;
 };
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The defaults with every key the stored copy carries laid over them. */
+const withDefaults = <T>(defaults: T, stored: T | null | undefined): T =>
+  isPlainObject(defaults) && isPlainObject(stored)
+    ? ({ ...defaults, ...stored } as T)
+    : (stored ?? defaults);
+
 const createPreferenceStore = <T>({
   storageKey,
   defaults,
@@ -46,10 +55,18 @@ const createPreferenceStore = <T>({
   let listeners: Array<() => void> = [];
   let currentSettings: T | null = null;
 
+  // A stored object is overlaid on the defaults, never returned as-is:
+  // a preference saved before a key existed (an appearance object from
+  // before `layout`, a sound object from before `messageSentSoundEnabled`)
+  // would otherwise read that key as undefined forever — the shipped
+  // default only applied to users who had never saved anything, and
+  // everyone else had to toggle the setting once to write the key.
   const getSettings = (): T => {
     if (currentSettings === null) {
-      currentSettings =
-        getLocalStorageItemAsJSON<T>(storageKey, defaults) ?? defaults;
+      currentSettings = withDefaults(
+        defaults,
+        getLocalStorageItemAsJSON<T>(storageKey, defaults)
+      );
     }
     return currentSettings;
   };

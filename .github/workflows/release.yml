@@ -4,15 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump"
+        # The repo never carries the next version: the bump happens in
+        # this run (package.json is patched, committed and tagged here).
+        # "none" re-cuts the version package.json already has and is only
+        # for rebuilding an existing release from its tag, so the gate
+        # below refuses it on a version whose tag already exists. The
+        # placeholder default forces an explicit choice.
+        description: "Version bump (patch / minor / major; none = rebuild the current version from its tag)"
         required: true
         type: choice
         options:
-          - none
+          - choose
           - patch
           - minor
           - major
-        default: "none"
+          - none
+        default: "choose"
 
 permissions:
   contents: write
@@ -36,6 +43,27 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Require an explicit bump that does not re-cut a released version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -e
+          if [ "$BUMP" = "choose" ]; then
+            echo "::error::Pick a version bump (patch / minor / major). 'none' only rebuilds the version package.json already has."
+            exit 1
+          fi
+          if [ "$BUMP" = "none" ]; then
+            version=$(jq -r .version package.json)
+            if git ls-remote --exit-code --tags origin "refs/tags/v${version}" >/dev/null 2>&1 \
+               && [ "$GITHUB_REF" != "refs/tags/v${version}" ]; then
+              echo "::error::v${version} is already released; 'none' from ${GITHUB_REF} would overwrite its image, release assets and tag. Pick a bump, or dispatch on the v${version} tag to rebuild it."
+              exit 1
+            fi
+          fi
+
       - name: Check workflow conclusions for ${{ github.sha }}
         run: |
           set -e
