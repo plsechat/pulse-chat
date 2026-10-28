@@ -1,7 +1,7 @@
 # Single source of truth for the bun version is root package.json
 # ("packageManager"); release.yml passes it through as a build-arg so the
 # image compiles with the same bun that CI tested.
-ARG BUN_VERSION=1.3.9
+ARG BUN_VERSION=1.4.4
 
 # Stage 1: Build
 FROM oven/bun:${BUN_VERSION} AS builder

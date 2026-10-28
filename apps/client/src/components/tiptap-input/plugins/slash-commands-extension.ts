@@ -33,6 +33,7 @@ export const SlashCommands = Extension.create<SlashCommandsOptions>({
         char: this.options.suggestion.char,
         startOfLine: this.options.suggestion.startOfLine,
         allowSpaces: this.options.suggestion.allowSpaces,
+        shouldResetDismissed: this.options.suggestion.shouldResetDismissed,
         items: this.options.suggestion.items,
         render: this.options.suggestion.render,
         // A row replaces the whole `/…` run with what it stands for:

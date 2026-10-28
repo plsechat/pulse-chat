@@ -249,7 +249,12 @@ export const serverSlice = createSlice({
         currentVoiceServerPublicId: state.currentVoiceServerPublicId,
         voiceInstanceDomain: state.voiceInstanceDomain,
         ownVoiceState: state.ownVoiceState,
-        pinnedCard: state.pinnedCard
+        pinnedCard: state.pinnedCard,
+        // A jump flash in flight is UI intent, not part of the snapshot:
+        // a message-link jump from a DM switches to the server view, and
+        // the session reload that follows must not swallow the highlight
+        // it has just set (the jump's own timer ends it).
+        highlightedMessageId: state.highlightedMessageId
       });
     },
     setConnected: (state, action: PayloadAction<boolean>) => {

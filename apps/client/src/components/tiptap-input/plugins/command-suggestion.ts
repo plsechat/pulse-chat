@@ -1,3 +1,4 @@
+import type { Transaction } from '@tiptap/pm/state';
 import { computePosition } from '@floating-ui/dom';
 import type { TCommandInfo } from '@pulse/shared';
 import type { Editor } from '@tiptap/core';
@@ -38,6 +39,11 @@ export const CommandSuggestion = {
   items: ({ editor, query }: { editor: Editor; query: string }): TPaletteItem[] =>
     resolvePalette(storedCommands(editor), query)?.items ?? [],
   allowSpaces: true,
+  // Escape closes the list for the moment; typing on brings it back. The
+  // suggestion plugin (3.2x) would otherwise keep a dismissed `/…` hidden
+  // for as long as the slash stays where it was, since with allowSpaces
+  // no later whitespace can end the match.
+  shouldResetDismissed: ({ transaction }: { transaction: Transaction }) => transaction.docChanged,
   render: () => {
     let component: ReactRenderer | null = null;
 

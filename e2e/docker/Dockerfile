@@ -9,7 +9,7 @@
 # app's first boot — no post-boot sed, no container-restart dance.
 
 # Pinned via root package.json "packageManager"; e2e.yml passes it through.
-ARG BUN_VERSION=1.3.9
+ARG BUN_VERSION=1.4.4
 FROM oven/bun:${BUN_VERSION}
 WORKDIR /app
 
