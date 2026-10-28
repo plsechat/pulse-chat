@@ -17,7 +17,12 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/plugin-sdk/package.json packages/plugin-sdk/
 COPY packages/plugins/discord-bridge/package.json packages/plugins/discord-bridge/
 COPY packages/plugins/watch-together/package.json packages/plugins/watch-together/
-RUN bun install --frozen-lockfile
+# mediasoup's postinstall downloads a worker named after the build host's
+# kernel major and compiles one (needs Python) when that asset is missing,
+# as on kernel-7 CI hosts for versions that only ship kernel6 builds. The
+# server build fetches the kernel6 worker it embeds itself
+# (build/helpers.ts), so the postinstall's copy is never used: skip it.
+RUN MEDIASOUP_WORKER_BIN=skip bun install --frozen-lockfile
 
 COPY . .
 

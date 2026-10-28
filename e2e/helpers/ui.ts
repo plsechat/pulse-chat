@@ -252,6 +252,24 @@ export async function goHome(page: Page): Promise<void> {
  * re-click) makes the DM-open deterministic instead of silently
  * addressing the wrong recipient.
  */
+/** Resolves once the visible message pane's scroll position has held still. */
+export async function waitForPaneSettle(page: Page): Promise<void> {
+  const pane = page.locator('[data-testid="message-scroll"]').filter({ visible: true }).first();
+  if ((await pane.count()) === 0) return;
+  let last = Number.NaN;
+  await expect
+    .poll(
+      async () => {
+        const cur = await pane.evaluate((el) => el.scrollTop).catch(() => Number.NaN);
+        const stable = cur === last;
+        last = cur;
+        return stable;
+      },
+      { timeout: 5_000, intervals: [150, 150, 150, 150] }
+    )
+    .toBe(true);
+}
+
 export async function openDmViaAuthor(
   page: Page,
   displayName: string
@@ -260,6 +278,12 @@ export async function openDmViaAuthor(
     `[contenteditable="true"]:has(p[data-placeholder="Message @${displayName}"])`
   );
   for (let attempt = 0; attempt < 3; attempt++) {
+    // A freshly opened channel is still running its scroll-restore ladder
+    // (up to 200 ms after the rows render; on a lived-in stack it lands a
+    // new member on the New Messages divider far from the bottom). A click
+    // issued while rows are still moving lands on a neighbour, so wait for
+    // the pane to hold still first.
+    await waitForPaneSettle(page);
     // Prefer the member list when it is open: on phones it is an overlay
     // whose backdrop covers the chat, so the chat author behind it would
     // swallow the click. Both entries open the same profile popover.

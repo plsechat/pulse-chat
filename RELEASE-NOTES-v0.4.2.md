@@ -16,6 +16,10 @@ Security and maintenance release. No feature changes.
 - The slash-command palette reappears when you type on after closing it with Escape; the upgraded suggestion plugin would otherwise keep it hidden until the slash moved.
 - A message-link jump from a DM into a community channel keeps its highlight: the session reload that follows the switch no longer clears it, and a jump within 2.5 seconds of another no longer loses its flash to the earlier jump's timer.
 
+## Build
+
+- The Docker images no longer depend on mediasoup's install script guessing the prebuilt worker from the build host's kernel. On the kernel-7 CI hosts GitHub rolled out in late October, that guess asked for a `kernel7` worker that mediasoup 3.19 never published, fell back to compiling and failed for lack of Python. The e2e image fetches the published kernel6 worker itself and the server build already embeds its own, so the install step skips the script.
+
 ## Dependencies
 
 - Every dependency advisory reported by `bun audit` is resolved except esbuild's development-server one, which only reaches the dev tooling through drizzle-kit and tsx. Notable: DOMPurify 3.3.1 to 3.4.17 (21 advisories), Tiptap and ProseMirror (ReDoS), `ws`, `zod`, systeminformation, lodash-es, happy-dom and the Vite chain. `protobufjs` (via libsignal) and `tar` (mediasoup's install step) are pinned past their critical advisories through overrides.
