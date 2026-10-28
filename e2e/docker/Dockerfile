@@ -9,7 +9,7 @@
 # app's first boot — no post-boot sed, no container-restart dance.
 
 # Pinned via root package.json "packageManager"; e2e.yml passes it through.
-ARG BUN_VERSION=1.3.9
+ARG BUN_VERSION=1.4.4
 FROM oven/bun:${BUN_VERSION}
 WORKDIR /app
 
@@ -21,7 +21,24 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/plugin-sdk/package.json packages/plugin-sdk/
 COPY packages/plugins/discord-bridge/package.json packages/plugins/discord-bridge/
 COPY packages/plugins/watch-together/package.json packages/plugins/watch-together/
-RUN bun install --frozen-lockfile
+
+# mediasoup's postinstall names its prebuilt worker after the HOST kernel
+# major (…-linux-x64-kernel7.tgz on a kernel-7 build host) and falls back to
+# compiling when that asset does not exist, which needs Python and fails
+# here. The kernel6 build is what mediasoup publishes for this version and
+# runs on any newer kernel (the suffix only marks io_uring support), so
+# fetch it explicitly and hand it to mediasoup through MEDIASOUP_WORKER_BIN,
+# which both skips the postinstall and is what the runtime spawns.
+ENV MEDIASOUP_WORKER_BIN=/opt/mediasoup/mediasoup-worker
+RUN set -e; \
+    version=$(bun -e "console.log(require('./apps/server/package.json').dependencies.mediasoup)"); \
+    case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; esac; \
+    url="https://github.com/versatica/mediasoup/releases/download/${version}/mediasoup-worker-${version}-linux-${arch}-kernel6.tgz"; \
+    mkdir -p /opt/mediasoup; \
+    bun -e "const r = await fetch(process.argv[1]); if (!r.ok) throw new Error(r.status + ' ' + process.argv[1]); await Bun.write('/tmp/mediasoup-worker.tgz', r);" "$url"; \
+    tar -xzf /tmp/mediasoup-worker.tgz -C /opt/mediasoup && rm /tmp/mediasoup-worker.tgz; \
+    chmod +x /opt/mediasoup/mediasoup-worker; \
+    bun install --frozen-lockfile
 
 COPY . .
 

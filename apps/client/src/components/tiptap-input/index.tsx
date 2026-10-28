@@ -242,6 +242,10 @@ const TiptapInput = memo(
 
     // What `/…` before the cursor means, for the hint above the editor.
     const trackCommandUsage = (editor: Editor) => {
+      // A destroyed editor has no state (Tiptap 3.3 nulls the view and the
+      // schema on destroy); the hook can still hand us the old instance
+      // for one render after a remount.
+      if (editor.isDestroyed) return;
       const commandList = editor.storage[COMMANDS_STORAGE_KEY]?.commands;
       if (!commandList || commandList.length === 0) {
         if (usageRef.current) setUsage(null);
@@ -510,7 +514,11 @@ const TiptapInput = memo(
     }, [editor, mentionChannels, isDm]);
 
     useEffect(() => {
-      if (editor && value !== undefined) {
+      // Never read a destroyed editor: `getHTML()` serialises against a
+      // schema that is null once the instance is torn down, and the
+      // instance from the previous render can reach this effect after a
+      // remount (conversation switch, deps change).
+      if (editor && !editor.isDestroyed && value !== undefined) {
         const currentContent = editor.getHTML();
 
         // only update if content is actually different to avoid cursor jumping
@@ -521,7 +529,7 @@ const TiptapInput = memo(
     }, [editor, value]);
 
     useEffect(() => {
-      if (editor) {
+      if (editor && !editor.isDestroyed) {
         editor.setEditable(!disabled);
       }
     }, [editor, disabled]);

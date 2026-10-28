@@ -109,6 +109,12 @@ export const setHighlightedMessageId = (messageId: number | undefined) => {
   store.dispatch(serverSliceActions.setHighlightedMessageId(messageId));
 };
 
+/** End a flash, but only if no later jump has moved the highlight on. */
+export const clearHighlightIfStill = (messageId: number) => {
+  if (store.getState().server.highlightedMessageId !== messageId) return;
+  store.dispatch(serverSliceActions.setHighlightedMessageId(undefined));
+};
+
 /**
  * True only when the user is *currently looking at* this channel.
  * selectedChannelId is sticky per-server state (kept so re-entering the

@@ -141,20 +141,27 @@ export const VOICE_STREAM_PREVIEW_STALE_MS = 45_000;
 export const VOICE_STREAM_PREVIEW_INTERVAL_MS = 10_000;
 export const VOICE_STREAM_PREVIEW_PREFIX = "data:image/jpeg;base64,";
 
+/**
+ * WebSocket close codes. Application codes must sit in 4000–4999 (RFC 6455):
+ * the former 40000-range values were never valid on the wire — the `ws`
+ * implementation Bun ships since 1.4 refuses them ("First argument must be
+ * a valid error code number"), so a kick, ban or revocation threw instead
+ * of closing the socket, and browsers only ever saw a generic 1006.
+ */
 export enum DisconnectCode {
   UNEXPECTED = 1006,
   FEDERATION_REJECTED = 4003,
-  KICKED = 40000,
-  BANNED = 40001,
-  SERVER_SHUTDOWN = 40002,
+  KICKED = 4100,
+  BANNED = 4101,
+  SERVER_SHUTDOWN = 4102,
   /** The account was self-deleted — the client signs out and must not
    *  reconnect (the auth identity no longer exists). */
-  ACCOUNT_DELETED = 40003,
+  ACCOUNT_DELETED = 4103,
   /** The session family behind this connection was revoked (logout from
    *  another tab, a password change on another device, or refresh-token
    *  reuse). The client clears its stored session and shows the login
    *  screen instead of reconnecting. */
-  SESSION_REVOKED = 40004,
+  SESSION_REVOKED = 4104,
   /** The federation token this socket presented has expired. Unlike
    *  FEDERATION_REJECTED (bad signature, unknown or inactive issuer) this
    *  is repairable client-side: re-mint the token at the home instance and

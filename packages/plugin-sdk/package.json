@@ -11,12 +11,12 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@typescript-eslint/eslint-plugin": "^8.46.1",
-    "eslint": "^8.56.0",
-    "eslint-plugin-unused-imports": "^4.1.4",
+    "@typescript-eslint/eslint-plugin": "^8.72.1",
+    "eslint": "^8.57.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
     "mediasoup": "3.19.17",
     "@pulse/shared": "workspace:*",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "mediasoup": "3.19.17"

@@ -3,6 +3,7 @@ import { store } from '@/features/store';
 import { toast } from 'sonner';
 import { emitAppEvent } from '@/lib/events';
 import {
+  clearHighlightIfStill,
   setHighlightedMessageId,
   setSelectedChannelId
 } from '../channels/actions';
@@ -63,7 +64,9 @@ const inView = (row: HTMLElement): boolean => {
  */
 export const finishJump = (channelId: number, messageId: number): void => {
   setHighlightedMessageId(messageId);
-  setTimeout(() => setHighlightedMessageId(undefined), HIGHLIGHT_DURATION_MS);
+  // Clear only the highlight this jump set: a second jump inside the
+  // window would otherwise lose its flash to the first one's timer.
+  setTimeout(() => clearHighlightIfStill(messageId), HIGHLIGHT_DURATION_MS);
 
   const scroll = () => {
     document

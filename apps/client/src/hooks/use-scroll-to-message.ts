@@ -1,4 +1,7 @@
-import { setHighlightedMessageId } from '@/features/server/channels/actions';
+import {
+  clearHighlightIfStill,
+  setHighlightedMessageId
+} from '@/features/server/channels/actions';
 import { useCallback } from 'react';
 
 /**
@@ -26,10 +29,8 @@ const useScrollToMessage = (idPrefix = 'msg') =>
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       });
-      setTimeout(
-        () => setHighlightedMessageId(undefined),
-        HIGHLIGHT_DURATION_MS
-      );
+      // Clear only this flash: a later jump inside the window keeps its own.
+      setTimeout(() => clearHighlightIfStill(messageId), HIGHLIGHT_DURATION_MS);
     },
     [idPrefix]
   );
