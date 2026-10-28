@@ -1,6 +1,6 @@
 {
   "name": "@pulse/server",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "module": "src/index.ts",
   "exports": {
     "./types": "./src/types.ts"
