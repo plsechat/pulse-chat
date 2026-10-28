@@ -1,6 +1,6 @@
 # Pulse Chat v0.4.2
 
-Released: TBD
+Released: 2026-10-28
 
 Security and maintenance release. No feature changes.
 
